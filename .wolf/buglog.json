@@ -1308,6 +1308,18 @@
       "related_bugs": ["bug-104", "bug-106"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:41:11Z"
+    },
+    {
+      "id": "bug-110",
+      "timestamp": "2026-06-02T21:45:24Z",
+      "error_message": "TUI Load could schedule a second managed run while attached to a detached sidecar",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "The single-managed-server guard in `action_load` only checked a live attached child process and ignored `reattached_sidecar_path`, so a reattached detached run did not block another launch.",
+      "fix": "Make `action_load` refuse new loads while a detached run is attached and emit a warning; add a TUI smoke regression that verifies no `load` worker is scheduled in that state.",
+      "tags": ["tui", "detached", "lifecycle", "single-server", "fr"],
+      "related_bugs": ["bug-005", "bug-006"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:45:24Z"
     }
   ]
 }

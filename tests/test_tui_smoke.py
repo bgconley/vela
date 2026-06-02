@@ -1191,6 +1191,46 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_load_while_reattached_refuses_second_managed_run(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "attached.yaml",
+        """
+        name: attached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: ./scripts/fake_vllm_child.py
+        server:
+          host: 127.0.0.1
+          port: 8765
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+    notifications: list[str] = []
+    worker_calls: list[str] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(kwargs.get("name", ""))
+        coro.close()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, *args, **kwargs: notifications.append(message),
+        )
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+        app.reattached_sidecar_path = tmp_path / "detached.json"
+        app.action_load()
+
+        assert worker_calls == []
+        assert notifications[-1] == "A detached run is already attached"
+
+
+@pytest.mark.asyncio
 async def test_reattach_invalid_sidecar_shows_error_without_crashing(
     config_dir: Path, tmp_path: Path
 ) -> None:

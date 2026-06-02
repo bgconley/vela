@@ -522,6 +522,9 @@ class VllmLoaderApp(App):
         if self.current_process and self.current_process.proc.poll() is None:
             self.notify("A process is already running", severity="warning")
             return
+        if self.reattached_sidecar_path is not None:
+            self.notify("A detached run is already attached", severity="warning")
+            return
         if not self.registry.valid:
             self._set_error_text("No valid configs to load")
             return
