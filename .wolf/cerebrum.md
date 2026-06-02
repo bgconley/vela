@@ -24,6 +24,7 @@
 - Health probing should preserve explicit `server.probe_host`, preserve loopback bind hosts, and otherwise probe `127.0.0.1` for non-loopback bind addresses per the canonical spec.
 - TUI modal screens are lightweight Textual `Screen` subclasses under `src/vllm_loader/tui/screens/`; smoke tests inspect `app.screen.id` and simple screen attributes such as `summary`.
 - Textual 8.2.7 app command palette commands are exposed by overriding `get_system_commands()` and yielding `SystemCommand` instances; tests can inspect that generator directly without opening the palette UI.
+- Textual message dataclasses should subclass the local `LoaderMessage` base in `src/vllm_loader/messages.py`; it calls `Message.__post_init__()` directly so Textual's slots initialize without recursion.
 - Reattached detached runs should be controlled through sidecar helpers that re-verify identity immediately before each signal, then signal the recorded process group.
 - Reattached Stop/Kill must catch sidecar signal failures in the TUI; identity mismatches should render an Unable to stop/kill refusal and keep the attachment state unchanged.
 - LogSink's bounded partial-line guard must loop until pending text is at or below the cap; a single huge read can otherwise leave an over-limit tail that is committed whole on close.
@@ -110,6 +111,7 @@
 - [2026-06-02] Do not treat `/v1/models` 401 as a harmless non-200 model-list response; it means auth is required or mismatched and should be `HF_AUTH`, not READY.
 - [2026-06-02] Do not probe LAN/public bind addresses directly by default; use localhost unless `server.probe_host` explicitly overrides it.
 - [2026-06-02] Do not put dense timeline formatting in one f-string; repo Ruff enforces 100-column lines.
+- [2026-06-02] When adding `vllm_loader` test imports, put `import vllm_loader...` before `from vllm_loader...` in the same project import block so Ruff I001 stays clean.
 - [2026-06-02] Do not initialize detached log tails from latest file size after loading existing lines; carry forward the loaded file offset to avoid reattach races.
 - [2026-06-02] If `test_tui_load_honors_detached_launch_mode` misses `Uvicorn running` in a full-suite run, rerun the exact selector and then the full suite before changing code; one occurrence did not reproduce.
 - [2026-06-02] Do not assert dynamic sidecar command-palette entries from a single immediate snapshot in full-suite smoke tests; wait for the expected command.
@@ -122,6 +124,7 @@
 - [2026-06-02] Do not treat FR-13 pause as a flag-only toggle; wire it to `RichLog.auto_scroll`.
 - [2026-06-02] Do not coerce `HealthEvent.error_kind` into `timeout()` or raw detail text; preserve the specific kind such as `HF_AUTH` or `TIMED_OUT` in the TUI banner.
 - [2026-06-02] Do not read Superpowers skills from the bundled plugin cache root; this session's Superpowers paths are under `openai-curated/superpowers/bebc3d6a/skills`.
+- [2026-06-02] Do not call `Message.__init__()` from a Textual message dataclass `__post_init__`; Textual's `__init__` calls `self.__post_init__()` and will recurse. Call `Message.__post_init__(self)` instead.
 - [2026-06-02] Do not cap only the displayed `RichLog`; prune app-side log/search/filter buffers too or bursty output still grows memory unbounded.
 - [2026-06-02] If a detached reattach smoke times out waiting for READY, rerun the exact test before changing code; a one-off suite failure was not reproduced by the focused test or full-suite rerun.
 - [2026-06-02] Do not try to pass `devtools` into `App.run()` for Textual 8.2.7; merge `debug,devtools` into the `TEXTUAL` env before app construction.

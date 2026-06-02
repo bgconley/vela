@@ -232,3 +232,9 @@
 | 16:13 | Logged auth-blocked models probe fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-089 records the remote-smoke false-positive readiness path | ~220 |
 | 16:14 | Investigated detached-load full-suite flake | tests/test_tui_smoke.py, .wolf/buglog.json, .wolf/cerebrum.md | exact selector passed, full-suite rerun passed, bug-090 records the non-reproduced timeout | ~500 |
 | 16:14 | Ran verification after auth-blocked models fix | entire project | json valid, ruff clean, health tests 11 passed, pytest rerun 136 passed after one transient flake, fake-child smoke 63 passed, no fake-child processes remained | ~950 |
+| 16:20 | Added canonical message taxonomy regression | tests/test_messages.py | red: message dataclasses were not Textual `Message` subclasses and `ProgressUpdated` was missing | ~300 |
+| 16:20 | Implemented Textual message taxonomy | src/vllm_loader/messages.py | added `LoaderMessage`, canonical event classes, `HealthChanged`, `ProgressUpdated`, `GpuStatsUnavailable`, and transient conversion | ~350 |
+| 16:20 | Fixed Textual dataclass init recursion | src/vllm_loader/messages.py | `LoaderMessage.__post_init__` now calls `Message.__post_init__` directly; focused message tests pass | ~250 |
+| 16:20 | Logged message taxonomy implementation | .wolf/anatomy.md, .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | new test file added to anatomy; bug-091/bug-092 record taxonomy and init gotcha | ~300 |
+| 16:23 | Fixed message test import ordering | tests/test_messages.py, .wolf/buglog.json, .wolf/cerebrum.md | Ruff I001 resolved and bug-093 records the import-order miss | ~200 |
+| 16:23 | Ran verification after message taxonomy implementation | entire project | json valid, ruff clean, message tests 3 passed, pytest 139 passed, fake-child smoke 63 passed, no fake-child processes remained | ~950 |

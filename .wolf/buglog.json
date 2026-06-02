@@ -1080,6 +1080,42 @@
       "related_bugs": ["bug-009", "bug-010", "bug-019"],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:14:52Z"
+    },
+    {
+      "id": "bug-091",
+      "timestamp": "2026-06-02T20:20:58Z",
+      "error_message": "Canonical message taxonomy was missing Textual message types",
+      "file": "src/vllm_loader/messages.py",
+      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving §6.3/P4 message wiring incomplete.",
+      "fix": "Added a Textual `LoaderMessage` base, converted canonical event dataclasses to `Message` subclasses, added the missing message types, and changed transient log-record conversion to emit `ProgressUpdated`.",
+      "tags": ["messages", "textual", "architecture", "events", "p4"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:20:58Z"
+    },
+    {
+      "id": "bug-092",
+      "timestamp": "2026-06-02T20:20:58Z",
+      "error_message": "Textual message dataclass initialization recursed through Message.__init__",
+      "file": "src/vllm_loader/messages.py",
+      "root_cause": "Textual 8.2.7 `Message.__init__()` calls `self.__post_init__()`, so a dataclass subclass hook that called `Message.__init__(self)` recursively invoked itself.",
+      "fix": "Call `Message.__post_init__(self)` directly from the shared dataclass hook so Textual's internal slots are initialized without recursion.",
+      "tags": ["messages", "textual", "dataclass", "test-failure"],
+      "related_bugs": ["bug-091"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:20:58Z"
+    },
+    {
+      "id": "bug-093",
+      "timestamp": "2026-06-02T20:23:18Z",
+      "error_message": "Ruff I001 import block unsorted in tests/test_messages.py",
+      "file": "tests/test_messages.py",
+      "root_cause": "The new test imported `vllm_loader.messages` after specific `vllm_loader.*` imports instead of sorting the project import block.",
+      "fix": "Moved the module import before the specific package imports and reran Ruff successfully.",
+      "tags": ["lint", "ruff", "imports", "tests"],
+      "related_bugs": ["bug-091"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:23:18Z"
     }
   ]
 }

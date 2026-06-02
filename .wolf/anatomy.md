@@ -91,6 +91,7 @@
 - `test_gpu.py` — GPU fallback and CUDA visibility tests (~550 tok)
 - `test_health.py` — health auth/probe-host tests (~700 tok)
 - `test_log_sink.py` — log split/scrub/truncation/mode tests (~900 tok)
+- `test_messages.py` — canonical Textual message taxonomy and log-record conversion tests (~260 tok)
 - `test_phases.py` — FSM success/error/ready/degraded tests (~850 tok)
 - `test_process_manager.py` — attached PTY fake-child integration test (~650 tok)
 - `test_sidecar.py` — sidecar identity, manifest, permissions tests (~900 tok)
