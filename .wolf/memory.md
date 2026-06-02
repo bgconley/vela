@@ -206,3 +206,7 @@
 | 15:41 | Made reattach health monitor non-crashing | src/vllm_loader/tui/app.py | detached reattach health worker now passes `exit_on_error=False` like the canonical optional monitor path | ~200 |
 | 15:41 | Logged detached health worker fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-084 records the detached monitor worker option gap | ~200 |
 | 15:42 | Ran verification after detached health worker fix | entire project | json valid, ruff clean, focused reattach health test passed, pytest 131 passed, fake-child smoke 61 passed, no fake-child processes remained | ~850 |
+| 15:47 | Added optional monitor error notification regression | tests/test_tui_smoke.py | red: `VllmLoaderApp` had no `on_worker_state_changed` handler for health/GPU worker errors | ~300 |
+| 15:47 | Added worker error warning backstop | src/vllm_loader/tui/app.py | optional health/GPU worker `ERROR` events now emit warning toasts, normalizing GPU worker groups to `gpu` | ~300 |
+| 15:47 | Logged optional monitor warning fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-085 records the silent non-crashing monitor gap | ~200 |
+| 15:50 | Ran verification after optional monitor warning fix | entire project | json valid, ruff clean, focused worker test passed, detached selector passed after transient suite timeout, pytest 132 passed, fake-child smoke 62 passed on rerun, no fake-child processes remained | ~900 |

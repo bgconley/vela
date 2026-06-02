@@ -1008,6 +1008,18 @@
       "related_bugs": ["bug-082"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:41:41Z"
+    },
+    {
+      "id": "bug-085",
+      "timestamp": "2026-06-02T19:47:03Z",
+      "error_message": "Optional monitor worker errors were silent",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "GPU and health workers could be configured as non-crashing monitors, but the TUI did not implement the canonical `on_worker_state_changed` backstop to notify operators when one stopped with an error.",
+      "fix": "Added a focused worker-state smoke regression and implemented `on_worker_state_changed` for optional GPU/health monitor groups, normalizing current GPU worker group names to a `gpu monitor stopped: ...` warning toast.",
+      "tags": ["tui", "worker", "gpu", "health", "notify", "nfr-5"],
+      "related_bugs": ["bug-084"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T19:47:03Z"
     }
   ]
 }

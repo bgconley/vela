@@ -5,12 +5,14 @@ import json
 import socket
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import write_yaml
 from rich.text import Text
 from textual.screen import ModalScreen
 from textual.widgets import ProgressBar, RichLog, Static
+from textual.worker import WorkerState
 
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
@@ -651,6 +653,42 @@ async def test_gpu_sampler_runs_off_event_loop_thread(config_dir: Path) -> None:
         await pilot.pause()
 
     assert any(thread_id != event_loop_thread for thread_id in sampler_threads)
+
+
+@pytest.mark.asyncio
+async def test_optional_monitor_worker_errors_notify_operator(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+    notifications: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *args, **kwargs: notifications.append(
+            (message, kwargs.get("severity"))
+        ),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        app.on_worker_state_changed(
+            SimpleNamespace(
+                state=WorkerState.ERROR,
+                worker=SimpleNamespace(group="health", error=RuntimeError("probe failed")),
+            )
+        )
+        app.on_worker_state_changed(
+            SimpleNamespace(
+                state=WorkerState.ERROR,
+                worker=SimpleNamespace(group="monitoring", error=RuntimeError("nvml failed")),
+            )
+        )
+
+        assert notifications == [
+            ("health monitor stopped: probe failed", "warning"),
+            ("gpu monitor stopped: nvml failed", "warning"),
+        ]
 
 
 @pytest.mark.asyncio

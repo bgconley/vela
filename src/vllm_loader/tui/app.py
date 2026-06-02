@@ -20,6 +20,7 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import ProgressBar, RichLog, Static
+from textual.worker import Worker, WorkerState
 
 from vllm_loader.config.loader import ConfigRegistry, load_registry
 from vllm_loader.config.schema import ModelConfig
@@ -106,6 +107,12 @@ STATUS_ICONS = {
     Phase.DEGRADED: "▲",
     Phase.STOPPED: "○",
     Phase.ERROR: "✕",
+}
+OPTIONAL_MONITOR_GROUP_LABELS = {
+    "gpu": "gpu",
+    "gpu-initial": "gpu",
+    "monitoring": "gpu",
+    "health": "health",
 }
 
 ERROR_GUIDANCE = {
@@ -417,6 +424,14 @@ class VllmLoaderApp(App):
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_responsive_layout(event.size.width)
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.state is not WorkerState.ERROR:
+            return
+        label = OPTIONAL_MONITOR_GROUP_LABELS.get(event.worker.group)
+        if label is None:
+            return
+        self.notify(f"{label} monitor stopped: {event.worker.error}", severity="warning")
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         yield from super().get_system_commands(screen)
