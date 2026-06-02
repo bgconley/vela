@@ -74,6 +74,22 @@ def test_recorded_gated_model_fixture_classifies_hf_auth() -> None:
     assert "gated repo" in (fsm.error_excerpt or "").lower()
 
 
+def test_recorded_oom_fixture_classifies_out_of_memory() -> None:
+    fsm = walk_fixture("oom.log")
+
+    assert fsm.phase is Phase.ERROR
+    assert fsm.error_kind is ErrorKind.OOM
+    assert "out of memory" in (fsm.error_excerpt or "").lower()
+
+
+def test_recorded_port_in_use_fixture_classifies_port_in_use() -> None:
+    fsm = walk_fixture("port-in-use.log")
+
+    assert fsm.phase is Phase.ERROR
+    assert fsm.error_kind is ErrorKind.PORT_IN_USE
+    assert "address already in use" in (fsm.error_excerpt or "").lower()
+
+
 def test_error_classification_patterns() -> None:
     cases = {
         "CUDA out of memory": ErrorKind.OOM,

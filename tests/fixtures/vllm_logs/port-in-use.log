@@ -1,0 +1,2 @@
+INFO 06-02 09:24:01 [api_server.py:606] Supported tasks: ['generate']
+ERROR 06-02 09:24:02 [api_server.py:812] [Errno 98] error while attempting to bind on address ('127.0.0.1', 8017): address already in use

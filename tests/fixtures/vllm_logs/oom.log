@@ -1,0 +1,3 @@
+INFO 06-02 09:22:01 [core.py:107] Initializing a V1 LLM engine with config: model='meta-llama/Llama-3.1-70B-Instruct'
+INFO 06-02 09:22:08 [gpu_model_runner.py:4735] Starting to load model meta-llama/Llama-3.1-70B-Instruct...
+ERROR 06-02 09:22:11 [worker.py:212] torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB.

@@ -1320,6 +1320,18 @@
       "related_bugs": ["bug-005", "bug-006"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:45:24Z"
+    },
+    {
+      "id": "bug-111",
+      "timestamp": "2026-06-02T21:47:37Z",
+      "error_message": "§13 recorded phase fixtures were still missing OOM and port-in-use cases",
+      "file": "tests/test_phases.py",
+      "root_cause": "The phase suite had synthetic classifier strings for OOM and port-in-use but lacked recorded-style fixture files for those categories, leaving the canonical fixture matrix incomplete.",
+      "fix": "Added fixture-backed OOM and port-in-use tests plus representative vLLM log snippets under `tests/fixtures/vllm_logs/`.",
+      "tags": ["tests", "fixtures", "phases", "oom", "port-in-use"],
+      "related_bugs": ["bug-108"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:47:37Z"
     }
   ]
 }
