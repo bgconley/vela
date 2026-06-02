@@ -2102,6 +2102,20 @@ async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_log_filter_accepts_warn_alias_for_warning_level(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app._write_log("slow load", "WARNING")
+        app._write_log("ready", "INFO")
+
+        app.apply_log_filter("WARN")
+        await pilot.pause()
+
+        assert app.visible_log_lines == ["slow load"]
+
+
+@pytest.mark.asyncio
 async def test_search_key_prompts_and_applies_submitted_text(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 

@@ -83,6 +83,16 @@ LEVEL_RAIL_STYLE = {
     "INFO": "#e8f1f2",
     "DEBUG": "#526a75",
 }
+LEVEL_FILTER_ALIASES = {
+    "CRIT": "CRITICAL",
+    "CRITICAL": "CRITICAL",
+    "ERR": "ERROR",
+    "ERROR": "ERROR",
+    "WARN": "WARNING",
+    "WARNING": "WARNING",
+    "INFO": "INFO",
+    "DEBUG": "DEBUG",
+}
 
 WIDGET_MISSING_EXCEPTIONS = (NoMatches, ScreenStackError)
 SEARCH_HIGHLIGHT_STYLE = "black on yellow"
@@ -1009,7 +1019,10 @@ class VllmLoaderApp(App):
         if not self.filter_text:
             return True
         needle = self.filter_text.lower()
-        return needle in text.lower() or needle == (level or "").lower()
+        target_level = LEVEL_FILTER_ALIASES.get(self.filter_text.upper())
+        return needle in text.lower() or (
+            target_level is not None and target_level == (level or "").upper()
+        )
 
     def _trim_log_records(self) -> list[tuple[str, str | None]]:
         overflow = len(self.log_records) - self._max_log_lines
