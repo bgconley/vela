@@ -1116,6 +1116,114 @@
       "related_bugs": ["bug-091"],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:23:18Z"
+    },
+    {
+      "id": "bug-094",
+      "timestamp": "2026-06-02T20:29:36Z",
+      "error_message": "Canonical Textual messages existed but VllmLoaderApp did not consume them",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "The previous taxonomy slice defined Textual message classes, but the app still routed log, health, GPU, and lifecycle updates through direct helper calls only, so posted canonical messages did not update TUI state.",
+      "fix": "Added Textual message handlers for log, progress, phase, readiness, health, process exit, engine errors, GPU updates, and GPU unavailable events; attached log, health, and GPU workers now post canonical messages.",
+      "tags": ["tui", "messages", "textual", "architecture", "workers"],
+      "related_bugs": ["bug-091"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:29:36Z"
+    },
+    {
+      "id": "bug-095",
+      "timestamp": "2026-06-02T20:29:36Z",
+      "error_message": "Queued GPU stats message could render after #gpu was removed during Textual teardown",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "After GPU sampling switched to `post_message`, a queued `GpuStatsUpdated` could be delivered during `run_test` teardown when the default screen no longer contained the `#gpu` widget.",
+      "fix": "Made `_render_gpu_panel` update `gpu_panel_text` but tolerate `NoMatches` for the widget so teardown-time monitor messages cannot crash the app.",
+      "tags": ["tui", "gpu", "messages", "teardown", "nfr-5"],
+      "related_bugs": ["bug-086", "bug-094"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:29:36Z"
+    },
+    {
+      "id": "bug-096",
+      "timestamp": "2026-06-02T20:29:36Z",
+      "error_message": "Superpowers skill path from prior session no longer existed",
+      "file": "tool invocation",
+      "root_cause": "The active Superpowers plugin cache directory changed from the previously used hash to `de4c9ab7`, so reading the old `bd80d7d9` path failed.",
+      "fix": "Located the current skill files with `find` and read the TDD, verification, and debugging skills from the active cache path.",
+      "tags": ["tooling", "skills", "path"],
+      "related_bugs": ["bug-017"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:29:36Z"
+    },
+    {
+      "id": "bug-097",
+      "timestamp": "2026-06-02T20:33:44Z",
+      "error_message": "Ruff I001 import block unsorted in src/vllm_loader/tui/app.py",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "The new canonical message imports were placed after `vllm_loader.monitoring.gpu`, while Ruff expects the project import block sorted with `vllm_loader.messages` before `vllm_loader.monitoring.*`.",
+      "fix": "Moved the message import block before the monitoring imports and reran Ruff successfully.",
+      "tags": ["lint", "ruff", "imports", "tui"],
+      "related_bugs": ["bug-093", "bug-094"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:33:44Z"
+    },
+    {
+      "id": "bug-098",
+      "timestamp": "2026-06-02T20:33:44Z",
+      "error_message": "scripts/smoke_fake_child.sh missed dynamic reattach command once",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Non-reproduced dynamic sidecar discovery timing miss in `test_command_palette_reattaches_detached_run`; the exact selector passed immediately and the full smoke script passed on rerun.",
+      "fix": "No code change in this slice; recorded the symptom and verified with exact-selector rerun plus full smoke rerun.",
+      "tags": ["test", "tui", "detached", "command-palette", "flake"],
+      "related_bugs": ["bug-010", "bug-090"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:33:44Z"
+    },
+    {
+      "id": "bug-099",
+      "timestamp": "2026-06-02T20:56:23Z",
+      "error_message": "Tracked executable does not match sidecar",
+      "file": "src/vllm_loader/engine/sidecar.py",
+      "root_cause": "On macOS, a shebang-launched script can report a transient framework/Homebrew Python executable even when PID, create_time, process group, and command line still match the sidecar identity.",
+      "fix": "Treat exact command-line identity as stronger evidence after PID/create_time/PGID checks, and only reject executable drift when command-line identity is absent or mismatched.",
+      "tags": ["sidecar", "identity", "macos", "shebang", "flake"],
+      "related_bugs": ["bug-003"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:56:23Z"
+    },
+    {
+      "id": "bug-100",
+      "timestamp": "2026-06-02T20:56:23Z",
+      "error_message": "Remote validation ignored timeout overrides and failed with `$3: unbound variable` without a real config",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "The SSH heredoc relied on local environment variables and always passed an empty optional real-config argument before required remote parameters, which broke under `set -u` and did not make timeout behavior explicit.",
+      "fix": "Pass timeout, seed Python, venv path, and optional real config as explicit SSH arguments, and omit the real-config argument entirely when it is not set.",
+      "tags": ["remote", "ssh", "gpu", "validation", "bash"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:56:23Z"
+    },
+    {
+      "id": "bug-101",
+      "timestamp": "2026-06-02T20:56:23Z",
+      "error_message": "Remote validation failed because GPU host system Python had no pip",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "The remote runner installed directly into the auto-detected system Python, but the GPU host's `/usr/bin/python3` lacked pip and the real project lane is supposed to use a persistent ZFS-backed venv.",
+      "fix": "Create or reuse `/tank/venvs/lab-tui`, prefer `/tank/preproc/venv/bin/python` as the seed interpreter when available, and run install/lint/tests from the dedicated venv.",
+      "tags": ["remote", "venv", "zfs", "gpu", "python"],
+      "related_bugs": ["bug-100"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:56:23Z"
+    },
+    {
+      "id": "bug-102",
+      "timestamp": "2026-06-02T20:56:23Z",
+      "error_message": "Remote pytest could not find `vllm-loader`, and fake-child subprocesses did not use the validation venv Python",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "The remote runner invoked pytest with the venv Python but did not prepend the venv's `bin` directory to PATH, so tests spawning `vllm-loader` and scripts using `/usr/bin/env python3` escaped the dedicated venv.",
+      "fix": "Export `PATH=$remote_venv/bin:$PATH` before installing and running remote diagnostics/tests.",
+      "tags": ["remote", "venv", "path", "pytest", "fake-child"],
+      "related_bugs": ["bug-101"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:56:23Z"
     }
   ]
 }

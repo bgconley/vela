@@ -20,6 +20,17 @@ from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import start_detached
 from vllm_loader.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
+from vllm_loader.messages import (
+    EngineError,
+    GpuStatsUnavailable,
+    GpuStatsUpdated,
+    HealthChanged,
+    LogLineCommitted,
+    PhaseChanged,
+    ProcessExited,
+    ProgressUpdated,
+    ServerReady,
+)
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.tui import app as tui_app_module
@@ -584,6 +595,83 @@ async def test_terminal_phases_clear_stale_progress_line(config_dir: Path) -> No
 
         assert app.progress_text == ""
         assert app.query_one("#progress-line").display is False
+
+
+@pytest.mark.asyncio
+async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "messages.yaml",
+        """
+        name: messages
+        model: org/model
+        server:
+          host: 127.0.0.1
+          port: 8126
+        """,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        gpu_sampler=lambda: GpuPollResult([]),
+        gpu_interval_seconds=60,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("messages")
+
+        app.post_message(ProgressUpdated("Loading shards: 25% 1/4"))
+        await pilot.pause()
+        assert "25%" in app.progress_text
+
+        app.post_message(LogLineCommitted("INFO Uvicorn running on http://127.0.0.1:8126", "INFO"))
+        await pilot.pause()
+        assert any("Uvicorn running" in line for line in app.log_lines)
+
+        app.post_message(PhaseChanged(Phase.LOADING_WEIGHTS))
+        await pilot.pause()
+        assert app.phase is Phase.LOADING_WEIGHTS
+
+        app.post_message(ServerReady(["served"]))
+        await pilot.pause()
+        assert app.phase is Phase.READY
+        assert app.served_models == ["served"]
+        assert app.ready_url == "http://127.0.0.1:8126"
+
+        app.post_message(HealthChanged(ready=False, detail="health returned 503"))
+        await pilot.pause()
+        assert app.phase is Phase.DEGRADED
+
+        app.post_message(
+            GpuStatsUpdated(
+                GpuPollResult(
+                    [
+                        GpuSample(
+                            visible_index=0,
+                            uuid="GPU-a",
+                            name="A100",
+                            memory_used_mb=2048,
+                            memory_total_mb=81920,
+                            utilization_percent=55,
+                        )
+                    ]
+                )
+            )
+        )
+        await pilot.pause()
+        assert "2048/81920MB" in app.gpu_panel_text
+
+        app.post_message(GpuStatsUnavailable("GPU stats unavailable: no nvml"))
+        await pilot.pause()
+        assert app.gpu_panel_text == "GPU stats unavailable: no nvml"
+
+        app.post_message(ProcessExited(0))
+        await pilot.pause()
+        assert app.phase is Phase.STOPPED
+
+        app.post_message(EngineError(ErrorKind.OOM, "CUDA out of memory"))
+        await pilot.pause()
+        assert app.fsm.error_kind is ErrorKind.OOM
+        assert "OOM" in app.error_text
 
 
 @pytest.mark.asyncio

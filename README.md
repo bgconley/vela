@@ -17,9 +17,9 @@ vllm-loader smoke fake-child
 Mac to GPU workflow:
 
 ```bash
-scripts/rsync_to_gpu.sh USER@GPU_HOST:/absolute/remote/path
-scripts/run_remote_tests.sh USER@GPU_HOST /absolute/remote/path
-scripts/run_remote_tests.sh USER@GPU_HOST /absolute/remote/path my-real-config
+scripts/rsync_to_gpu.sh USER@GPU_HOST:/tank/repos/lab-tui
+scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
 See `docs/gpu-workflow.md` for the full remote validation flow.

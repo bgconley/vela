@@ -9,6 +9,7 @@ from vllm_loader.engine.sidecar import (
     ProcessIdentity,
     Sidecar,
     TrackedProcessMismatch,
+    command_hash,
     destructive_signal,
     verify_sidecar_identity,
 )
@@ -42,6 +43,23 @@ def test_identity_verification_passes_for_matching_process_metadata(tmp_path: Pa
     sidecar = make_sidecar(tmp_path)
     child = ProcessIdentity(
         pid=100, create_time=123.0, pgid=100, executable="/bin/vllm", cmdline=sidecar.command_argv
+    )
+    supervisor = ProcessIdentity(
+        pid=90, create_time=122.0, pgid=90, executable="/bin/python", cmdline=["python"]
+    )
+
+    assert verify_sidecar_identity(sidecar, child, supervisor)
+
+
+def test_identity_accepts_executable_alias_when_command_line_matches(tmp_path: Path) -> None:
+    sidecar = make_sidecar(tmp_path)
+    sidecar.command_hash = command_hash(sidecar.command_argv)
+    child = ProcessIdentity(
+        pid=100,
+        create_time=123.0,
+        pgid=100,
+        executable="/opt/homebrew/bin/python3.11",
+        cmdline=sidecar.command_argv,
     )
     supervisor = ProcessIdentity(
         pid=90, create_time=122.0, pgid=90, executable="/bin/python", cmdline=["python"]

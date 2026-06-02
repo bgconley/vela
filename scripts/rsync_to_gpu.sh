@@ -30,8 +30,12 @@ if [[ "$destination" != *:* ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+rsync_cmd=(rsync -az --delete)
+if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
+  rsync_cmd+=(--rsh "ssh ${VLLM_LOADER_SSH_OPTS}")
+fi
 
-rsync -az --delete \
+"${rsync_cmd[@]}" \
   --exclude '.git/' \
   --exclude '.mypy_cache/' \
   --exclude '.pytest_cache/' \

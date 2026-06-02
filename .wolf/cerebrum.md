@@ -25,8 +25,10 @@
 - TUI modal screens are lightweight Textual `Screen` subclasses under `src/vllm_loader/tui/screens/`; smoke tests inspect `app.screen.id` and simple screen attributes such as `summary`.
 - Textual 8.2.7 app command palette commands are exposed by overriding `get_system_commands()` and yielding `SystemCommand` instances; tests can inspect that generator directly without opening the palette UI.
 - Textual message dataclasses should subclass the local `LoaderMessage` base in `src/vllm_loader/messages.py`; it calls `Message.__post_init__()` directly so Textual's slots initialize without recursion.
+- VllmLoaderApp consumes canonical messages through `on_*` handlers; attached log, health, and GPU workers should post `from_log_record`, `HealthChanged`, `GpuStatsUpdated`, and `GpuStatsUnavailable` rather than mutating widgets directly.
 - Reattached detached runs should be controlled through sidecar helpers that re-verify identity immediately before each signal, then signal the recorded process group.
 - Reattached Stop/Kill must catch sidecar signal failures in the TUI; identity mismatches should render an Unable to stop/kill refusal and keep the attachment state unchanged.
+- Sidecar executable identity is weaker than an exact live command-line match after PID/create_time/PGID have matched; macOS shebang launches can drift between framework and Homebrew Python executable paths.
 - LogSink's bounded partial-line guard must loop until pending text is at or below the cap; a single huge read can otherwise leave an over-limit tail that is committed whole on close.
 - TUI Load must honor `launch.mode`; detached configs should call `start_detached`, then immediately reattach to the sidecar so the same log tail, health probe, and Stop/Kill paths are used.
 - Detached TUI control has two different meanings: Stop/Kill signal the verified detached process group, while Detach only cancels local tail/health workers and leaves the server running.
@@ -93,6 +95,8 @@
 - `vllm.require_flags` should be checked against collected `vllm serve --help` flags when help is available; CLI/TUI previews and launches use a config-aware profile selector, but arbitrary custom scripts should not be probed unless their executable name is vLLM-like.
 - The fake child must answer `--version` and `serve --help` like a vLLM binary, because profile detection runs before fake-child launches in CLI/TUI tests.
 - GPU-host real-config validation should use `vllm-loader smoke`, not a blind timeout around `vllm-loader run`; smoke waits for `/health` and `/v1/models`, prints READY URL/models, then stops the server.
+- GPU-host no-real-config validation now runs on `10.25.0.50` from `/tank/repos/lab-tui` with the persistent ZFS venv `/tank/venvs/lab-tui`; `/tank/preproc/venv/bin/python` is the seed interpreter when present.
+- Remote validation must export the validation venv's `bin` directory onto PATH before pytest so spawned `vllm-loader` commands and `/usr/bin/env python3` fake-child scripts stay inside the venv.
 - Attached TUI Stop/Kill should record operator shutdown intent by process PID before signalling; otherwise a confirmed SIGKILL return code is indistinguishable from an unintentional child crash and can incorrectly render CRASHED instead of STOPPED.
 - Detached tail workers must classify an unexpected disappearance of the currently attached sidecar as a terminal process exit; otherwise the UI can remain stuck in the last loading phase after the detached server is gone.
 
@@ -112,6 +116,7 @@
 - [2026-06-02] Do not probe LAN/public bind addresses directly by default; use localhost unless `server.probe_host` explicitly overrides it.
 - [2026-06-02] Do not put dense timeline formatting in one f-string; repo Ruff enforces 100-column lines.
 - [2026-06-02] When adding `vllm_loader` test imports, put `import vllm_loader...` before `from vllm_loader...` in the same project import block so Ruff I001 stays clean.
+- [2026-06-02] In `src/vllm_loader/tui/app.py`, keep `vllm_loader.messages` imports before `vllm_loader.monitoring.*` imports or Ruff I001 will reorder the project import block.
 - [2026-06-02] Do not initialize detached log tails from latest file size after loading existing lines; carry forward the loaded file offset to avoid reattach races.
 - [2026-06-02] If `test_tui_load_honors_detached_launch_mode` misses `Uvicorn running` in a full-suite run, rerun the exact selector and then the full suite before changing code; one occurrence did not reproduce.
 - [2026-06-02] Do not assert dynamic sidecar command-palette entries from a single immediate snapshot in full-suite smoke tests; wait for the expected command.
@@ -120,10 +125,12 @@
 - [2026-06-02] Do not rely on Textual's default worker error behavior for detached reattach health probing; explicitly pass `exit_on_error=False`.
 - [2026-06-02] Do not make optional monitor workers non-crashing but silent; add an `on_worker_state_changed` warning backstop for GPU/health worker errors.
 - [2026-06-02] Do not let GPU sampler exceptions bypass `_render_gpu_panel`; catch them and render an unavailable detail string in the panel.
+- [2026-06-02] Do not assume a posted monitor message can always find its widget during Textual teardown; render helpers should preserve state and tolerate `NoMatches` for optional panels.
 - [2026-06-02] Do not ignore MIG identity fields in GPU sampling; capture GPU/compute instance IDs when pynvml exposes them.
 - [2026-06-02] Do not treat FR-13 pause as a flag-only toggle; wire it to `RichLog.auto_scroll`.
 - [2026-06-02] Do not coerce `HealthEvent.error_kind` into `timeout()` or raw detail text; preserve the specific kind such as `HF_AUTH` or `TIMED_OUT` in the TUI banner.
 - [2026-06-02] Do not read Superpowers skills from the bundled plugin cache root; this session's Superpowers paths are under `openai-curated/superpowers/bebc3d6a/skills`.
+- [2026-06-02] Do not hard-code a prior Superpowers cache hash; locate the current `openai-curated/superpowers/*/skills/.../SKILL.md` path if the remembered hash is gone.
 - [2026-06-02] Do not call `Message.__init__()` from a Textual message dataclass `__post_init__`; Textual's `__init__` calls `self.__post_init__()` and will recurse. Call `Message.__post_init__(self)` instead.
 - [2026-06-02] Do not cap only the displayed `RichLog`; prune app-side log/search/filter buffers too or bursty output still grows memory unbounded.
 - [2026-06-02] If a detached reattach smoke times out waiting for READY, rerun the exact test before changing code; a one-off suite failure was not reproduced by the focused test or full-suite rerun.
@@ -172,6 +179,8 @@
 - [2026-06-02] Do not wire `K` directly to attached or reattached kill signals; canonical kill uses ConfirmScreen first, and only the confirm action should send `process.kill()` or `SIGKILL`.
 - [2026-06-02] Do not run profile help probes against arbitrary custom executables before launch preflights; custom scripts can have side effects. Probe only vLLM-like executable names, and keep fake child probe commands side-effect-free.
 - [2026-06-02] Do not treat `timeout vllm-loader run REAL_CONFIG` as proof of a real GPU validation; it only bounds a long-running server. Use `vllm-loader smoke REAL_CONFIG` for a READY-bound remote gate.
+- [2026-06-02] Do not run lab-tui remote validation from system Python on the GPU nodes; use `/tank/venvs/lab-tui` and put its `bin` directory on PATH before running pytest.
+- [2026-06-02] Do not assume blackbird `10.25.0.51` has the same visible ZFS venv layout as `10.25.0.50`; verify the target host's `/tank` mount and venv path before remote validation.
 - [2026-06-02] When interpolating shared palette tokens into TCSS strings, escape CSS braces in Python f-strings (`{{` and `}}`) or selectors/properties are parsed as Python expressions.
 - [2026-06-02] Do not satisfy responsive behavior by simply hiding the sidebar; canonical narrow mode still needs a sidebar overlay so config/status context is available without making the log disappear.
 - [2026-06-02] Do not treat ErrorBanner completion as only kind/guidance/excerpt text; §8.6 also expects a jump-to-lines affordance, so expose a palette command that highlights the excerpted log line.

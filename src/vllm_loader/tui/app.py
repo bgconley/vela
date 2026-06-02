@@ -42,6 +42,18 @@ from vllm_loader.engine.sidecar import (
     stop_sidecar_from_system,
     verify_sidecar_from_system,
 )
+from vllm_loader.messages import (
+    EngineError,
+    GpuStatsUnavailable,
+    GpuStatsUpdated,
+    HealthChanged,
+    LogLineCommitted,
+    PhaseChanged,
+    ProcessExited,
+    ProgressUpdated,
+    ServerReady,
+    from_log_record,
+)
 from vllm_loader.monitoring.gpu import (
     GpuPollResult,
     GpuSample,
@@ -738,15 +750,61 @@ class VllmLoaderApp(App):
             exclusive=True,
         )
 
+    def on_log_line_committed(self, message: LogLineCommitted) -> None:
+        self._handle_committed_log(message.text, message.level)
+
+    def on_progress_updated(self, message: ProgressUpdated) -> None:
+        self._update_progress(message.text)
+
+    def on_phase_changed(self, message: PhaseChanged) -> None:
+        self._set_phase(message.phase)
+
+    def on_server_ready(self, message: ServerReady) -> None:
+        self._handle_server_ready(message.models)
+
+    def on_health_changed(self, message: HealthChanged) -> None:
+        self._handle_health_changed(
+            ready=message.ready,
+            detail=message.detail,
+            models=message.models,
+            error_kind=message.error_kind,
+        )
+
+    def on_process_exited(self, message: ProcessExited) -> None:
+        self.fsm.process_exited(message.returncode)
+        if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
+            self._set_error_banner(self.fsm.error_kind)
+        self._set_phase(self.fsm.phase)
+
+    def on_engine_error(self, message: EngineError) -> None:
+        self.fsm.health_error(message.kind, message.detail)
+        self._set_error_banner(message.kind)
+        self._set_phase(self.fsm.phase)
+
+    def on_gpu_stats_updated(self, message: GpuStatsUpdated) -> None:
+        self._render_gpu_panel(message.result)
+
+    def on_gpu_stats_unavailable(self, message: GpuStatsUnavailable) -> None:
+        self._render_gpu_panel(
+            GpuPollResult([], note=message.detail, unavailable=True)
+        )
+
     def handle_log_record(self, record: LogRecord) -> None:
-        if record.kind == "transient":
-            self._update_progress(record.text)
+        message = from_log_record(record)
+        if isinstance(message, LogLineCommitted):
+            self.on_log_line_committed(message)
             return
-        self.fsm.feed_line(record.text)
+        self.on_progress_updated(message)
+
+    def _post_log_record_message(self, record: LogRecord) -> None:
+        self.post_message(from_log_record(record))
+
+    def _handle_committed_log(self, text: str, level: str | None) -> None:
+        self.fsm.feed_line(text)
         self._set_phase(self.fsm.phase)
         if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
             self._set_error_banner(self.fsm.error_kind)
-        self._write_log(record.text, record.level)
+        self._write_log(text, level)
 
     def _write_log(self, text: str, level: str | None = None) -> None:
         self.log_lines.append(text)
@@ -1177,7 +1235,7 @@ class VllmLoaderApp(App):
                 build,
                 log_path=run_dir / f"{cfg.name}.run.log",
                 secrets=secrets,
-                emit=self.handle_log_record,
+                emit=self._post_log_record_message,
             )
         except FileNotFoundError as exc:
             self._handle_command_not_found(exc, build.argv[0])
@@ -1301,7 +1359,7 @@ class VllmLoaderApp(App):
     async def _probe_until_ready(self, cfg: ModelConfig) -> None:
         await probe_loop(
             cfg,
-            emit=self._handle_health_event,
+            emit=self._post_health_message,
             is_process_alive=lambda: bool(
                 self.current_process and self.current_process.proc.poll() is None
             ),
@@ -1310,7 +1368,7 @@ class VllmLoaderApp(App):
     async def _probe_detached_until_ready(self, cfg: ModelConfig, sidecar_path: Path) -> None:
         await probe_loop(
             cfg,
-            emit=self._handle_health_event,
+            emit=self._post_health_message,
             is_process_alive=lambda: self._sidecar_is_alive(sidecar_path),
         )
 
@@ -1364,17 +1422,47 @@ class VllmLoaderApp(App):
             return False
 
     def _handle_health_event(self, event: HealthEvent) -> None:
-        self.health_detail = event.detail
-        if event.ready:
-            if self.current_config is not None:
-                self.ready_url = self._server_url(self.current_config)
-            self.served_models = event.models or []
-            self.fsm.health_ready(event.models or [])
-        elif event.error_kind:
-            self.fsm.health_error(event.error_kind, event.detail)
-            self._set_error_banner(event.error_kind)
+        self._handle_health_changed(
+            ready=event.ready,
+            detail=event.detail,
+            models=event.models,
+            error_kind=event.error_kind,
+        )
+
+    def _post_health_message(self, event: HealthEvent) -> None:
+        self.post_message(
+            HealthChanged(
+                ready=event.ready,
+                detail=event.detail,
+                models=event.models,
+                error_kind=event.error_kind,
+            )
+        )
+
+    def _handle_health_changed(
+        self,
+        *,
+        ready: bool,
+        detail: str,
+        models: list[str] | None = None,
+        error_kind: ErrorKind | None = None,
+    ) -> None:
+        self.health_detail = detail
+        if ready:
+            self._handle_server_ready(models or [])
+            return
+        if error_kind:
+            self.fsm.health_error(error_kind, detail)
+            self._set_error_banner(error_kind)
         else:
-            self.fsm.health_failed(event.detail)
+            self.fsm.health_failed(detail)
+        self._set_phase(self.fsm.phase)
+
+    def _handle_server_ready(self, models: list[str]) -> None:
+        if self.current_config is not None:
+            self.ready_url = self._server_url(self.current_config)
+        self.served_models = models
+        self.fsm.health_ready(models)
         self._set_phase(self.fsm.phase)
 
     def _set_phase(self, phase: Phase) -> None:
@@ -1603,15 +1691,22 @@ class VllmLoaderApp(App):
         try:
             result = await asyncio.to_thread(self._gpu_sampler)
         except Exception as exc:
-            result = GpuPollResult(
-                [], note=f"GPU stats unavailable: {exc}", unavailable=True
-            )
-        self._render_gpu_panel(result)
+            self.post_message(GpuStatsUnavailable(f"GPU stats unavailable: {exc}"))
+            return
+        if result.unavailable:
+            self.post_message(GpuStatsUnavailable(result.note or "GPU stats unavailable"))
+            return
+        self.post_message(GpuStatsUpdated(result))
 
     def _render_gpu_panel(self, result: GpuPollResult) -> None:
+        try:
+            gpu_panel = self.query_one("#gpu", Static)
+        except NoMatches:
+            gpu_panel = None
         if result.unavailable:
             self.gpu_panel_text = result.note
-            self.query_one("#gpu", Static).update(Text(result.note, style=MUTED))
+            if gpu_panel is not None:
+                gpu_panel.update(Text(result.note, style=MUTED))
             return
         lines = []
         renderable = Text()
@@ -1657,7 +1752,8 @@ class VllmLoaderApp(App):
         self.gpu_panel_text = "\n".join(lines) if lines else "GPU stats unavailable"
         if not result.samples:
             renderable = Text("GPU stats unavailable", style=MUTED)
-        self.query_one("#gpu", Static).update(renderable)
+        if gpu_panel is not None:
+            gpu_panel.update(renderable)
 
     @staticmethod
     def _memory_bar(used_mb: int, total_mb: int, width: int = 8) -> str:

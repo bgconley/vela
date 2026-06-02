@@ -100,11 +100,19 @@ def verify_sidecar_identity(
         )
     if child.pgid != sidecar.pgid:
         raise TrackedProcessMismatch("tracked process group does not match sidecar")
-    if sidecar.executable and child.executable != sidecar.executable:
-        raise TrackedProcessMismatch("tracked executable does not match sidecar")
+    command_line_matches = False
     if child.cmdline and command_hash(child.cmdline) != sidecar.command_hash:
         if child.cmdline != sidecar.command_argv:
             raise TrackedProcessMismatch("tracked command line does not match sidecar")
+        command_line_matches = True
+    elif child.cmdline:
+        command_line_matches = True
+    if (
+        sidecar.executable
+        and child.executable != sidecar.executable
+        and not command_line_matches
+    ):
+        raise TrackedProcessMismatch("tracked executable does not match sidecar")
     if sidecar.launch_mode == "detached":
         if supervisor is None:
             raise TrackedProcessMismatch("detached run supervisor identity is unavailable")

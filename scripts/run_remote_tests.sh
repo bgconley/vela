@@ -32,18 +32,61 @@ fi
 host="$1"
 remote_path="$2"
 real_config="${3:-}"
+remote_timeout="${VLLM_LOADER_REMOTE_TIMEOUT:-1800}"
+remote_python="${VLLM_LOADER_REMOTE_PYTHON:-auto}"
+remote_venv="${VLLM_LOADER_REMOTE_VENV:-/tank/venvs/lab-tui}"
+ssh_cmd=(ssh)
+if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
+  # shellcheck disable=SC2206
+  ssh_cmd+=(${VLLM_LOADER_SSH_OPTS})
+fi
+ssh_cmd+=("$host" bash -s -- "$remote_path" "$remote_timeout" "$remote_python" "$remote_venv")
+if [[ -n "$real_config" ]]; then
+  ssh_cmd+=("$real_config")
+fi
 
-ssh "$host" bash -s -- "$remote_path" "$real_config" <<'REMOTE'
+"${ssh_cmd[@]}" <<'REMOTE'
 set -euo pipefail
 
 remote_path="$1"
-real_config="${2:-}"
+remote_timeout="$2"
+remote_python="${3:-auto}"
+remote_venv="${4:-/tank/venvs/lab-tui}"
+real_config="${5:-}"
+
+if [[ "$remote_python" == "auto" ]]; then
+  if [[ -x /tank/preproc/venv/bin/python ]]; then
+    remote_python=/tank/preproc/venv/bin/python
+  elif command -v python3 >/dev/null 2>&1; then
+    remote_python=python3
+  elif command -v python >/dev/null 2>&1; then
+    remote_python=python
+  else
+    echo "python3 or python is required on the remote host" >&2
+    exit 127
+  fi
+fi
 
 cd "$remote_path"
-python -m pip install -e ".[dev]"
+venv_python="$remote_venv/bin/python"
+venv_bin="$remote_venv/bin"
+if [[ ! -x "$venv_python" ]]; then
+  mkdir -p "$(dirname "$remote_venv")"
+  "$remote_python" -m venv "$remote_venv"
+fi
+if [[ ! -x "$venv_python" ]]; then
+  echo "Remote venv was not created at $remote_venv; install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON to a venv-capable Python." >&2
+  exit 127
+fi
+if ! "$venv_python" -m pip --version >/dev/null 2>&1; then
+  echo "Remote venv lacks pip; install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON to a venv-capable Python: $remote_python" >&2
+  exit 127
+fi
+export PATH="$venv_bin:$PATH"
+"$venv_python" -m pip install -e ".[dev]"
 echo "== Remote host =="
 hostname
-python - <<'PY'
+"$venv_python" - <<'PY'
 from vllm_loader.monitoring.gpu import sample_gpus
 
 result = sample_gpus()
@@ -65,13 +108,13 @@ if command -v vllm >/dev/null 2>&1; then
 else
   echo "vllm not found on PATH; no-GPU package checks will still run"
 fi
-python -m ruff check .
-pytest -q
-vllm-loader list
-vllm-loader preview fake-child
+"$venv_python" -m ruff check .
+"$venv_python" -m pytest -q
+"$venv_bin/vllm-loader" list
+"$venv_bin/vllm-loader" preview fake-child
 
 if [[ -n "$real_config" ]]; then
-  vllm-loader preview "$real_config"
-  timeout "${VLLM_LOADER_REMOTE_TIMEOUT:-1800}" vllm-loader smoke "$real_config"
+  "$venv_bin/vllm-loader" preview "$real_config"
+  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke "$real_config"
 fi
 REMOTE
