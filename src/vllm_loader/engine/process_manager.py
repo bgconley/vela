@@ -28,6 +28,7 @@ class AttachedProcess:
     proc: subprocess.Popen[bytes]
     master_fd: int
     log_sink: LogSink
+    log_sink_failed: bool = False
 
     async def read_loop(self) -> int | None:
         try:
@@ -40,9 +41,16 @@ class AttachedProcess:
                     raise
                 if not chunk:
                     break
-                self.log_sink.feed(chunk)
+                if not self.log_sink_failed:
+                    try:
+                        self.log_sink.feed(chunk)
+                    except Exception:
+                        self.log_sink_failed = True
         finally:
-            self.log_sink.close()
+            try:
+                self.log_sink.close()
+            except Exception:
+                pass
             try:
                 os.close(self.master_fd)
             except OSError:

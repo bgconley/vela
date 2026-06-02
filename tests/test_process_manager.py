@@ -57,6 +57,50 @@ async def test_attached_fake_child_streams_logs_progress_and_stops(tmp_path: Pat
     assert "Uvicorn running" in durable
 
 
+@pytest.mark.asyncio
+async def test_attached_reader_keeps_draining_when_log_sink_feed_fails(
+    tmp_path: Path,
+) -> None:
+    port = _free_port()
+    build = CommandBuildResult(
+        argv=[
+            sys.executable,
+            "-m",
+            "vllm_loader.fake_child",
+            "serve",
+            "fake/model",
+            "--port",
+            str(port),
+            "--sleep",
+            "0.01",
+        ],
+        env={"PYTHONUNBUFFERED": "1"},
+        cwd=Path.cwd(),
+    )
+    process = start_attached(
+        build,
+        log_path=tmp_path / "run.log",
+        secrets=[],
+    )
+
+    def fail_feed(_chunk: bytes) -> None:
+        raise OSError("simulated durable log failure")
+
+    process.log_sink.feed = fail_feed
+    task = asyncio.create_task(process.read_loop())
+    await _wait_for_health(port)
+    await asyncio.sleep(0.2)
+
+    try:
+        assert not task.done()
+        process.stop(interrupt_timeout=1, terminate_timeout=1)
+        returncode = await asyncio.wait_for(task, timeout=5)
+        assert returncode == 0
+    finally:
+        if process.proc.poll() is None:
+            process.kill()
+
+
 def test_stop_escalation_waits_after_final_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:
     class StubbornProc:
         pid = 12345
