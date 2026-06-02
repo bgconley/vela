@@ -192,6 +192,10 @@ def _signal_group_with_escalation(
     except subprocess.TimeoutExpired:
         pass
     _kill_group(proc, signal.SIGKILL)
+    try:
+        proc.wait(timeout=terminate_timeout)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _kill_group(proc: subprocess.Popen[bytes], sig: int) -> None:

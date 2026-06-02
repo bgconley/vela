@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from vllm_loader.engine.sidecar import (
     TrackedProcessMismatch,
     command_hash,
     destructive_signal,
+    stop_sidecar_from_system,
     verify_sidecar_identity,
 )
 
@@ -151,6 +153,32 @@ def test_destructive_signal_path_reverifies_before_signaling(tmp_path: Path, mon
     destructive_signal(sidecar, 15, child=child, supervisor=supervisor)
 
     assert calls == [(100, 15)]
+
+
+def test_stop_sidecar_waits_after_final_sigkill(tmp_path: Path, monkeypatch) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.write_atomic(sidecar_path)
+    signals: list[int] = []
+    waits: list[float] = []
+
+    def signal_sidecar(_path: Path, signal_number: int) -> None:
+        signals.append(signal_number)
+
+    def wait_process(_pid: int, _create_time: float, timeout: float) -> bool:
+        waits.append(timeout)
+        return len(waits) >= 3
+
+    monkeypatch.setattr(
+        "vllm_loader.engine.sidecar.signal_sidecar_from_system",
+        signal_sidecar,
+    )
+    monkeypatch.setattr("vllm_loader.engine.sidecar._wait_process_exit", wait_process)
+
+    stop_sidecar_from_system(sidecar_path, interrupt_timeout=0.1, terminate_timeout=0.2)
+
+    assert signals == [signal.SIGINT, signal.SIGTERM, signal.SIGKILL]
+    assert waits == [0.1, 0.2, 0.2]
 
 
 def test_manifest_active_log_verification_and_rotation_update(tmp_path: Path) -> None:

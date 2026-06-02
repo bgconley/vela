@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -10,7 +12,7 @@ import pytest
 
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord
-from vllm_loader.engine.process_manager import start_attached
+from vllm_loader.engine.process_manager import _signal_group_with_escalation, start_attached
 
 
 @pytest.mark.asyncio
@@ -53,6 +55,33 @@ async def test_attached_fake_child_streams_logs_progress_and_stops(tmp_path: Pat
     assert any("checkpoint shards" in line for line in transient)
     assert "checkpoint shards" not in durable
     assert "Uvicorn running" in durable
+
+
+def test_stop_escalation_waits_after_final_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubbornProc:
+        pid = 12345
+
+        def __init__(self) -> None:
+            self.wait_calls: list[float] = []
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> None:
+            self.wait_calls.append(float(timeout or 0))
+            if len(self.wait_calls) <= 2:
+                raise subprocess.TimeoutExpired("fake", timeout)
+            return None
+
+    proc = StubbornProc()
+    signals: list[int] = []
+    monkeypatch.setattr("os.getpgid", lambda pid: pid)
+    monkeypatch.setattr("os.killpg", lambda _pgid, sig: signals.append(sig))
+
+    _signal_group_with_escalation(proc, interrupt_timeout=0.1, terminate_timeout=0.2)
+
+    assert signals == [signal.SIGINT, signal.SIGTERM, signal.SIGKILL]
+    assert proc.wait_calls == [0.1, 0.2, 0.2]
 
 
 async def _wait_for_health(port: int) -> None:

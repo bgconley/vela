@@ -193,6 +193,7 @@ def stop_sidecar_from_system(
     if _wait_process_exit(sidecar.pid, sidecar.process_create_time, terminate_timeout):
         return
     signal_sidecar_from_system(path, signal.SIGKILL)
+    _wait_process_exit(sidecar.pid, sidecar.process_create_time, terminate_timeout)
 
 
 def discover_active_sidecars(runs_dirs: list[Path]) -> list[Path]:
