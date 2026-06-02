@@ -592,6 +592,7 @@ class VllmLoaderApp(App):
         self.query_one("#log", RichLog).wrap = self.wrap
         self._refresh_log_controls()
         self._refresh_status_strip()
+        self.notify(f"Wrap {'enabled' if self.wrap else 'disabled'}")
 
     def action_top(self) -> None:
         self.query_one("#log", RichLog).scroll_home(animate=False)

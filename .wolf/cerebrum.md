@@ -51,6 +51,7 @@
 - FR-12 search highlighting must be manual Rich `Text` spans because `RichLog(markup=False, highlight=False)` is required for raw log safety; layer `Text.stylize(...)` search matches over the severity style before writing to `RichLog`.
 - FR-12/FR-22 search and filter keybindings should open `LogPromptScreen` and apply the submitted text through `apply_log_search`/`apply_log_filter`; reapplying stored empty state makes the action reachable but unusable.
 - The `Copy server URL` command palette action should call Textual's `copy_to_clipboard`; `last_copied_url` is only a testable record of what was copied.
+- Wrap toggles are state changes too; after updating `RichLog.wrap` and visible chrome, emit a `Wrap enabled`/`Wrap disabled` toast just like pause/search/filter controls.
 - FR-10 transient carriage-return records now drive a real Textual `ProgressBar` at `#progress` plus a separate `#progress-text` label; transient progress must not be appended to committed `log_lines` or durable logs.
 - ConfigPickerScreen should include the selected config's masked resolved-command preview from `build_command`, not just the valid/invalid config list.
 - ConfigPickerScreen should also be a fuzzy list: type into the filter input, reset selection to the first filtered match, preview that match, and select it on Enter.
@@ -122,6 +123,7 @@
 - [2026-06-02] Before expanding command-builder focused tests, confirm selectors with `rg`; local model reference coverage is `test_model_reference_local_vs_hf_repo_logic`.
 - [2026-06-02] Do not satisfy FR-22 by listing a command only; bound actions like `/` search and `f` filter need an input path that changes application state.
 - [2026-06-02] Do not treat `Copy server URL` as a notification-only action; use Textual's clipboard API so the palette command actually copies.
+- [2026-06-02] Do not treat wrap as a silent display preference; §8.6 expects toasts for visible state changes, so `w` should notify just like pause.
 - [2026-06-02] Do not treat ConfigPickerScreen as only a static list; the canonical screen is filterable/fuzzy and its preview/accept behavior must use the filtered set.
 - [2026-06-02] Do not render the status strip as bare phase text; canonical UX requires icon-plus-word status with phase color/pulse state.
 - [2026-06-02] Before expanding command-palette smoke commands, confirm selectors with `rg`; the core palette selector is `test_command_palette_exposes_core_actions_and_config_loads`.

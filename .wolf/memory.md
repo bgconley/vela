@@ -198,3 +198,7 @@
 | 15:31 | Classified unexpected detached sidecar disappearance | src/vllm_loader/tui/app.py | active reattach tail now feeds terminal process exit and CRASHED banner; intentional detach/stop paths ignored | ~400 |
 | 15:31 | Logged detached tail disappearance fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-082 and detached-tail learning recorded | ~250 |
 | 15:32 | Ran verification after detached tail fix | entire project | json valid, ruff clean, pytest 129 passed, fake-child smoke 59 passed, no fake-child processes remained | ~900 |
+| 15:36 | Added wrap-toggle toast regression | tests/test_tui_smoke.py | red: pressing `w` toggled wrap state but emitted no state-change notification | ~250 |
+| 15:36 | Added canonical wrap state-change toast | src/vllm_loader/tui/app.py | `action_wrap` now notifies `Wrap enabled`/`Wrap disabled` after updating RichLog wrap and status chrome | ~200 |
+| 15:36 | Logged wrap-toast UX fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-083 records the §8.6 toast gap for future TUI polish work | ~200 |
+| 15:37 | Ran verification after wrap-toast fix | entire project | json valid, ruff clean, focused wrap test passed, pytest 130 passed, fake-child smoke 60 passed, no fake-child processes remained | ~850 |

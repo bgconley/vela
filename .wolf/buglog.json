@@ -984,6 +984,18 @@
       "related_bugs": ["bug-005", "bug-009", "bug-081"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:31:17Z"
+    },
+    {
+      "id": "bug-083",
+      "timestamp": "2026-06-02T19:36:58Z",
+      "error_message": "Wrap toggle changed state without a toast",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical §8.6 state-change notification used by neighboring controls.",
+      "fix": "Added a focused smoke regression for `w` wrap toggles and emitted `Wrap enabled`/`Wrap disabled` notifications after refreshing the visible chrome.",
+      "tags": ["tui", "wrap", "toast", "ux", "fr-13", "polish"],
+      "related_bugs": ["bug-071", "bug-073"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T19:36:58Z"
     }
   ]
 }

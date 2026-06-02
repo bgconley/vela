@@ -448,6 +448,33 @@ async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_wrap_toggle_notifies_state_change(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+    notifications: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *args, **kwargs: notifications.append(message),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+
+        assert app.wrap is True
+        assert notifications[-1] == "Wrap enabled"
+
+        await pilot.press("w")
+        await pilot.pause()
+
+        assert app.wrap is False
+        assert notifications[-1] == "Wrap disabled"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_uses_intentional_rich_color_renderables(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 
