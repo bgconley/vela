@@ -82,7 +82,23 @@ server. It is still wrapped in `timeout` as a hard guard. Override the limit wit
 VLLM_LOADER_REMOTE_TIMEOUT=2400 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
-## 3. Where results land
+## 3. Tested vLLM surface
+
+The current checked-in real smoke lane was verified on `620-01` with vLLM
+`v0.19.1rc1.dev119+gba4a78eb5` from `/tank/triton/venv-vllm/bin/vllm`.
+Treat this as the tested vLLM 0.19 lab surface, not a promise that older or
+newer vLLM builds emit the same flags and log strings. When bumping the lab
+vLLM build, rerun the real smoke and add or adjust recorded log fixtures and
+`VllmProfile` rules for any changed startup, download, readiness, or error text.
+
+## 4. Browser access through Textual
+
+For browser access on a GPU host, use Textual's own `textual serve` entrypoint
+around `vllm-loader` only on a trusted network/auth boundary. The served TUI
+controls model launches, stops, kills, and log access; do not expose it as an
+unauthenticated public service.
+
+## 5. Where results land
 
 By default, `vllm-loader run` writes scrubbed run artifacts on the GPU host:
 

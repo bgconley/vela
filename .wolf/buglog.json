@@ -1296,6 +1296,18 @@
       "related_bugs": ["bug-106"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:38:23Z"
+    },
+    {
+      "id": "bug-109",
+      "timestamp": "2026-06-02T21:41:11Z",
+      "error_message": "GPU workflow docs did not record the tested vLLM build/range or the guarded Textual browser access path",
+      "file": "docs/gpu-workflow.md",
+      "root_cause": "The remote validation workflow had been updated for the lab GPU node and ZFS venv, but the ops docs still omitted the verified vLLM 0.19 build and the `textual serve` network/auth warning from the canonical spec.",
+      "fix": "Added a docs regression and documented the verified `v0.19.1rc1.dev119+gba4a78eb5` lab surface, fixture/profile update expectations, and trusted network/auth requirements for `textual serve`.",
+      "tags": ["docs", "remote", "vllm", "textual", "ops"],
+      "related_bugs": ["bug-104", "bug-106"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:41:11Z"
     }
   ]
 }

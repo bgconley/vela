@@ -18,6 +18,16 @@ def test_remote_validation_uses_readiness_smoke_for_real_config() -> None:
     assert "install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON" in script
 
 
+def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
+    docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
+
+    assert "v0.19.1rc1.dev119+gba4a78eb5" in docs
+    assert "vLLM 0.19" in docs
+    assert "textual serve" in docs
+    assert "network/auth" in docs
+    assert "controls model launches" in docs
+
+
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
