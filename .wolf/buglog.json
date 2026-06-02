@@ -972,6 +972,18 @@
       "related_bugs": ["bug-078"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:23:17Z"
+    },
+    {
+      "id": "bug-082",
+      "timestamp": "2026-06-02T19:31:17Z",
+      "error_message": "Detached tail sidecar disappearance left the TUI stuck in LOADING_WEIGHTS",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "The detached log-tail worker exited when `_sidecar_is_alive` returned false but did not feed a terminal process-exit event into the FSM for the currently attached sidecar.",
+      "fix": "Added a tail-end handler that classifies unexpected disappearance of the active reattached sidecar as a process exit, rendering the existing CRASHED banner before READY while leaving intentional detach/stop paths alone.",
+      "tags": ["tui", "detached", "reattach", "tail", "fsm", "nfr-5"],
+      "related_bugs": ["bug-005", "bug-009", "bug-081"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T19:31:17Z"
     }
   ]
 }

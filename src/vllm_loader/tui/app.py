@@ -1328,6 +1328,17 @@ class VllmLoaderApp(App):
                                 self._set_error_banner(self.fsm.error_kind)
                             self._write_log(line, level_for_line(line))
             await asyncio.sleep(0.25)
+        self._handle_detached_tail_ended(sidecar_path)
+
+    def _handle_detached_tail_ended(self, sidecar_path: Path) -> None:
+        if self.reattached_sidecar_path != sidecar_path:
+            return
+        if self.phase in {Phase.ERROR, Phase.STOPPED}:
+            return
+        self.fsm.process_exited(None)
+        if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
+            self._set_error_banner(self.fsm.error_kind)
+        self._set_phase(self.fsm.phase)
 
     def _sidecar_is_alive(self, sidecar_path: Path) -> bool:
         try:

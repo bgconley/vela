@@ -86,6 +86,7 @@
 - The fake child must answer `--version` and `serve --help` like a vLLM binary, because profile detection runs before fake-child launches in CLI/TUI tests.
 - GPU-host real-config validation should use `vllm-loader smoke`, not a blind timeout around `vllm-loader run`; smoke waits for `/health` and `/v1/models`, prints READY URL/models, then stops the server.
 - Attached TUI Stop/Kill should record operator shutdown intent by process PID before signalling; otherwise a confirmed SIGKILL return code is indistinguishable from an unintentional child crash and can incorrectly render CRASHED instead of STOPPED.
+- Detached tail workers must classify an unexpected disappearance of the currently attached sidecar as a terminal process exit; otherwise the UI can remain stuck in the last loading phase after the detached server is gone.
 
 ## Do-Not-Repeat
 
@@ -157,6 +158,7 @@
 - [2026-06-02] Do not satisfy responsive behavior by simply hiding the sidebar; canonical narrow mode still needs a sidebar overlay so config/status context is available without making the log disappear.
 - [2026-06-02] Do not treat ErrorBanner completion as only kind/guidance/excerpt text; §8.6 also expects a jump-to-lines affordance, so expose a palette command that highlights the excerpted log line.
 - [2026-06-02] Do not classify all nonzero attached process exits as CRASHED; first check whether the TUI itself intentionally signalled that exact PID for Stop/Kill.
+- [2026-06-02] Do not let `_tail_detached_log` simply fall out of its sidecar-alive loop; active reattach sessions need a terminal FSM update when the sidecar unexpectedly disappears.
 
 ## Decision Log
 

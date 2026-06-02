@@ -1274,6 +1274,35 @@ async def test_detached_tail_classified_error_shows_named_banner(
 
 
 @pytest.mark.asyncio
+async def test_detached_tail_reports_unexpected_disappearance_before_ready(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "sidecar.json"
+    log_path = tmp_path / "run.log"
+    log_path.write_text("INFO Starting to load model\n", encoding="utf-8")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.reattached_sidecar_path = sidecar_path
+        checks = 0
+
+        def alive(path: Path) -> bool:
+            nonlocal checks
+            assert path == sidecar_path
+            checks += 1
+            return checks < 2
+
+        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        await app._tail_detached_log(log_path, sidecar_path, start_position=0)
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.CRASHED
+        assert "CRASHED" in app.error_text
+        assert "Starting to load model" in app.error_text
+
+
+@pytest.mark.asyncio
 async def test_loaded_detached_log_classified_error_shows_named_banner(
     config_dir: Path, tmp_path: Path
 ) -> None:

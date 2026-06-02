@@ -193,3 +193,8 @@
 | 15:23 | Logged intentional kill lifecycle fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/anatomy.md, .wolf/memory.md | bug-081 and project learning recorded for future TUI lifecycle work | ~250 |
 | 15:24 | Ran verification after intentional kill lifecycle fix | entire project | json valid, ruff clean, pytest 128 passed, fake-child smoke 58 passed, no fake-child processes remained | ~900 |
 | 15:30 | Initialized Git repository setup | .gitignore, .wolf/anatomy.md, .wolf/memory.md | branch renamed to main; caches/build/run artifacts ignored before first snapshot | ~250 |
+| 15:30 | Created initial Git baseline commit | entire project | `3cc0c72 chore: initialize lab-tui repository` on main with 110 tracked files and ignored caches | ~300 |
+| 15:31 | Added detached sidecar disappearance regression | tests/test_tui_smoke.py | red: tail worker exited with app.phase stuck in LOADING_WEIGHTS | ~300 |
+| 15:31 | Classified unexpected detached sidecar disappearance | src/vllm_loader/tui/app.py | active reattach tail now feeds terminal process exit and CRASHED banner; intentional detach/stop paths ignored | ~400 |
+| 15:31 | Logged detached tail disappearance fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-082 and detached-tail learning recorded | ~250 |
+| 15:32 | Ran verification after detached tail fix | entire project | json valid, ruff clean, pytest 129 passed, fake-child smoke 59 passed, no fake-child processes remained | ~900 |
