@@ -1664,6 +1664,48 @@ async def test_fake_child_launch_streams_logs_and_stop_works(config_dir: Path) -
 
 
 @pytest.mark.asyncio
+async def test_attached_tui_launch_uses_configured_runs_dir_for_durable_log(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    port = _free_port()
+    runs_dir = tmp_path / "runs"
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake-runs.yaml",
+        f"""
+        name: fake-runs
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          runs_dir: {runs_dir}
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+    durable_log = runs_dir / "fake-runs.run.log"
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_log(app, "Uvicorn running")
+            await _wait_for_phase(app, Phase.READY)
+            await pilot.press("s")
+            await _wait_for_stopped(app)
+    finally:
+        await _cleanup_port(port)
+
+    assert durable_log.exists()
+    assert "Uvicorn running" in durable_log.read_text(encoding="utf-8")
+    assert "checkpoint shards" not in durable_log.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
 async def test_force_kill_running_attached_server_is_intentional_stop(
     config_dir: Path,
 ) -> None:

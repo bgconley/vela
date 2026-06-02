@@ -1392,6 +1392,18 @@
       "related_bugs": ["bug-104", "bug-106", "bug-113"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:13:35Z"
+    },
+    {
+      "id": "bug-117",
+      "timestamp": "2026-06-02T22:21:50Z",
+      "error_message": "Attached TUI launches ignored `launch.runs_dir` when the app was opened with an explicit config directory",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "`_run_selected_config` replaced `cfg.run_artifacts_dir` with a temp directory whenever `configs_dir` was set, so normal `--configs-dir`/test-lab usage wrote attached durable logs away from the configured run-artifact location.",
+      "fix": "Removed the temp-dir override and added a TUI fake-child regression proving an attached launch writes the scrubbed durable log to `launch.runs_dir` while still omitting transient carriage-return progress.",
+      "tags": ["tui", "attached", "logs", "runs-dir", "durability"],
+      "related_bugs": ["bug-011", "bug-042", "bug-113"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:21:50Z"
     }
   ]
 }

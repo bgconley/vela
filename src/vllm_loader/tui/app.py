@@ -4,7 +4,6 @@ import asyncio
 import json
 import re
 import signal
-import tempfile
 import time
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
@@ -1243,8 +1242,6 @@ class VllmLoaderApp(App):
             self.reattach_detached_run(launch.sidecar_path)
             return
         run_dir = cfg.run_artifacts_dir
-        if self.configs_dir is not None:
-            run_dir = Path(tempfile.gettempdir()) / "vllm-loader-runs"
         run_dir.mkdir(parents=True, exist_ok=True)
         try:
             attached_process = start_attached(
