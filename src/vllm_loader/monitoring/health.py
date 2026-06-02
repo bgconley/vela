@@ -54,10 +54,15 @@ async def check_once(
             return HealthEvent(ready=False, detail="not ready")
         except httpx.HTTPError as exc:
             return HealthEvent(ready=False, detail=str(exc))
-        if models.status_code == 401 and cfg.server.api_key:
+        if models.status_code == 401:
+            detail = (
+                "Bearer token mismatch for /v1/models; check VLLM_API_KEY/api_key"
+                if cfg.server.api_key
+                else "/v1/models requires auth; set server.api_key/VLLM_API_KEY"
+            )
             return HealthEvent(
                 ready=False,
-                detail="Bearer token mismatch for /v1/models; check VLLM_API_KEY/api_key",
+                detail=detail,
                 error_kind=ErrorKind.HF_AUTH,
             )
         if models.status_code != 200:

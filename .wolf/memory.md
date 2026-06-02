@@ -227,3 +227,8 @@
 | Time | Action | File(s) | Outcome | ~Tokens |
 |------|--------|---------|---------|--------|
 | 16:06 | Ran verification after unexpected models shape fix | entire project | json valid, ruff clean, health tests 10 passed, pytest 135 passed, fake-child smoke 63 passed, no fake-child processes remained | ~900 |
+| 16:13 | Added auth-blocked `/v1/models` regression | tests/test_health.py | red: 401 without configured `server.api_key` returned `ready=True` with advisory detail | ~250 |
+| 16:13 | Classified all `/v1/models` 401 responses as HF_AUTH | src/vllm_loader/monitoring/health.py | model introspection auth failures now block READY and distinguish missing vs mismatched API key guidance | ~250 |
+| 16:13 | Logged auth-blocked models probe fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-089 records the remote-smoke false-positive readiness path | ~220 |
+| 16:14 | Investigated detached-load full-suite flake | tests/test_tui_smoke.py, .wolf/buglog.json, .wolf/cerebrum.md | exact selector passed, full-suite rerun passed, bug-090 records the non-reproduced timeout | ~500 |
+| 16:14 | Ran verification after auth-blocked models fix | entire project | json valid, ruff clean, health tests 11 passed, pytest rerun 136 passed after one transient flake, fake-child smoke 63 passed, no fake-child processes remained | ~950 |

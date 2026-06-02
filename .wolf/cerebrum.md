@@ -20,6 +20,7 @@
 - Health checks must treat `/v1/models` connection failures like `/health` connection failures because shutdown can happen after `/health` returns 200 but before the model probe completes.
 - `/health` 200 proves liveness; malformed `/v1/models` JSON should not crash the probe, and should return READY with empty models plus an invalid-JSON detail.
 - `/v1/models` payload shape is advisory too; wrong JSON shapes should return READY with empty models plus an unexpected-shape detail rather than raising during model extraction.
+- `/v1/models` 401 is not advisory; even if no API key is configured locally, classify it as `HF_AUTH` so remote smoke does not claim READY for an auth-blocked model endpoint.
 - Health probing should preserve explicit `server.probe_host`, preserve loopback bind hosts, and otherwise probe `127.0.0.1` for non-loopback bind addresses per the canonical spec.
 - TUI modal screens are lightweight Textual `Screen` subclasses under `src/vllm_loader/tui/screens/`; smoke tests inspect `app.screen.id` and simple screen attributes such as `summary`.
 - Textual 8.2.7 app command palette commands are exposed by overriding `get_system_commands()` and yielding `SystemCommand` instances; tests can inspect that generator directly without opening the palette UI.
@@ -106,9 +107,11 @@
 - [2026-06-02] Do not assume `/health` success means the subsequent `/v1/models` probe is safe; catch connection failures on both requests to avoid shutdown-race worker crashes.
 - [2026-06-02] Do not trust `/v1/models` 200 bodies to be parseable JSON; model-list parsing is advisory and must not crash readiness probing.
 - [2026-06-02] Do not trust `/v1/models` parsed payload shape either; validate the top-level object, `data` list, and item dicts before extracting ids.
+- [2026-06-02] Do not treat `/v1/models` 401 as a harmless non-200 model-list response; it means auth is required or mismatched and should be `HF_AUTH`, not READY.
 - [2026-06-02] Do not probe LAN/public bind addresses directly by default; use localhost unless `server.probe_host` explicitly overrides it.
 - [2026-06-02] Do not put dense timeline formatting in one f-string; repo Ruff enforces 100-column lines.
 - [2026-06-02] Do not initialize detached log tails from latest file size after loading existing lines; carry forward the loaded file offset to avoid reattach races.
+- [2026-06-02] If `test_tui_load_honors_detached_launch_mode` misses `Uvicorn running` in a full-suite run, rerun the exact selector and then the full suite before changing code; one occurrence did not reproduce.
 - [2026-06-02] Do not assert dynamic sidecar command-palette entries from a single immediate snapshot in full-suite smoke tests; wait for the expected command.
 - [2026-06-02] Do not leave optional TUI monitoring as a mount-only sample; live monitors need a periodic worker that cannot crash the app.
 - [2026-06-02] Do not call the GPU sampler directly from Textual workers; NVML/nvidia-smi can block, so use `asyncio.to_thread` and render the result afterward.

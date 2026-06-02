@@ -2,16 +2,213 @@
   "version": 1,
   "created_at": "2026-06-02T04:55:09.315Z",
   "lifetime": {
-    "total_tokens_estimated": 0,
-    "total_reads": 0,
+    "total_tokens_estimated": 33829,
+    "total_reads": 30,
     "total_writes": 0,
     "total_sessions": 2,
-    "anatomy_hits": 0,
-    "anatomy_misses": 0,
-    "repeated_reads_blocked": 0,
-    "estimated_savings_vs_bare_cli": 0
+    "anatomy_hits": 27,
+    "anatomy_misses": 3,
+    "repeated_reads_blocked": 23,
+    "estimated_savings_vs_bare_cli": 111908
   },
-  "sessions": [],
+  "sessions": [
+    {
+      "id": "session-2026-06-02-1605",
+      "started": "2026-06-02T20:05:50.680Z",
+      "ended": "2026-06-02T20:14:52.035Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vllm-tui-loader-spec-v2-CANONICAL.md",
+          "tokens_estimated": 13104,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/config/schema.py",
+          "tokens_estimated": 1250,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/config/loader.py",
+          "tokens_estimated": 850,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/configs/fake-child.yaml",
+          "tokens_estimated": 115,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/configs/real-vllm.example.yaml",
+          "tokens_estimated": 160,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/profile.py",
+          "tokens_estimated": 1600,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/command_builder.py",
+          "tokens_estimated": 1200,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/config/__init__.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/process_manager.py",
+          "tokens_estimated": 1100,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/log_sink.py",
+          "tokens_estimated": 900,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/supervisor.py",
+          "tokens_estimated": 850,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/sidecar.py",
+          "tokens_estimated": 1150,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine/phases.py",
+          "tokens_estimated": 730,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/messages.py",
+          "tokens_estimated": 260,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/engine",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/monitoring/health.py",
+          "tokens_estimated": 450,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/monitoring/gpu.py",
+          "tokens_estimated": 1100,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 330,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/README.md",
+          "tokens_estimated": 280,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/tui/app.py",
+          "tokens_estimated": 1700,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/tui/widgets/__init__.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/cli.py",
+          "tokens_estimated": 900,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/tui/screens/help.py",
+          "tokens_estimated": 120,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/tui/screens/confirm.py",
+          "tokens_estimated": 180,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 1500,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_log_sink.py",
+          "tokens_estimated": 900,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_phases.py",
+          "tokens_estimated": 850,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vllm_loader/tui/screens/config_picker.py",
+          "tokens_estimated": 450,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_sidecar.py",
+          "tokens_estimated": 900,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_config_loader.py",
+          "tokens_estimated": 900,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [],
+      "totals": {
+        "input_tokens_estimated": 33829,
+        "output_tokens_estimated": 0,
+        "reads_count": 30,
+        "writes_count": 0,
+        "repeated_reads_blocked": 23,
+        "anatomy_lookups": 27
+      }
+    }
+  ],
   "daemon_usage": [],
   "waste_flags": [],
   "optimization_report": {

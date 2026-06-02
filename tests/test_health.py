@@ -49,6 +49,22 @@ async def test_models_401_with_key_yields_specific_token_mismatch_hint() -> None
 
 
 @pytest.mark.asyncio
+async def test_models_401_without_configured_key_is_not_ready() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(401)
+
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event.ready is False
+    assert event.error_kind is ErrorKind.HF_AUTH
+    assert "api_key" in event.detail
+
+
+@pytest.mark.asyncio
 async def test_malformed_models_response_does_not_crash_health_probe() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/health":

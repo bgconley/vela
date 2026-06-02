@@ -1056,6 +1056,30 @@
       "related_bugs": ["bug-087"],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:03:47Z"
+    },
+    {
+      "id": "bug-089",
+      "timestamp": "2026-06-02T20:13:29Z",
+      "error_message": "/v1/models 401 without a configured api_key was reported as READY",
+      "file": "src/vllm_loader/monitoring/health.py",
+      "root_cause": "`check_once` only treated `/v1/models` 401 as an auth failure when `server.api_key` was configured, so remote smoke could claim READY even though model introspection was auth-blocked.",
+      "fix": "Classified every `/v1/models` 401 as `HF_AUTH`, using distinct guidance for missing vs mismatched configured API keys.",
+      "tags": ["health", "readiness", "models", "auth", "smoke", "remote"],
+      "related_bugs": ["bug-080", "bug-087", "bug-088"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:13:29Z"
+    },
+    {
+      "id": "bug-090",
+      "timestamp": "2026-06-02T20:14:52Z",
+      "error_message": "test_tui_load_honors_detached_launch_mode timed out waiting for 'Uvicorn running' in one full-suite run",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Non-reproduced detached log-tail timing flake; the exact selector passed immediately afterward and a full-suite rerun passed.",
+      "fix": "No code change in this slice; recorded the symptom and verified with focused rerun plus full-suite rerun before proceeding.",
+      "tags": ["test", "tui", "detached", "log-tail", "flake"],
+      "related_bugs": ["bug-009", "bug-010", "bug-019"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:14:52Z"
     }
   ]
 }
