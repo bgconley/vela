@@ -572,7 +572,23 @@ class VllmLoaderApp(App):
         self._set_error_text("Kill requested")
 
     def action_restart(self) -> None:
+        if self.current_process and self.current_process.proc.poll() is None:
+            process = self.current_process
+            self._mark_current_process_shutdown_intent()
+            process.stop(interrupt_timeout=2, terminate_timeout=2)
+            self.run_worker(
+                self._load_after_process_exit(process),
+                name="restart",
+                group="restart",
+                exclusive=True,
+            )
+            return
         self.action_stop()
+        self.action_load()
+
+    async def _load_after_process_exit(self, process: AttachedProcess) -> None:
+        while process.proc.poll() is None:
+            await asyncio.sleep(0.05)
         self.action_load()
 
     def action_config_picker(self) -> None:

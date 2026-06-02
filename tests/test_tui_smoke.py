@@ -1806,6 +1806,58 @@ async def test_copy_server_url_uses_textual_clipboard(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_restart_waits_for_attached_process_exit_before_loading(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "restart.yaml",
+        """
+        name: restart
+        model: org/model
+        """,
+    )
+
+    class SlowStoppingProcess:
+        def __init__(self) -> None:
+            self.proc = self
+            self.pid = 12345
+            self.stopped = False
+            self.running = True
+
+        def poll(self) -> int | None:
+            return None if self.running else 0
+
+        def stop(self, *args, **kwargs) -> None:
+            self.stopped = True
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+    fake_process = SlowStoppingProcess()
+    load_calls: list[int | None] = []
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("restart")
+        app.current_process = fake_process
+        monkeypatch.setattr(app, "action_load", lambda: load_calls.append(fake_process.poll()))
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, *args, **kwargs: notifications.append(message),
+        )
+
+        app.action_restart()
+        await pilot.pause()
+
+        assert fake_process.stopped
+        assert load_calls == []
+        assert "A process is already running" not in notifications
+
+        fake_process.running = False
+        await _wait_for_condition(lambda: load_calls == [0], "restart did not load after exit")
+
+
+@pytest.mark.asyncio
 async def test_restart_stops_running_attached_server_and_starts_same_config(
     config_dir: Path,
 ) -> None:
@@ -2216,6 +2268,15 @@ async def _wait_for_stopped(app: VllmLoaderApp) -> None:
             return
         await asyncio.sleep(0.05)
     raise AssertionError("fake child did not stop")
+
+
+async def _wait_for_condition(condition, message: str) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if condition():
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(message)
 
 
 async def _wait_for_new_process(app: VllmLoaderApp, previous_pid: int) -> None:

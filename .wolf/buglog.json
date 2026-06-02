@@ -1404,6 +1404,18 @@
       "related_bugs": ["bug-011", "bug-042", "bug-113"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:21:50Z"
+    },
+    {
+      "id": "bug-118",
+      "timestamp": "2026-06-02T22:26:29Z",
+      "error_message": "Attached Restart could try to load before the old process had exited",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "`action_restart` called `action_stop()` and then `action_load()` synchronously. If the attached process still reported running after SIGINT, `action_load` refused with `A process is already running` instead of completing the spec's stop-then-start workflow.",
+      "fix": "Added a deterministic slow-stopping process regression and changed restart to stop the current process, then run a restart worker that waits for `proc.poll()` to become non-None before calling `action_load`.",
+      "tags": ["tui", "restart", "attached", "lifecycle", "race"],
+      "related_bugs": ["bug-110", "bug-117"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:26:29Z"
     }
   ]
 }
