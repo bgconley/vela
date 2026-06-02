@@ -1514,6 +1514,8 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
         server:
           host: 127.0.0.1
           port: {port}
+        vllm:
+          version_profile: older-request-logging-on
         launch:
           mode: detached
           runs_dir: {runs_dir}
@@ -1536,6 +1538,8 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
             assert launched_sidecar_path is not None
             assert launched_sidecar_path.parent == runs_dir
             assert launched_sidecar_path.exists()
+            sidecar = json.loads(launched_sidecar_path.read_text(encoding="utf-8"))
+            assert sidecar["vllm_version_profile"] == "older-request-logging-on"
     finally:
         await _cleanup_port(port)
 

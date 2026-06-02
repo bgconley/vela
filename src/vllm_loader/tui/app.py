@@ -1309,7 +1309,12 @@ class VllmLoaderApp(App):
         if cfg.launch.mode.value == "detached":
             try:
                 launch = await asyncio.to_thread(
-                    lambda: start_detached(cfg, build, secrets=secrets)
+                    lambda: start_detached(
+                        cfg,
+                        build,
+                        secrets=secrets,
+                        vllm_version_profile=cfg.vllm.version_profile,
+                    )
                 )
             except FileNotFoundError as exc:
                 self._handle_command_not_found(exc, build.argv[0])
