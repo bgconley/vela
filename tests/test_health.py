@@ -196,6 +196,39 @@ async def test_probe_loop_timeout_distinguishes_bound_but_unhealthy() -> None:
 
 
 @pytest.mark.asyncio
+async def test_probe_loop_emits_health_error_kind_before_timeout() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(401)
+
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "x",
+            "model": "org/model",
+            "launch": {"ready_timeout_seconds": 999, "health": {"interval_seconds": 0}},
+        }
+    )
+    events: list[HealthEvent] = []
+
+    await probe_loop(
+        cfg,
+        emit=events.append,
+        is_process_alive=lambda: calls < 2,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _delay: None,
+    )
+
+    assert [(event.error_kind, event.detail) for event in events] == [
+        (ErrorKind.HF_AUTH, "/v1/models requires auth; set server.api_key/VLLM_API_KEY")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_probe_loop_emits_degraded_and_recovery_after_ready() -> None:
     responses = [
         httpx.Response(200),

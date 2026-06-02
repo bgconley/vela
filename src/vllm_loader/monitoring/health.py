@@ -109,6 +109,9 @@ async def probe_loop(
             last_ready = True
         else:
             last_not_ready_detail = event.detail
+            if event.error_kind is not None:
+                emit(event)
+                return
             if was_ready:
                 if last_ready is not False:
                     emit(event)

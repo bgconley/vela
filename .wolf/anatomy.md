@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-02T07:24:31.000Z
-> Files: 45 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-02T21:22:00.000Z
+> Files: 113 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -34,6 +34,7 @@
 ## configs/
 
 - `fake-child.yaml` — local no-GPU fake child config for smoke tests (~115 tok)
+- `qwen3-32b-fp8-62001.yaml` — host-specific 620-01 real Qwen3 FP8 vLLM smoke config (~190 tok)
 - `real-vllm.example.yaml` — real vLLM GPU-host example config template (~160 tok)
 
 ## docs/
@@ -64,6 +65,7 @@
 - `command_builder.py` — pure command/env/preview builder with masking and profile-aware flags (~1200 tok)
 - `log_sink.py` — incremental UTF-8 decode/split/scrub/persist log sink (~900 tok)
 - `phases.py` — phase FSM and error classification state (~730 tok)
+- `preflight.py` — shared launch preflights for local model paths, TP/PP GPU count, and occupied ports (~500 tok)
 - `process_manager.py` — attached PTY launch plus detached supervisor launcher (~1100 tok)
 - `profile.py` — bundled vLLM profiles, flag maps, version/help probing, soft validation (~1600 tok)
 - `sidecar.py` — sidecar/manifest dataclasses, identity verification, system verification (~1150 tok)

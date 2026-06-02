@@ -1248,6 +1248,42 @@
       "related_bugs": ["bug-103"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:17:09Z"
+    },
+    {
+      "id": "bug-105",
+      "timestamp": "2026-06-02T21:21:50Z",
+      "error_message": "probe_loop suppressed HF_AUTH health events before READY until readiness timeout",
+      "file": "src/vllm_loader/monitoring/health.py",
+      "root_cause": "check_once returned HealthEvent(error_kind=HF_AUTH), but probe_loop treated all pre-READY non-ready events as retryable unless the timeout expired.",
+      "fix": "Emit HealthEvent values with error_kind immediately and return from the probe loop so CLI/TUI smoke paths surface the named auth failure instead of timing out.",
+      "tags": ["health", "hf-auth", "readiness", "cli", "tui"],
+      "related_bugs": ["bug-089"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:21:50Z"
+    },
+    {
+      "id": "bug-106",
+      "timestamp": "2026-06-02T21:21:50Z",
+      "error_message": "vLLM 0.19 server startup log did not advance the FSM to SERVER_STARTING",
+      "file": "src/vllm_loader/engine/profile.py",
+      "root_cause": "The phase pack recognized `Uvicorn running on ...`, but current vLLM emitted `Starting vLLM server on ...` in the real GPU smoke.",
+      "fix": "Extended the SERVER_STARTING phase rule to match both Uvicorn and current vLLM server-start log forms.",
+      "tags": ["phases", "vllm", "logs", "gpu", "fsm"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:21:50Z"
+    },
+    {
+      "id": "bug-107",
+      "timestamp": "2026-06-02T21:24:44Z",
+      "error_message": "Detached CLI integration test intermittently rejected a valid sidecar with `tracked command line does not match sidecar`",
+      "file": "src/vllm_loader/engine/sidecar.py",
+      "root_cause": "macOS may report a live Python script child with a different interpreter executable spelling, or with the interpreter omitted from cmdline, even though PID, create_time, PGID, script path, and script args still match.",
+      "fix": "After PID/create_time/PGID checks, accept command lines that are identical after removing a leading Python interpreter token, while preserving strict rejection for different script paths or args.",
+      "tags": ["sidecar", "identity", "macos", "python", "flake"],
+      "related_bugs": ["bug-003", "bug-099"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:24:44Z"
     }
   ]
 }

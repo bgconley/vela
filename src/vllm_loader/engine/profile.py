@@ -180,7 +180,10 @@ def _make_profile(version: str, request_logging: bool | None, flags: dict[str, s
         (re.compile(r"Starting to load model|Loading .*checkpoint", re.I), "LOADING_WEIGHTS"),
         (re.compile(r"GPU KV cache size|# GPU blocks|Maximum concurrency", re.I), "PROFILING_KV"),
         (re.compile(r"Capturing (?:CUDA )?graph", re.I), "CAPTURING_GRAPHS"),
-        (re.compile(r"Uvicorn running on (https?://\S+)", re.I), "SERVER_STARTING"),
+        (
+            re.compile(r"(?:Uvicorn running|Starting vLLM server) on (https?://\S+)", re.I),
+            "SERVER_STARTING",
+        ),
     )
     error_rules = (
         (re.compile(r"CUDA out of memory|OutOfMemoryError", re.I), "OOM"),

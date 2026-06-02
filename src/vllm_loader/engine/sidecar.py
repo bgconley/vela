@@ -102,7 +102,7 @@ def verify_sidecar_identity(
         raise TrackedProcessMismatch("tracked process group does not match sidecar")
     command_line_matches = False
     if child.cmdline and command_hash(child.cmdline) != sidecar.command_hash:
-        if child.cmdline != sidecar.command_argv:
+        if not _command_lines_equivalent(child.cmdline, sidecar.command_argv):
             raise TrackedProcessMismatch("tracked command line does not match sidecar")
         command_line_matches = True
     elif child.cmdline:
@@ -219,6 +219,21 @@ def discover_active_sidecars(runs_dirs: list[Path]) -> list[Path]:
 def command_hash(argv: list[str]) -> str:
     payload = "\0".join(argv).encode("utf-8")
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _command_lines_equivalent(live: list[str], recorded: list[str]) -> bool:
+    if live == recorded:
+        return True
+    return _python_script_tail(live) == _python_script_tail(recorded)
+
+
+def _python_script_tail(argv: list[str]) -> list[str]:
+    if len(argv) < 2:
+        return argv
+    executable_name = Path(argv[0]).name.lower()
+    if executable_name.startswith("python"):
+        return argv[1:]
+    return argv
 
 
 def _inode(path: Path) -> int:

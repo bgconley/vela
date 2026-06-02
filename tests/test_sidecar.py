@@ -68,6 +68,54 @@ def test_identity_accepts_executable_alias_when_command_line_matches(tmp_path: P
     assert verify_sidecar_identity(sidecar, child, supervisor)
 
 
+def test_identity_accepts_python_interpreter_alias_when_script_args_match(
+    tmp_path: Path,
+) -> None:
+    script = str(tmp_path / "fake_vllm_child.py")
+    sidecar = make_sidecar(tmp_path)
+    sidecar.command_argv = ["python3", script, "serve", "fake/model"]
+    sidecar.command_hash = command_hash(sidecar.command_argv)
+    child = ProcessIdentity(
+        pid=100,
+        create_time=123.0,
+        pgid=100,
+        executable="/opt/homebrew/Cellar/python@3.11/3.11.14/bin/python3.11",
+        cmdline=[
+            "/System/Library/Frameworks/Python.framework/Versions/3.11/Resources/"
+            "Python.app/Contents/MacOS/Python",
+            script,
+            "serve",
+            "fake/model",
+        ],
+    )
+    supervisor = ProcessIdentity(
+        pid=90, create_time=122.0, pgid=90, executable="/bin/python", cmdline=["python"]
+    )
+
+    assert verify_sidecar_identity(sidecar, child, supervisor)
+
+
+def test_identity_accepts_python_script_cmdline_when_interpreter_is_omitted(
+    tmp_path: Path,
+) -> None:
+    script = str(tmp_path / "fake_vllm_child.py")
+    sidecar = make_sidecar(tmp_path)
+    sidecar.command_argv = ["python3", script, "serve", "fake/model"]
+    sidecar.command_hash = command_hash(sidecar.command_argv)
+    child = ProcessIdentity(
+        pid=100,
+        create_time=123.0,
+        pgid=100,
+        executable="/opt/homebrew/Cellar/python@3.11/3.11.14/bin/python3.11",
+        cmdline=[script, "serve", "fake/model"],
+    )
+    supervisor = ProcessIdentity(
+        pid=90, create_time=122.0, pgid=90, executable="/bin/python", cmdline=["python"]
+    )
+
+    assert verify_sidecar_identity(sidecar, child, supervisor)
+
+
 def test_recycled_pid_create_time_mismatch_rejected(tmp_path: Path) -> None:
     sidecar = make_sidecar(tmp_path)
     child = ProcessIdentity(

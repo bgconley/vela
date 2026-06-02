@@ -61,6 +61,12 @@ def test_ready_comes_from_health_not_log_line_alone() -> None:
     assert fsm.phase is Phase.READY
 
 
+def test_current_vllm_server_start_log_advances_to_server_starting() -> None:
+    fsm = walk(["INFO Starting vLLM server on http://127.0.0.1:8017"])
+
+    assert fsm.phase is Phase.SERVER_STARTING
+
+
 def test_ready_degraded_ready_recovery() -> None:
     fsm = PhaseFSM(bundled_profile("current"))
     fsm.health_ready(["llama"])

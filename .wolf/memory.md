@@ -261,3 +261,13 @@
 | 17:10 | Caught real-preview flag loss on GPU node | 10.25.0.50:/tank/repos/lab-tui | remote preview initially dropped TP/port/maxlen because vLLM 0.19 summary help was treated as authoritative; bad smoke failed fast with one-GPU OOM and left no process | ~700 |
 | 17:11 | Hardened vLLM help flag collection | src/vllm_loader/engine/profile.py, tests/test_command_builder.py | collect serve --help=all first and ignore collected help unless --host/--port are present; remote preview restored all real Qwen flags | ~450 |
 | 17:16 | Ran real GPU validation end to end | local plus 10.25.0.50 | local Ruff, diff-check, pytest 152, fake-child smoke 64 passed; remote /tank/venvs/lab-tui Ruff, pytest 152, real qwen3-32b-fp8-62001 smoke READY at http://127.0.0.1:8017 models=qwen3-32b-fp8, shutdown clean, no GPU apps/port left | ~1200 |
+
+## Session: 2026-06-02 17:21
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 17:20 | Added health-loop and real vLLM phase regressions | tests/test_health.py, tests/test_phases.py | red: pre-READY HF_AUTH events were suppressed by probe_loop, and `Starting vLLM server on http://...` left PhaseFSM at IDLE | ~350 |
+| 17:21 | Emitted health error kinds immediately and matched current server-start logs | src/vllm_loader/monitoring/health.py, src/vllm_loader/engine/profile.py | `HealthEvent.error_kind` now surfaces before timeout; SERVER_STARTING matches both Uvicorn and vLLM 0.19 startup log forms | ~300 |
+| 17:21 | Ran focused verification | health/phase slices | focused red selectors passed, health+phase suite 21 passed, Ruff clean, diff whitespace clean | ~250 |
+| 17:24 | Hardened sidecar command-line identity against Python aliasing | tests/test_sidecar.py, src/vllm_loader/engine/sidecar.py | full pytest exposed intermittent command-line mismatch; red/green unit tests now accept Python interpreter spelling/omission only when script path and args match; detached CLI selector passed | ~450 |
+| 17:25 | Ran final local and GPU-node no-real validation | local and 10.25.0.50:/tank/repos/lab-tui | local json/Ruff/diff checks clean, pytest 156 passed, fake-child smoke 64 passed; remote /tank/venvs/lab-tui Ruff and pytest 156 passed with fake-child list/preview | ~850 |
