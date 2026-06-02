@@ -1979,6 +1979,42 @@ async def test_quit_while_attached_running_prompts_stop_or_cancel(config_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_quit_confirm_stop_waits_for_attached_process_exit(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class SlowStoppingProcess:
+        def __init__(self) -> None:
+            self.proc = self
+            self.pid = 12345
+            self.stopped = False
+            self.running = True
+
+        def poll(self) -> int | None:
+            return None if self.running else 0
+
+        def stop(self, *args, **kwargs) -> None:
+            self.stopped = True
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+    fake_process = SlowStoppingProcess()
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_process = fake_process
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        app.confirm_stop_running()
+        await pilot.pause()
+
+        assert fake_process.stopped
+        assert exit_calls == []
+
+        fake_process.running = False
+        await _wait_for_condition(lambda: exit_calls == [True], "quit did not exit after stop")
+
+
+@pytest.mark.asyncio
 async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 

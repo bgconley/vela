@@ -723,8 +723,21 @@ class VllmLoaderApp(App):
 
     def confirm_stop_running(self) -> None:
         if self.current_process and self.current_process.proc.poll() is None:
+            process = self.current_process
             self._mark_current_process_shutdown_intent()
-            self.current_process.stop(interrupt_timeout=2, terminate_timeout=2)
+            process.stop(interrupt_timeout=2, terminate_timeout=2)
+            self.run_worker(
+                self._exit_after_process_exit(process),
+                name="quit-stop",
+                group="quit",
+                exclusive=True,
+            )
+            return
+        self.exit()
+
+    async def _exit_after_process_exit(self, process: AttachedProcess) -> None:
+        while process.proc.poll() is None:
+            await asyncio.sleep(0.05)
         self.exit()
 
     def confirm_kill_running(self) -> None:

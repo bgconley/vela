@@ -1416,6 +1416,18 @@
       "related_bugs": ["bug-110", "bug-117"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:26:29Z"
+    },
+    {
+      "id": "bug-119",
+      "timestamp": "2026-06-02T22:31:25Z",
+      "error_message": "Quit confirmation Stop could exit the TUI before the attached process had stopped",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "`confirm_stop_running` signaled stop then called `exit()` synchronously, so a slow-stopping attached child could still be running as the TUI closed.",
+      "fix": "Added slow-stopping-process regression and changed confirm Stop to schedule a `quit-stop` worker that waits for `proc.poll()` to become non-None before calling `exit()`.",
+      "tags": ["tui", "quit", "attached", "lifecycle", "fr-8"],
+      "related_bugs": ["bug-118"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:31:25Z"
     }
   ]
 }
