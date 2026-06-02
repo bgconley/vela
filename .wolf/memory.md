@@ -218,3 +218,12 @@
 | 15:59 | Guarded model-list JSON parsing | src/vllm_loader/monitoring/health.py | malformed `/v1/models` now returns READY with empty models and invalid-JSON detail instead of crashing the probe | ~250 |
 | 15:59 | Logged malformed models health fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-087 records the readiness probe crash path | ~200 |
 | 16:00 | Ran verification after malformed models health fix | entire project | json valid, ruff clean, health tests 9 passed, pytest 134 passed, fake-child smoke 63 passed, no fake-child processes remained | ~850 |
+| 16:03 | Added unexpected /v1/models shape regression | tests/test_health.py | red: parsed JSON with string `data` raised `AttributeError` during model-name extraction | ~250 |
+| 16:03 | Hardened model-name extraction | src/vllm_loader/monitoring/health.py | model-list extraction now validates top-level object, `data` list, and item dicts before reading `id` values | ~300 |
+| 16:03 | Logged unexpected models shape fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-088 records the valid-JSON wrong-shape probe crash path | ~200 |
+
+## Session: 2026-06-02 16:05
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 16:06 | Ran verification after unexpected models shape fix | entire project | json valid, ruff clean, health tests 10 passed, pytest 135 passed, fake-child smoke 63 passed, no fake-child processes remained | ~900 |

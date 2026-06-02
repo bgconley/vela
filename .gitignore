@@ -20,6 +20,7 @@ build/
 runs/
 *.run.log
 *.smoke.log
+.wolf/hooks/_session.json
 
 # Editor noise
 .idea/

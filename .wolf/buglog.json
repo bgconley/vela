@@ -1044,6 +1044,18 @@
       "related_bugs": ["bug-084", "bug-085"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:59:07Z"
+    },
+    {
+      "id": "bug-088",
+      "timestamp": "2026-06-02T20:03:47Z",
+      "error_message": "Unexpected /v1/models JSON shape crashed the health probe",
+      "file": "src/vllm_loader/monitoring/health.py",
+      "root_cause": "After JSON parsing succeeded, `check_once` assumed the payload was an object with a list-valued `data` field containing objects, so valid JSON with a wrong shape raised `AttributeError` during model-name extraction.",
+      "fix": "Added a guarded model-name extractor that returns an advisory invalid-shape detail with READY and empty models instead of raising.",
+      "tags": ["health", "readiness", "models", "tui", "nfr-5"],
+      "related_bugs": ["bug-087"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T20:03:47Z"
     }
   ]
 }

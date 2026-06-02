@@ -65,6 +65,22 @@ async def test_malformed_models_response_does_not_crash_health_probe() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unexpected_models_payload_shape_does_not_crash_health_probe() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(200, json={"data": "served"})
+
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event.ready is True
+    assert event.models == []
+    assert "unexpected /v1/models response" in event.detail
+
+
+@pytest.mark.asyncio
 async def test_connection_refused_during_loading_is_not_ready_yet() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)

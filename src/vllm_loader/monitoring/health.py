@@ -70,7 +70,13 @@ async def check_once(
             return HealthEvent(
                 ready=True, detail="ready; /v1/models returned invalid JSON", models=[]
             )
-        names = [str(item.get("id")) for item in data.get("data", []) if item.get("id")]
+        names = _model_names_from_payload(data)
+        if names is None:
+            return HealthEvent(
+                ready=True,
+                detail="ready; unexpected /v1/models response shape",
+                models=[],
+            )
         return HealthEvent(ready=True, detail="ready", models=names)
 
 
@@ -125,3 +131,18 @@ def _timeout_detail(timeout_seconds: int, last_detail: str) -> str:
     else:
         cause = f"bound but unhealthy: {last_detail}"
     return f"readiness timeout after {timeout_seconds}s; {cause}"
+
+
+def _model_names_from_payload(data: object) -> list[str] | None:
+    if not isinstance(data, dict):
+        return None
+    items = data.get("data", [])
+    if not isinstance(items, list):
+        return None
+    names: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+        if item_id := item.get("id"):
+            names.append(str(item_id))
+    return names
