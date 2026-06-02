@@ -1600,7 +1600,12 @@ class VllmLoaderApp(App):
             await self._sample_gpu_panel_once()
 
     async def _sample_gpu_panel_once(self) -> None:
-        result = await asyncio.to_thread(self._gpu_sampler)
+        try:
+            result = await asyncio.to_thread(self._gpu_sampler)
+        except Exception as exc:
+            result = GpuPollResult(
+                [], note=f"GPU stats unavailable: {exc}", unavailable=True
+            )
         self._render_gpu_panel(result)
 
     def _render_gpu_panel(self, result: GpuPollResult) -> None:

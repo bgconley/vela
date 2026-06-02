@@ -1020,6 +1020,18 @@
       "related_bugs": ["bug-084"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:47:03Z"
+    },
+    {
+      "id": "bug-086",
+      "timestamp": "2026-06-02T19:54:04Z",
+      "error_message": "GPU sampler exceptions did not render unavailable details",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "`_sample_gpu_panel_once` let sampler exceptions become worker errors, so the GPU panel could remain on the generic placeholder instead of showing why stats were unavailable.",
+      "fix": "Caught sampler exceptions at the sampling boundary and rendered a `GpuPollResult` marked unavailable with the exception detail; added a focused smoke regression for the visible panel text.",
+      "tags": ["tui", "gpu", "monitoring", "worker", "fr-20", "nfr-5"],
+      "related_bugs": ["bug-085"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T19:54:04Z"
     }
   ]
 }

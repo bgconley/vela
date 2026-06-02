@@ -210,3 +210,7 @@
 | 15:47 | Added worker error warning backstop | src/vllm_loader/tui/app.py | optional health/GPU worker `ERROR` events now emit warning toasts, normalizing GPU worker groups to `gpu` | ~300 |
 | 15:47 | Logged optional monitor warning fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-085 records the silent non-crashing monitor gap | ~200 |
 | 15:50 | Ran verification after optional monitor warning fix | entire project | json valid, ruff clean, focused worker test passed, detached selector passed after transient suite timeout, pytest 132 passed, fake-child smoke 62 passed on rerun, no fake-child processes remained | ~900 |
+| 15:54 | Added GPU sampler exception regression | tests/test_tui_smoke.py | red: sampler exception updated neither the visible GPU panel detail nor the unavailable reason | ~300 |
+| 15:54 | Rendered GPU unavailable detail on sampler errors | src/vllm_loader/tui/app.py | `_sample_gpu_panel_once` now catches sampler exceptions and sends an unavailable `GpuPollResult` to the renderer | ~250 |
+| 15:54 | Logged GPU sampler unavailable fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-086 records the visible GPU placeholder/detail gap | ~200 |
+| 15:55 | Ran verification after GPU unavailable fix | entire project | json valid, ruff clean, focused GPU exception test passed, pytest 133 passed, fake-child smoke 63 passed, no fake-child processes remained | ~850 |

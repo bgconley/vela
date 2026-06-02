@@ -36,6 +36,7 @@
 - TUI GPU sampling must call the sampler via `asyncio.to_thread`; only `_render_gpu_panel` should mutate UI state on the Textual loop.
 - Detached reattach health probing is an optional monitor too; schedule `reattach-health` with `exit_on_error=False` so Textual worker failures do not crash the app.
 - Optional monitor worker errors should be surfaced through `on_worker_state_changed`; normalize current GPU worker groups to `gpu` and notify with warning severity.
+- GPU sampler exceptions should be converted to an unavailable `GpuPollResult` with detail before rendering, so the panel explains why stats are unavailable instead of staying generic.
 - NVML GPU samples should best-effort populate `mig_instance_id` from GPU instance and compute instance IDs; the TUI panel already renders this as `MIG ...` when present.
 - TUI classified log errors should render `fsm.error_kind` and `fsm.error_excerpt` into the banner with `ErrorKind`-specific suggestions, not only transition the phase to ERROR.
 - Detached tailed logs use their own `_tail_detached_log` path; when a tailed committed line classifies an error, render the same named `ErrorBanner` as attached `handle_log_record`.
@@ -109,6 +110,7 @@
 - [2026-06-02] Do not call the GPU sampler directly from Textual workers; NVML/nvidia-smi can block, so use `asyncio.to_thread` and render the result afterward.
 - [2026-06-02] Do not rely on Textual's default worker error behavior for detached reattach health probing; explicitly pass `exit_on_error=False`.
 - [2026-06-02] Do not make optional monitor workers non-crashing but silent; add an `on_worker_state_changed` warning backstop for GPU/health worker errors.
+- [2026-06-02] Do not let GPU sampler exceptions bypass `_render_gpu_panel`; catch them and render an unavailable detail string in the panel.
 - [2026-06-02] Do not ignore MIG identity fields in GPU sampling; capture GPU/compute instance IDs when pynvml exposes them.
 - [2026-06-02] Do not treat FR-13 pause as a flag-only toggle; wire it to `RichLog.auto_scroll`.
 - [2026-06-02] Do not coerce `HealthEvent.error_kind` into `timeout()` or raw detail text; preserve the specific kind such as `HF_AUTH` or `TIMED_OUT` in the TUI banner.

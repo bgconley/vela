@@ -656,6 +656,27 @@ async def test_gpu_sampler_runs_off_event_loop_thread(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_gpu_sampler_error_renders_unavailable_detail(config_dir: Path) -> None:
+    calls = 0
+
+    def sampler() -> GpuPollResult:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("nvml exploded")
+
+    app = VllmLoaderApp(configs_dir=config_dir, gpu_sampler=sampler, gpu_interval_seconds=60)
+
+    async with app.run_test() as pilot:
+        await _wait_for_gpu_text(app, "GPU stats unavailable: nvml exploded")
+        await pilot.pause()
+
+        assert calls >= 1
+        gpu_content = app.query_one("#gpu", Static).content
+        assert isinstance(gpu_content, Text)
+        assert "GPU stats unavailable: nvml exploded" in gpu_content.plain
+
+
+@pytest.mark.asyncio
 async def test_optional_monitor_worker_errors_notify_operator(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
