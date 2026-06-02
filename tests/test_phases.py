@@ -105,6 +105,20 @@ def test_error_classification_patterns() -> None:
         assert fsm.phase is Phase.ERROR
 
 
+def test_non_default_args_with_tensor_parallel_do_not_classify_as_mismatch() -> None:
+    fsm = walk(
+        [
+            (
+                "INFO [utils.py:233] non-default args: "
+                "{'tensor_parallel_size': 2, 'gpu_memory_utilization': 0.88}"
+            )
+        ]
+    )
+
+    assert fsm.error_kind is None
+    assert fsm.phase is Phase.IDLE
+
+
 def test_ready_comes_from_health_not_log_line_alone() -> None:
     fsm = walk(["INFO Uvicorn running on http://127.0.0.1:8000"])
 

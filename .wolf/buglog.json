@@ -1380,6 +1380,18 @@
       "related_bugs": ["bug-094", "bug-095", "bug-113"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:09:34Z"
+    },
+    {
+      "id": "bug-116",
+      "timestamp": "2026-06-02T22:13:35Z",
+      "error_message": "Normal vLLM `non-default args` output containing `tensor_parallel_size` was classified as TP_MISMATCH",
+      "file": "src/vllm_loader/engine/profile.py",
+      "root_cause": "The TP mismatch error rule matched any occurrence of `tensor_parallel`, `pipeline_parallel`, or `world_size`, so a normal vLLM startup argument echo won before health readiness could mark the server READY.",
+      "fix": "Added a regression for vLLM's `non-default args` line and narrowed the TP mismatch regex to actual mismatch/failure wording such as `world_size must`, invalid/exceed/greater language, or explicit TP mismatch.",
+      "tags": ["phases", "vllm", "tensor-parallel", "gpu", "smoke-tui"],
+      "related_bugs": ["bug-104", "bug-106", "bug-113"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:13:35Z"
     }
   ]
 }

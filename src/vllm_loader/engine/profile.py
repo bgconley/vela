@@ -197,7 +197,15 @@ def _make_profile(version: str, request_logging: bool | None, flags: dict[str, s
             "MODEL_NOT_FOUND",
         ),
         (
-            re.compile(r"tensor_parallel|pipeline_parallel|world_size|TP.*mismatch", re.I),
+            re.compile(
+                (
+                    r"world_size must|"
+                    r"(?:tensor|pipeline)_parallel(?:_size)?.*"
+                    r"(?:mismatch|invalid|must|exceed|greater)|"
+                    r"TP.*mismatch"
+                ),
+                re.I,
+            ),
             "TP_MISMATCH",
         ),
         (re.compile(r"GatedRepoError|Cannot access gated repo|401 Client Error", re.I), "HF_AUTH"),
