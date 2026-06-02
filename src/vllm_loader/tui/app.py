@@ -12,7 +12,7 @@ from pathlib import Path
 
 from rich.text import Text
 from textual import events
-from textual.app import App, ComposeResult, SystemCommand
+from textual.app import App, ComposeResult, ScreenStackError, SystemCommand
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.reactive import reactive
@@ -85,6 +85,7 @@ LEVEL_RAIL_STYLE = {
     "DEBUG": "#526a75",
 }
 
+WIDGET_MISSING_EXCEPTIONS = (NoMatches, ScreenStackError)
 SEARCH_HIGHLIGHT_STYLE = "black on yellow"
 PROGRESS_PERCENT_RE = re.compile(r"(?P<percent>\d{1,3}(?:\.\d+)?)%")
 LOADING_PHASES = {
@@ -837,13 +838,16 @@ class VllmLoaderApp(App):
 
     def _update_progress(self, text: str) -> None:
         self.progress_text = text
-        self.query_one("#progress-panel").display = True
-        self.query_one("#progress-label", Static).update(
-            Text(self._progress_label(text), style=f"bold {WARN}")
-        )
-        self.query_one("#progress-line").display = True
-        self.query_one("#progress-text", Static).update(Text(text, style=MUTED))
-        progress = self.query_one("#progress", ProgressBar)
+        try:
+            self.query_one("#progress-panel").display = True
+            self.query_one("#progress-label", Static).update(
+                Text(self._progress_label(text), style=f"bold {WARN}")
+            )
+            self.query_one("#progress-line").display = True
+            self.query_one("#progress-text", Static).update(Text(text, style=MUTED))
+            progress = self.query_one("#progress", ProgressBar)
+        except WIDGET_MISSING_EXCEPTIONS:
+            return
         match = PROGRESS_PERCENT_RE.search(text)
         if match is None:
             progress.update(total=None, progress=0)
@@ -859,7 +863,7 @@ class VllmLoaderApp(App):
             self.query_one("#progress-text", Static).update("")
             self.query_one("#progress", ProgressBar).update(total=None, progress=0)
             self.query_one("#progress-line").display = False
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
 
     def apply_log_filter(self, text: str) -> None:
@@ -887,6 +891,11 @@ class VllmLoaderApp(App):
         if self._log_flush_scheduled:
             return
         self._log_flush_scheduled = True
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._log_flush_scheduled = False
+            return
         self.set_timer(
             self._log_batch_interval_seconds,
             self._flush_log_batch,
@@ -901,7 +910,7 @@ class VllmLoaderApp(App):
         self._pending_log_writes = []
         try:
             log = self.query_one("#log", RichLog)
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
         for text, level in pending:
             log.write(self._make_log_text(text, level))
@@ -1079,7 +1088,7 @@ class VllmLoaderApp(App):
             self.query_one("#chrome-clock", Static).update(
                 datetime.now().strftime("%H:%M:%S")
             )
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
 
     def _render_active_model(self) -> str:
@@ -1097,7 +1106,7 @@ class VllmLoaderApp(App):
     def _refresh_log_controls(self) -> None:
         try:
             self.query_one("#log-controls", Static).update(self._render_log_controls())
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
 
     def _render_log_controls(self) -> Text:
@@ -1112,7 +1121,7 @@ class VllmLoaderApp(App):
     def _refresh_status_strip(self) -> None:
         try:
             self.query_one("#status-strip", Static).update(self._render_status_strip())
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
         self._refresh_sidebar_overlay()
 
@@ -1133,7 +1142,7 @@ class VllmLoaderApp(App):
             self.query_one("#sidebar-overlay", Static).update(
                 self._render_sidebar_overlay()
             )
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
 
     def _render_sidebar_overlay(self) -> Text:
@@ -1183,7 +1192,7 @@ class VllmLoaderApp(App):
             sidebar_overlay = self.query_one("#sidebar-overlay")
             gpu_panel = self.query_one("#gpu")
             log = self.query_one("#log", RichLog)
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             return
         sidebar.display = self.responsive_mode == "wide"
         sidebar_overlay.display = self.responsive_mode != "wide"
@@ -1448,15 +1457,18 @@ class VllmLoaderApp(App):
         self._track_phase_time(phase)
         self.phase = phase
         self.status_text = self._render_status(phase)
-        status = self.query_one("#status", Static)
-        self._apply_status_classes(status, phase)
-        status.update(self._render_status_badge(phase))
         timeline = self._render_phase_timeline()
         self.phase_timeline_text = timeline.plain
-        self.query_one("#phases", Static).update(timeline)
+        self._debug_event("phase.changed", phase=phase.value, status=self.status_text)
+        try:
+            status = self.query_one("#status", Static)
+            self._apply_status_classes(status, phase)
+            status.update(self._render_status_badge(phase))
+            self.query_one("#phases", Static).update(timeline)
+        except WIDGET_MISSING_EXCEPTIONS:
+            return
         self._refresh_sidebar_overlay()
         self._refresh_chrome()
-        self._debug_event("phase.changed", phase=phase.value, status=self.status_text)
 
     def _track_phase_time(self, phase: Phase) -> None:
         now = self._clock()
@@ -1620,7 +1632,10 @@ class VllmLoaderApp(App):
         self.error_text = text
         self.error_jump_text = jump_text
         render_style = style or f"bold {BAD}"
-        self.query_one("#error", Static).update(Text(text, style=render_style) if text else "")
+        try:
+            self.query_one("#error", Static).update(Text(text, style=render_style) if text else "")
+        except WIDGET_MISSING_EXCEPTIONS:
+            return
 
     def _set_error_banner(self, kind: ErrorKind) -> None:
         self._set_error_text(
@@ -1678,7 +1693,7 @@ class VllmLoaderApp(App):
     def _render_gpu_panel(self, result: GpuPollResult) -> None:
         try:
             gpu_panel = self.query_one("#gpu", Static)
-        except NoMatches:
+        except WIDGET_MISSING_EXCEPTIONS:
             gpu_panel = None
         if result.unavailable:
             self.gpu_panel_text = result.note

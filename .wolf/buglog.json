@@ -1368,6 +1368,18 @@
       "related_bugs": ["bug-113"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:02:50Z"
+    },
+    {
+      "id": "bug-115",
+      "timestamp": "2026-06-02T22:09:34Z",
+      "error_message": "Late Textual log messages during teardown could crash after widgets were unmounted",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "`_set_phase` and other UI refresh helpers assumed `query_one` could still find mounted widgets, and `_queue_log_write` assumed a running event loop for Textual timers. On the Linux GPU host, a queued `LogLineCommitted` arrived after the headless smoke app had started teardown.",
+      "fix": "Added a deterministic unmounted-message regression, broadened missing-widget guards to include `ScreenStackError`, preserved phase/error/progress/log state when widgets are absent, and skipped log flush timer scheduling when no event loop is running.",
+      "tags": ["tui", "textual", "teardown", "remote", "linux"],
+      "related_bugs": ["bug-094", "bug-095", "bug-113"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:09:34Z"
     }
   ]
 }

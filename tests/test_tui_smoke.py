@@ -674,6 +674,16 @@ async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None
         assert "OOM" in app.error_text
 
 
+def test_late_log_message_updates_state_when_widgets_are_unmounted(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    app.on_log_line_committed(LogLineCommitted("INFO Starting to load model", "INFO"))
+
+    assert app.phase is Phase.LOADING_WEIGHTS
+    assert app.status_text == "● LOADING_WEIGHTS"
+    assert app.log_lines == ["INFO Starting to load model"]
+
+
 @pytest.mark.asyncio
 async def test_gpu_panel_refreshes_periodically(config_dir: Path) -> None:
     results = [
