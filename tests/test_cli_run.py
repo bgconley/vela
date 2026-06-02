@@ -675,6 +675,73 @@ def test_detached_supervisor_rotates_log_and_updates_manifest(tmp_path: Path) ->
     assert "INFO rotation line 19" in combined_log
 
 
+def test_supervisor_keeps_manifest_active_log_consistent_when_rotation_manifest_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child_script = tmp_path / "emit_after_rotation_manifest_failure.py"
+    child_script.write_text(
+        "\n".join(
+            [
+                "import sys",
+                "import time",
+                "print('INFO ' + 'x' * 6000, flush=True)",
+                "time.sleep(0.05)",
+                "print('INFO rotation-manifest-failure final line', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    log_path = tmp_path / "run.log"
+    manifest_path = tmp_path / "run.manifest.json"
+    payload = {
+        "argv": [sys.executable, str(child_script)],
+        "env": {},
+        "cwd": str(tmp_path),
+        "manifest_path": str(manifest_path),
+        "sidecar_path": str(tmp_path / "run.json"),
+        "run_id": "rotation-manifest-fail-test",
+        "config_name": "rotation-manifest-fail-test",
+        "config_snapshot": None,
+        "vllm_version": None,
+        "vllm_version_profile": None,
+        "host": "127.0.0.1",
+        "port": 8765,
+        "served_model_names": [],
+        "exposure": "local",
+        "launch_mode": "detached",
+        "log_rotate_bytes": 120,
+    }
+    original_write_atomic = supervisor_module.Manifest.write_atomic
+    write_count = 0
+
+    def fail_rotation_manifest_write(self, path: Path) -> None:
+        nonlocal write_count
+        write_count += 1
+        if write_count > 1:
+            raise OSError("simulated rotation manifest failure")
+        original_write_atomic(self, path)
+
+    monkeypatch.setattr(
+        supervisor_module.Manifest,
+        "write_atomic",
+        fail_rotation_manifest_write,
+    )
+
+    returncode = run_supervisor(
+        payload["argv"],
+        {},
+        str(tmp_path),
+        log_path,
+        secrets=[],
+        payload=payload,
+    )
+
+    assert returncode == 0
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    active_log_text = Path(manifest["active_log"]["path"]).read_text(encoding="utf-8")
+    assert "INFO rotation-manifest-failure final line" in active_log_text
+
+
 def test_supervisor_drains_child_when_initial_log_open_fails(tmp_path: Path) -> None:
     child_script = tmp_path / "emit_output.py"
     child_script.write_text(

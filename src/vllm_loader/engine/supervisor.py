@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from copy import deepcopy
 from pathlib import Path
 
 import psutil
@@ -181,12 +182,16 @@ def _rotate_log_if_needed(
     try:
         if sink.path.stat().st_size <= rotate_bytes:
             return rotation_index
-        rotation_index += 1
-        next_path = _rotated_log_path(original_log_path, rotation_index)
+        next_index = rotation_index + 1
+        next_path = _rotated_log_path(original_log_path, next_index)
+        candidate = deepcopy(manifest)
+        _prepare_private_log(next_path)
+        candidate.rotate_to(next_path)
+        candidate.write_atomic(manifest_path)
         sink.rotate_to(next_path)
-        manifest.rotate_to(next_path)
-        manifest.write_atomic(manifest_path)
-        return rotation_index
+        manifest.active_log = candidate.active_log
+        manifest.rotated = candidate.rotated
+        return next_index
     except Exception:
         # Keep draining child pipes even if rotation or manifest persistence fails.
         return rotation_index
@@ -194,6 +199,15 @@ def _rotate_log_if_needed(
 
 def _rotated_log_path(original_log_path: Path, rotation_index: int) -> Path:
     return original_log_path.with_name(f"{original_log_path.name}.{rotation_index}")
+
+
+def _prepare_private_log(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
 
 
 def _safe_exe(proc: psutil.Process, *, fallback: str) -> str:
