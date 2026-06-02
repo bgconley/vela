@@ -22,6 +22,15 @@ scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
+Preferred real smoke target:
+
+```bash
+scripts/rsync_to_gpu.sh bgconley@10.25.0.51:/home/bgconley/repos/lab-tui
+VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
+  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
+  qwen36-27b-fp8-kvfp8-rp6000-blackbird
+```
+
 See `docs/gpu-workflow.md` for the full remote validation flow.
 
 Config discovery follows:

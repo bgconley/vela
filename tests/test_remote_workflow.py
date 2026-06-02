@@ -22,6 +22,10 @@ def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
 def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 
+    assert "qwen36-27b-fp8-kvfp8-rp6000-blackbird" in docs
+    assert "10.25.0.51" in docs
+    assert "RTX PRO 6000 Blackwell" in docs
+    assert "vLLM `0.20.2rc1.dev9+g01d4d1ad3`" in docs
     assert "v0.19.1rc1.dev119+gba4a78eb5" in docs
     assert "vLLM 0.19" in docs
     assert "vllm-loader smoke-tui" in docs

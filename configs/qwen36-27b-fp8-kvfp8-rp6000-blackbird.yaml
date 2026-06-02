@@ -1,0 +1,60 @@
+name: qwen36-27b-fp8-kvfp8-rp6000-blackbird
+description: Blackbird RTX PRO 6000 real TUI smoke config for Qwen/Qwen3.6-27B-FP8.
+model: Qwen/Qwen3.6-27B-FP8
+served_model_name: qwen36-27b-fp8-kvfp8-rp6000
+command:
+  entrypoint: serve
+  executable: ./scripts/blackbird_qwen36_vllm_foreground.sh
+engine:
+  gpu_memory_utilization: 0.97
+  max_model_len: 262144
+  dtype: auto
+  kv_cache_dtype: fp8
+  max_num_seqs: 16
+server:
+  host: 0.0.0.0
+  port: 18003
+  exposure: lan
+  api_key: EMPTY
+logging:
+  request_logging: false
+  suppress_access_log_for: [/health]
+env:
+  CONTAINER: qwen36-27b-fp8-kvfp8-rp6000-vllm-loader
+  HF_CACHE_ROOT: /home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache
+  ROOT: /home/bgconley/models/qwen36-27b-fp8-rp6000
+  PULL_IMAGE: "0"
+extra_args:
+  - --kv-cache-memory-bytes
+  - "64424509440"
+  - --max-num-batched-tokens
+  - "8192"
+  - --max-num-partial-prefills
+  - "1"
+  - --max-long-partial-prefills
+  - "1"
+  - --attention-backend
+  - FLASHINFER
+  - --trust-remote-code
+  - --language-model-only
+  - --enable-chunked-prefill
+  - --enable-prefix-caching
+  - --enable-auto-tool-choice
+  - --reasoning-parser
+  - qwen3
+  - --tool-call-parser
+  - qwen3_coder
+  - --limit-mm-per-prompt
+  - '{"image":0,"video":0}'
+  - --compilation-config
+  - '{"cudagraph_capture_sizes":[1,2,4,8,16],"cudagraph_num_of_warmups":1}'
+  - --cudagraph-metrics
+  - --disable-uvicorn-access-log
+launch:
+  mode: attached
+  ready_timeout_seconds: 1800
+  health:
+    interval_seconds: 2
+  runs_dir: /home/bgconley/models/qwen36-27b-fp8-rp6000/vllm-loader-runs
+vllm:
+  version_profile: "0.11"

@@ -62,7 +62,26 @@ Real vLLM validation with a named config already present in the synced
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
-On `620-01` (`10.25.0.50`), the checked-in real smoke config is:
+Preferred future real smoke target: `blackbird` (`10.25.0.51`) with the
+`RTX PRO 6000 Blackwell Max-Q` GPU and Qwen3.6 27B FP8:
+
+```bash
+scripts/rsync_to_gpu.sh bgconley@10.25.0.51:/home/bgconley/repos/lab-tui
+VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
+  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
+  qwen36-27b-fp8-kvfp8-rp6000-blackbird
+```
+
+That config uses a repo-local foreground Docker wrapper,
+`./scripts/blackbird_qwen36_vllm_foreground.sh`, to launch the pinned
+`vllm/vllm-openai` image for `Qwen/Qwen3.6-27B-FP8`, stream container logs into
+the TUI, and stop the container when the TUI Stop flow runs. The config serves
+`qwen36-27b-fp8-kvfp8-rp6000` on host port `18003` and probes localhost. It may
+stop conflicting Blackbird Qwen containers while active, because the RP6000 GPU
+cannot host the full test lane alongside another large model.
+
+Historical/fallback real smoke target: `620-01` (`10.25.0.50`) with Qwen3-32B
+FP8:
 
 ```bash
 scripts/run_remote_tests.sh bgconley@10.25.0.50 /tank/repos/lab-tui qwen3-32b-fp8-62001
@@ -86,12 +105,17 @@ VLLM_LOADER_REMOTE_TIMEOUT=2400 scripts/run_remote_tests.sh USER@GPU_HOST /tank/
 
 ## 3. Tested vLLM surface
 
-The current checked-in real smoke lane was verified on `620-01` with vLLM
-`v0.19.1rc1.dev119+gba4a78eb5` from `/tank/triton/venv-vllm/bin/vllm`.
-Treat this as the tested vLLM 0.19 lab surface, not a promise that older or
-newer vLLM builds emit the same flags and log strings. When bumping the lab
-vLLM build, rerun the real smoke and add or adjust recorded log fixtures and
-`VllmProfile` rules for any changed startup, download, readiness, or error text.
+The preferred Blackbird lane is based on the validated Qwen3.6 27B FP8 Docker
+stack from `10.25.0.51`: vLLM `0.20.2rc1.dev9+g01d4d1ad3`, Transformers `5.7.0`,
+Torch `2.11.0+cu130`, FP8 KV, FlashInfer attention, and Cutlass FP8 GEMM.
+
+The fallback 620-01 lane covers the tested vLLM 0.19 lab surface and was
+verified with vLLM
+`v0.19.1rc1.dev119+gba4a78eb5` from `/tank/triton/venv-vllm/bin/vllm`. Treat
+these as the tested lab surfaces, not a promise that older or newer vLLM builds
+emit the same flags and log strings. When bumping a lab vLLM build, rerun the
+real smoke and add or adjust recorded log fixtures and `VllmProfile` rules for
+any changed startup, download, readiness, or error text.
 
 ## 4. Browser access through Textual
 
