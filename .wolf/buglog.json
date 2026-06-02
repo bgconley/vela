@@ -1344,6 +1344,18 @@
       "related_bugs": ["bug-005", "bug-110"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:54:41Z"
+    },
+    {
+      "id": "bug-113",
+      "timestamp": "2026-06-02T22:01:08Z",
+      "error_message": "GPU validation could smoke the engine without exercising the actual Textual Load/Stop workflow",
+      "file": "src/vllm_loader/cli.py",
+      "root_cause": "The existing `smoke` command launched the engine directly, so remote validation bypassed VllmLoaderApp selection, phase handling, readiness state, and stop cleanup.",
+      "fix": "Added `vllm-loader smoke-tui`, which mounts the Textual app in headless `run_test`, selects the named config, calls `action_load`, waits for READY, prints the discovered URL/models, calls `action_stop`, and waits for the child process to exit.",
+      "tags": ["cli", "tui", "textual", "gpu", "smoke"],
+      "related_bugs": ["bug-100", "bug-103", "bug-112"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:01:08Z"
     }
   ]
 }

@@ -359,6 +359,52 @@ async def test_cli_smoke_exits_after_ready_and_stops_attached_child(
     await _wait_for_health(port, expected=False)
 
 
+@pytest.mark.asyncio
+async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake-tui.yaml",
+        f"""
+        name: fake-tui
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          ready_timeout_seconds: 15
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "vllm_loader.cli",
+            "smoke-tui",
+            "fake-tui",
+            "--configs-dir",
+            str(config_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=20)
+        stdout = stdout_b.decode()
+        stderr = stderr_b.decode()
+
+        assert proc.returncode == 0, stderr
+        assert f"READY http://127.0.0.1:{port} models=fake-model" in stdout
+        assert "Traceback" not in stderr
+        await _wait_for_health(port, expected=False)
+    finally:
+        await _cleanup_port(port)
+
+
 @pytest.mark.parametrize("command", ["preview", "run"])
 def test_cli_reports_unknown_config_name_without_traceback(config_dir: Path, command: str) -> None:
     write_yaml(

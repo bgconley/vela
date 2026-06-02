@@ -10,6 +10,7 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
+from vllm_loader.engine.phases import Phase
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
 from vllm_loader.engine.sidecar import stop_sidecar_from_system, verify_sidecar_from_system
@@ -143,6 +144,18 @@ def smoke_config(
     raise typer.Exit(asyncio.run(_smoke_config_cli(cfg, result)))
 
 
+@app.command("smoke-tui")
+def smoke_tui_config(
+    name: str,
+    configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
+) -> None:
+    registry = load_registry(configs_dir)
+    cfg = _config_by_name_or_exit(registry, name)
+    result = _build_command_or_exit(cfg)
+    _launch_preflight_or_exit(cfg, result.cwd)
+    raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir)))
+
+
 def _build_command_or_exit(cfg):
     try:
         return build_command(cfg, select_profile_for_config(cfg))
@@ -221,6 +234,61 @@ async def _smoke_config_cli(cfg, result) -> int:
     if cfg.launch.mode.value == "detached":
         return await _smoke_detached_cli(cfg, result)
     return await _smoke_attached_cli(cfg, result)
+
+
+async def _smoke_tui_config_cli(name: str, configs_dir: Path | None) -> int:
+    tui = VllmLoaderApp(configs_dir=configs_dir)
+    try:
+        async with tui.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            try:
+                tui.select_config(name)
+            except KeyError:
+                typer.echo(f"ERROR: Unknown config: {name}", err=True)
+                return 2
+            tui.action_load()
+            cfg = tui.current_config
+            timeout = (cfg.launch.ready_timeout_seconds if cfg is not None else 60) + 10
+            if not await _wait_for_tui_phase(tui, Phase.READY, timeout=timeout):
+                detail = tui.error_text or tui.health_detail or tui.status_text
+                typer.echo(f"ERROR: TUI smoke did not reach READY: {detail}", err=True)
+                tui.action_stop()
+                await _wait_for_tui_stopped(tui, timeout=10)
+                return 2
+            url = tui.ready_url or (_server_url(tui.current_config) if tui.current_config else "")
+            models = ",".join(tui.served_models)
+            suffix = f" models={models}" if models else ""
+            typer.echo(f"READY {url}{suffix}")
+            tui.action_stop()
+            if not await _wait_for_tui_stopped(tui, timeout=10):
+                typer.echo("ERROR: TUI smoke server did not stop cleanly", err=True)
+                return 2
+            return 0
+    finally:
+        if tui.current_process and tui.current_process.proc.poll() is None:
+            tui._mark_current_process_shutdown_intent()
+            tui.current_process.stop(interrupt_timeout=2, terminate_timeout=2)
+            await _wait_for_tui_stopped(tui, timeout=10)
+
+
+async def _wait_for_tui_phase(tui: VllmLoaderApp, phase: Phase, *, timeout: float) -> bool:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if tui.phase is phase:
+            return True
+        if tui.phase in {Phase.ERROR, Phase.STOPPED}:
+            return False
+        await asyncio.sleep(0.05)
+    return False
+
+
+async def _wait_for_tui_stopped(tui: VllmLoaderApp, *, timeout: float) -> bool:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if tui.current_process is None or tui.current_process.proc.poll() is not None:
+            return True
+        await asyncio.sleep(0.05)
+    return False
 
 
 async def _smoke_attached_cli(cfg, result) -> int:
