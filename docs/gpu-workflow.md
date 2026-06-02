@@ -62,6 +62,18 @@ Real vLLM validation with a named config already present in the synced
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
+On `620-01` (`10.25.0.50`), the checked-in real smoke config is:
+
+```bash
+scripts/run_remote_tests.sh bgconley@10.25.0.50 /tank/repos/lab-tui qwen3-32b-fp8-62001
+```
+
+That config uses `/tank/triton/venv-vllm/bin/vllm` directly and serves
+`/tank/trt/models/Qwen3-32B-FP8` on `127.0.0.1:8017` with two visible GPUs.
+The remote validation venv does not install vLLM, so the diagnostic line may
+say `vllm not found on PATH`; the real config preview/smoke still validates the
+absolute lab vLLM executable path.
+
 The real run uses `vllm-loader smoke`: it launches the config, waits for READY
 via `/health` and `/v1/models`, prints the READY URL/model names, then stops the
 server. It is still wrapped in `timeout` as a hard guard. Override the limit with:

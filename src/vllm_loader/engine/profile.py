@@ -124,7 +124,7 @@ def _looks_like_vllm_executable(executable: str) -> bool:
 
 def _with_collected_help_flags(profile: VllmProfile, executable: str) -> VllmProfile:
     help_flags = frozenset(HELP_FLAG_RE.findall(collect_serve_help(executable)))
-    if not help_flags:
+    if not help_flags or not {"--host", "--port"}.issubset(help_flags):
         return profile
     return replace(
         profile,
@@ -153,13 +153,20 @@ def detect_vllm_version(executable: str = "vllm") -> str | None:
 def collect_serve_help(executable: str = "vllm") -> str:
     if which(executable) is None:
         return ""
-    try:
-        proc = subprocess.run(
-            [executable, "serve", "--help"], capture_output=True, text=True, timeout=8, check=False
-        )
-    except Exception:
-        return ""
-    return (proc.stdout or "") + (proc.stderr or "")
+    for args, timeout in (
+        ([executable, "serve", "--help=all"], 20),
+        ([executable, "serve", "--help"], 8),
+    ):
+        try:
+            proc = subprocess.run(
+                args, capture_output=True, text=True, timeout=timeout, check=False
+            )
+        except Exception:
+            continue
+        text = (proc.stdout or "") + (proc.stderr or "")
+        if text:
+            return text
+    return ""
 
 
 def _make_profile(version: str, request_logging: bool | None, flags: dict[str, str]) -> VllmProfile:

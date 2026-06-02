@@ -1,0 +1,32 @@
+name: qwen3-32b-fp8-62001
+description: 620-01 real vLLM smoke config for /tank/trt/models/Qwen3-32B-FP8.
+model: /tank/trt/models/Qwen3-32B-FP8
+served_model_name: qwen3-32b-fp8
+command:
+  entrypoint: serve
+  executable: /tank/triton/venv-vllm/bin/vllm
+engine:
+  tensor_parallel_size: 2
+  gpu_memory_utilization: 0.88
+  max_model_len: 4096
+  dtype: auto
+  kv_cache_dtype: auto
+  enforce_eager: true
+  max_num_seqs: 8
+server:
+  host: 127.0.0.1
+  port: 8017
+  exposure: local
+logging:
+  request_logging: false
+  suppress_access_log_for: [/health]
+env:
+  CUDA_VISIBLE_DEVICES: "0,1"
+launch:
+  mode: attached
+  ready_timeout_seconds: 1800
+  health:
+    interval_seconds: 2
+  runs_dir: /tank/repos/lab-tui/runs
+vllm:
+  version_profile: "0.11"

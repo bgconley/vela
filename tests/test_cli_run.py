@@ -154,6 +154,169 @@ def test_cli_run_reports_missing_executable_without_traceback(
     assert "Traceback" not in proc.stderr
 
 
+@pytest.mark.parametrize("command", ["run", "smoke"])
+def test_cli_launch_preflight_reports_missing_local_model_without_traceback(
+    config_dir: Path, tmp_path: Path, command: str
+) -> None:
+    missing_model = tmp_path / "missing-model"
+    marker = tmp_path / "should-not-launch"
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "from pathlib import Path",
+                f"Path({str(marker)!r}).write_text('launched')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "missing-model.yaml",
+        f"""
+        name: missing-model
+        model: {missing_model}
+        command:
+          entrypoint: serve
+          executable: {child}
+        """,
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vllm_loader.cli",
+            command,
+            "missing-model",
+            "--configs-dir",
+            str(config_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert proc.returncode == 2
+    assert "ERROR MODEL_NOT_FOUND:" in proc.stderr
+    assert str(missing_model) in proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("command", ["run", "smoke"])
+def test_cli_launch_preflight_reports_tensor_parallel_mismatch_without_traceback(
+    config_dir: Path, tmp_path: Path, command: str
+) -> None:
+    marker = tmp_path / "should-not-launch"
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "from pathlib import Path",
+                f"Path({str(marker)!r}).write_text('launched')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "tp-mismatch.yaml",
+        f"""
+        name: tp-mismatch
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        engine:
+          tensor_parallel_size: 2
+        env:
+          CUDA_VISIBLE_DEVICES: "0"
+        """,
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vllm_loader.cli",
+            command,
+            "tp-mismatch",
+            "--configs-dir",
+            str(config_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert proc.returncode == 2
+    assert "ERROR TP_MISMATCH:" in proc.stderr
+    assert "Configured world size 2" in proc.stderr
+    assert "CUDA_VISIBLE_DEVICES=0" in proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("command", ["run", "smoke"])
+def test_cli_launch_preflight_reports_occupied_port_without_traceback(
+    config_dir: Path, tmp_path: Path, command: str
+) -> None:
+    marker = tmp_path / "should-not-launch"
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "from pathlib import Path",
+                f"Path({str(marker)!r}).write_text('launched')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = int(listener.getsockname()[1])
+        write_yaml(
+            config_dir / "port-in-use.yaml",
+            f"""
+            name: port-in-use
+            model: fake/model
+            command:
+              entrypoint: serve
+              executable: {child}
+            server:
+              host: 127.0.0.1
+              port: {port}
+            """,
+        )
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "vllm_loader.cli",
+                command,
+                "port-in-use",
+                "--configs-dir",
+                str(config_dir),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert proc.returncode == 2
+    assert "ERROR PORT_IN_USE:" in proc.stderr
+    assert str(port) in proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert not marker.exists()
+
+
 @pytest.mark.asyncio
 async def test_cli_smoke_exits_after_ready_and_stops_attached_child(
     config_dir: Path,

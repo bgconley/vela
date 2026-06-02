@@ -10,6 +10,7 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
+from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
 from vllm_loader.engine.sidecar import stop_sidecar_from_system, verify_sidecar_from_system
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
@@ -108,6 +109,7 @@ def run_config(
         typer.echo(result.preview)
         _echo_command_warnings(result)
         return
+    _launch_preflight_or_exit(cfg, result.cwd)
     if cfg.launch.mode.value == "detached":
         from vllm_loader.engine.process_manager import start_detached
 
@@ -137,6 +139,7 @@ def smoke_config(
     registry = load_registry(configs_dir)
     cfg = _config_by_name_or_exit(registry, name)
     result = _build_command_or_exit(cfg)
+    _launch_preflight_or_exit(cfg, result.cwd)
     raise typer.Exit(asyncio.run(_smoke_config_cli(cfg, result)))
 
 
@@ -151,6 +154,14 @@ def _build_command_or_exit(cfg):
 def _echo_command_warnings(result) -> None:
     for warning in result.warnings:
         typer.echo(f"WARNING: {warning}", err=True)
+
+
+def _launch_preflight_or_exit(cfg, cwd: Path) -> None:
+    failure = check_launch_preflight(cfg, cwd=cwd)
+    if failure is None:
+        return
+    typer.echo(f"ERROR {failure.kind.value}: {failure.detail}", err=True)
+    raise typer.Exit(2)
 
 
 def _config_by_name_or_exit(registry, name: str):

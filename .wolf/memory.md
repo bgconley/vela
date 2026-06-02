@@ -250,3 +250,14 @@
 | 16:56 | Fixed remote validation PATH escape | scripts/run_remote_tests.sh, tests/test_remote_workflow.py, .wolf/buglog.json, .wolf/cerebrum.md | remote pytest failure showed `vllm-loader` missing and fake child escaping venv; runner now exports venv bin on PATH; bugs-100..102 recorded | ~650 |
 | 16:56 | Ran GPU-node no-real-config validation | 10.25.0.50:/tank/repos/lab-tui, /tank/venvs/lab-tui | rsync to ZFS repo succeeded; remote install used ZFS venv, GPU sampling saw 2 RTX PRO 4000 Blackwell GPUs, Ruff passed, pytest 145 passed, list/preview succeeded | ~850 |
 | 16:56 | Ran final local verification for message-flow and remote-lane slice | entire project | buglog JSON valid, Ruff clean, git diff whitespace clean, local pytest 145 passed, fake-child smoke 64 passed | ~900 |
+
+## Session: 2026-06-02 17:17
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 17:03 | Added CLI launch-preflight regressions | tests/test_cli_run.py | red: CLI run/smoke did not reject missing local model paths, TP world-size mismatches, or occupied ports before child launch | ~500 |
+| 17:05 | Shared TUI launch preflights with CLI | src/vllm_loader/engine/preflight.py, src/vllm_loader/cli.py, src/vllm_loader/tui/app.py | CLI run/smoke now exit 2 with MODEL_NOT_FOUND, TP_MISMATCH, or PORT_IN_USE before spawning; TUI uses same helper logic | ~600 |
+| 17:07 | Added 620-01 real Qwen config | configs/qwen3-32b-fp8-62001.yaml | config targets /tank/trt/models/Qwen3-32B-FP8 through /tank/triton/venv-vllm/bin/vllm with TP2, port 8017, max_model_len 4096, eager mode, and /tank/repos/lab-tui/runs | ~300 |
+| 17:10 | Caught real-preview flag loss on GPU node | 10.25.0.50:/tank/repos/lab-tui | remote preview initially dropped TP/port/maxlen because vLLM 0.19 summary help was treated as authoritative; bad smoke failed fast with one-GPU OOM and left no process | ~700 |
+| 17:11 | Hardened vLLM help flag collection | src/vllm_loader/engine/profile.py, tests/test_command_builder.py | collect serve --help=all first and ignore collected help unless --host/--port are present; remote preview restored all real Qwen flags | ~450 |
+| 17:16 | Ran real GPU validation end to end | local plus 10.25.0.50 | local Ruff, diff-check, pytest 152, fake-child smoke 64 passed; remote /tank/venvs/lab-tui Ruff, pytest 152, real qwen3-32b-fp8-62001 smoke READY at http://127.0.0.1:8017 models=qwen3-32b-fp8, shutdown clean, no GPU apps/port left | ~1200 |

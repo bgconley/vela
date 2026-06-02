@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import errno
 import json
 import re
 import signal
-import socket
 import tempfile
 import time
 from collections.abc import Callable, Iterable
@@ -24,9 +22,14 @@ from textual.worker import Worker, WorkerState
 
 from vllm_loader.config.loader import ConfigRegistry, load_registry
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.engine.command_builder import build_command, is_local_model_reference
+from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
+from vllm_loader.engine.preflight import (
+    missing_local_model_path,
+    occupied_port_detail,
+    parallel_world_size_mismatch,
+)
 from vllm_loader.engine.process_manager import AttachedProcess, start_attached, start_detached
 from vllm_loader.engine.profile import (
     VllmProfileError,
@@ -57,7 +60,6 @@ from vllm_loader.messages import (
 from vllm_loader.monitoring.gpu import (
     GpuPollResult,
     GpuSample,
-    parse_cuda_visible_devices,
     sample_gpus,
 )
 from vllm_loader.monitoring.health import HealthEvent, probe_loop
@@ -1288,14 +1290,7 @@ class VllmLoaderApp(App):
         self._set_phase(self.fsm.phase)
 
     def _missing_local_model_path(self, cfg: ModelConfig, cwd: Path) -> Path | None:
-        if not is_local_model_reference(cfg.model, cwd=cwd):
-            return None
-        candidate = Path(cfg.model).expanduser()
-        if not candidate.is_absolute():
-            candidate = cwd / candidate
-        if candidate.exists():
-            return None
-        return candidate
+        return missing_local_model_path(cfg, cwd=cwd)
 
     def _handle_model_not_found(self, model_path: Path) -> None:
         self.fsm.health_error(
@@ -1306,22 +1301,7 @@ class VllmLoaderApp(App):
         self._set_phase(self.fsm.phase)
 
     def _parallel_world_size_mismatch(self, cfg: ModelConfig) -> str | None:
-        visible = parse_cuda_visible_devices(cfg.env.get("CUDA_VISIBLE_DEVICES"))
-        visible_count = len(visible.numeric) + len(visible.uuids)
-        if visible_count == 0:
-            return None
-        tensor_parallel = cfg.engine.tensor_parallel_size or 1
-        pipeline_parallel = cfg.engine.pipeline_parallel_size or 1
-        world_size = tensor_parallel * pipeline_parallel
-        if world_size <= visible_count:
-            return None
-        gpu_word = "GPU" if visible_count == 1 else "GPUs"
-        return (
-            f"Configured world size {world_size} "
-            f"(tensor_parallel_size={tensor_parallel}, "
-            f"pipeline_parallel_size={pipeline_parallel}) exceeds "
-            f"{visible_count} visible {gpu_word} from CUDA_VISIBLE_DEVICES={visible.raw}."
-        )
+        return parallel_world_size_mismatch(cfg)
 
     def _handle_tp_mismatch(self, detail: str) -> None:
         self.fsm.health_error(ErrorKind.TP_MISMATCH, detail)
@@ -1329,15 +1309,7 @@ class VllmLoaderApp(App):
         self._set_phase(self.fsm.phase)
 
     def _occupied_port_detail(self, cfg: ModelConfig) -> str | None:
-        family = socket.AF_INET6 if ":" in cfg.server.host else socket.AF_INET
-        try:
-            with socket.socket(family) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind((cfg.server.host, cfg.server.port))
-        except OSError as exc:
-            if exc.errno == errno.EADDRINUSE:
-                return f"Port {cfg.server.port} is already in use on {cfg.server.host}."
-        return None
+        return occupied_port_detail(cfg)
 
     async def _occupied_port_detail_after_grace(self, cfg: ModelConfig) -> str | None:
         detail = self._occupied_port_detail(cfg)

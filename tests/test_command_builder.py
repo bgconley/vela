@@ -138,6 +138,30 @@ def test_select_profile_hard_gates_require_flags_against_collected_help(
         selected.soft_validate(model_cfg)
 
 
+def test_select_profile_ignores_summary_only_help_that_omits_serve_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vllm_loader.engine import profile as profile_module
+
+    monkeypatch.setattr(
+        profile_module,
+        "detect_vllm_version",
+        lambda executable="vllm": "0.19.1",
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "collect_serve_help",
+        lambda executable="vllm": "usage: vllm serve [-h]\noptions:\n  -h, --help\n",
+    )
+
+    selected = profile_module.select_profile("0.11", executable="vllm")
+    result = build_command(cfg({"server": {"port": 8017}}), selected)
+
+    assert "--host" in result.argv
+    assert "--port" in result.argv
+    assert "--disable-log-requests" in selected.known_flags
+
+
 def test_targeted_access_log_suppression_only_when_profile_supports_it() -> None:
     model_cfg = cfg({"logging": {"suppress_access_log_for": ["/health", "/metrics"]}})
     current = build_command(model_cfg, bundled_profile("current"))

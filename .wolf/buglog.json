@@ -1224,6 +1224,30 @@
       "related_bugs": ["bug-101"],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:56:23Z"
+    },
+    {
+      "id": "bug-103",
+      "timestamp": "2026-06-02T21:17:09Z",
+      "error_message": "CLI run/smoke could launch bad real configs that the TUI preflight already rejected",
+      "file": "src/vllm_loader/cli.py",
+      "root_cause": "Missing local model, tensor-parallel/GPU-count, and occupied-port checks lived only on VllmLoaderApp, while the remote GPU workflow uses CLI run/smoke.",
+      "fix": "Moved those checks into engine/preflight.py, kept the TUI wrappers aligned, and made CLI run/smoke exit 2 with canonical MODEL_NOT_FOUND, TP_MISMATCH, or PORT_IN_USE before spawning a child.",
+      "tags": ["cli", "preflight", "gpu", "remote", "safety"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:17:09Z"
+    },
+    {
+      "id": "bug-104",
+      "timestamp": "2026-06-02T21:17:09Z",
+      "error_message": "Real Qwen smoke preview dropped all serve flags and vLLM launched with tensor_parallel_size=1, port 8000, and max_seq_len 40960",
+      "file": "src/vllm_loader/engine/profile.py",
+      "root_cause": "vLLM 0.19's summary `serve --help` output contained only generic help flags; the profile collector treated that non-empty set as authoritative and filtered out every common serve flag.",
+      "fix": "Collect `vllm serve --help=all` first and ignore collected help unless it includes the core `--host` and `--port` serve flags, preserving the bundled profile when help is summary-only.",
+      "tags": ["profile", "vllm", "remote", "gpu", "help-flags"],
+      "related_bugs": ["bug-103"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:17:09Z"
     }
   ]
 }
