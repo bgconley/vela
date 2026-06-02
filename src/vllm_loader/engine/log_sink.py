@@ -21,6 +21,20 @@ class LogRecord:
 
 TOKEN_RE = re.compile(r"\bsk-\S+")
 BEARER_RE = re.compile(r"Authorization:\s*Bearer\s+\S+", re.IGNORECASE)
+ANSI_CONTROL_RE = re.compile(
+    r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x1b]*(?:\x07|\x1b\\))"
+)
+LEVEL_RE = re.compile(
+    r"""
+    ^\s*
+    (?:\([^)]*pid=\d+\)\s*)?
+    (?:
+        \d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:,\d+)?\s*[-:]\s*
+    )?
+    (CRITICAL|ERROR|WARNING|WARN|INFO|DEBUG)\b
+    """,
+    re.VERBOSE,
+)
 
 
 class LogSink:
@@ -103,7 +117,7 @@ class LogSink:
         self._emit(LogRecord("committed", text, level=level_for_line(text)))
 
     def scrub(self, text: str) -> str:
-        scrubbed = text
+        scrubbed = strip_ansi_controls(text)
         for secret in self._secrets:
             scrubbed = scrubbed.replace(secret, "••••")
         scrubbed = BEARER_RE.sub("Authorization: Bearer ••••", scrubbed)
@@ -111,8 +125,12 @@ class LogSink:
         return scrubbed
 
 
+def strip_ansi_controls(text: str) -> str:
+    return ANSI_CONTROL_RE.sub("", text)
+
+
 def level_for_line(text: str) -> str | None:
-    match = re.match(r"\s*(CRITICAL|ERROR|WARNING|WARN|INFO|DEBUG)\b", text)
+    match = LEVEL_RE.match(strip_ansi_controls(text))
     if not match:
         return None
     level = match.group(1)

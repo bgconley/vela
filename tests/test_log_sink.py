@@ -102,6 +102,31 @@ def test_generic_sk_token_scrubbing_masks_non_whitespace_suffix(tmp_path: Path) 
     assert "INFO leaked •••• in output" in joined
 
 
+def test_ansi_colored_vllm_line_is_sanitized_and_classified(tmp_path: Path) -> None:
+    path = tmp_path / "run.log"
+    records: list[tuple[str, str | None]] = []
+    sink = LogSink(
+        path,
+        secrets=[],
+        emit=lambda record: records.append((record.text, record.level)),
+    )
+
+    sink.feed(
+        b"\x1b[0;36m(APIServer pid=395468)\x1b[0;0m "
+        b"\x1b[32mINFO\x1b[0m:     Started server process "
+        b"[\x1b[36m395468\x1b[0m]\n"
+    )
+    sink.close()
+
+    durable_text = path.read_text(encoding="utf-8")
+    assert "\x1b" not in records[0][0]
+    assert "\x1b" not in durable_text
+    assert records == [
+        ("(APIServer pid=395468) INFO:     Started server process [395468]", "INFO")
+    ]
+    assert durable_text == "(APIServer pid=395468) INFO:     Started server process [395468]\n"
+
+
 def test_durable_file_mode_is_0600(tmp_path: Path) -> None:
     path = tmp_path / "run.log"
     sink = LogSink(path, secrets=[])
