@@ -1332,6 +1332,18 @@
       "related_bugs": ["bug-108"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:47:37Z"
+    },
+    {
+      "id": "bug-112",
+      "timestamp": "2026-06-02T21:54:41Z",
+      "error_message": "Successful Stop after detached reattach left local tail and health monitor workers running",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "`action_detach` cancelled detached tail/health workers, but the shared destructive sidecar signal path only cleared `reattached_sidecar_path` and set STOPPED after a successful stop/kill.",
+      "fix": "Cancel the `tail` and `health` worker groups in `_signal_reattached_sidecar` after the sidecar signal succeeds, before clearing the attachment state.",
+      "tags": ["tui", "detached", "reattach", "workers", "lifecycle"],
+      "related_bugs": ["bug-005", "bug-110"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:54:41Z"
     }
   ]
 }

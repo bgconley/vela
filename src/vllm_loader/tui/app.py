@@ -673,6 +673,8 @@ class VllmLoaderApp(App):
         except Exception as exc:
             self._set_error_text(f"Unable to {action} {sidecar_path.name}: {exc}")
             return
+        self.workers.cancel_group(self, "tail")
+        self.workers.cancel_group(self, "health")
         self.reattached_sidecar_path = None
         self._set_phase(Phase.STOPPED)
 

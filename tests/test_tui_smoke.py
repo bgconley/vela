@@ -1231,6 +1231,37 @@ async def test_load_while_reattached_refuses_second_managed_run(
 
 
 @pytest.mark.asyncio
+async def test_stop_after_reattach_cancels_detached_monitor_workers(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "detached.json"
+    stopped_paths: list[Path] = []
+    cancelled_groups: list[str] = []
+
+    def stop_sidecar(path: Path, **_kwargs: object) -> None:
+        stopped_paths.append(path)
+
+    def cancel_group(_app: VllmLoaderApp, group: str) -> None:
+        cancelled_groups.append(group)
+
+    monkeypatch.setattr(tui_app_module, "stop_sidecar_from_system", stop_sidecar)
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app.workers, "cancel_group", cancel_group)
+        app.reattached_sidecar_path = sidecar_path
+        app._set_phase(Phase.READY)
+
+        app.action_stop()
+
+        assert stopped_paths == [sidecar_path]
+        assert cancelled_groups == ["tail", "health"]
+        assert app.reattached_sidecar_path is None
+        assert app.phase is Phase.STOPPED
+
+
+@pytest.mark.asyncio
 async def test_reattach_invalid_sidecar_shows_error_without_crashing(
     config_dir: Path, tmp_path: Path
 ) -> None:
