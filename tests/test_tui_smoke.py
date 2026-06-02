@@ -17,7 +17,7 @@ from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import start_detached
-from vllm_loader.engine.sidecar import TrackedProcessMismatch
+from vllm_loader.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.tui import app as tui_app_module
@@ -1059,6 +1059,61 @@ async def test_reattach_invalid_sidecar_shows_error_without_crashing(
         assert app.reattached_sidecar_path is None
         assert "Unable to reattach" in app.error_text
         assert "broken.json" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_reattach_health_worker_is_non_crashing_monitor(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "detached.log"
+    log_path.write_text("INFO Uvicorn running on http://127.0.0.1:8000\n", encoding="utf-8")
+    manifest_path = tmp_path / "detached.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "detached.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="fake-child",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["fake-model"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        config_snapshot={
+            "name": "fake-child",
+            "model": "fake/model",
+            "server": {"host": "127.0.0.1", "port": 8000},
+        },
+    )
+    worker_calls: list[dict[str, object]] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(kwargs)
+        coro.close()
+
+    monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(tui_app_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(tui_app_module, "load_manifest", lambda path: manifest)
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        app.reattach_detached_run(sidecar_path)
+
+        health_worker = next(
+            call for call in worker_calls if call["name"] == "reattach-health"
+        )
+        assert health_worker["group"] == "health"
+        assert health_worker["exit_on_error"] is False
 
 
 @pytest.mark.asyncio

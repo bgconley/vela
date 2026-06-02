@@ -34,6 +34,7 @@
 - FR-22 command palette coverage must include navigation and exit actions too: `Scroll logs to top`, `Scroll logs to bottom`, and `Quit app`, not only launch/control/log-filter commands.
 - GPU panel refresh uses injectable `gpu_sampler` and `gpu_interval_seconds` on `VllmLoaderApp`, then runs a non-fatal Textual worker (`exit_on_error=False`) after the initial mount sample.
 - TUI GPU sampling must call the sampler via `asyncio.to_thread`; only `_render_gpu_panel` should mutate UI state on the Textual loop.
+- Detached reattach health probing is an optional monitor too; schedule `reattach-health` with `exit_on_error=False` so Textual worker failures do not crash the app.
 - NVML GPU samples should best-effort populate `mig_instance_id` from GPU instance and compute instance IDs; the TUI panel already renders this as `MIG ...` when present.
 - TUI classified log errors should render `fsm.error_kind` and `fsm.error_excerpt` into the banner with `ErrorKind`-specific suggestions, not only transition the phase to ERROR.
 - Detached tailed logs use their own `_tail_detached_log` path; when a tailed committed line classifies an error, render the same named `ErrorBanner` as attached `handle_log_record`.
@@ -105,6 +106,7 @@
 - [2026-06-02] Do not assert dynamic sidecar command-palette entries from a single immediate snapshot in full-suite smoke tests; wait for the expected command.
 - [2026-06-02] Do not leave optional TUI monitoring as a mount-only sample; live monitors need a periodic worker that cannot crash the app.
 - [2026-06-02] Do not call the GPU sampler directly from Textual workers; NVML/nvidia-smi can block, so use `asyncio.to_thread` and render the result afterward.
+- [2026-06-02] Do not rely on Textual's default worker error behavior for detached reattach health probing; explicitly pass `exit_on_error=False`.
 - [2026-06-02] Do not ignore MIG identity fields in GPU sampling; capture GPU/compute instance IDs when pynvml exposes them.
 - [2026-06-02] Do not treat FR-13 pause as a flag-only toggle; wire it to `RichLog.auto_scroll`.
 - [2026-06-02] Do not coerce `HealthEvent.error_kind` into `timeout()` or raw detail text; preserve the specific kind such as `HF_AUTH` or `TIMED_OUT` in the TUI banner.

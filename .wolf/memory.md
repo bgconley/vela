@@ -202,3 +202,7 @@
 | 15:36 | Added canonical wrap state-change toast | src/vllm_loader/tui/app.py | `action_wrap` now notifies `Wrap enabled`/`Wrap disabled` after updating RichLog wrap and status chrome | ~200 |
 | 15:36 | Logged wrap-toast UX fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-083 records the §8.6 toast gap for future TUI polish work | ~200 |
 | 15:37 | Ran verification after wrap-toast fix | entire project | json valid, ruff clean, focused wrap test passed, pytest 130 passed, fake-child smoke 60 passed, no fake-child processes remained | ~850 |
+| 15:41 | Added detached health worker option regression | tests/test_tui_smoke.py | red: `reattach-health` worker omitted `exit_on_error=False` and inherited Textual's crashing default | ~350 |
+| 15:41 | Made reattach health monitor non-crashing | src/vllm_loader/tui/app.py | detached reattach health worker now passes `exit_on_error=False` like the canonical optional monitor path | ~200 |
+| 15:41 | Logged detached health worker fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-084 records the detached monitor worker option gap | ~200 |
+| 15:42 | Ran verification after detached health worker fix | entire project | json valid, ruff clean, focused reattach health test passed, pytest 131 passed, fake-child smoke 61 passed, no fake-child processes remained | ~850 |

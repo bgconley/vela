@@ -714,6 +714,7 @@ class VllmLoaderApp(App):
             name="reattach-health",
             group="health",
             exclusive=True,
+            exit_on_error=False,
         )
         self.run_worker(
             self._tail_detached_log(log_path, sidecar_path, start_position=tail_position),

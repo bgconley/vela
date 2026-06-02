@@ -996,6 +996,18 @@
       "related_bugs": ["bug-071", "bug-073"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:36:58Z"
+    },
+    {
+      "id": "bug-084",
+      "timestamp": "2026-06-02T19:41:41Z",
+      "error_message": "Detached reattach health worker used Textual's crashing default",
+      "file": "src/vllm_loader/tui/app.py",
+      "root_cause": "The detached reattach path scheduled its health monitor without `exit_on_error=False`, unlike the GPU monitors and contrary to the canonical optional-monitor rule.",
+      "fix": "Added a smoke regression that captures reattach worker options and set `exit_on_error=False` on the `reattach-health` worker.",
+      "tags": ["tui", "detached", "reattach", "health", "worker", "nfr-5"],
+      "related_bugs": ["bug-082"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T19:41:41Z"
     }
   ]
 }
