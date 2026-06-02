@@ -1284,6 +1284,18 @@
       "related_bugs": ["bug-003", "bug-099"],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:24:44Z"
+    },
+    {
+      "id": "bug-108",
+      "timestamp": "2026-06-02T21:38:23Z",
+      "error_message": "Recorded HF cache-miss fixture skipped DOWNLOADING_MODEL when a `snapshot_download.py` log line contained download progress",
+      "file": "src/vllm_loader/engine/profile.py",
+      "root_cause": "The RESOLVING_MODEL phase rule matched the module name `snapshot_download` before the DOWNLOADING_MODEL rule saw the line's actual `Downloading ...` progress text.",
+      "fix": "Remove the broad `snapshot_download` resolver match, add explicit cache-miss/snapshot-metadata resolver phrases, and cover success, HF cache-miss, and gated-model logs with fixture-backed phase tests.",
+      "tags": ["phases", "fixtures", "hf-cache", "vllm", "logs"],
+      "related_bugs": ["bug-106"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T21:38:23Z"
     }
   ]
 }

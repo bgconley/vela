@@ -1,0 +1,4 @@
+INFO 06-02 09:11:01 [model.py:554] Resolved architecture: LlamaForCausalLM
+INFO 06-02 09:11:02 [loader.py:97] HF cache miss for mistralai/Mistral-7B-Instruct-v0.3; fetching snapshot metadata from the Hub
+INFO 06-02 09:11:03 [snapshot_download.py:291] Downloading 15 files from the Hugging Face Hub
+INFO 06-02 09:11:04 [gpu_model_runner.py:4735] Starting to load model mistralai/Mistral-7B-Instruct-v0.3...

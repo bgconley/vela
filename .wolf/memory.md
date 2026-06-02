@@ -271,3 +271,13 @@
 | 17:21 | Ran focused verification | health/phase slices | focused red selectors passed, health+phase suite 21 passed, Ruff clean, diff whitespace clean | ~250 |
 | 17:24 | Hardened sidecar command-line identity against Python aliasing | tests/test_sidecar.py, src/vllm_loader/engine/sidecar.py | full pytest exposed intermittent command-line mismatch; red/green unit tests now accept Python interpreter spelling/omission only when script path and args match; detached CLI selector passed | ~450 |
 | 17:25 | Ran final local and GPU-node no-real validation | local and 10.25.0.50:/tank/repos/lab-tui | local json/Ruff/diff checks clean, pytest 156 passed, fake-child smoke 64 passed; remote /tank/venvs/lab-tui Ruff and pytest 156 passed with fake-child list/preview | ~850 |
+
+## Session: 2026-06-02 17:38
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 17:31 | Proved ZFS venv remote lane after `/tank/venvs` creation | 10.25.0.50:/tank/repos/lab-tui, /tank/venvs/lab-tui | rsynced repo; remote validation created/reused `/tank/venvs/lab-tui`; Ruff passed, pytest 156 passed, fake-child list/preview succeeded | ~700 |
+| 17:33 | Ran real Qwen smoke from ZFS venv | 10.25.0.50:/tank/repos/lab-tui | `qwen3-32b-fp8-62001` reached READY at `http://127.0.0.1:8017 models=qwen3-32b-fp8`, then shut down cleanly | ~800 |
+| 17:34 | Added fixture-backed phase regressions | tests/test_phases.py, tests/fixtures/vllm_logs/* | red: `snapshot_download.py` download progress was classified as resolving, skipping DOWNLOADING_MODEL | ~350 |
+| 17:34 | Tightened HF cache-miss phase rules | src/vllm_loader/engine/profile.py | cache-miss/snapshot-metadata lines now resolve, while download progress advances to DOWNLOADING_MODEL | ~250 |
+| 17:38 | Ran final local and GPU-node real validation | local and 10.25.0.50:/tank/repos/lab-tui | Ruff clean, phase tests 12 passed, local pytest 159 passed, fake-child smoke 64 passed; remote `/tank/venvs/lab-tui` pytest 159 passed and real Qwen smoke READY/shutdown left no port/GPU apps | ~1100 |

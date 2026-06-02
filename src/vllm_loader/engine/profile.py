@@ -173,7 +173,9 @@ def _make_profile(version: str, request_logging: bool | None, flags: dict[str, s
     phase_rules = (
         (re.compile(r"Initializing a .*LLM engine|world_size=", re.I), "STARTING"),
         (
-            re.compile(r"Fetching \d+ files|snapshot_download|[Rr]esolv(?:e|ing) .*model"),
+            re.compile(
+                r"Fetching \d+ files|[Rr]esolv(?:e|ing) .*model|cache miss|snapshot metadata"
+            ),
             "RESOLVING_MODEL",
         ),
         (re.compile(r"[Dd]ownloading|hf_transfer"), "DOWNLOADING_MODEL"),

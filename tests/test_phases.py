@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
 from vllm_loader.engine.profile import bundled_profile
+
+FIXTURES = Path(__file__).parent / "fixtures" / "vllm_logs"
 
 
 def walk(lines: list[str]) -> PhaseFSM:
@@ -9,6 +13,10 @@ def walk(lines: list[str]) -> PhaseFSM:
     for line in lines:
         fsm.feed_line(line)
     return fsm
+
+
+def walk_fixture(name: str) -> PhaseFSM:
+    return walk((FIXTURES / name).read_text(encoding="utf-8").splitlines())
 
 
 def test_success_fixture_produces_expected_phase_sequence() -> None:
@@ -35,6 +43,35 @@ def test_success_fixture_produces_expected_phase_sequence() -> None:
         Phase.SERVER_STARTING,
         Phase.READY,
     ]
+
+
+def test_recorded_success_fixture_walks_current_vllm_startup_phases() -> None:
+    fsm = walk_fixture("current-success.log")
+    fsm.health_ready(["qwen3-32b-fp8"])
+
+    assert fsm.history == [
+        Phase.STARTING,
+        Phase.LOADING_WEIGHTS,
+        Phase.PROFILING_KV,
+        Phase.SERVER_STARTING,
+        Phase.READY,
+    ]
+
+
+def test_recorded_hf_cache_miss_fixture_walks_resolve_and_download_phases() -> None:
+    fsm = walk_fixture("hf-cache-miss.log")
+
+    assert Phase.RESOLVING_MODEL in fsm.history
+    assert Phase.DOWNLOADING_MODEL in fsm.history
+    assert Phase.LOADING_WEIGHTS in fsm.history
+
+
+def test_recorded_gated_model_fixture_classifies_hf_auth() -> None:
+    fsm = walk_fixture("gated-model.log")
+
+    assert fsm.phase is Phase.ERROR
+    assert fsm.error_kind is ErrorKind.HF_AUTH
+    assert "gated repo" in (fsm.error_excerpt or "").lower()
 
 
 def test_error_classification_patterns() -> None:

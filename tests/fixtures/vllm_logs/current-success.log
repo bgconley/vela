@@ -1,0 +1,6 @@
+INFO 06-02 21:32:45 [core.py:107] Initializing a V1 LLM engine (v0.19.1rc1.dev119+gba4a78eb5) with config: model='/tank/trt/models/Qwen3-32B-FP8'
+INFO 06-02 21:32:53 [gpu_model_runner.py:4735] Starting to load model /tank/trt/models/Qwen3-32B-FP8...
+Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:05<00:00,  1.24it/s]
+INFO 06-02 21:33:03 [kv_cache_utils.py:1319] GPU KV cache size: 34,336 tokens
+INFO 06-02 21:33:03 [kv_cache_utils.py:1324] Maximum concurrency for 4,096 tokens per request: 8.38x
+INFO 06-02 21:33:05 [api_server.py:610] Starting vLLM server on http://127.0.0.1:8017
