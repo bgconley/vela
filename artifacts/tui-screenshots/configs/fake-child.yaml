@@ -1,0 +1,11 @@
+name: fake-child
+model: fake/model
+command:
+  entrypoint: serve
+  executable: /Users/brennanconley/vibecode/lab-tui/scripts/fake_vllm_child.py
+server:
+  host: 127.0.0.1
+  port: 54095
+launch:
+  health:
+    interval_seconds: 0.05

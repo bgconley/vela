@@ -1,0 +1,20 @@
+name: real-vllm-example
+description: Example real vLLM config for GPU-box validation.
+model: mistralai/Mistral-7B-Instruct-v0.3
+served_model_name: mistral-7b
+engine:
+  tensor_parallel_size: 1
+  dtype: auto
+  kv_cache_dtype: auto
+server:
+  host: 127.0.0.1
+  port: 8001
+  exposure: local
+logging:
+  request_logging: false
+  suppress_access_log_for: [/health]
+launch:
+  mode: attached
+  ready_timeout_seconds: 900
+vllm:
+  version_profile: "0.11"

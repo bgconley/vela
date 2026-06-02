@@ -1,0 +1,1928 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import socket
+import threading
+from pathlib import Path
+
+import pytest
+from conftest import write_yaml
+from rich.text import Text
+from textual.screen import ModalScreen
+from textual.widgets import ProgressBar, RichLog, Static
+
+from vllm_loader.config.loader import load_registry
+from vllm_loader.engine.command_builder import build_command
+from vllm_loader.engine.log_sink import LogRecord
+from vllm_loader.engine.phases import ErrorKind, Phase
+from vllm_loader.engine.process_manager import start_detached
+from vllm_loader.engine.sidecar import TrackedProcessMismatch
+from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
+from vllm_loader.monitoring.health import HealthEvent
+from vllm_loader.tui import app as tui_app_module
+from vllm_loader.tui.app import VllmLoaderApp
+from vllm_loader.tui.screens.confirm import ConfirmScreen
+
+
+@pytest.mark.asyncio
+async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
+    write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
+    write_yaml(config_dir / "bad.yaml", "name: bad")
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "good" in app.config_summary
+        assert "bad.yaml" in app.config_summary
+
+
+@pytest.mark.asyncio
+async def test_help_screen_opens(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.id == "help"
+        assert isinstance(app.screen, ModalScreen)
+        help_text = app.screen.query_one("#help-text", Static)
+        assert help_text.region.x > 0
+        assert help_text.region.y > 0
+        assert "Tab focus" in str(help_text.content)
+        assert isinstance(help_text.content, Text)
+        assert _text_uses_style(help_text.content, tui_app_module.ACCENT)
+        assert _text_uses_style(help_text.content, tui_app_module.GOOD)
+
+
+@pytest.mark.asyncio
+async def test_prompt_and_picker_screens_render_as_modal_panels(config_dir: Path) -> None:
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        await pilot.pause()
+        assert isinstance(app.screen, ModalScreen)
+        assert app.screen.query_one("#config-picker-panel").region.x > 0
+
+        await pilot.press("escape")
+        await pilot.press("/")
+        await pilot.pause()
+        assert isinstance(app.screen, ModalScreen)
+        assert app.screen.query_one("#log-prompt-panel").region.x > 0
+
+
+@pytest.mark.asyncio
+async def test_confirm_screen_is_modal_panel_with_destructive_color(
+    config_dir: Path,
+) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        app.push_screen(ConfirmScreen("Attached server is still running. Stop it?"))
+        await pilot.pause()
+
+        assert app.screen.id == "confirm"
+        assert isinstance(app.screen, ModalScreen)
+        assert app.screen.query_one("#confirm-panel").region.x > 0
+        message = app.screen.query_one("#confirm-message", Static)
+        assert isinstance(message.content, Text)
+        assert "Stop" in message.content.plain
+        assert "Cancel" in message.content.plain
+        assert _text_uses_style(message.content, tui_app_module.BAD)
+        assert _text_uses_style(message.content, tui_app_module.GOOD)
+
+
+@pytest.mark.asyncio
+async def test_kill_while_attached_running_prompts_before_signal(
+    config_dir: Path,
+) -> None:
+    class RunningProcess:
+        def __init__(self) -> None:
+            self.proc = self
+            self.killed = False
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed = True
+
+    fake_process = RunningProcess()
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        app.current_process = fake_process
+
+        await pilot.press("K")
+        await pilot.pause()
+
+        assert app.screen.id == "confirm"
+        message = app.screen.query_one("#confirm-message", Static)
+        assert isinstance(message.content, Text)
+        assert "Kill" in message.content.plain
+        assert not fake_process.killed
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.screen.id != "confirm"
+        assert not fake_process.killed
+
+        await pilot.press("K")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert fake_process.killed
+        assert app.screen.id != "confirm"
+
+
+@pytest.mark.asyncio
+async def test_config_picker_displays_valid_invalid_and_selects_config(config_dir: Path) -> None:
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
+    write_yaml(config_dir / "broken.yaml", "name: broken")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        await pilot.pause()
+        assert app.screen.id == "config-picker"
+        assert "alpha" in app.screen.summary
+        assert "beta" in app.screen.summary
+        assert "broken.yaml" in app.screen.summary
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.current_config is not None
+        assert app.current_config.name == "beta"
+
+
+@pytest.mark.asyncio
+async def test_config_picker_filters_configs_and_selects_filtered_match(
+    config_dir: Path,
+) -> None:
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
+    write_yaml(config_dir / "gamma.yaml", "name: gamma\nmodel: org/gamma")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        await pilot.press("g", "a", "m")
+        await pilot.pause()
+
+        assert "gamma" in app.screen.summary
+        assert "alpha" not in app.screen.summary
+        assert "beta" not in app.screen.summary
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app.current_config is not None
+        assert app.current_config.name == "gamma"
+
+
+@pytest.mark.asyncio
+async def test_config_picker_shows_masked_preview_for_selected_config(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "preview.yaml",
+        """
+        name: preview
+        model: org/secret-model
+        server:
+          host: 127.0.0.1
+          port: 8123
+          api_key: sk-live-secret
+        env:
+          HF_TOKEN: hf_private_token
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        await pilot.pause()
+
+        assert "Resolved command" in app.screen.summary
+        assert "vllm serve org/secret-model" in app.screen.summary
+        assert "--port 8123" in app.screen.summary
+        assert "VLLM_API_KEY='••••'" in app.screen.summary
+        assert "HF_TOKEN='••••'" in app.screen.summary
+        assert "sk-live-secret" not in app.screen.summary
+        assert "hf_private_token" not in app.screen.summary
+
+
+@pytest.mark.asyncio
+async def test_selected_config_preview_masks_secrets_before_launch(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "preview.yaml",
+        """
+        name: preview
+        model: org/secret-model
+        server:
+          host: 127.0.0.1
+          port: 8123
+          api_key: sk-live-secret
+        env:
+          HF_TOKEN: hf_private_token
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("preview")
+
+        assert "cwd=" in app.selected_config_preview
+        assert "vllm serve org/secret-model" in app.selected_config_preview
+        assert "--port 8123" in app.selected_config_preview
+        assert "VLLM_API_KEY='••••'" in app.selected_config_preview
+        assert "HF_TOKEN='••••'" in app.selected_config_preview
+        assert "sk-live-secret" not in app.selected_config_preview
+        assert "hf_private_token" not in app.selected_config_preview
+        assert "Selected: preview" in app.config_summary
+        assert "Model: org/secret-model" in app.config_summary
+        assert "Server: http://127.0.0.1:8123" in app.config_summary
+        assert "Full preview: press c" in app.config_summary
+        assert app.selected_config_preview not in app.config_summary
+        assert "Resolved command" not in app.config_summary
+        assert "cwd=" not in app.config_summary
+
+
+@pytest.mark.asyncio
+async def test_selected_config_preview_uses_config_executable_help_for_require_flags(
+    config_dir: Path,
+    tmp_path: Path,
+) -> None:
+    fake_vllm = tmp_path / "fake-vllm"
+    fake_vllm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('vllm 0.11.2')\n"
+        "elif sys.argv[1:] == ['serve', '--help']:\n"
+        "    print('usage: vllm serve')\n"
+        "    print('  --host TEXT')\n"
+        "    print('  --port INTEGER')\n",
+        encoding="utf-8",
+    )
+    fake_vllm.chmod(0o755)
+    write_yaml(
+        config_dir / "custom-help.yaml",
+        f"""
+        name: custom-help
+        model: org/model
+        command:
+          entrypoint: serve
+          executable: {fake_vllm}
+        vllm:
+          require_flags:
+            - --disable-log-requests
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert "Preview unavailable" in app.selected_config_preview
+        assert "--disable-log-requests" in app.selected_config_preview
+
+
+@pytest.mark.asyncio
+async def test_select_config_with_profile_gate_failure_shows_preview_error(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "unsupported-preview.yaml",
+        """
+        name: unsupported-preview
+        model: org/model
+        vllm:
+          require_flags:
+            - --definitely-missing-flag
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("unsupported-preview")
+
+        assert app.current_config is not None
+        assert app.current_config.name == "unsupported-preview"
+        assert "Preview unavailable" in app.selected_config_preview
+        assert "--definitely-missing-flag" in app.selected_config_preview
+        assert "Selected: unsupported-preview" in app.config_summary
+        assert "Full preview: press c" in app.config_summary
+        assert "Traceback" not in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_phase_timeline_tracks_elapsed_time(config_dir: Path) -> None:
+    now = 100.0
+
+    def clock() -> float:
+        return now
+
+    app = VllmLoaderApp(configs_dir=config_dir, clock=clock)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.STARTING)
+        now = 102.0
+        app._set_phase(Phase.LOADING_WEIGHTS)
+        now = 105.0
+        app._set_phase(Phase.READY)
+        now = 107.0
+        app._set_phase(Phase.READY)
+        assert "✓ STARTING 00:02" in app.phase_timeline_text
+        assert "✓ LOADING_WEIGHTS 00:03" in app.phase_timeline_text
+        assert "● READY 00:02" in app.phase_timeline_text
+        assert "Overall 00:07" in app.phase_timeline_text
+
+
+@pytest.mark.asyncio
+async def test_status_badge_uses_icons_and_phase_color_classes(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        status = app.query_one("#status", Static)
+
+        assert app.status_text == "○ IDLE"
+        assert status.has_class("status--idle")
+
+        app._set_phase(Phase.STARTING)
+        assert app.status_text == "● STARTING"
+        assert status.has_class("status--loading")
+        assert status.has_class("status--pulse")
+
+        app._set_phase(Phase.READY)
+        assert app.status_text.startswith("● READY")
+        assert status.has_class("status--ready")
+        assert not status.has_class("status--pulse")
+
+        app._set_phase(Phase.ERROR)
+        assert app.status_text == "✕ ERROR"
+        assert status.has_class("status--error")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "llama.yaml",
+        """
+        name: llama-3.1-70b-awq
+        model: meta-llama/Llama-3.1-70B-Instruct-AWQ
+        server:
+          host: 127.0.0.1
+          port: 8000
+        engine:
+          tensor_parallel_size: 4
+          kv_cache_dtype: fp8
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await pilot.pause()
+
+        for selector in [
+            "#terminal-shell",
+            "#top-chrome",
+            "#app-title",
+            "#active-model",
+            "#server-url",
+            "#log-panel",
+            "#log-title",
+            "#log-controls",
+            "#status-strip",
+            "#footer-bindings",
+        ]:
+            app.query_one(selector)
+
+        assert _static_text(app, "#app-title") == "vLLM Loader"
+        assert "llama-3.1-70b-awq" in _static_text(app, "#active-model")
+        assert "http://127.0.0.1:8000" in _static_text(app, "#server-url")
+        assert "Logs - unified child stdout/stderr stream" in _static_text(app, "#log-title")
+        assert "autoscroll ON" in _static_text(app, "#log-controls")
+        assert "wrap OFF" in _static_text(app, "#log-controls")
+        assert "lines" in _static_text(app, "#status-strip")
+        assert "scrubbed log 0600" in _static_text(app, "#status-strip")
+        assert "l Load" in _static_text(app, "#footer-bindings")
+        assert "Tab Focus" in _static_text(app, "#footer-bindings")
+        assert "^P Palette" in _static_text(app, "#footer-bindings")
+
+        status = app.query_one("#status")
+        status_strip = app.query_one("#status-strip")
+        footer = app.query_one("#footer-bindings")
+        assert status.region.height >= 3
+        assert status_strip.region.y + status_strip.region.height <= footer.region.y
+
+
+@pytest.mark.asyncio
+async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._write_log("INFO operator note", "INFO")
+        await pilot.press("p")
+        await pilot.press("w")
+        await pilot.pause()
+
+        assert "autoscroll OFF" in _static_text(app, "#log-controls")
+        assert "wrap ON" in _static_text(app, "#log-controls")
+        assert f"{len(app.log_lines)} lines" in _static_text(app, "#status-strip")
+        assert "autoscroll OFF" in _static_text(app, "#status-strip")
+        assert "wrap ON" in _static_text(app, "#status-strip")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_uses_intentional_rich_color_renderables(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.STARTING)
+        app._render_gpu_panel(
+            GpuPollResult(
+                [
+                    GpuSample(
+                        visible_index=0,
+                        uuid="GPU-a",
+                        name="A100",
+                        memory_used_mb=2048,
+                        memory_total_mb=81920,
+                        utilization_percent=55,
+                        temperature_c=44,
+                        power_w=120,
+                    )
+                ]
+            )
+        )
+
+        status_content = app.query_one("#status", Static).content
+        controls_content = app.query_one("#log-controls", Static).content
+        strip_content = app.query_one("#status-strip", Static).content
+        gpu_content = app.query_one("#gpu", Static).content
+        warning_line = app._make_log_text("WARNING Access log disabled", "WARNING")
+
+        assert isinstance(status_content, Text)
+        assert isinstance(controls_content, Text)
+        assert isinstance(strip_content, Text)
+        assert isinstance(gpu_content, Text)
+        assert warning_line.plain.startswith("▌ ")
+        assert "▰" in gpu_content.plain
+        for renderable in [
+            status_content,
+            controls_content,
+            strip_content,
+            gpu_content,
+            warning_line,
+        ]:
+            assert renderable.style or renderable.spans
+
+
+@pytest.mark.asyncio
+async def test_sidebar_and_banner_use_semantic_color_roles(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "llama.yaml",
+        """
+        name: llama-3.1-70b-awq
+        model: meta-llama/Llama-3.1-70B-Instruct-AWQ
+        engine:
+          tensor_parallel_size: 4
+          kv_cache_dtype: fp8
+        """,
+    )
+    write_yaml(config_dir / "broken.yaml", "name: broken")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.STARTING)
+        app._set_phase(Phase.LOADING_WEIGHTS)
+        app._record_warnings(["0.0.0.0 bind requires an API key"])
+
+        configs_title = app.query_one("#configs-title", Static).content
+        configs = app.query_one("#configs", Static).content
+        phases = app.query_one("#phases", Static).content
+        warning = app.query_one("#error", Static).content
+
+        assert isinstance(configs_title, Text)
+        assert isinstance(configs, Text)
+        assert isinstance(phases, Text)
+        assert isinstance(warning, Text)
+        assert "llama-3.1-70b-awq" in configs.plain
+        assert "broken.yaml" in configs.plain
+        assert "✓ STARTING" in phases.plain
+        assert "● LOADING_WEIGHTS" in phases.plain
+        assert _text_uses_style(configs_title, tui_app_module.ACCENT)
+        assert _text_uses_style(configs, tui_app_module.ACCENT)
+        assert _text_uses_style(configs, tui_app_module.WARN)
+        assert _text_uses_style(configs, tui_app_module.MUTED)
+        assert _text_uses_style(phases, tui_app_module.GOOD)
+        assert _text_uses_style(phases, tui_app_module.WARN)
+        assert _text_uses_style(phases, tui_app_module.MUTED)
+        assert _text_uses_style(warning, tui_app_module.WARN)
+
+        app._set_error_text("fatal launch failure")
+        error = app.query_one("#error", Static).content
+        assert isinstance(error, Text)
+        assert _text_uses_style(error, tui_app_module.BAD)
+
+
+@pytest.mark.asyncio
+async def test_terminal_phases_clear_stale_progress_line(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._update_progress("Loading safetensors checkpoint shards: 100% 4/4")
+        assert app.progress_text
+
+        app._set_phase(Phase.READY)
+
+        assert app.progress_text == ""
+        assert app.query_one("#progress-line").display is False
+
+
+@pytest.mark.asyncio
+async def test_gpu_panel_refreshes_periodically(config_dir: Path) -> None:
+    results = [
+        GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=1024,
+                    memory_total_mb=81920,
+                    utilization_percent=25,
+                    temperature_c=42,
+                    power_w=110,
+                )
+            ]
+        ),
+        GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=2048,
+                    memory_total_mb=81920,
+                    utilization_percent=55,
+                    temperature_c=44,
+                    power_w=120,
+                )
+            ]
+        ),
+    ]
+    calls = 0
+
+    def sampler() -> GpuPollResult:
+        nonlocal calls
+        result = results[min(calls, len(results) - 1)]
+        calls += 1
+        return result
+
+    app = VllmLoaderApp(configs_dir=config_dir, gpu_sampler=sampler, gpu_interval_seconds=0.05)
+
+    async with app.run_test() as pilot:
+        await _wait_for_gpu_text(app, "2048/81920MB")
+        await pilot.pause()
+        assert calls >= 2
+        assert "55%" in app.gpu_panel_text
+        assert "44C" in app.gpu_panel_text
+        assert "120W" in app.gpu_panel_text
+
+
+@pytest.mark.asyncio
+async def test_gpu_sampler_runs_off_event_loop_thread(config_dir: Path) -> None:
+    event_loop_thread = threading.get_ident()
+    sampler_threads: list[int] = []
+
+    def sampler() -> GpuPollResult:
+        sampler_threads.append(threading.get_ident())
+        return GpuPollResult([])
+
+    app = VllmLoaderApp(configs_dir=config_dir, gpu_sampler=sampler, gpu_interval_seconds=0.01)
+
+    async with app.run_test() as pilot:
+        await _wait_for_gpu_calls(sampler_threads, 2)
+        await pilot.pause()
+
+    assert any(thread_id != event_loop_thread for thread_id in sampler_threads)
+
+
+@pytest.mark.asyncio
+async def test_classified_log_error_shows_named_banner_with_suggestion(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.handle_log_record(LogRecord("committed", "ERROR CUDA out of memory", "ERROR"))
+
+        assert app.phase is Phase.ERROR
+        assert "OOM" in app.error_text
+        assert "CUDA out of memory" in app.error_text
+        assert "gpu_memory_utilization" in app.error_text
+        assert "max_model_len" in app.error_text
+        assert "Jump to error log line" in app.error_text
+
+        jump = next(
+            command
+            for command in app.get_system_commands(app.screen)
+            if command.title == "Jump to error log line"
+        )
+        jump.callback()
+
+        assert app.search_text == "CUDA out of memory"
+        assert app.search_matches == ["ERROR CUDA out of memory"]
+
+
+@pytest.mark.asyncio
+async def test_health_error_shows_named_banner_with_suggestion(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._handle_health_event(
+            HealthEvent(
+                ready=False,
+                detail="Bearer token mismatch for /v1/models; check VLLM_API_KEY/api_key",
+                error_kind=ErrorKind.HF_AUTH,
+            )
+        )
+
+        assert app.phase is Phase.ERROR
+        assert "HF_AUTH" in app.error_text
+        assert "HF_TOKEN" in app.error_text
+        assert "Bearer token mismatch" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_nonzero_exit_before_ready_shows_crashed_banner(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    port = _free_port()
+    script = tmp_path / "crashing_child.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('ERROR synthetic loader abort before ready', flush=True)\n"
+        "raise SystemExit(7)\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    write_yaml(
+        config_dir / "crash.yaml",
+        f"""
+        name: crash
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("l")
+        await _wait_for_phase(app, Phase.ERROR)
+
+        assert app.fsm.error_kind is ErrorKind.CRASHED
+        assert "CRASHED" in app.error_text
+        assert "synthetic loader abort before ready" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_missing_executable_shows_launch_guidance_instead_of_crashing(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    missing_executable = tmp_path / "does-not-exist"
+    write_yaml(
+        config_dir / "missing-bin.yaml",
+        f"""
+        name: missing-bin
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {missing_executable}
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("missing-bin")
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.COMMAND_NOT_FOUND
+        assert "COMMAND_NOT_FOUND" in app.error_text
+        assert "install vLLM" in app.error_text
+        assert "command.entrypoint: module" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_missing_local_model_path_shows_model_not_found_without_launching(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    missing_model = tmp_path / "missing-model"
+    script = tmp_path / "should_not_run.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "print('INFO script should not run', flush=True)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    write_yaml(
+        config_dir / "missing-local-model.yaml",
+        f"""
+        name: missing-local-model
+        model: {missing_model}
+        command:
+          entrypoint: serve
+          executable: {script}
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("missing-local-model")
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.MODEL_NOT_FOUND
+        assert "MODEL_NOT_FOUND" in app.error_text
+        assert str(missing_model) in app.error_text
+        assert not any("script should not run" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_unsupported_required_flag_shows_config_error_without_launching(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    script = tmp_path / "should_not_run.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('INFO script should not run', flush=True)\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    write_yaml(
+        config_dir / "unsupported-required-flag.yaml",
+        f"""
+        name: unsupported-required-flag
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        vllm:
+          require_flags:
+            - --definitely-missing-flag
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("unsupported-required-flag")
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is not None
+        assert app.fsm.error_kind.value == "CONFIG_INVALID"
+        assert "CONFIG_INVALID" in app.error_text
+        assert "required vLLM flags are unavailable" in app.error_text
+        assert "--definitely-missing-flag" in app.error_text
+        assert not any("script should not run" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_parallel_world_size_exceeding_visible_gpus_shows_tp_mismatch_without_launching(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    script = tmp_path / "should_not_run.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('INFO script should not run', flush=True)\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    write_yaml(
+        config_dir / "too-many-gpus.yaml",
+        f"""
+        name: too-many-gpus
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        engine:
+          tensor_parallel_size: 4
+          pipeline_parallel_size: 1
+        env:
+          CUDA_VISIBLE_DEVICES: "0,1"
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("too-many-gpus")
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.TP_MISMATCH
+        assert "TP_MISMATCH" in app.error_text
+        assert "world size 4" in app.error_text
+        assert "2 visible GPUs" in app.error_text
+        assert not any("script should not run" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_occupied_port_shows_port_in_use_without_launching(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    marker = tmp_path / "child-started.txt"
+    script = tmp_path / "should_not_run.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib\n"
+        f"pathlib.Path({str(marker)!r}).write_text('started', encoding='utf-8')\n"
+        "print('INFO script should not run', flush=True)\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = int(listener.getsockname()[1])
+        write_yaml(
+            config_dir / "port-in-use.yaml",
+            f"""
+            name: port-in-use
+            model: fake/model
+            command:
+              entrypoint: serve
+              executable: {script}
+            server:
+              host: 127.0.0.1
+              port: {port}
+            """,
+        )
+        app = VllmLoaderApp(configs_dir=config_dir)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.current_config = app.registry.by_name("port-in-use")
+            await app._run_selected_config()
+
+            assert app.phase is Phase.ERROR
+            assert app.fsm.error_kind is ErrorKind.PORT_IN_USE
+            assert "PORT_IN_USE" in app.error_text
+            assert str(port) in app.error_text
+            assert not marker.exists()
+            assert not any("script should not run" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_detached_missing_executable_shows_launch_guidance(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    missing_executable = tmp_path / "detached-missing"
+    runs_dir = tmp_path / "runs"
+    write_yaml(
+        config_dir / "detached-missing-bin.yaml",
+        f"""
+        name: detached-missing-bin
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {missing_executable}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("detached-missing-bin")
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.COMMAND_NOT_FOUND
+        assert "COMMAND_NOT_FOUND" in app.error_text
+        assert "install vLLM" in app.error_text
+        assert not list(runs_dir.glob("*.json"))
+
+
+@pytest.mark.asyncio
+async def test_command_palette_exposes_core_actions_and_config_loads(config_dir: Path) -> None:
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        commands = list(app.get_system_commands(app.screen))
+        titles = {command.title for command in commands}
+        assert {
+            "Load selected config",
+            "Stop server",
+            "Force kill server",
+            "Restart server",
+            "Open config picker",
+            "Search logs",
+            "Filter logs",
+            "Toggle autoscroll",
+            "Toggle wrap",
+            "Scroll logs to top",
+            "Scroll logs to bottom",
+            "Open help",
+            "Copy server URL",
+            "Focus next widget",
+            "Quit app",
+            "Load config: beta",
+        } <= titles
+
+        beta = next(command for command in commands if command.title == "Load config: beta")
+        beta.callback()
+        assert app.current_config is not None
+        assert app.current_config.name == "beta"
+
+
+@pytest.mark.asyncio
+async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_path: Path) -> None:
+    port = _free_port()
+    runs_dir = tmp_path / "runs"
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "detached.yaml",
+        f"""
+        name: detached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    cfg = load_registry(config_dir).by_name("detached")
+    launch = start_detached(cfg, build_command(cfg), secrets=[])
+    await _wait_for_log_text(launch.log_path, "Uvicorn running")
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            reattach = await _wait_for_command(
+                app, "Reattach detached run: detached"
+            )
+            reattach.callback()
+            await _wait_for_phase(app, Phase.READY)
+            assert app.reattached_sidecar_path == launch.sidecar_path
+            assert any("Uvicorn running" in line for line in app.log_lines)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_reattach_invalid_sidecar_shows_error_without_crashing(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    sidecar_path = tmp_path / "broken.json"
+    sidecar_path.write_text("{not-json", encoding="utf-8")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        app.reattach_detached_run(sidecar_path)
+
+        assert app.reattached_sidecar_path is None
+        assert "Unable to reattach" in app.error_text
+        assert "broken.json" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_stop_after_detached_reattach_signals_verified_run(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    port = _free_port()
+    runs_dir = tmp_path / "runs"
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "detached.yaml",
+        f"""
+        name: detached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    cfg = load_registry(config_dir).by_name("detached")
+    launch = start_detached(cfg, build_command(cfg), secrets=[])
+    await _wait_for_log_text(launch.log_path, "Uvicorn running")
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.reattach_detached_run(launch.sidecar_path)
+            await _wait_for_phase(app, Phase.READY)
+            await pilot.press("s")
+            await _wait_for_port_down(port)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action_name", "helper_name", "expected_text"),
+    [
+        ("action_stop", "stop_sidecar_from_system", "Unable to stop"),
+        ("action_kill", "signal_sidecar_from_system", "Unable to kill"),
+    ],
+)
+async def test_detached_destructive_signal_mismatch_shows_error_without_detaching(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+    helper_name: str,
+    expected_text: str,
+) -> None:
+    sidecar_path = tmp_path / "stale.json"
+    sidecar_path.write_text("{}", encoding="utf-8")
+
+    def refuse_signal(*_args: object, **_kwargs: object) -> None:
+        raise TrackedProcessMismatch(
+            "tracked process is gone; refusing to signal a possibly-recycled PID"
+        )
+
+    monkeypatch.setattr(tui_app_module, helper_name, refuse_signal)
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.reattached_sidecar_path = sidecar_path
+        app._set_phase(Phase.READY)
+
+        getattr(app, action_name)()
+        if action_name == "action_kill":
+            await pilot.pause()
+            assert app.screen.id == "confirm"
+            assert app.reattached_sidecar_path == sidecar_path
+            await pilot.press("enter")
+            await pilot.pause()
+
+        assert app.reattached_sidecar_path == sidecar_path
+        assert app.phase is Phase.READY
+        assert expected_text in app.error_text
+        assert "possibly-recycled PID" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_detach_after_reattach_leaves_detached_server_running(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    port = _free_port()
+    runs_dir = tmp_path / "runs"
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "detached.yaml",
+        f"""
+        name: detached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    cfg = load_registry(config_dir).by_name("detached")
+    launch = start_detached(cfg, build_command(cfg), secrets=[])
+    await _wait_for_log_text(launch.log_path, "Uvicorn running")
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.reattach_detached_run(launch.sidecar_path)
+            await _wait_for_phase(app, Phase.READY)
+
+            commands = list(app.get_system_commands(app.screen))
+            assert "Detach from detached run" in {command.title for command in commands}
+
+            app.action_detach()
+
+            assert app.reattached_sidecar_path is None
+            await _wait_for_port_up(port)
+            await pilot.press("s")
+            await pilot.pause(0.2)
+
+            assert app.phase is Phase.STOPPED
+            await _wait_for_port_up(port)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: Path) -> None:
+    port = _free_port()
+    runs_dir = tmp_path / "runs"
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "detached-load.yaml",
+        f"""
+        name: detached-load
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_log(app, "Uvicorn running")
+            await _wait_for_phase(app, Phase.READY)
+            launched_process = app.current_process
+            launched_sidecar_path = app.reattached_sidecar_path
+            await pilot.press("s")
+            await _wait_for_port_down(port)
+            assert launched_process is None
+            assert launched_sidecar_path is not None
+            assert launched_sidecar_path.parent == runs_dir
+            assert launched_sidecar_path.exists()
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_detached_tail_starts_from_loaded_log_position(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "run.log"
+    log_path.write_text("INFO Initializing a V1 LLM engine\n", encoding="utf-8")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        loaded_position = app._load_scrubbed_log_file(log_path)
+        log_path.write_text(
+            "INFO Initializing a V1 LLM engine\n"
+            "INFO Uvicorn running on http://127.0.0.1:8000\n",
+            encoding="utf-8",
+        )
+        checks = 0
+
+        def alive(_sidecar_path: Path) -> bool:
+            nonlocal checks
+            checks += 1
+            return checks < 3
+
+        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        await app._tail_detached_log(
+            log_path, tmp_path / "sidecar.json", start_position=loaded_position
+        )
+
+        assert any("Uvicorn running" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_detached_tail_classified_error_shows_named_banner(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "run.log"
+    log_path.write_text("ERROR CUDA out of memory while profiling KV cache\n", encoding="utf-8")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        checks = 0
+
+        def alive(_sidecar_path: Path) -> bool:
+            nonlocal checks
+            checks += 1
+            return checks < 2
+
+        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        await app._tail_detached_log(log_path, tmp_path / "sidecar.json", start_position=0)
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.OOM
+        assert "OOM" in app.error_text
+        assert "CUDA out of memory" in app.error_text
+        assert "gpu_memory_utilization" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_loaded_detached_log_classified_error_shows_named_banner(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    log_path = tmp_path / "run.log"
+    log_path.write_text("ERROR CUDA out of memory before reattach\n", encoding="utf-8")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        loaded_position = app._load_scrubbed_log_file(log_path)
+
+        assert loaded_position == log_path.stat().st_size
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.OOM
+        assert "OOM" in app.error_text
+        assert "CUDA out of memory" in app.error_text
+        assert "gpu_memory_utilization" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_fake_child_launch_streams_logs_and_stop_works(config_dir: Path) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("l")
+        await _wait_for_log(app, "Uvicorn running")
+        await _wait_for_phase(app, Phase.READY)
+        assert any("Initializing a V1 LLM engine" in line for line in app.log_lines)
+        await pilot.press("s")
+        await _wait_for_stopped(app)
+
+
+@pytest.mark.asyncio
+async def test_force_kill_running_attached_server_is_intentional_stop(
+    config_dir: Path,
+) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_phase(app, Phase.READY)
+
+            await pilot.press("K")
+            await pilot.press("enter")
+            await _wait_for_stopped(app)
+            await _wait_for_phase(app, Phase.STOPPED)
+
+            assert app.fsm.error_kind is None
+            assert "CRASHED" not in app.error_text
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_ready_status_shows_server_url_and_served_models(config_dir: Path) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_phase(app, Phase.READY)
+            assert app.ready_url == f"http://127.0.0.1:{port}"
+            assert app.served_models == ["fake-model"]
+            assert f"READY http://127.0.0.1:{port} as fake-model" in app.status_text
+            await pilot.press("s")
+            await _wait_for_stopped(app)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_copy_server_url_uses_textual_clipboard(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "copy-url.yaml",
+        """
+        name: copy-url
+        model: org/model
+        server:
+          host: 127.0.0.1
+          port: 8124
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("copy-url")
+        app._handle_health_event(HealthEvent(ready=True, detail="ready", models=["model"]))
+
+        app.action_copy_server_url()
+
+        assert app.last_copied_url == "http://127.0.0.1:8124"
+        assert app.clipboard == "http://127.0.0.1:8124"
+
+
+@pytest.mark.asyncio
+async def test_restart_stops_running_attached_server_and_starts_same_config(
+    config_dir: Path,
+) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_phase(app, Phase.READY)
+            assert app.current_process is not None
+            first_pid = app.current_process.proc.pid
+
+            await pilot.press("r")
+            await _wait_for_new_process(app, first_pid)
+            await _wait_for_phase(app, Phase.READY)
+
+            assert app.current_config is not None
+            assert app.current_config.name == "fake"
+            assert app.current_process is not None
+            assert app.current_process.proc.pid != first_pid
+            assert app.current_process.proc.poll() is None
+            await pilot.press("s")
+            await _wait_for_stopped(app)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_non_local_bind_warning_is_visible_in_tui(config_dir: Path) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "lan.yaml",
+        f"""
+        name: lan
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 0.0.0.0
+          port: {port}
+          exposure: lan
+          api_key: sk-test
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_phase(app, Phase.READY)
+            assert any("reachable beyond localhost" in line for line in app.warning_lines)
+            assert "`--api-key` does not protect all endpoints" in app.error_text
+            await pilot.press("s")
+            await _wait_for_port_down(port)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_quit_while_attached_running_prompts_stop_or_cancel(config_dir: Path) -> None:
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("l")
+        await _wait_for_phase(app, Phase.READY)
+        await pilot.press("q")
+        await pilot.pause()
+        assert app.screen.id == "confirm"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.screen.id != "confirm"
+        assert app.current_process and app.current_process.proc.poll() is None
+        await pilot.press("q")
+        await pilot.press("enter")
+        await _wait_for_stopped(app)
+        await pilot.pause()
+        assert app.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app._write_log("INFO ready")
+        app._write_log("ERROR bad thing", "ERROR")
+        app.apply_log_filter("ERROR")
+        await pilot.pause()
+        assert app.visible_log_lines == ["ERROR bad thing"]
+        app.apply_log_search("bad")
+        assert app.search_matches == ["ERROR bad thing"]
+        app.apply_log_search("ready")
+        assert app.search_matches == []
+        app.apply_log_filter("")
+        assert "INFO ready" in app.visible_log_lines
+
+
+@pytest.mark.asyncio
+async def test_search_key_prompts_and_applies_submitted_text(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app._write_log("INFO ready")
+        app._write_log("ERROR bad thing", "ERROR")
+        await pilot.press("/", "b", "a", "d", "enter")
+        await pilot.pause()
+
+        assert app.search_text == "bad"
+        assert app.search_matches == ["ERROR bad thing"]
+
+
+@pytest.mark.asyncio
+async def test_filter_key_prompts_and_applies_submitted_text(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app._write_log("INFO ready")
+        app._write_log("ERROR bad thing", "ERROR")
+        await pilot.press("f", "E", "R", "R", "O", "R", "enter")
+        await pilot.pause()
+
+        assert app.filter_text == "ERROR"
+        assert app.visible_log_lines == ["ERROR bad thing"]
+
+
+@pytest.mark.asyncio
+async def test_log_search_highlights_matching_text_in_view(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app._write_log("ERROR bad thing", "ERROR")
+        await pilot.pause()
+
+        app.apply_log_search("bad")
+        await pilot.pause()
+
+        log = app.query_one("#log", RichLog)
+        highlight_segments = [
+            segment
+            for strip in log.lines
+            if "ERROR bad thing" in strip.text
+            for segment in strip._segments
+            if segment.text == "bad"
+        ]
+
+        assert highlight_segments
+        assert any(
+            segment.style is not None and segment.style.bgcolor is not None
+            for segment in highlight_segments
+        )
+
+
+@pytest.mark.asyncio
+async def test_bursty_log_output_batches_richlog_writes(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        log = app.query_one("#log", RichLog)
+        baseline_lines = len(log.lines)
+
+        for index in range(25):
+            app._write_log(f"INFO burst line {index}", "INFO")
+
+        assert app.log_lines[-1] == "INFO burst line 24"
+        assert app.visible_log_lines[-1] == "INFO burst line 24"
+        assert len(log.lines) == baseline_lines
+
+        await pilot.pause(0.1)
+
+        assert any("INFO burst line 24" in strip.text for strip in log.lines)
+
+
+@pytest.mark.asyncio
+async def test_transient_progress_updates_progress_bar_without_committing_log(
+    config_dir: Path,
+) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app.handle_log_record(
+            LogRecord("transient", "Loading checkpoint shards: 45%|####      |", None)
+        )
+        await pilot.pause()
+
+        progress = app.query_one("#progress", ProgressBar)
+
+        assert progress.total == 100
+        assert progress.progress == 45
+        assert "Loading checkpoint shards" in app.progress_text
+        assert not any("Loading checkpoint shards" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "narrow.yaml",
+        """
+        name: narrow
+        model: org/narrow
+        engine:
+          tensor_parallel_size: 2
+          kv_cache_dtype: fp8
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar")
+        sidebar_overlay = app.query_one("#sidebar-overlay", Static)
+        gpu_panel = app.query_one("#gpu")
+        log = app.query_one("#log", RichLog)
+
+        assert app.responsive_mode == "wide"
+        assert sidebar.display is True
+        assert sidebar_overlay.display is False
+        assert gpu_panel.display is True
+        assert log.display is True
+
+        await pilot.resize_terminal(99, 40)
+        await pilot.pause()
+
+        assert app.responsive_mode == "narrow"
+        assert sidebar.display is False
+        assert sidebar_overlay.display is True
+        assert gpu_panel.display is True
+        assert log.display is True
+        assert isinstance(sidebar_overlay.content, Text)
+        assert "Sidebar overlay" in sidebar_overlay.content.plain
+        assert "narrow" in sidebar_overlay.content.plain
+        assert "IDLE" in sidebar_overlay.content.plain
+
+        await pilot.resize_terminal(59, 40)
+        await pilot.pause()
+
+        assert app.responsive_mode == "compact"
+        assert sidebar.display is False
+        assert sidebar_overlay.display is True
+        assert gpu_panel.display is False
+        assert log.display is True
+
+        await pilot.resize_terminal(120, 40)
+        await pilot.pause()
+
+        assert app.responsive_mode == "wide"
+        assert sidebar.display is True
+        assert sidebar_overlay.display is False
+        assert gpu_panel.display is True
+        assert log.display is True
+
+
+@pytest.mark.asyncio
+async def test_log_buffers_are_bounded_for_bursty_output(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir, max_log_lines=3)
+
+    async with app.run_test() as pilot:
+        for index in range(5):
+            app._write_log(f"INFO line-{index}", "INFO")
+        await pilot.pause()
+
+        assert app.query_one("#log", RichLog).max_lines == 3
+        assert app.log_lines == ["INFO line-2", "INFO line-3", "INFO line-4"]
+        assert app.log_records == [
+            ("INFO line-2", "INFO"),
+            ("INFO line-3", "INFO"),
+            ("INFO line-4", "INFO"),
+        ]
+        assert app.visible_log_lines == ["INFO line-2", "INFO line-3", "INFO line-4"]
+
+        app.apply_log_search("line-0")
+        assert app.search_matches == []
+        app.apply_log_search("line-4")
+        assert app.search_matches == ["INFO line-4"]
+
+
+@pytest.mark.asyncio
+async def test_debug_log_records_structured_app_events(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    debug_log_path = tmp_path / "debug.jsonl"
+    app = VllmLoaderApp(configs_dir=config_dir, debug_log_path=debug_log_path)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._write_log("INFO observed", "INFO")
+        app._set_phase(Phase.STARTING)
+
+    records = [
+        json.loads(line)
+        for line in debug_log_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(record["event"] == "app.mounted" for record in records)
+    assert any(
+        record["event"] == "log.committed"
+        and record["payload"]["text"] == "INFO observed"
+        and record["payload"]["level"] == "INFO"
+        for record in records
+    )
+    assert any(
+        record["event"] == "phase.changed"
+        and record["payload"]["phase"] == "STARTING"
+        for record in records
+    )
+
+
+@pytest.mark.asyncio
+async def test_pause_toggles_richlog_autoscroll(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        log = app.query_one("#log", RichLog)
+        assert log.auto_scroll is True
+        await pilot.press("p")
+        await pilot.pause()
+        assert app.paused is True
+        assert log.auto_scroll is False
+        await pilot.press("p")
+        await pilot.pause()
+        assert app.paused is False
+        assert log.auto_scroll is True
+
+
+async def _wait_for_log(app: VllmLoaderApp, text: str) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if any(text in line for line in app.log_lines):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"log line {text!r} was not emitted")
+
+
+async def _wait_for_command(app: VllmLoaderApp, title: str):
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        for command in app.get_system_commands(app.screen):
+            if command.title == title:
+                return command
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"command {title!r} was not available")
+
+
+async def _wait_for_gpu_text(app: VllmLoaderApp, text: str) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if text in app.gpu_panel_text:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"GPU panel text {text!r} was not shown")
+
+
+async def _wait_for_gpu_calls(calls: list[int], count: int) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if len(calls) >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"GPU sampler was called {len(calls)} times, expected {count}")
+
+
+async def _wait_for_stopped(app: VllmLoaderApp) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if app.current_process and app.current_process.proc.poll() is not None:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("fake child did not stop")
+
+
+async def _wait_for_new_process(app: VllmLoaderApp, previous_pid: int) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if (
+            app.current_process is not None
+            and app.current_process.proc.pid != previous_pid
+            and app.current_process.proc.poll() is None
+        ):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("restart did not start a new fake child")
+
+
+async def _wait_for_phase(app: VllmLoaderApp, phase: Phase) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if app.phase is phase:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"phase {phase.value} was not reached")
+
+
+async def _wait_for_log_text(path: Path, text: str) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        if path.exists() and text in path.read_text(encoding="utf-8"):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"{text!r} was not written to {path}")
+
+
+def _static_text(app: VllmLoaderApp, selector: str) -> str:
+    return str(app.query_one(selector, Static).content)
+
+
+def _text_uses_style(text: Text, style_fragment: str) -> bool:
+    if text.style and style_fragment in str(text.style):
+        return True
+    return any(style_fragment in str(span.style) for span in text.spans)
+
+
+async def _cleanup_port(port: int) -> None:
+    proc = await asyncio.create_subprocess_exec(
+        "lsof",
+        "-ti",
+        f"tcp:{port}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    for pid_text in stdout.decode().splitlines():
+        if pid_text.strip():
+            try:
+                await asyncio.create_subprocess_exec("kill", "-TERM", pid_text.strip())
+            except Exception:
+                pass
+
+
+async def _wait_for_port_down(port: int) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        except OSError:
+            return
+        writer.close()
+        await writer.wait_closed()
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"port {port} stayed open")
+
+
+async def _wait_for_port_up(port: int) -> None:
+    deadline = asyncio.get_running_loop().time() + 5
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        except OSError:
+            await asyncio.sleep(0.05)
+            continue
+        writer.close()
+        await writer.wait_closed()
+        return
+    raise AssertionError(f"port {port} did not open")
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
