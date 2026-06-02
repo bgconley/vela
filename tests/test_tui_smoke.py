@@ -1858,6 +1858,60 @@ async def test_restart_waits_for_attached_process_exit_before_loading(
 
 
 @pytest.mark.asyncio
+async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "detached.json"
+    write_yaml(
+        config_dir / "restart-detached.yaml",
+        """
+        name: restart-detached
+        model: org/model
+        """,
+    )
+    stopped_paths: list[Path] = []
+    load_calls: list[Path | None] = []
+    sidecar_alive = True
+
+    def stop_sidecar(path: Path, **_kwargs: object) -> None:
+        stopped_paths.append(path)
+
+    def alive(path: Path) -> bool:
+        assert path == sidecar_path
+        return sidecar_alive
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = app.registry.by_name("restart-detached")
+        app.reattached_sidecar_path = sidecar_path
+        app._set_phase(Phase.READY)
+        monkeypatch.setattr(tui_app_module, "stop_sidecar_from_system", stop_sidecar)
+        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        monkeypatch.setattr(
+            app,
+            "action_load",
+            lambda: load_calls.append(app.reattached_sidecar_path),
+        )
+
+        app.action_restart()
+        await _wait_for_condition(
+            lambda: stopped_paths == [sidecar_path],
+            "sidecar stop was not requested",
+        )
+
+        assert app.reattached_sidecar_path == sidecar_path
+        assert load_calls == []
+
+        sidecar_alive = False
+        await _wait_for_condition(
+            lambda: load_calls == [None],
+            "restart did not load after sidecar exit",
+        )
+
+
+@pytest.mark.asyncio
 async def test_restart_stops_running_attached_server_and_starts_same_config(
     config_dir: Path,
 ) -> None:

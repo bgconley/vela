@@ -583,12 +583,45 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
+        if self.reattached_sidecar_path is not None:
+            self.run_worker(
+                self._restart_reattached_sidecar(self.reattached_sidecar_path),
+                name="restart",
+                group="restart",
+                exclusive=True,
+            )
+            return
         self.action_stop()
         self.action_load()
 
     async def _load_after_process_exit(self, process: AttachedProcess) -> None:
         while process.proc.poll() is None:
             await asyncio.sleep(0.05)
+        self.action_load()
+
+    async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
+        try:
+            await asyncio.to_thread(
+                stop_sidecar_from_system,
+                sidecar_path,
+                interrupt_timeout=2,
+                terminate_timeout=2,
+            )
+        except Exception as exc:
+            self._set_error_text(f"Unable to restart {sidecar_path.name}: {exc}")
+            return
+        self.workers.cancel_group(self, "tail")
+        self.workers.cancel_group(self, "health")
+        await self._load_after_sidecar_exit(sidecar_path)
+
+    async def _load_after_sidecar_exit(self, sidecar_path: Path) -> None:
+        while self._sidecar_is_alive(sidecar_path):
+            await asyncio.sleep(0.05)
+        if self.reattached_sidecar_path != sidecar_path:
+            return
+        self.reattached_sidecar_path = None
+        self.current_process = None
+        self._set_phase(Phase.STOPPED)
         self.action_load()
 
     def action_config_picker(self) -> None:
