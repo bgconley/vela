@@ -16,7 +16,7 @@ The default flow is safe on machines without vLLM/GPU access:
 
 If real-config-name is provided, the remote host also runs:
   - vllm-loader preview REAL_CONFIG
-  - timeout-bound vllm-loader smoke REAL_CONFIG
+  - timeout-bound vllm-loader smoke-tui REAL_CONFIG
 
 Example:
   scripts/run_remote_tests.sh blackbird /srv/lab-tui
@@ -115,6 +115,6 @@ fi
 
 if [[ -n "$real_config" ]]; then
   "$venv_bin/vllm-loader" preview "$real_config"
-  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke "$real_config"
+  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config"
 fi
 REMOTE

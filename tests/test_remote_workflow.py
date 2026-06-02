@@ -5,13 +5,14 @@ import subprocess
 from pathlib import Path
 
 
-def test_remote_validation_uses_readiness_smoke_for_real_config() -> None:
+def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
     assert "sample_gpus" in script
     assert "vllm --version" in script
     assert "vllm serve --help" in script
-    assert '"$venv_bin/vllm-loader" smoke "$real_config"' in script
+    assert '"$venv_bin/vllm-loader" smoke-tui "$real_config"' in script
+    assert '"$venv_bin/vllm-loader" smoke "$real_config"' not in script
     assert 'vllm-loader run "$real_config"' not in script
     assert 'remote_venv="${4:-/tank/venvs/lab-tui}"' in script
     assert '"$venv_python" -m pip --version' in script
@@ -23,6 +24,7 @@ def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
 
     assert "v0.19.1rc1.dev119+gba4a78eb5" in docs
     assert "vLLM 0.19" in docs
+    assert "vllm-loader smoke-tui" in docs
     assert "textual serve" in docs
     assert "network/auth" in docs
     assert "controls model launches" in docs
@@ -80,7 +82,10 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
     assert 'remote_venv="${4:-/tank/venvs/lab-tui}"' in remote_script
     assert '"$venv_python" -m pip install -e ".[dev]"' in remote_script
     assert 'export PATH="$venv_bin:$PATH"' in remote_script
-    assert 'timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke "$real_config"' in remote_script
+    assert (
+        'timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config"'
+        in remote_script
+    )
 
 
 def test_remote_validation_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:

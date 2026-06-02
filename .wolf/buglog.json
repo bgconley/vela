@@ -1356,6 +1356,18 @@
       "related_bugs": ["bug-100", "bug-103", "bug-112"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:01:08Z"
+    },
+    {
+      "id": "bug-114",
+      "timestamp": "2026-06-02T22:02:50Z",
+      "error_message": "Remote real-config validation still used direct `smoke` after the Textual smoke harness existed",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "The new `smoke-tui` command was added as a separate CLI surface, but the canonical GPU workflow script and docs still pointed real-config validation at the older engine-only smoke path.",
+      "fix": "Changed the remote real-config lane and GPU workflow docs to run timeout-bound `vllm-loader smoke-tui`, with tests asserting the script no longer runs direct `smoke` for real configs.",
+      "tags": ["remote", "gpu", "tui", "workflow", "docs"],
+      "related_bugs": ["bug-113"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:02:50Z"
     }
   ]
 }

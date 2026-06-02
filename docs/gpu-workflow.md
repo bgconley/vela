@@ -74,9 +74,11 @@ The remote validation venv does not install vLLM, so the diagnostic line may
 say `vllm not found on PATH`; the real config preview/smoke still validates the
 absolute lab vLLM executable path.
 
-The real run uses `vllm-loader smoke`: it launches the config, waits for READY
-via `/health` and `/v1/models`, prints the READY URL/model names, then stops the
-server. It is still wrapped in `timeout` as a hard guard. Override the limit with:
+The real run uses `vllm-loader smoke-tui`: it mounts the Textual app headlessly,
+selects the config, follows the normal Load workflow, waits for READY via the
+app's health/model state, prints the READY URL/model names, then follows the
+normal Stop workflow. It is still wrapped in `timeout` as a hard guard. Override
+the limit with:
 
 ```bash
 VLLM_LOADER_REMOTE_TIMEOUT=2400 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
