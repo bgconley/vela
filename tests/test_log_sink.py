@@ -19,6 +19,32 @@ def test_splits_carriage_return_and_newline_and_persists_only_committed(tmp_path
     assert path.read_text(encoding="utf-8") == "INFO ready\n"
 
 
+def test_terminal_carriage_return_emits_transient_without_next_chunk(tmp_path: Path) -> None:
+    path = tmp_path / "run.log"
+    records: list[tuple[str, str]] = []
+    sink = LogSink(path, secrets=[], emit=lambda record: records.append((record.kind, record.text)))
+
+    sink.feed(b"Loading checkpoint shards: 10%\r")
+
+    assert records == [("transient", "Loading checkpoint shards: 10%")]
+    assert path.read_text(encoding="utf-8") == ""
+    sink.close()
+    assert path.read_text(encoding="utf-8") == ""
+
+
+def test_split_crlf_after_terminal_carriage_return_commits_line(tmp_path: Path) -> None:
+    path = tmp_path / "run.log"
+    records: list[tuple[str, str]] = []
+    sink = LogSink(path, secrets=[], emit=lambda record: records.append((record.kind, record.text)))
+
+    sink.feed(b"INFO ready\r")
+    sink.feed(b"\n")
+    sink.close()
+
+    assert records == [("transient", "INFO ready"), ("committed", "INFO ready")]
+    assert path.read_text(encoding="utf-8") == "INFO ready\n"
+
+
 def test_multibyte_utf8_split_across_chunks_decodes_correctly(tmp_path: Path) -> None:
     path = tmp_path / "run.log"
     lines: list[str] = []

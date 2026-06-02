@@ -52,6 +52,7 @@ class LogSink:
         self._file = os.fdopen(fd, "wb")
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._pending = ""
+        self._pending_cr_segment: str | None = None
         self._secrets = [secret for secret in secrets if secret]
         self._emit = emit or (lambda _record: None)
         self._max_pending = max_pending
@@ -68,6 +69,7 @@ class LogSink:
         if self._pending:
             self._commit(self._pending)
             self._pending = ""
+        self._pending_cr_segment = None
         self._file.close()
 
     def rotate_to(self, path: Path) -> None:
@@ -86,6 +88,11 @@ class LogSink:
 
     def _process_pending(self) -> None:
         index = 0
+        if self._pending_cr_segment is not None and self._pending:
+            if self._pending[0] == "\n":
+                self._commit(self._pending_cr_segment)
+                index = 1
+            self._pending_cr_segment = None
         while index < len(self._pending):
             next_cr = self._pending.find("\r", index)
             next_lf = self._pending.find("\n", index)
@@ -100,7 +107,11 @@ class LogSink:
                 index = pos + 1
                 continue
             if pos + 1 >= len(self._pending):
-                break
+                text = self.scrub(segment)
+                self._emit(LogRecord("transient", text, level=level_for_line(text)))
+                self._pending_cr_segment = segment
+                index = pos + 1
+                continue
             if self._pending[pos + 1] == "\n":
                 self._commit(segment)
                 index = pos + 2
