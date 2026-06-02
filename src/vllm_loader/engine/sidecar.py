@@ -22,6 +22,7 @@ class ProcessIdentity:
     pgid: int
     executable: str
     cmdline: list[str]
+    procfs_starttime: int | None = None
 
 
 @dataclass
@@ -98,6 +99,11 @@ def verify_sidecar_identity(
         raise TrackedProcessMismatch(
             "tracked process is gone; refusing to signal a possibly-recycled PID"
         )
+    _verify_procfs_starttime(
+        "process",
+        recorded=sidecar.procfs_starttime,
+        live=child.procfs_starttime,
+    )
     if child.pgid != sidecar.pgid:
         raise TrackedProcessMismatch("tracked process group does not match sidecar")
     command_line_matches = False
@@ -121,6 +127,11 @@ def verify_sidecar_identity(
         if sidecar.supervisor_create_time is not None:
             if abs(supervisor.create_time - sidecar.supervisor_create_time) > 0.001:
                 raise TrackedProcessMismatch("supervisor create_time does not match sidecar")
+        _verify_procfs_starttime(
+            "supervisor",
+            recorded=sidecar.supervisor_procfs_starttime,
+            live=supervisor.procfs_starttime,
+        )
     return True
 
 
@@ -156,6 +167,7 @@ def process_identity_from_pid(pid: int) -> ProcessIdentity:
         pgid=os.getpgid(pid),
         executable=_safe_exe(proc),
         cmdline=_safe_cmdline(proc),
+        procfs_starttime=procfs_starttime_from_pid(pid),
     )
 
 
@@ -242,6 +254,30 @@ def _inode(path: Path) -> int:
         return path.stat().st_ino
     except FileNotFoundError:
         return -1
+
+
+def procfs_starttime_from_pid(pid: int, *, proc_root: Path = Path("/proc")) -> int | None:
+    try:
+        stat_text = (proc_root / str(pid) / "stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    comm_end = stat_text.rfind(")")
+    if comm_end == -1:
+        return None
+    fields_after_comm = stat_text[comm_end + 1 :].strip().split()
+    if len(fields_after_comm) < 20:
+        return None
+    try:
+        return int(fields_after_comm[19])
+    except ValueError:
+        return None
+
+
+def _verify_procfs_starttime(label: str, *, recorded: int | None, live: int | None) -> None:
+    if recorded is None:
+        return
+    if live != recorded:
+        raise TrackedProcessMismatch(f"{label} procfs starttime does not match sidecar")
 
 
 def _write_private_text(path: Path, text: str) -> None:

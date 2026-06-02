@@ -13,7 +13,7 @@ from pathlib import Path
 import psutil
 
 from vllm_loader.engine.log_sink import LogSink
-from vllm_loader.engine.sidecar import Manifest, Sidecar, command_hash
+from vllm_loader.engine.sidecar import Manifest, Sidecar, command_hash, procfs_starttime_from_pid
 
 DEFAULT_LOG_ROTATE_BYTES = 256 * 1024 * 1024
 
@@ -146,8 +146,10 @@ def _write_run_artifacts(
         pid=child.pid,
         pgid=os.getpgid(child.pid),
         process_create_time=child_proc.create_time(),
+        procfs_starttime=procfs_starttime_from_pid(child.pid),
         supervisor_pid=os.getpid(),
         supervisor_create_time=supervisor_proc.create_time(),
+        supervisor_procfs_starttime=procfs_starttime_from_pid(os.getpid()),
         supervisor_executable=_safe_exe(supervisor_proc, fallback=sys.executable),
         host=payload["host"],
         port=int(payload["port"]),

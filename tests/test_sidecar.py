@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import vllm_loader.engine.sidecar as sidecar_module
 from vllm_loader.engine.sidecar import (
     Manifest,
     ProcessIdentity,
@@ -128,6 +129,55 @@ def test_recycled_pid_create_time_mismatch_rejected(tmp_path: Path) -> None:
         verify_sidecar_identity(sidecar, child, None)
 
 
+def test_procfs_starttime_is_parsed_from_linux_stat_with_spaced_process_name(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    proc_dir = proc_root / "123"
+    proc_dir.mkdir(parents=True)
+    # Fields are: pid, comm, then 3..22. Start time is field 22.
+    stat_fields_after_comm = ["S", *["0"] * 18, "8675309"]
+    (proc_dir / "stat").write_text(
+        f"123 (python worker) {' '.join(stat_fields_after_comm)}\n",
+        encoding="utf-8",
+    )
+
+    assert hasattr(sidecar_module, "procfs_starttime_from_pid")
+    assert sidecar_module.procfs_starttime_from_pid(123, proc_root=proc_root) == 8675309
+
+
+def test_procfs_starttime_is_unavailable_off_linux_procfs(tmp_path: Path) -> None:
+    assert hasattr(sidecar_module, "procfs_starttime_from_pid")
+    assert (
+        sidecar_module.procfs_starttime_from_pid(123, proc_root=tmp_path / "missing-proc")
+        is None
+    )
+
+
+def test_child_procfs_starttime_mismatch_is_rejected(tmp_path: Path) -> None:
+    sidecar = make_sidecar(tmp_path)
+    sidecar.procfs_starttime = 8675309
+    child = ProcessIdentity(
+        pid=100,
+        create_time=123.0,
+        pgid=100,
+        executable="/bin/vllm",
+        cmdline=sidecar.command_argv,
+        procfs_starttime=8675310,
+    )
+    supervisor = ProcessIdentity(
+        pid=90,
+        create_time=122.0,
+        pgid=90,
+        executable="/bin/python",
+        cmdline=["python"],
+        procfs_starttime=None,
+    )
+
+    with pytest.raises(TrackedProcessMismatch, match="procfs starttime"):
+        verify_sidecar_identity(sidecar, child, supervisor)
+
+
 def test_supervisor_identity_checked_for_detached_mode(tmp_path: Path) -> None:
     sidecar = make_sidecar(tmp_path)
     child = ProcessIdentity(
@@ -136,6 +186,25 @@ def test_supervisor_identity_checked_for_detached_mode(tmp_path: Path) -> None:
 
     with pytest.raises(TrackedProcessMismatch):
         verify_sidecar_identity(sidecar, child, None)
+
+
+def test_supervisor_procfs_starttime_mismatch_is_rejected(tmp_path: Path) -> None:
+    sidecar = make_sidecar(tmp_path)
+    sidecar.supervisor_procfs_starttime = 8675280
+    child = ProcessIdentity(
+        pid=100, create_time=123.0, pgid=100, executable="/bin/vllm", cmdline=sidecar.command_argv
+    )
+    supervisor = ProcessIdentity(
+        pid=90,
+        create_time=122.0,
+        pgid=90,
+        executable="/bin/python",
+        cmdline=["python"],
+        procfs_starttime=8675281,
+    )
+
+    with pytest.raises(TrackedProcessMismatch, match="supervisor procfs starttime"):
+        verify_sidecar_identity(sidecar, child, supervisor)
 
 
 def test_destructive_signal_path_reverifies_before_signaling(tmp_path: Path, monkeypatch) -> None:
