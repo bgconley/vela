@@ -214,3 +214,7 @@
 | 15:54 | Rendered GPU unavailable detail on sampler errors | src/vllm_loader/tui/app.py | `_sample_gpu_panel_once` now catches sampler exceptions and sends an unavailable `GpuPollResult` to the renderer | ~250 |
 | 15:54 | Logged GPU sampler unavailable fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-086 records the visible GPU placeholder/detail gap | ~200 |
 | 15:55 | Ran verification after GPU unavailable fix | entire project | json valid, ruff clean, focused GPU exception test passed, pytest 133 passed, fake-child smoke 63 passed, no fake-child processes remained | ~850 |
+| 15:59 | Added malformed /v1/models health regression | tests/test_health.py | red: 200 `/v1/models` with invalid JSON raised `JSONDecodeError` from `check_once` | ~250 |
+| 15:59 | Guarded model-list JSON parsing | src/vllm_loader/monitoring/health.py | malformed `/v1/models` now returns READY with empty models and invalid-JSON detail instead of crashing the probe | ~250 |
+| 15:59 | Logged malformed models health fix | .wolf/buglog.json, .wolf/cerebrum.md, .wolf/memory.md | bug-087 records the readiness probe crash path | ~200 |
+| 16:00 | Ran verification after malformed models health fix | entire project | json valid, ruff clean, health tests 9 passed, pytest 134 passed, fake-child smoke 63 passed, no fake-child processes remained | ~850 |

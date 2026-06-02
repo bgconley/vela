@@ -1032,6 +1032,18 @@
       "related_bugs": ["bug-085"],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:54:04Z"
+    },
+    {
+      "id": "bug-087",
+      "timestamp": "2026-06-02T19:59:07Z",
+      "error_message": "Malformed /v1/models JSON crashed the health probe",
+      "file": "src/vllm_loader/monitoring/health.py",
+      "root_cause": "`check_once` trusted a 200 `/v1/models` body to be valid JSON, so malformed responses raised `JSONDecodeError` out of the health probe instead of preserving the `/health` readiness result.",
+      "fix": "Caught model-list JSON parse failures and returned a READY health event with empty models plus `ready; /v1/models returned invalid JSON` detail.",
+      "tags": ["health", "readiness", "models", "tui", "nfr-5"],
+      "related_bugs": ["bug-084", "bug-085"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T19:59:07Z"
     }
   ]
 }

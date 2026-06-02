@@ -18,6 +18,7 @@
 - Script executables launched through a shebang may briefly report `/usr/bin/env`; sidecar identity should record the actual settled process cmdline/executable before verification.
 - Health probing must continue after READY; the TUI should consume loop events so health failures move to DEGRADED and later 200 responses recover to READY.
 - Health checks must treat `/v1/models` connection failures like `/health` connection failures because shutdown can happen after `/health` returns 200 but before the model probe completes.
+- `/health` 200 proves liveness; malformed `/v1/models` JSON should not crash the probe, and should return READY with empty models plus an invalid-JSON detail.
 - Health probing should preserve explicit `server.probe_host`, preserve loopback bind hosts, and otherwise probe `127.0.0.1` for non-loopback bind addresses per the canonical spec.
 - TUI modal screens are lightweight Textual `Screen` subclasses under `src/vllm_loader/tui/screens/`; smoke tests inspect `app.screen.id` and simple screen attributes such as `summary`.
 - Textual 8.2.7 app command palette commands are exposed by overriding `get_system_commands()` and yielding `SystemCommand` instances; tests can inspect that generator directly without opening the palette UI.
@@ -102,6 +103,7 @@
 - [2026-06-02] Do not ignore repo-local OpenWolf instructions; read `.wolf/anatomy.md` before file reads and `.wolf/cerebrum.md` before code generation.
 - [2026-06-02] Do not treat reattach as a UI-only state; Stop/Kill after reattach must signal the verified detached child process group via sidecar identity checks.
 - [2026-06-02] Do not assume `/health` success means the subsequent `/v1/models` probe is safe; catch connection failures on both requests to avoid shutdown-race worker crashes.
+- [2026-06-02] Do not trust `/v1/models` 200 bodies to be parseable JSON; model-list parsing is advisory and must not crash readiness probing.
 - [2026-06-02] Do not probe LAN/public bind addresses directly by default; use localhost unless `server.probe_host` explicitly overrides it.
 - [2026-06-02] Do not put dense timeline formatting in one f-string; repo Ruff enforces 100-column lines.
 - [2026-06-02] Do not initialize detached log tails from latest file size after loading existing lines; carry forward the loaded file offset to avoid reattach races.

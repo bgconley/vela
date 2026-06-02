@@ -64,7 +64,12 @@ async def check_once(
             return HealthEvent(
                 ready=True, detail=f"ready; /v1/models returned {models.status_code}", models=[]
             )
-        data = models.json()
+        try:
+            data = models.json()
+        except ValueError:
+            return HealthEvent(
+                ready=True, detail="ready; /v1/models returned invalid JSON", models=[]
+            )
         names = [str(item.get("id")) for item in data.get("data", []) if item.get("id")]
         return HealthEvent(ready=True, detail="ready", models=names)
 
