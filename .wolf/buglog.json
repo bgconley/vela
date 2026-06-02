@@ -1452,6 +1452,18 @@
       "related_bugs": ["bug-118", "bug-119", "bug-120"],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:43:08Z"
+    },
+    {
+      "id": "bug-122",
+      "timestamp": "2026-06-02T22:48:36Z",
+      "error_message": "CRASHED banner for a no-log nonzero exit lacked a relevant excerpt",
+      "file": "src/vllm_loader/engine/phases.py",
+      "root_cause": "`PhaseFSM.process_exited` used the latest committed log line as the generic crash excerpt, but left `error_excerpt` empty when a child exited nonzero before emitting any committed output.",
+      "fix": "Added a TUI regression for `ProcessExited(7)` without logs and made the FSM fall back to `process exited with code N` or `process exited unexpectedly` when no recent log excerpt exists.",
+      "tags": ["phases", "tui", "errors", "crashed", "fr-21"],
+      "related_bugs": ["bug-115", "bug-121"],
+      "occurrences": 1,
+      "last_seen": "2026-06-02T22:48:36Z"
     }
   ]
 }

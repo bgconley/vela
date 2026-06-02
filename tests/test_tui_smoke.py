@@ -897,6 +897,21 @@ async def test_nonzero_exit_before_ready_shows_crashed_banner(
 
 
 @pytest.mark.asyncio
+async def test_nonzero_exit_without_logs_shows_exit_code_excerpt(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.post_message(ProcessExited(7))
+        await pilot.pause()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.CRASHED
+        assert "CRASHED" in app.error_text
+        assert "process exited with code 7" in app.error_text
+
+
+@pytest.mark.asyncio
 async def test_missing_executable_shows_launch_guidance_instead_of_crashing(
     config_dir: Path, tmp_path: Path
 ) -> None:

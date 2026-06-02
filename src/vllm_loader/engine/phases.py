@@ -94,6 +94,12 @@ class PhaseFSM:
             self.error_kind = ErrorKind.CRASHED
         if self.error_excerpt is None and self.recent_lines:
             self.error_excerpt = self.recent_lines[-1]
+        if self.error_excerpt is None:
+            self.error_excerpt = (
+                f"process exited with code {returncode}"
+                if returncode is not None
+                else "process exited unexpectedly"
+            )
         self._transition(Phase.ERROR)
 
     def timeout(self) -> None:
