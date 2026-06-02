@@ -132,12 +132,13 @@ def _write_run_artifacts(
 
     child_proc = psutil.Process(child.pid)
     supervisor_proc = psutil.Process(os.getpid())
+    secrets = [secret for secret in payload.get("secrets", []) if secret]
     actual_cmdline = _wait_for_actual_cmdline(child_proc, payload["argv"])
     sidecar = Sidecar(
         run_id=payload["run_id"],
         config_name=payload["config_name"],
         config_snapshot=payload.get("config_snapshot"),
-        command_argv=actual_cmdline,
+        command_argv=_scrub_argv_for_artifact(actual_cmdline, secrets),
         command_hash=command_hash(actual_cmdline),
         vllm_version=payload.get("vllm_version"),
         vllm_version_profile=payload.get("vllm_version_profile"),
@@ -233,6 +234,17 @@ def _wait_for_actual_cmdline(proc: psutil.Process, fallback: list[str]) -> list[
                 return current
         time.sleep(0.02)
     return last or fallback
+
+
+def _scrub_argv_for_artifact(argv: list[str], secrets: list[str]) -> list[str]:
+    return [_scrub_text(item, secrets) for item in argv]
+
+
+def _scrub_text(text: str, secrets: list[str]) -> str:
+    scrubbed = text
+    for secret in secrets:
+        scrubbed = scrubbed.replace(secret, "••••")
+    return scrubbed
 
 
 if __name__ == "__main__":

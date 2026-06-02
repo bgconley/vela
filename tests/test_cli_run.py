@@ -568,6 +568,11 @@ async def test_cli_run_detached_starts_supervisor_and_writes_scrubbed_artifacts(
           api_key: literal-api-key
         env:
           HF_TOKEN: hf_literal
+        extra_args:
+          - --ignored-secret
+          - literal-api-key
+          - --hf-token-copy
+          - hf_literal
         launch:
           mode: detached
           runs_dir: {runs_dir}

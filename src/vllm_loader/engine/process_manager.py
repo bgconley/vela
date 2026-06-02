@@ -16,6 +16,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import CommandBuildResult
@@ -107,6 +108,7 @@ def start_detached(
     log_rotate_bytes: int | None = None,
 ) -> DetachedLaunch:
     _require_executable(build.argv[0], cwd=build.cwd, env={**os.environ, **build.env})
+    secret_values = [secret for secret in secrets if secret]
     run_id = uuid.uuid4().hex
     run_dir = cfg.run_artifacts_dir
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -121,10 +123,10 @@ def start_detached(
         "log_path": str(log_path),
         "manifest_path": str(manifest_path),
         "sidecar_path": str(sidecar_path),
-        "secrets": [secret for secret in secrets if secret],
+        "secrets": secret_values,
         "run_id": run_id,
         "config_name": cfg.name,
-        "config_snapshot": _scrub_config_snapshot(cfg),
+        "config_snapshot": _scrub_config_snapshot(cfg, secrets=secret_values),
         "command_hash": _command_hash(build.argv),
         "vllm_version": vllm_version,
         "vllm_version_profile": vllm_version_profile,
@@ -232,14 +234,33 @@ def _wait_for_sidecar(path: Path, proc: subprocess.Popen[bytes], timeout: float)
     raise TimeoutError(f"detached supervisor did not write sidecar within {timeout}s")
 
 
-def _scrub_config_snapshot(cfg: ModelConfig) -> dict:
+def _scrub_config_snapshot(
+    cfg: ModelConfig, *, secrets: list[str] | tuple[str, ...] = ()
+) -> dict:
     snapshot = cfg.model_dump(mode="json")
     if isinstance(snapshot.get("server"), dict):
         snapshot["server"]["api_key"] = None
     env = snapshot.get("env")
     if isinstance(env, dict):
         snapshot["env"] = {key: value for key, value in env.items() if not _looks_secret_key(key)}
-    return snapshot
+    return _scrub_secret_values(snapshot, tuple(secret for secret in secrets if secret))
+
+
+def _scrub_secret_values(value: Any, secrets: tuple[str, ...]) -> Any:
+    if isinstance(value, str):
+        return _scrub_text(value, secrets)
+    if isinstance(value, list):
+        return [_scrub_secret_values(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {key: _scrub_secret_values(item, secrets) for key, item in value.items()}
+    return value
+
+
+def _scrub_text(text: str, secrets: tuple[str, ...]) -> str:
+    scrubbed = text
+    for secret in secrets:
+        scrubbed = scrubbed.replace(secret, "••••")
+    return scrubbed
 
 
 def _looks_secret_key(key: str) -> bool:
