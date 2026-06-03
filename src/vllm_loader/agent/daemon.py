@@ -12,7 +12,7 @@ from typing import Any
 import psutil
 
 from vllm_loader import __version__
-from vllm_loader.agent.local import LocalAgent, PROTOCOL_VERSION
+from vllm_loader.agent.local import PROTOCOL_VERSION, LocalAgent
 from vllm_loader.agent.socket import serve_unix_socket_agent
 from vllm_loader.engine.sidecar import procfs_starttime_from_pid
 
@@ -45,12 +45,38 @@ def agent_identity_path(socket_path: str | Path) -> Path:
     return Path(socket_path).with_name("agent.json")
 
 
+def inspect_agent_daemon(socket_path: str | Path | None = None) -> dict[str, Any]:
+    resolved_socket_path = (
+        Path(socket_path) if socket_path is not None else default_agent_socket_path()
+    )
+    identity_path = agent_identity_path(resolved_socket_path)
+    base = {
+        "socket_path": str(resolved_socket_path),
+        "identity_path": str(identity_path),
+    }
+    if not identity_path.exists():
+        return {"status": "not-running", **base}
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"status": "stale", "reason": f"invalid identity: {exc}", **base}
+    if not isinstance(identity, dict):
+        return {"status": "stale", "reason": "identity is not an object", **base}
+    if str(identity.get("socket_path")) != str(resolved_socket_path):
+        return {"status": "stale", "reason": "identity socket_path mismatch", **base}
+    if not _identity_matches_live_process(identity):
+        return {"status": "stale", "reason": "identity process mismatch", **base, **identity}
+    return {"status": "running", **base, **identity}
+
+
 async def start_agent_daemon(
     agent: LocalAgent | None = None,
     *,
     socket_path: str | Path | None = None,
 ) -> AgentDaemon:
-    resolved_socket_path = Path(socket_path) if socket_path is not None else default_agent_socket_path()
+    resolved_socket_path = (
+        Path(socket_path) if socket_path is not None else default_agent_socket_path()
+    )
     resolved_socket_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     resolved_socket_path.parent.chmod(0o700)
     server = await serve_unix_socket_agent(agent or LocalAgent(), resolved_socket_path)
@@ -107,3 +133,23 @@ def _current_agent_identity(socket_path: Path) -> dict[str, Any]:
         "protocol_versions": [PROTOCOL_VERSION],
         "socket_path": str(socket_path),
     }
+
+
+def _identity_matches_live_process(identity: dict[str, Any]) -> bool:
+    try:
+        pid = int(identity["pid"])
+        recorded_create_time = float(identity["create_time"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    try:
+        process = psutil.Process(pid)
+        live_create_time = process.create_time()
+    except (psutil.Error, OSError):
+        return False
+    if abs(live_create_time - recorded_create_time) > 0.001:
+        return False
+    recorded_starttime = identity.get("procfs_starttime")
+    live_starttime = procfs_starttime_from_pid(pid)
+    if recorded_starttime is not None and live_starttime is not None:
+        return int(recorded_starttime) == int(live_starttime)
+    return True

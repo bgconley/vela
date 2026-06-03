@@ -42,6 +42,19 @@ def _agent_run_socket_command(socket_path: Path) -> list[str]:
     ]
 
 
+def _agent_status_json_command(socket_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "vllm_loader.cli",
+        "agent",
+        "status",
+        "--socket",
+        str(socket_path),
+        "--json",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
     from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
@@ -75,6 +88,47 @@ async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
         identity_path.unlink(missing_ok=True)
         if socket_path.parent.exists():
             socket_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_agent_status_reports_running_daemon_identity() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    daemon = await start_agent_daemon(
+        LocalAgent(target_name="status-local"),
+        socket_path=socket_path,
+    )
+    try:
+        result = await _run_command(_agent_status_json_command(socket_path))
+        status = json.loads(result["stdout"])
+
+        assert result["returncode"] == 0
+        assert status["status"] == "running"
+        assert status["pid"] == os.getpid()
+        assert status["socket_path"] == str(socket_path)
+        assert status["identity_path"] == str(identity_path)
+        assert status["version"]
+    finally:
+        daemon.close()
+        await daemon.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_agent_status_reports_missing_daemon_identity() -> None:
+    socket_path = _short_socket_path()
+    result = await _run_command(_agent_status_json_command(socket_path))
+    status = json.loads(result["stdout"])
+
+    assert result["returncode"] == 1
+    assert status["status"] == "not-running"
+    assert status["socket_path"] == str(socket_path)
+    assert status["identity_path"] == str(socket_path.with_name("agent.json"))
 
 
 @pytest.mark.asyncio
@@ -138,3 +192,17 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()
+
+
+async def _run_command(command: list[str]) -> dict[str, object]:
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    return {
+        "returncode": process.returncode,
+        "stdout": stdout.decode(),
+        "stderr": stderr.decode(),
+    }
