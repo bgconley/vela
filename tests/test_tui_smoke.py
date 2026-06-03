@@ -2588,7 +2588,10 @@ async def test_tui_gpu_sampling_runs_through_target_client(
         await app._sample_gpu_panel_once()
         await pilot.pause()
 
-        assert any(call[0] == "gpu" for call in client_instances[0].calls)
+        assert (
+            "gpu",
+            {"emit_event": True, "sub_id": "gpu-panel"},
+        ) in client_instances[0].calls
         assert "A100" in app.gpu_panel_text
 
 
