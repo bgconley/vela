@@ -2189,6 +2189,103 @@ async def test_wire_health_ready_uses_agent_reachable_url_without_phase_mutation
 
 
 @pytest.mark.asyncio
+async def test_remote_target_rewrites_loopback_health_url_to_target_host(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FakeTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/blackbird/configs/remote-health.yaml",
+                            "name": "remote-health",
+                            "model": "org/remote",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "remote-health",
+                                "target": "blackbird",
+                                "model": "org/remote",
+                                "server": {
+                                    "host": "0.0.0.0",
+                                    "port": 18003,
+                                    "exposure": "lan",
+                                },
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/remote\nvllm serve org/remote", "warnings": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("ready URL test should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(),
+    )
+    app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("remote-health")
+        app._set_phase(Phase.SERVER_STARTING)
+
+        app._post_wire_event_message(
+            {
+                "event": "health",
+                "run_id": "run-1",
+                "ready": True,
+                "detail": "ready",
+                "models": ["served"],
+                "reachable_url": "http://127.0.0.1:18003",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 12.0,
+            }
+        )
+        await pilot.pause()
+
+        assert app.ready_url == "http://10.25.0.51:18003"
+        assert app.phase is Phase.SERVER_STARTING
+
+
+@pytest.mark.asyncio
 async def test_tui_gpu_sampling_runs_through_target_client(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3919,6 +4016,58 @@ async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
         assert app.served_models == ["sidecar-model"]
         assert app._server_url_for_copy() == "http://10.25.0.51:8123"
         assert app.phase is Phase.SERVER_STARTING
+
+
+@pytest.mark.asyncio
+async def test_remote_target_rewrites_loopback_reattach_url_to_target_host(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    fake_target_client = _fake_reattach_target_client(
+        _target_reattach_payload(
+            host="0.0.0.0",
+            port=8123,
+            exposure="lan",
+            reachable_url="http://127.0.0.1:8123",
+            served_model_names=["sidecar-model"],
+        )
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: fake_target_client(),
+    )
+
+    def capture_worker(coro, **_kwargs):
+        coro.close()
+
+    app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        await app._reattach_target_detached_run("run-1")
+
+        assert app.ready_url == "http://10.25.0.51:8123"
+        assert app.served_models == ["sidecar-model"]
 
 
 @pytest.mark.asyncio

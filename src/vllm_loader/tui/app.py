@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from rich.text import Text
 from textual import events
@@ -23,7 +24,7 @@ from textual.worker import Worker, WorkerState
 from vllm_loader.agent.local import AgentEvent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.config.targets import TargetConfig, load_targets_file
+from vllm_loader.config.targets import TargetConfig, TransportKind, load_targets_file
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -284,6 +285,28 @@ def _optional_float(value: object) -> float | None:
     return float(value)
 
 
+def _controller_host_from_ssh_target(host: str) -> str:
+    value = str(host).strip()
+    if "@" in value:
+        value = value.rsplit("@", 1)[1]
+    if value.startswith("["):
+        closing_bracket = value.find("]")
+        if closing_bracket > 0:
+            return value[1:closing_bracket]
+    if value.count(":") == 1:
+        hostname, _separator, maybe_port = value.rpartition(":")
+        if hostname and maybe_port.isdigit():
+            return hostname
+    return value
+
+
+def _url_netloc(host: str, port: int | None) -> str:
+    rendered_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    if port is None:
+        return rendered_host
+    return f"{rendered_host}:{port}"
+
+
 OPTIONAL_MONITOR_GROUP_LABELS = {
     "gpu": "gpu",
     "gpu-initial": "gpu",
@@ -481,6 +504,7 @@ class VllmLoaderApp(App):
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
         self.target_name = target_name
+        target_config = TargetConfig(name="local")
         if target_client is None:
             target_config = (
                 TargetConfig(name="local")
@@ -488,7 +512,13 @@ class VllmLoaderApp(App):
                 else load_targets_file().by_name(target_name)
             )
             target_client = target_client_for_config(target_config)
+        elif target_name != "local":
+            try:
+                target_config = load_targets_file().by_name(target_name)
+            except (KeyError, ValueError):
+                target_config = TargetConfig(name=target_name)
         self._target_client = target_client
+        self._target_config = target_config
         self.target_connection_state = "disconnected"
         self.target_connection_detail = ""
         self.target_agent_restarted = False
@@ -2025,9 +2055,11 @@ class VllmLoaderApp(App):
         feed_phase: bool = True,
     ) -> None:
         if reachable_url is not None:
-            self.ready_url = reachable_url
+            self.ready_url = self._controller_reachable_url(reachable_url)
         elif self.ready_url is None and self.current_config is not None:
-            self.ready_url = self._server_url(self.current_config)
+            self.ready_url = self._controller_reachable_url(
+                self._server_url(self.current_config)
+            )
         self.served_models = models
         if not feed_phase:
             self._refresh_chrome()
@@ -2127,12 +2159,28 @@ class VllmLoaderApp(App):
     def _server_url(self, cfg: ModelConfig) -> str:
         return f"http://{cfg.server.host}:{cfg.server.port}"
 
-    @staticmethod
-    def _server_url_from_sidecar_payload(sidecar: dict[str, Any]) -> str:
+    def _server_url_from_sidecar_payload(self, sidecar: dict[str, Any]) -> str:
         reachable_url = _optional_str(sidecar.get("reachable_url"))
         if reachable_url is not None:
-            return reachable_url
-        return f"http://{sidecar.get('host', '127.0.0.1')}:{int(sidecar.get('port', 8000))}"
+            return self._controller_reachable_url(reachable_url)
+        return self._controller_reachable_url(
+            f"http://{sidecar.get('host', '127.0.0.1')}:{int(sidecar.get('port', 8000))}"
+        )
+
+    def _controller_reachable_url(self, url: str) -> str:
+        target_config = getattr(self, "_target_config", None)
+        if (
+            target_config is None
+            or target_config.transport is not TransportKind.SSH
+            or not target_config.host
+        ):
+            return url
+        split = urlsplit(url)
+        if not split.scheme or not split.netloc:
+            return url
+        public_host = _controller_host_from_ssh_target(target_config.host)
+        netloc = _url_netloc(public_host, split.port)
+        return urlunsplit((split.scheme, netloc, split.path, split.query, split.fragment))
 
     def _render_phase_timeline(self) -> Text:
         rows = self._phase_timeline_rows()
