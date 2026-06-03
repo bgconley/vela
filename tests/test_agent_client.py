@@ -8,6 +8,7 @@ from conftest import write_yaml
 
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.engine.phases import Phase
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
@@ -259,6 +260,48 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
         if agent.is_run_alive(run.run_id):
             agent.kill_run(run.run_id)
         await agent.wait_attached_run(run.run_id)
+
+
+@pytest.mark.asyncio
+async def test_local_agent_emits_attached_log_and_phase_events(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "print('INFO Starting to load model', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "events.yaml",
+        f"""
+        name: events
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    agent = LocalAgent()
+    prepared = agent.handle("prepare_launch", {"name": "events", "configs_dir": str(config_dir)})
+    events: list[object] = []
+
+    run = agent.start_attached_run(prepared, emit_event=events.append)
+    returncode, intentional = await agent.wait_attached_run(run.run_id)
+
+    assert intentional is False
+    assert returncode == 0
+    log_events = [event for event in events if getattr(event, "kind", None) == "log"]
+    phase_events = [event for event in events if getattr(event, "kind", None) == "phase"]
+    assert log_events[-1].payload["text"] == "INFO Starting to load model"
+    assert phase_events[-1].payload["phase"] == Phase.LOADING_WEIGHTS.value
 
 
 def test_local_agent_samples_gpus_with_injected_sampler() -> None:

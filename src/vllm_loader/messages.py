@@ -18,6 +18,7 @@ class LoaderMessage(Message):
 class LogLineCommitted(LoaderMessage):
     text: str
     level: str | None = None
+    feed_phase: bool = True
 
 
 @dataclass
@@ -33,6 +34,8 @@ class LogLineTransient(ProgressUpdated):
 @dataclass
 class PhaseChanged(LoaderMessage):
     phase: Phase
+    error_kind: ErrorKind | None = None
+    error_excerpt: str | None = None
 
 
 @dataclass

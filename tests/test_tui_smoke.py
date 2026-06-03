@@ -248,6 +248,43 @@ async def test_tui_attached_health_probe_runs_through_agent(config_dir: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_tui_consumes_attached_run_events_from_agent(config_dir: Path) -> None:
+    class EventEmittingAgent(RecordingConfigAgent):
+        def start_attached_run(self, prepared, *, emit_event):
+            emit_event(
+                SimpleNamespace(
+                    kind="log",
+                    run_id="run-1",
+                    payload={
+                        "kind": "committed",
+                        "text": "INFO Starting to load model",
+                        "level": "INFO",
+                    },
+                )
+            )
+            emit_event(
+                SimpleNamespace(
+                    kind="phase",
+                    run_id="run-1",
+                    payload={"phase": Phase.LOADING_WEIGHTS.value},
+                )
+            )
+            return SimpleNamespace(run_id="run-1", process=SimpleNamespace(proc=None))
+
+    agent = EventEmittingAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        app._agent_start_attached_run({})
+        await pilot.pause()
+
+        assert app.log_lines[-1] == "INFO Starting to load model"
+        assert app.phase is Phase.LOADING_WEIGHTS
+
+
+@pytest.mark.asyncio
 async def test_tui_gpu_sampling_runs_through_agent(config_dir: Path) -> None:
     agent = GpuRecordingAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent, gpu_interval_seconds=60)

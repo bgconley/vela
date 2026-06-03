@@ -11,6 +11,7 @@ from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord
+from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.process_manager import AttachedProcess, start_attached
 from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
@@ -31,12 +32,20 @@ class TargetCallError(RuntimeError):
         return self.message
 
 
+@dataclass(frozen=True)
+class AgentEvent:
+    kind: str
+    run_id: str
+    payload: dict[str, Any]
+
+
 @dataclass
 class LocalAttachedRun:
     run_id: str
     config: ModelConfig
     build: CommandBuildResult
     process: AttachedProcess
+    fsm: PhaseFSM
     intentional_shutdown: bool = False
 
 
@@ -127,18 +136,29 @@ class LocalAgent:
         prepared: dict[str, Any],
         *,
         emit: Callable[[LogRecord], None] | None = None,
+        emit_event: Callable[[AgentEvent], None] | None = None,
     ) -> LocalAttachedRun:
         cfg = ModelConfig.model_validate(prepared["config"])
         build = _build_result_from_payload(prepared["build"])
+        run_id = uuid.uuid4().hex
+        fsm = PhaseFSM(select_profile_for_config(cfg))
         run_dir = cfg.run_artifacts_dir
         run_dir.mkdir(parents=True, exist_ok=True)
         secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
+
+        def emit_record(record: LogRecord) -> None:
+            if emit is not None:
+                emit(record)
+            if emit_event is not None:
+                for event in _events_from_log_record(run_id, fsm, record):
+                    emit_event(event)
+
         try:
             process = start_attached(
                 build,
                 log_path=run_dir / f"{cfg.name}.run.log",
                 secrets=secrets,
-                emit=emit,
+                emit=emit_record,
             )
         except FileNotFoundError as exc:
             command = str(exc.filename or build.argv[0])
@@ -148,10 +168,11 @@ class LocalAgent:
                 {"command": command, "fallback": build.argv[0]},
             ) from exc
         run = LocalAttachedRun(
-            run_id=uuid.uuid4().hex,
+            run_id=run_id,
             config=cfg,
             build=build,
             process=process,
+            fsm=fsm,
         )
         self._attached_runs[run.run_id] = run
         return run
@@ -206,6 +227,39 @@ class LocalAgent:
         if run is None:
             raise TargetCallError("run-not-found", f"unknown run: {run_id}")
         return run
+
+
+def _events_from_log_record(
+    run_id: str, fsm: PhaseFSM, record: LogRecord
+) -> list[AgentEvent]:
+    if record.kind != "committed":
+        return [
+            AgentEvent(
+                "progress",
+                run_id,
+                {"text": record.text},
+            )
+        ]
+    events = [
+        AgentEvent(
+            "log",
+            run_id,
+            {"kind": record.kind, "text": record.text, "level": record.level},
+        )
+    ]
+    previous_phase = fsm.phase
+    fsm.feed_line(record.text)
+    if fsm.phase is not previous_phase:
+        payload: dict[str, Any] = {
+            "phase": fsm.phase.value,
+            "prev_phase": previous_phase.value,
+        }
+        if fsm.error_kind is not None:
+            payload["error_kind"] = fsm.error_kind.value
+        if fsm.error_excerpt is not None:
+            payload["error_excerpt"] = fsm.error_excerpt
+        events.append(AgentEvent("phase", run_id, payload))
+    return events
 
 
 def _configs_dir(params: dict[str, Any]) -> Path | None:

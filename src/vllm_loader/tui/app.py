@@ -20,7 +20,7 @@ from textual.screen import Screen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
-from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.agent.local import AgentEvent, LocalAgent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
 from vllm_loader.engine.command_builder import CommandBuildResult
@@ -175,6 +175,36 @@ def _error_kind_from_agent_payload(value: object) -> ErrorKind:
         return ErrorKind(str(value))
     except ValueError:
         return ErrorKind.CONFIG_INVALID
+
+
+def _message_from_agent_event(
+    event: AgentEvent,
+) -> LogLineCommitted | ProgressUpdated | PhaseChanged | None:
+    payload = event.payload
+    if event.kind == "log":
+        return LogLineCommitted(
+            str(payload.get("text", "")),
+            _optional_str(payload.get("level")),
+            feed_phase=False,
+        )
+    if event.kind == "progress":
+        return ProgressUpdated(str(payload.get("text", "")))
+    if event.kind == "phase":
+        error_kind = None
+        if payload.get("error_kind") is not None:
+            error_kind = _error_kind_from_agent_payload(payload.get("error_kind"))
+        return PhaseChanged(
+            Phase(str(payload["phase"])),
+            error_kind=error_kind,
+            error_excerpt=_optional_str(payload.get("error_excerpt")),
+        )
+    return None
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 OPTIONAL_MONITOR_GROUP_LABELS = {
@@ -953,12 +983,28 @@ class VllmLoaderApp(App):
         return ModelConfig.model_validate(data)
 
     def on_log_line_committed(self, message: LogLineCommitted) -> None:
+        if not message.feed_phase:
+            self.fsm.recent_lines.append(message.text)
+            self._write_log(message.text, message.level)
+            return
         self._handle_committed_log(message.text, message.level)
 
     def on_progress_updated(self, message: ProgressUpdated) -> None:
         self._update_progress(message.text)
 
     def on_phase_changed(self, message: PhaseChanged) -> None:
+        if self.phase in {Phase.READY, Phase.DEGRADED} and message.phase not in {
+            Phase.ERROR,
+            Phase.STOPPED,
+        }:
+            return
+        self.fsm.phase = message.phase
+        if message.error_kind is not None:
+            self.fsm.error_kind = message.error_kind
+        if message.error_excerpt is not None:
+            self.fsm.error_excerpt = message.error_excerpt
+        if message.phase is Phase.ERROR and message.error_kind is not None:
+            self._set_error_banner(message.error_kind)
         self._set_phase(message.phase)
 
     def on_server_ready(self, message: ServerReady) -> None:
@@ -1302,8 +1348,13 @@ class VllmLoaderApp(App):
     def _agent_start_attached_run(self, prepared: dict[str, Any]):
         return self._agent.start_attached_run(
             prepared,
-            emit=self._post_log_record_message,
+            emit_event=self._post_agent_event_message,
         )
+
+    def _post_agent_event_message(self, event: AgentEvent) -> None:
+        message = _message_from_agent_event(event)
+        if message is not None:
+            self.post_message(message)
 
     async def _agent_wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
         return await self._agent.wait_attached_run(run_id)
