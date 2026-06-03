@@ -22,6 +22,7 @@ from textual.worker import Worker, WorkerState
 from vllm_loader.agent.local import AgentEvent, LocalAgent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
+from vllm_loader.config.targets import TargetConfig
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -47,6 +48,7 @@ from vllm_loader.monitoring.gpu import (
     sample_gpus,
 )
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for
+from vllm_loader.transport.factory import target_client_for_config
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
@@ -460,8 +462,16 @@ class VllmLoaderApp(App):
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
         if target_client is None:
-            local_agent = agent or LocalAgent(gpu_sampler=gpu_sampler)
-            target_client = InProcessTargetClient(local_agent)
+            if agent is not None:
+                target_client = InProcessTargetClient(agent)
+            else:
+                target_client = target_client_for_config(
+                    TargetConfig(name="local"),
+                    local_agent_factory=lambda **kwargs: LocalAgent(
+                        gpu_sampler=gpu_sampler,
+                        **kwargs,
+                    ),
+                )
         self._target_client = target_client
         self._clock = clock
         self._gpu_sampler = gpu_sampler

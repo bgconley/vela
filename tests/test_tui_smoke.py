@@ -291,6 +291,87 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
 
 
 @pytest.mark.asyncio
+async def test_tui_default_local_target_uses_target_client_factory(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FactoryTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str] | None]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/factory/configs/local.yaml",
+                            "name": "factory-local",
+                            "model": "org/factory",
+                            "target": None,
+                            "warnings": [],
+                            "config": {"name": "factory-local", "model": "org/factory"},
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/factory\nvllm serve org/factory", "warnings": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("default target setup should not subscribe")
+
+    target_clients: list[FactoryTargetClient] = []
+    requested_targets: list[str] = []
+
+    def fake_target_client_for_config(target, **_kwargs):
+        requested_targets.append(target.name)
+        client = FactoryTargetClient()
+        target_clients.append(client)
+        return client
+
+    monkeypatch.setattr(tui_app_module, "target_client_for_config", fake_target_client_for_config)
+    monkeypatch.setattr(
+        tui_app_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "InProcessTargetClient",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI constructed an InProcessTargetClient")
+        ),
+    )
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert requested_targets == ["local"]
+        assert app.current_config is not None
+        assert app.current_config.name == "factory-local"
+        assert target_clients[0].calls[:2] == [
+            ("list_configs", {"configs_dir": str(config_dir)}),
+            ("preview", {"name": "factory-local", "configs_dir": str(config_dir)}),
+        ]
+
+
+@pytest.mark.asyncio
 async def test_tui_select_config_refreshes_preview_through_target_client(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2587,11 +2668,14 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
 async def test_target_reattach_error_shows_error_without_crashing(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    fake_target_client = _fake_reattach_target_client(
+        error=TargetCallError("run-not-found", "unknown detached run: run-1")
+    )
     monkeypatch.setattr(
         tui_app_module,
-        "InProcessTargetClient",
-        _fake_reattach_target_client(
-            error=TargetCallError("run-not-found", "unknown detached run: run-1")
+        "target_client_for_config",
+        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
+            local_agent_factory()
         ),
     )
     app = VllmLoaderApp(configs_dir=config_dir)
@@ -2625,11 +2709,14 @@ def test_tui_does_not_store_reattached_sidecar_path(config_dir: Path) -> None:
 async def test_reattach_health_worker_is_non_crashing_monitor(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    fake_target_client = _fake_reattach_target_client(
+        _target_reattach_payload(served_model_names=["fake-model"])
+    )
     monkeypatch.setattr(
         tui_app_module,
-        "InProcessTargetClient",
-        _fake_reattach_target_client(
-            _target_reattach_payload(served_model_names=["fake-model"])
+        "target_client_for_config",
+        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
+            local_agent_factory()
         ),
     )
     worker_calls: list[dict[str, object]] = []
@@ -2657,16 +2744,19 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
 async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    fake_target_client = _fake_reattach_target_client(
+        _target_reattach_payload(
+            host="0.0.0.0",
+            port=8123,
+            exposure="lan",
+            served_model_names=["sidecar-model"],
+        )
+    )
     monkeypatch.setattr(
         tui_app_module,
-        "InProcessTargetClient",
-        _fake_reattach_target_client(
-            _target_reattach_payload(
-                host="0.0.0.0",
-                port=8123,
-                exposure="lan",
-                served_model_names=["sidecar-model"],
-            )
+        "target_client_for_config",
+        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
+            local_agent_factory()
         ),
     )
 
@@ -2704,16 +2794,19 @@ async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
           HF_TOKEN: registry-hf-token
         """,
     )
+    fake_target_client = _fake_reattach_target_client(
+        _target_reattach_payload(
+            config_name="secret-detached",
+            model="snapshot/model",
+            served_model_names=["snapshot-model"],
+            config_extra={"server": {"host": "127.0.0.1", "port": 8000}, "env": {}},
+        )
+    )
     monkeypatch.setattr(
         tui_app_module,
-        "InProcessTargetClient",
-        _fake_reattach_target_client(
-            _target_reattach_payload(
-                config_name="secret-detached",
-                model="snapshot/model",
-                served_model_names=["snapshot-model"],
-                config_extra={"server": {"host": "127.0.0.1", "port": 8000}, "env": {}},
-            )
+        "target_client_for_config",
+        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
+            local_agent_factory()
         ),
     )
 
