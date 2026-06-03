@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
 import socket
 import subprocess
@@ -10,9 +11,14 @@ from pathlib import Path
 import httpx
 import pytest
 
+from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord
-from vllm_loader.engine.process_manager import _signal_group_with_escalation, start_attached
+from vllm_loader.engine.process_manager import (
+    _scrub_config_snapshot,
+    _signal_group_with_escalation,
+    start_attached,
+)
 
 
 @pytest.mark.asyncio
@@ -126,6 +132,38 @@ def test_stop_escalation_waits_after_final_sigkill(monkeypatch: pytest.MonkeyPat
 
     assert signals == [signal.SIGINT, signal.SIGTERM, signal.SIGKILL]
     assert proc.wait_calls == [0.1, 0.2, 0.2]
+
+
+def test_config_snapshot_scrubs_generic_secret_patterns() -> None:
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "metadata",
+            "model": "fake/model",
+            "server": {"api_key": "sk-config-secret"},
+            "env": {"HF_TOKEN": "hf_config_secret", "SAFE_ENV": "kept"},
+            "extra_args": [
+                "--api-key",
+                "sk-extra-secret",
+                "--header",
+                "Authorization: Bearer snapshot-bearer",
+                "--hf-token-copy",
+                "hf_extra_secret",
+            ],
+        }
+    )
+
+    snapshot = _scrub_config_snapshot(cfg, secrets=[])
+    text = json.dumps(snapshot, ensure_ascii=False)
+
+    assert snapshot["server"]["api_key"] is None
+    assert snapshot["env"] == {"SAFE_ENV": "kept"}
+    assert "sk-config-secret" not in text
+    assert "hf_config_secret" not in text
+    assert "sk-extra-secret" not in text
+    assert "snapshot-bearer" not in text
+    assert "hf_extra_secret" not in text
+    assert "Authorization: Bearer ••••" in text
+    assert "••••" in text
 
 
 async def _wait_for_health(port: int) -> None:

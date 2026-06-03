@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from vllm_loader.engine.redaction import scrub_text
+
 RecordKind = Literal["committed", "transient"]
 
 
@@ -19,8 +21,6 @@ class LogRecord:
     level: str | None = None
 
 
-TOKEN_RE = re.compile(r"\bsk-\S+")
-BEARER_RE = re.compile(r"Authorization:\s*Bearer\s+\S+", re.IGNORECASE)
 ANSI_CONTROL_RE = re.compile(
     r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x1b]*(?:\x07|\x1b\\))"
 )
@@ -129,11 +129,7 @@ class LogSink:
 
     def scrub(self, text: str) -> str:
         scrubbed = strip_ansi_controls(text)
-        for secret in self._secrets:
-            scrubbed = scrubbed.replace(secret, "••••")
-        scrubbed = BEARER_RE.sub("Authorization: Bearer ••••", scrubbed)
-        scrubbed = TOKEN_RE.sub("••••", scrubbed)
-        return scrubbed
+        return scrub_text(scrubbed, secrets=self._secrets)
 
 
 def strip_ansi_controls(text: str) -> str:

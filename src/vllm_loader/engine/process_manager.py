@@ -21,6 +21,7 @@ from typing import Any
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, LogSink, is_pty_eof
+from vllm_loader.engine.redaction import scrub_text as scrub_secret_text
 
 
 @dataclass
@@ -265,10 +266,7 @@ def _scrub_secret_values(value: Any, secrets: tuple[str, ...]) -> Any:
 
 
 def _scrub_text(text: str, secrets: tuple[str, ...]) -> str:
-    scrubbed = text
-    for secret in secrets:
-        scrubbed = scrubbed.replace(secret, "••••")
-    return scrubbed
+    return scrub_secret_text(text, secrets=secrets)
 
 
 def _looks_secret_key(key: str) -> bool:

@@ -13,6 +13,7 @@ from pathlib import Path
 import psutil
 
 from vllm_loader.engine.log_sink import LogSink
+from vllm_loader.engine.redaction import scrub_text as scrub_secret_text
 from vllm_loader.engine.sidecar import Manifest, Sidecar, command_hash, procfs_starttime_from_pid
 
 DEFAULT_LOG_ROTATE_BYTES = 256 * 1024 * 1024
@@ -241,10 +242,7 @@ def _scrub_argv_for_artifact(argv: list[str], secrets: list[str]) -> list[str]:
 
 
 def _scrub_text(text: str, secrets: list[str]) -> str:
-    scrubbed = text
-    for secret in secrets:
-        scrubbed = scrubbed.replace(secret, "••••")
-    return scrubbed
+    return scrub_secret_text(text, secrets=secrets)
 
 
 if __name__ == "__main__":

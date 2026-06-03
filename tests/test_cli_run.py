@@ -680,6 +680,60 @@ def test_detached_supervisor_rotates_log_and_updates_manifest(tmp_path: Path) ->
     assert "INFO rotation line 19" in combined_log
 
 
+def test_detached_sidecar_scrubs_generic_secret_patterns_from_command_argv(
+    tmp_path: Path,
+) -> None:
+    child_script = tmp_path / "sleep.py"
+    child_script.write_text("import time\ntime.sleep(0.1)\n", encoding="utf-8")
+    log_path = tmp_path / "run.log"
+    manifest_path = tmp_path / "run.manifest.json"
+    sidecar_path = tmp_path / "run.json"
+    payload = {
+        "argv": [
+            sys.executable,
+            str(child_script),
+            "--api-key",
+            "sk-sidecar-secret",
+            "--header",
+            "Authorization: Bearer sidecar-bearer",
+            "--hf-token-copy",
+            "hf_sidecar_secret",
+        ],
+        "env": {},
+        "cwd": str(tmp_path),
+        "manifest_path": str(manifest_path),
+        "sidecar_path": str(sidecar_path),
+        "run_id": "generic-secret-sidecar-test",
+        "config_name": "generic-secret-sidecar-test",
+        "config_snapshot": None,
+        "vllm_version": None,
+        "vllm_version_profile": None,
+        "host": "127.0.0.1",
+        "port": 8765,
+        "served_model_names": [],
+        "exposure": "local",
+        "launch_mode": "detached",
+    }
+
+    returncode = run_supervisor(
+        payload["argv"],
+        {},
+        str(tmp_path),
+        log_path,
+        secrets=[],
+        payload=payload,
+    )
+
+    sidecar_text = sidecar_path.read_text(encoding="utf-8")
+    sidecar = json.loads(sidecar_text)
+    assert returncode == 0
+    assert "sk-sidecar-secret" not in sidecar_text
+    assert "sidecar-bearer" not in sidecar_text
+    assert "hf_sidecar_secret" not in sidecar_text
+    assert "Authorization: Bearer ••••" in sidecar["command_argv"]
+    assert "••••" in sidecar["command_argv"]
+
+
 def test_supervisor_keeps_manifest_active_log_consistent_when_rotation_manifest_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
