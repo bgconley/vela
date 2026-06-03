@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import socket as stdlib_socket
+import struct
 import sys
 from pathlib import Path
 from typing import BinaryIO
@@ -21,9 +24,60 @@ async def serve_unix_socket_agent(
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        try:
+            verify_same_user_peer(writer)
+        except PermissionError:
+            writer.close()
+            await writer.wait_closed()
+            return
         await serve_agent_stream(agent, reader, writer)
 
     return await asyncio.start_unix_server(handle_connection, path=str(path))
+
+
+def verify_same_user_peer(writer: asyncio.StreamWriter) -> None:
+    sock = writer.get_extra_info("socket")
+    if sock is None:
+        return
+    peer_uid = _peer_uid_from_socket(sock)
+    if peer_uid is None:
+        return
+    current_uid = os.getuid()
+    if peer_uid != current_uid:
+        raise PermissionError(f"peer uid {peer_uid} does not match current uid {current_uid}")
+
+
+def _peer_uid_from_socket(sock) -> int | None:
+    getpeereid = getattr(sock, "getpeereid", None)
+    if getpeereid is not None:
+        try:
+            peer_uid, _peer_gid = getpeereid()
+            return int(peer_uid)
+        except OSError:
+            return None
+    if hasattr(stdlib_socket, "SO_PEERCRED"):
+        try:
+            data = sock.getsockopt(
+                stdlib_socket.SOL_SOCKET,
+                stdlib_socket.SO_PEERCRED,
+                struct.calcsize("3i"),
+            )
+            _pid, uid, _gid = struct.unpack("3i", data)
+            return int(uid)
+        except OSError:
+            return None
+    if hasattr(stdlib_socket, "LOCAL_PEERCRED"):
+        try:
+            data = sock.getsockopt(
+                getattr(stdlib_socket, "SOL_LOCAL", 0),
+                stdlib_socket.LOCAL_PEERCRED,
+                64,
+            )
+            _version, uid = struct.unpack("ii", data[: struct.calcsize("ii")])
+            return int(uid)
+        except OSError:
+            return None
+    return None
 
 
 async def bridge_stdio_to_unix_socket(
