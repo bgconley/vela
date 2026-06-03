@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import signal
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
@@ -397,16 +399,62 @@ async def _run_attached_cli(
         run_id = str(launch["run_id"])
         wait_task = asyncio.create_task(client.call("wait", {"run_id": run_id}))
         events = client.subscribe([run_id], resume_from="live")
+        interrupt_event = _install_sigint_event()
+        interrupt_task = (
+            asyncio.create_task(interrupt_event.wait())
+            if interrupt_event is not None
+            else None
+        )
+        stream_task = asyncio.create_task(
+            _echo_attached_event_stream_until_exit(events, wait_task)
+        )
         try:
-            return await _echo_attached_event_stream_until_exit(events, wait_task)
+            wait_for: set[asyncio.Task] = {stream_task}
+            if interrupt_task is not None:
+                wait_for.add(interrupt_task)
+            done, _pending = await asyncio.wait(
+                wait_for,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if interrupt_task is not None and interrupt_task in done:
+                return await _stop_attached_cli_run(client, run_id, wait_task)
+            return await stream_task
         except (KeyboardInterrupt, asyncio.CancelledError):
-            await asyncio.shield(client.call("stop", {"run_id": run_id}))
-            result = await asyncio.shield(wait_task)
-            return int(result.get("returncode") or 0)
+            return await _stop_attached_cli_run(client, run_id, wait_task)
         finally:
+            stream_task.cancel()
+            if interrupt_task is not None:
+                interrupt_task.cancel()
+            with contextlib.suppress(Exception):
+                await asyncio.gather(
+                    *(task for task in (stream_task, interrupt_task) if task is not None),
+                    return_exceptions=True,
+                )
+            if interrupt_event is not None:
+                with contextlib.suppress(Exception):
+                    asyncio.get_running_loop().remove_signal_handler(signal.SIGINT)
             await events.aclose()
     finally:
         await client.disconnect()
+
+
+def _install_sigint_event() -> asyncio.Event | None:
+    event = asyncio.Event()
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGINT, event.set)
+    except (NotImplementedError, RuntimeError):
+        return None
+    return event
+
+
+async def _stop_attached_cli_run(
+    client: TargetClient,
+    run_id: str,
+    wait_task: asyncio.Task[dict[str, Any]],
+) -> int:
+    await asyncio.shield(client.call("stop", {"run_id": run_id}))
+    result = await asyncio.shield(wait_task)
+    return int(result.get("returncode") or 0)
 
 
 async def _run_detached_cli(
