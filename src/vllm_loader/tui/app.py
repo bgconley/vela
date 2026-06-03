@@ -1885,7 +1885,7 @@ class VllmLoaderApp(App):
             self.reattached_sidecar_path == sidecar_path
             and self.reattached_run_id is not None
         ):
-            await self._agent_probe_run_until_ready(self.reattached_run_id)
+            await self._target_probe_run_until_ready(self.reattached_run_id)
             return
         await probe_loop(
             cfg,

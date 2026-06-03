@@ -661,11 +661,43 @@ async def test_tui_attached_health_probe_runs_through_target_client(
 
 
 @pytest.mark.asyncio
-async def test_tui_detached_health_probe_runs_through_agent(
-    config_dir: Path, tmp_path: Path
+async def test_tui_detached_health_probe_runs_through_target_client(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sidecar_path = tmp_path / "detached.json"
-    agent = HealthProbeRecordingAgent()
+    class ProbeRefusingAgent(StopRecordingAgent):
+        async def probe_run_until_ready(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct reattached TUI probe")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "probe_until_ready":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready from target client",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("reattached probe should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    agent = ProbeRefusingAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
     async with app.run_test() as pilot:
@@ -677,7 +709,9 @@ async def test_tui_detached_health_probe_runs_through_agent(
         await app._probe_detached_until_ready(app.current_config, sidecar_path)
         await pilot.pause()
 
-        assert agent.probe_calls == ["run-1"]
+        assert app._target_client.calls == [
+            ("probe_until_ready", {"run_id": "run-1"})
+        ]
         assert app.phase is Phase.READY
         assert app.served_models == ["served"]
 
