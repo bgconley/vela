@@ -374,6 +374,103 @@ def test_cli_build_add_streams_job_events(
     ]
 
 
+def test_cli_build_inspect_prints_manifest_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "manifest": {
+                "build_id": "01BUILD",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "resolved": {"vllm": "0.17.0.dev", "cuda": "13.0"},
+                "paths": {"root": "/agent/builds/01BUILD"},
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "inspect", "nightly-cu130", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("inspect_build", {"build": "nightly-cu130"}, "blackbird")]
+    assert result.output.splitlines() == [
+        "build_id\t01BUILD",
+        "label\tnightly-cu130",
+        "status\tready",
+        'resolved\t{"cuda": "13.0", "vllm": "0.17.0.dev"}',
+        'paths\t{"root": "/agent/builds/01BUILD"}',
+    ]
+
+
+def test_cli_build_adopt_passes_external_venv_to_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    venv_dir = tmp_path / "venv"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "build_id": "01ADOPTED",
+            "label": "external-nightly",
+            "status": "adopted",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "adopt",
+            str(venv_dir),
+            "--build-id",
+            "01ADOPTED",
+            "--label",
+            "external-nightly",
+            "--vllm-version",
+            "0.17.0.dev",
+            "--vllm-version-profile",
+            "current",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "adopt_build",
+            {
+                "build_id": "01ADOPTED",
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+                "vllm_version": "0.17.0.dev",
+                "vllm_version_profile": "current",
+            },
+            "blackbird",
+        )
+    ]
+    assert result.output == "adopted build\t01ADOPTED\texternal-nightly\n"
+
+
 def test_cli_build_select_uses_selected_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

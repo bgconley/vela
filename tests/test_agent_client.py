@@ -1975,6 +1975,78 @@ async def test_agent_selects_build_default_from_agent_owned_registry(
 
 
 @pytest.mark.asyncio
+async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "vllm-nightly"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "adopt_build",
+            {
+                "build_id": "01ADOPTED",
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+                "vllm_version": "0.17.0.dev",
+                "vllm_version_profile": "current",
+            },
+        )
+        inspected = await client.call("inspect_build", {"build": "external-nightly"})
+    finally:
+        await client.disconnect()
+
+    manifest_path = builds_root / "01ADOPTED" / "build.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert adopted["build_id"] == "01ADOPTED"
+    assert adopted["label"] == "external-nightly"
+    assert adopted["status"] == "adopted"
+    assert adopted["manifest"]["paths"] == {
+        "root": str(venv_dir),
+        "venv": ".",
+        "executable": "bin/vllm",
+        "python": "bin/python",
+    }
+    assert manifest["status"] == "adopted"
+    assert manifest["install"]["method"] == "adopt"
+    assert inspected["manifest"]["build_id"] == "01ADOPTED"
+    assert inspected["manifest"]["resolved"]["vllm"] == "0.17.0.dev"
+    json.dumps(adopted)
+    json.dumps(inspected)
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_invalid_external_build_adoption(tmp_path: Path) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "broken"
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "bin" / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "adopt_build",
+                {
+                    "build_id": "01BROKEN",
+                    "label": "broken",
+                    "venv_path": str(venv_dir),
+                },
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.details["reason"] == "missing-executable"
+    assert not (builds_root / "01BROKEN" / "build.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_agent_verifies_ready_build_from_agent_owned_registry(
     tmp_path: Path,
 ) -> None:

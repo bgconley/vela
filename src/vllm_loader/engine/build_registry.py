@@ -115,6 +115,75 @@ def verify_build(reference: str, root: str | Path | None = None) -> dict[str, An
     return result
 
 
+def inspect_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    manifest, _build_dir = _manifest_for_reference(builds_root, reference)
+    return {"manifest": _build_payload(manifest, _active_build_id(builds_root))}
+
+
+def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    build_id = _required_param(params, "build_id")
+    venv_path = Path(_required_param(params, "venv_path")).expanduser()
+    executable = venv_path / "bin" / "vllm"
+    python = venv_path / "bin" / "python"
+    reason = _missing_build_path_reason(executable, python)
+    if reason is not None:
+        raise BuildRegistryError(
+            "invalid-config",
+            f"external build verification failed: {reason}",
+            {"reason": reason, "venv_path": str(venv_path)},
+        )
+
+    build_dir = builds_root / build_id
+    if build_dir.exists():
+        raise BuildRegistryError(
+            "resource-in-use",
+            f"build already exists: {build_id}",
+            {"build": build_id, "reason": "build-exists"},
+        )
+
+    now = _utc_now()
+    manifest: dict[str, Any] = {
+        "schema_version": 1,
+        "build_id": build_id,
+        "label": _optional_str(params.get("label")) or venv_path.name,
+        "status": "adopted",
+        "install": {
+            "method": "adopt",
+            "source": str(venv_path),
+        },
+        "resolved": {
+            "vllm": _optional_str(params.get("vllm_version")),
+            "vllm_version_profile": _optional_str(params.get("vllm_version_profile")),
+        },
+        "paths": {
+            "root": str(venv_path),
+            "venv": ".",
+            "executable": "bin/vllm",
+            "python": "bin/python",
+        },
+        "created_at": now,
+        "last_used_at": None,
+        "notes": str(params.get("notes") or ""),
+    }
+    verify_payload = {
+        "checked_at": now,
+        "ok": True,
+        "reason": None,
+        "executable": str(executable),
+        "python": str(python),
+    }
+    manifest["verify"] = verify_payload
+    _write_json_atomic(build_dir / "build.json", manifest)
+    return {
+        "build_id": build_id,
+        "label": str(manifest["label"]),
+        "status": "adopted",
+        "manifest": _build_payload(manifest, _active_build_id(builds_root)),
+    }
+
+
 def build_reference_aliases(reference: str, root: str | Path | None = None) -> set[str]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
     manifest, _build_dir = _manifest_for_reference(builds_root, reference)
@@ -283,6 +352,17 @@ def _missing_build_path_reason(executable: Path, python: Path) -> str | None:
     if not python.exists():
         return "missing-python"
     return None
+
+
+def _required_param(params: dict[str, Any], field: str) -> str:
+    value = params.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise BuildRegistryError(
+            "invalid-config",
+            f"adopt_build requires {field}",
+            {"reason": f"missing-{field}"},
+        )
+    return value
 
 
 def _active_build_id(root: Path) -> str | None:

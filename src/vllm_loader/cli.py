@@ -39,6 +39,18 @@ app.add_typer(build_app, name="build")
 app.add_typer(model_app, name="model")
 app.add_typer(targets_app, name="targets")
 
+BUILD_INSPECT_FIELDS = (
+    "build_id",
+    "label",
+    "status",
+    "install",
+    "resolved",
+    "paths",
+    "created_at",
+    "last_used_at",
+    "notes",
+)
+
 MODEL_INSPECT_FIELDS = (
     "entry_id",
     "display_name",
@@ -257,6 +269,76 @@ def build_add(
     if env:
         params["env"] = list(env)
     raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "create_build", params)))
+
+
+@build_app.command("inspect")
+def build_inspect(
+    build: Annotated[str, typer.Argument(help="Build id or label to inspect.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable build detail."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "inspect_build",
+            {"build": build},
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    manifest = result.get("manifest") if isinstance(result.get("manifest"), dict) else {}
+    for field in BUILD_INSPECT_FIELDS:
+        if field not in manifest:
+            continue
+        value = manifest.get(field)
+        if value is None or value == "":
+            continue
+        typer.echo(f"{field}\t{_format_inspect_value(value)}")
+
+
+@build_app.command("adopt")
+def build_adopt(
+    venv_path: Annotated[Path, typer.Argument(help="External vLLM virtualenv to adopt.")],
+    build_id: Annotated[str, typer.Option("--build-id", help="Stable build id.")],
+    label: Annotated[str | None, typer.Option("--label", help="Build label.")] = None,
+    vllm_version: Annotated[
+        str | None,
+        typer.Option("--vllm-version", help="Resolved vLLM version."),
+    ] = None,
+    vllm_version_profile: Annotated[
+        str | None,
+        typer.Option("--vllm-version-profile", help="vLLM version profile label."),
+    ] = None,
+    notes: Annotated[str | None, typer.Option("--notes", help="Operator notes.")] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable adoption result."),
+    ] = False,
+) -> None:
+    params = _agent_params(
+        build_id=build_id,
+        label=label,
+        venv_path=venv_path,
+        vllm_version=vllm_version,
+        vllm_version_profile=vllm_version_profile,
+        notes=notes,
+    )
+    try:
+        result = _agent_call("adopt_build", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    typer.echo(
+        f"adopted build\t{result.get('build_id', '')}\t{result.get('label', '')}"
+    )
 
 
 @build_app.command("select")
@@ -723,6 +805,10 @@ def _echo_json(payload: dict[str, Any]) -> None:
 
 
 def _format_model_inspect_value(value: object) -> str:
+    return _format_inspect_value(value)
+
+
+def _format_inspect_value(value: object) -> str:
     if isinstance(value, dict | list):
         return json.dumps(value, sort_keys=True)
     return str(value)

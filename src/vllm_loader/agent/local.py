@@ -19,8 +19,10 @@ from vllm_loader.config.schema import EntryPoint, ModelConfig, default_run_artif
 from vllm_loader.engine.build_registry import (
     BuildHandoff,
     BuildRegistryError,
+    adopt_build,
     build_reference_aliases,
     default_builds_root,
+    inspect_build,
     list_builds,
     remove_build,
     resolve_build_handoff,
@@ -90,6 +92,8 @@ AGENT_CAPABILITIES = [
     "reattach",
     "reattach_detached",
     "list_builds",
+    "adopt_build",
+    "inspect_build",
     "select_build",
     "verify_build",
     "remove_build",
@@ -231,6 +235,10 @@ class LocalAgent:
             return self._reattach_detached(payload)
         if method == "list_builds":
             return self._list_builds()
+        if method == "adopt_build":
+            return self._adopt_build(payload)
+        if method == "inspect_build":
+            return self._inspect_build(payload)
         if method == "select_build":
             return self._select_build(payload)
         if method == "verify_build":
@@ -721,6 +729,21 @@ class LocalAgent:
 
     def _list_builds(self) -> dict[str, Any]:
         return list_builds(self._builds_root)
+
+    def _adopt_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return adopt_build(params, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _inspect_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("build")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "inspect_build requires build")
+        try:
+            return inspect_build(reference, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
     def _select_build(self, params: dict[str, Any]) -> dict[str, Any]:
         reference = params.get("build")
