@@ -31,6 +31,7 @@ from vllm_loader.engine.model_registry import (
     ModelRegistryError,
     default_models_registry_path,
     list_models,
+    pin_model,
     resolve_model_handoff,
 )
 from vllm_loader.engine.phases import PhaseFSM
@@ -83,6 +84,7 @@ AGENT_CAPABILITIES = [
     "list_builds",
     "select_build",
     "list_models",
+    "pin_model",
     "create_build",
     "download_model",
     "cancel_job",
@@ -219,6 +221,8 @@ class LocalAgent:
             return self._select_build(payload)
         if method == "list_models":
             return self._list_models()
+        if method == "pin_model":
+            return self._pin_model(payload)
         if method == "create_build":
             return self._create_build(payload)
         if method == "download_model":
@@ -703,6 +707,12 @@ class LocalAgent:
 
     def _list_models(self) -> dict[str, Any]:
         return list_models(self._models_registry_path)
+
+    def _pin_model(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return pin_model(params, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
     async def _create_build(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("create_build", params, self._build_job_runner)

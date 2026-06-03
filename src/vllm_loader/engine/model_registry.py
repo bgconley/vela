@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +97,31 @@ def resolve_model_handoff(
     return _handoff_from_entry(selected, entry)
 
 
+def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_for_write(path)
+    entry = _pin_entry_from_params(params)
+    entries = registry.get("entries") or []
+    if not isinstance(entries, list):
+        entries = []
+    entries = [
+        item
+        for item in entries
+        if not isinstance(item, dict) or item.get("entry_id") != entry["entry_id"]
+    ]
+    entries.append(entry)
+    registry["schema_version"] = 1
+    registry["default_cache"] = str(registry.get("default_cache") or "hf")
+    registry.setdefault("app_download_dir", None)
+    registry["entries"] = entries
+    _write_registry_atomic(path, registry)
+    return {"entry": _model_payload(entry)}
+
+
 def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()
@@ -182,6 +208,32 @@ def _load_registry_or_raise(path: Path, reference: str) -> dict[str, Any]:
     return registry
 
 
+def _load_registry_for_write(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": 1, "default_cache": "hf", "app_download_dir": None, "entries": []}
+    try:
+        registry = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ModelRegistryError(
+            "invalid-config",
+            "invalid model registry",
+            {"reason": "invalid-json"},
+        ) from exc
+    except OSError as exc:
+        raise ModelRegistryError(
+            "invalid-config",
+            "unable to read model registry",
+            {"reason": "unreadable"},
+        ) from exc
+    if not isinstance(registry, dict):
+        raise ModelRegistryError(
+            "invalid-config",
+            "invalid model registry",
+            {"reason": "invalid-registry"},
+        )
+    return registry
+
+
 def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, Any]:
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
@@ -260,6 +312,44 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
     )
 
 
+def _pin_entry_from_params(params: dict[str, Any]) -> dict[str, Any]:
+    entry_id = _required_param(params, "entry_id")
+    repo_id = _required_param(params, "repo_id")
+    now = _utc_now()
+    entry: dict[str, Any] = {
+        "entry_id": entry_id,
+        "display_name": _optional_str(params.get("display_name")) or entry_id,
+        "source": "hf_repo",
+        "repo_id": repo_id,
+        "revision": _optional_str(params.get("revision")),
+        "commit_sha": _optional_str(params.get("commit_sha")),
+        "local_path": None,
+        "url": None,
+        "quant_format": _optional_str(params.get("quant_format")) or "none",
+        "tokenizer": _optional_str(params.get("tokenizer")),
+        "files": {},
+        "size_bytes": 0,
+        "cache_state": _optional_str(params.get("cache_state")) or "remote_only",
+        "gated": bool(params.get("gated")),
+        "token_required": bool(params.get("token_required")),
+        "created_at": _optional_str(params.get("created_at")) or now,
+        "last_used_at": _optional_str(params.get("last_used_at")),
+        "notes": str(params.get("notes") or ""),
+    }
+    return entry
+
+
+def _required_param(params: dict[str, Any], field: str) -> str:
+    value = params.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ModelRegistryError(
+            "invalid-config",
+            f"pin_model requires {field}",
+            {"reason": f"missing-{field}"},
+        )
+    return value
+
+
 def _required_str(entry: dict[str, Any], field: str, reference: str) -> str:
     value = entry.get(field)
     if not isinstance(value, str) or not value:
@@ -269,6 +359,20 @@ def _required_str(entry: dict[str, Any], field: str, reference: str) -> str:
             {"model_ref": reference, "reason": f"missing-{field}"},
         )
     return value
+
+
+def _write_registry_atomic(path: Path, registry: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(
+        json.dumps(registry, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:

@@ -2187,6 +2187,46 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01PINNED",
+                "display_name": "llama-pinned",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "tokenizer": "meta-llama/Llama-3.1-8B-Instruct",
+                "gated": True,
+                "token_required": True,
+                "notes": "metadata-only pin",
+            },
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert pinned["entry"]["entry_id"] == "01PINNED"
+    assert pinned["entry"]["source"] == "hf_repo"
+    assert pinned["entry"]["cache_state"] == "remote_only"
+    assert registry["schema_version"] == 1
+    assert registry["entries"][0]["entry_id"] == "01PINNED"
+    assert registry["entries"][0]["token_required"] is True
+    assert "HF_TOKEN" not in json.dumps(registry)
+    assert listed["models"][0]["entry_id"] == "01PINNED"
+    assert listed["models"][0]["commit_sha"] == "abc123"
+    assert listed["models"][0]["cache_state"] == "remote_only"
+    json.dumps(pinned)
+    json.dumps(listed)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
