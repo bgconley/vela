@@ -14,6 +14,7 @@ from textual.screen import ModalScreen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import WorkerState
 
+from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
@@ -1680,6 +1681,77 @@ async def test_stop_after_reattach_cancels_detached_monitor_workers(
 
 
 @pytest.mark.asyncio
+async def test_stop_after_agent_reattach_signals_run_id(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "detached.json"
+    log_path = tmp_path / "detached.log"
+    log_path.write_text("", encoding="utf-8")
+    manifest = Manifest.from_active_log(log_path)
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=[],
+        exposure="local",
+        manifest_path=str(tmp_path / "detached.manifest.json"),
+        config_snapshot={"name": "detached", "model": "fake/model"},
+    )
+
+    class ReattachAgent(StopRecordingAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.reattach_calls: list[Path] = []
+
+        def reattach_detached_run(self, path: Path):
+            self.reattach_calls.append(path)
+            return SimpleNamespace(
+                run_id="run-1",
+                sidecar_path=path,
+                sidecar=sidecar,
+                manifest=manifest,
+            )
+
+        def is_run_alive(self, run_id: str) -> bool:
+            return run_id == "run-1"
+
+    cancelled_groups: list[str] = []
+
+    def capture_worker(coro, **_kwargs):
+        coro.close()
+
+    def cancel_group(_app: VllmLoaderApp, group: str) -> None:
+        cancelled_groups.append(group)
+
+    agent = ReattachAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+        monkeypatch.setattr(app.workers, "cancel_group", cancel_group)
+
+        app.reattach_detached_run(sidecar_path)
+        app.action_stop()
+
+        assert agent.reattach_calls == [sidecar_path]
+        assert agent.stop_calls == [("run-1", 2, 2)]
+        assert cancelled_groups == ["tail", "health"]
+        assert app.reattached_sidecar_path is None
+        assert app.reattached_run_id is None
+        assert app.phase is Phase.STOPPED
+
+
+@pytest.mark.asyncio
 async def test_reattach_invalid_sidecar_shows_error_without_crashing(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -1734,9 +1806,9 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
         worker_calls.append(kwargs)
         coro.close()
 
-    monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(tui_app_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(tui_app_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
@@ -1787,9 +1859,9 @@ async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(tui_app_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(tui_app_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
@@ -1853,9 +1925,9 @@ async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(tui_app_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(tui_app_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:

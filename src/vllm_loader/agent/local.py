@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -23,6 +24,15 @@ from vllm_loader.engine.profile import (
     VllmProfileError,
     detect_vllm_version_for_config,
     select_profile_for_config,
+)
+from vllm_loader.engine.sidecar import (
+    Manifest,
+    Sidecar,
+    load_manifest,
+    load_sidecar,
+    signal_sidecar_from_system,
+    stop_sidecar_from_system,
+    verify_sidecar_from_system,
 )
 from vllm_loader.monitoring.gpu import GpuPollResult
 from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
@@ -58,6 +68,14 @@ class LocalAttachedRun:
     intentional_shutdown: bool = False
 
 
+@dataclass
+class LocalDetachedRun:
+    run_id: str
+    sidecar_path: Path
+    sidecar: Sidecar
+    manifest: Manifest
+
+
 class LocalAgent:
     def __init__(
         self,
@@ -68,6 +86,7 @@ class LocalAgent:
         self.target_name = target_name
         self._gpu_sampler = gpu_sampler
         self._attached_runs: dict[str, LocalAttachedRun] = {}
+        self._detached_runs: dict[str, LocalDetachedRun] = {}
 
     def handle(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = params or {}
@@ -206,11 +225,28 @@ class LocalAgent:
                 {"command": command, "fallback": build.argv[0]},
             ) from exc
 
+    def reattach_detached_run(self, sidecar_path: Path | str) -> LocalDetachedRun:
+        path = Path(sidecar_path)
+        verify_sidecar_from_system(path)
+        sidecar = load_sidecar(path)
+        manifest = load_manifest(sidecar.manifest_path)
+        run = LocalDetachedRun(
+            run_id=sidecar.run_id,
+            sidecar_path=path,
+            sidecar=sidecar,
+            manifest=manifest,
+        )
+        self._detached_runs[run.run_id] = run
+        return run
+
     def is_run_alive(self, run_id: str) -> bool:
         run = self._attached_runs.get(run_id)
-        if run is None:
-            return False
-        return run.process.proc.poll() is None
+        if run is not None:
+            return run.process.proc.poll() is None
+        detached = self._detached_runs.get(run_id)
+        if detached is not None:
+            return _detached_run_alive(detached)
+        return False
 
     def stop_run(
         self,
@@ -219,17 +255,29 @@ class LocalAgent:
         interrupt_timeout: float = 5,
         terminate_timeout: float = 5,
     ) -> None:
-        run = self._attached_run_or_error(run_id)
-        run.intentional_shutdown = True
-        run.process.stop(
+        run = self._attached_runs.get(run_id)
+        if run is not None:
+            run.intentional_shutdown = True
+            run.process.stop(
+                interrupt_timeout=interrupt_timeout,
+                terminate_timeout=terminate_timeout,
+            )
+            return
+        detached = self._detached_run_or_error(run_id)
+        stop_sidecar_from_system(
+            detached.sidecar_path,
             interrupt_timeout=interrupt_timeout,
             terminate_timeout=terminate_timeout,
         )
 
     def kill_run(self, run_id: str) -> None:
-        run = self._attached_run_or_error(run_id)
-        run.intentional_shutdown = True
-        run.process.kill()
+        run = self._attached_runs.get(run_id)
+        if run is not None:
+            run.intentional_shutdown = True
+            run.process.kill()
+            return
+        detached = self._detached_run_or_error(run_id)
+        signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
 
     async def wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
         run = self._attached_run_or_error(run_id)
@@ -253,6 +301,12 @@ class LocalAgent:
 
     def _attached_run_or_error(self, run_id: str) -> LocalAttachedRun:
         run = self._attached_runs.get(run_id)
+        if run is None:
+            raise TargetCallError("run-not-found", f"unknown run: {run_id}")
+        return run
+
+    def _detached_run_or_error(self, run_id: str) -> LocalDetachedRun:
+        run = self._detached_runs.get(run_id)
         if run is None:
             raise TargetCallError("run-not-found", f"unknown run: {run_id}")
         return run
@@ -289,6 +343,13 @@ def _events_from_log_record(
             payload["error_excerpt"] = fsm.error_excerpt
         events.append(AgentEvent("phase", run_id, payload))
     return events
+
+
+def _detached_run_alive(run: LocalDetachedRun) -> bool:
+    try:
+        return verify_sidecar_from_system(run.sidecar_path)
+    except Exception:
+        return False
 
 
 def _configs_dir(params: dict[str, Any]) -> Path | None:

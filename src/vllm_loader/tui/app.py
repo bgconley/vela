@@ -36,7 +36,6 @@ from vllm_loader.engine.profile import (
 from vllm_loader.engine.sidecar import (
     Sidecar,
     discover_active_sidecars,
-    load_manifest,
     load_sidecar,
     signal_sidecar_from_system,
     stop_sidecar_from_system,
@@ -426,6 +425,7 @@ class VllmLoaderApp(App):
         self._log_flush_scheduled = False
         self.last_copied_url: str | None = None
         self.reattached_sidecar_path: Path | None = None
+        self.reattached_run_id: str | None = None
         self.status_text = "○ IDLE"
         self.error_text = ""
         self.error_jump_text = ""
@@ -623,6 +623,18 @@ class VllmLoaderApp(App):
         self.run_worker(self._run_selected_config(), name="load", group="engine", exclusive=True)
 
     def action_stop(self) -> None:
+        if self.reattached_run_id is not None and self._agent_run_is_alive(
+            self.reattached_run_id
+        ):
+            self._signal_reattached_agent_run(
+                "stop",
+                lambda run_id: self._agent_stop_run(
+                    run_id,
+                    interrupt_timeout=2,
+                    terminate_timeout=2,
+                ),
+            )
+            return
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
             self._agent_stop_run(
                 self.current_run_id,
@@ -732,6 +744,7 @@ class VllmLoaderApp(App):
         if self.reattached_sidecar_path != sidecar_path:
             return
         self.reattached_sidecar_path = None
+        self.reattached_run_id = None
         self.current_process = None
         self.current_run_id = None
         self._set_phase(Phase.STOPPED)
@@ -820,10 +833,28 @@ class VllmLoaderApp(App):
         self.workers.cancel_group(self, "health")
         sidecar_name = self.reattached_sidecar_path.name
         self.reattached_sidecar_path = None
+        self.reattached_run_id = None
         self.current_process = None
         self.current_run_id = None
         self._write_log(f"INFO detached from {sidecar_name}; server continues running")
         self.notify("Detached from run; server continues running")
+
+    def _signal_reattached_agent_run(
+        self, action: str, signaler: Callable[[str], None]
+    ) -> None:
+        if self.reattached_run_id is None:
+            return
+        run_id = self.reattached_run_id
+        try:
+            signaler(run_id)
+        except Exception as exc:
+            self._set_error_text(f"Unable to {action} {run_id}: {exc}")
+            return
+        self.workers.cancel_group(self, "tail")
+        self.workers.cancel_group(self, "health")
+        self.reattached_sidecar_path = None
+        self.reattached_run_id = None
+        self._set_phase(Phase.STOPPED)
 
     def _signal_reattached_sidecar(
         self, action: str, signaler: Callable[[Path], None]
@@ -839,6 +870,7 @@ class VllmLoaderApp(App):
         self.workers.cancel_group(self, "tail")
         self.workers.cancel_group(self, "health")
         self.reattached_sidecar_path = None
+        self.reattached_run_id = None
         self._set_phase(Phase.STOPPED)
 
     def _server_url_for_copy(self) -> str | None:
@@ -905,6 +937,14 @@ class VllmLoaderApp(App):
     def confirm_kill_running(self) -> None:
         if self.screen.id == "confirm":
             self.pop_screen()
+        if self.reattached_run_id is not None and self._agent_run_is_alive(
+            self.reattached_run_id
+        ):
+            self._signal_reattached_agent_run(
+                "kill",
+                lambda run_id: self._agent_kill_run(run_id),
+            )
+            return
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
             self._agent_kill_run(self.current_run_id)
             return
@@ -922,9 +962,9 @@ class VllmLoaderApp(App):
 
     def reattach_detached_run(self, sidecar_path: Path) -> None:
         try:
-            verify_sidecar_from_system(sidecar_path)
-            sidecar = load_sidecar(sidecar_path)
-            manifest = load_manifest(sidecar.manifest_path)
+            run = self._agent_reattach_detached_run(sidecar_path)
+            sidecar = run.sidecar
+            manifest = run.manifest
         except Exception as exc:
             self._set_error_text(f"Unable to reattach {sidecar_path.name}: {exc}")
             return
@@ -936,6 +976,7 @@ class VllmLoaderApp(App):
         else:
             self.current_config = self.registry.by_name(sidecar.config_name)
         self.reattached_sidecar_path = sidecar_path
+        self.reattached_run_id = run.run_id
         self.current_process = None
         self.current_run_id = None
         self.fsm = PhaseFSM(select_profile(sidecar.vllm_version_profile))
@@ -1352,6 +1393,9 @@ class VllmLoaderApp(App):
 
     def _agent_start_detached_run(self, prepared: dict[str, Any]):
         return self._agent.start_detached_run(prepared)
+
+    def _agent_reattach_detached_run(self, sidecar_path: Path):
+        return self._agent.reattach_detached_run(sidecar_path)
 
     def _post_agent_event_message(self, event: AgentEvent) -> None:
         message = _message_from_agent_event(event)

@@ -10,6 +10,7 @@ from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.engine.phases import Phase
 from vllm_loader.engine.process_manager import DetachedLaunch
+from vllm_loader.engine.sidecar import Manifest, Sidecar
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
@@ -363,6 +364,53 @@ def test_local_agent_starts_detached_run_from_prepared_launch(
     assert seen["secrets"] == ["literal-api-key", "hf_literal"]
     assert seen["vllm_version"] is None
     assert seen["vllm_version_profile"] == "current"
+
+
+def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run-1.json"
+    manifest_path = tmp_path / "run-1.manifest.json"
+    log_path = tmp_path / "run-1.run.log"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+    )
+    manifest = Manifest.from_active_log(log_path)
+    stopped: list[tuple[Path, float, float]] = []
+
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(
+        local_agent_module,
+        "stop_sidecar_from_system",
+        lambda path, *, interrupt_timeout, terminate_timeout: stopped.append(
+            (path, interrupt_timeout, terminate_timeout)
+        ),
+    )
+    agent = LocalAgent()
+
+    run = agent.reattach_detached_run(sidecar_path)
+    agent.stop_run("run-1", interrupt_timeout=2, terminate_timeout=3)
+
+    assert run.run_id == "run-1"
+    assert run.sidecar_path == sidecar_path
+    assert agent.is_run_alive("run-1") is True
+    assert stopped == [(sidecar_path, 2, 3)]
 
 
 def test_local_agent_samples_gpus_with_injected_sampler() -> None:
