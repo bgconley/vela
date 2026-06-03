@@ -809,6 +809,13 @@ class VllmLoaderApp(App):
         if self._has_reattached_run():
             self.notify("A detached run is already attached", severity="warning")
             return
+        if self.target_connection_state != "connected":
+            self._set_error_text(
+                self._render_target_connection_banner(),
+                style=f"bold {BAD}",
+            )
+            self.notify("Target unreachable - reconnect first", severity="warning")
+            return
         if not self.registry.valid:
             self._set_error_text("No valid configs to load")
             return
@@ -1527,6 +1534,10 @@ class VllmLoaderApp(App):
                 self.target_connection_state = "unreachable"
                 self.target_connection_detail = str(exc)
                 self._refresh_chrome()
+                self._set_error_text(
+                    self._render_target_connection_banner("agent-unreachable", str(exc)),
+                    style=f"bold {BAD}",
+                )
                 raise
             if isinstance(agent_info, dict):
                 daemon_start_ts = agent_info.get("daemon_start_ts")
@@ -1564,6 +1575,10 @@ class VllmLoaderApp(App):
             self.target_connection_state = "disconnected"
         self.target_connection_detail = str(exc)
         self._refresh_chrome()
+        self._set_error_text(
+            self._render_target_connection_banner(exc.code, str(exc)),
+            style=f"bold {BAD}",
+        )
 
     async def _target_call(
         self, method: str, params: dict[str, Any] | None = None
@@ -1857,6 +1872,60 @@ class VllmLoaderApp(App):
             "version-mismatch": WARN,
             "unreachable": BAD,
         }.get(state, MUTED)
+
+    def _render_target_connection_banner(
+        self, key: str | None = None, detail: str | None = None
+    ) -> str:
+        banner_kind, cause, suggestion = self._target_connection_banner_parts(
+            key or self.target_connection_state
+        )
+        lines = [
+            f"{banner_kind}: {cause}",
+            f"target: {self.target_name}",
+        ]
+        detail_text = detail if detail is not None else self.target_connection_detail
+        if detail_text:
+            lines.append(detail_text)
+        lines.append(suggestion)
+        lines.append("Actions: (R) Reconnect   (t) Switch target")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _target_connection_banner_parts(key: str) -> tuple[str, str, str]:
+        return {
+            "version-mismatch": (
+                "AGENT_VERSION_MISMATCH",
+                "agent protocol version mismatch",
+                "Upgrade the older side, then reconnect.",
+            ),
+            "agent-unreachable": (
+                "AGENT_UNREACHABLE",
+                "target unreachable",
+                "Check SSH/socket connectivity or start the target agent.",
+            ),
+            "unreachable": (
+                "AGENT_UNREACHABLE",
+                "target unreachable",
+                "Check SSH/socket connectivity or start the target agent.",
+            ),
+            "command-not-found": (
+                "AGENT_NOT_INSTALLED",
+                "agent not installed",
+                "Install vllm-loader on the target, then reconnect.",
+            ),
+            "disconnected": (
+                "AGENT_UNREACHABLE",
+                "target disconnected",
+                "Reconnect before launching.",
+            ),
+        }.get(
+            key,
+            (
+                "AGENT_UNREACHABLE",
+                "target unreachable",
+                "Check SSH/socket connectivity or start the target agent.",
+            ),
+        )
 
     def _render_active_model(self) -> str:
         if self.current_config is None:

@@ -470,8 +470,38 @@ async def test_tui_surfaces_target_version_mismatch_on_mount(
 
         assert app.target_connection_state == "version-mismatch"
         assert "controller protocol version 2" in app.target_connection_detail
+        assert "AGENT_VERSION_MISMATCH" in app.error_text
+        assert "controller protocol version 2" in app.error_text
+        assert "(R) Reconnect" in app.error_text
+        assert "(t) Switch target" in app.error_text
         assert app.registry.valid == []
         assert app.registry.invalid == []
+
+
+@pytest.mark.asyncio
+async def test_action_load_blocks_when_target_unreachable(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    app = VllmLoaderApp(configs_dir=config_dir)
+    worker_calls: list[str] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(str(kwargs.get("name", "")))
+        coro.close()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+        app.target_connection_state = "unreachable"
+        app.target_connection_detail = "ssh connection refused"
+        app.action_load()
+
+        assert worker_calls == []
+        assert "target unreachable" in app.error_text
+        assert "ssh connection refused" in app.error_text
+        assert "(R) Reconnect" in app.error_text
+        assert "(t) Switch target" in app.error_text
 
 
 @pytest.mark.asyncio
