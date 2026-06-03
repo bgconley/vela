@@ -4044,6 +4044,238 @@ async def test_model_manager_download_streams_job_events(
 
 
 @pytest.mark.asyncio
+async def test_model_manager_verifies_model_through_target_client(
+    config_dir: Path,
+) -> None:
+    class ModelTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.verify_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/modelable.yaml",
+                            "name": "modelable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "modelable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "model_display_name": "llama-pin",
+                    },
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "01MODEL",
+                            "display_name": "llama-pin",
+                            "source": "hf_repo",
+                            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "quant_format": "awq",
+                            "cache_state": "cached",
+                            "gated": False,
+                            "size_bytes": 16_060_530_000,
+                            "files": {"count": 7, "weights_format": "safetensors"},
+                        }
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method == "verify_model":
+                self.verify_calls.append(dict(params))
+                return {
+                    "entry_id": "01MODEL",
+                    "ok": True,
+                    "cache_state": "cached",
+                    "detail": "model metadata is cached",
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model verify should not subscribe")
+
+    target_client = ModelTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open",
+        )
+        await pilot.press("v")
+
+        await _wait_for_condition(
+            lambda: target_client.verify_calls == [{"model_ref": "01MODEL"}],
+            "model verify was not requested",
+        )
+
+
+@pytest.mark.asyncio
+async def test_model_manager_remove_confirms_and_calls_target_client(
+    config_dir: Path,
+) -> None:
+    class ModelTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.remove_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/modelable.yaml",
+                            "name": "modelable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "modelable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "model_display_name": "llama-pin",
+                    },
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "01MODEL",
+                            "display_name": "llama-pin",
+                            "source": "hf_repo",
+                            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "quant_format": "awq",
+                            "cache_state": "cached",
+                            "gated": False,
+                            "size_bytes": 16_060_530_000,
+                            "files": {"count": 7, "weights_format": "safetensors"},
+                        },
+                        {
+                            "entry_id": "02REMOTE",
+                            "display_name": "qwen-remote",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3-32B",
+                            "revision": "main",
+                            "commit_sha": None,
+                            "quant_format": "bf16",
+                            "cache_state": "remote_only",
+                            "gated": False,
+                            "size_bytes": 0,
+                            "files": {},
+                        },
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method == "remove_model":
+                self.remove_calls.append(dict(params))
+                return {
+                    "entry_id": "02REMOTE",
+                    "source": "hf_repo",
+                    "removed_weights": False,
+                    "entry": {"display_name": "qwen-remote"},
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model remove should not subscribe")
+
+    target_client = ModelTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open",
+        )
+        await pilot.press("down")
+        await pilot.press("x")
+        await _wait_for_condition(
+            lambda: app.screen.id == "confirm",
+            "model remove confirm did not open",
+        )
+        confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
+        assert "Remove model qwen-remote?" in confirm_text
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: bool(target_client.remove_calls),
+            "model remove was not requested",
+        )
+        assert target_client.remove_calls == [
+            {"model_ref": "02REMOTE", "configs_dir": str(config_dir)}
+        ]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 

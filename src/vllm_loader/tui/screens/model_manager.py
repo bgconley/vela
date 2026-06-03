@@ -49,6 +49,8 @@ class ModelManagerScreen(ModalScreen):
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
         ("d", "download", "Download"),
+        ("v", "verify", "Verify"),
+        ("x", "remove", "Remove"),
         ("escape", "cancel", "Close"),
     ]
 
@@ -63,7 +65,10 @@ class ModelManagerScreen(ModalScreen):
             with Horizontal():
                 yield Static("", id="model-manager-list")
                 yield Static("", id="model-manager-detail")
-            yield Static("d Download   Esc Close", id="model-manager-footer")
+            yield Static(
+                "d Download   v Verify   x Remove   Esc Close",
+                id="model-manager-footer",
+            )
 
     def on_mount(self) -> None:
         self._refresh()
@@ -86,7 +91,21 @@ class ModelManagerScreen(ModalScreen):
         if model is None:
             self.dismiss(None)
             return
-        self.dismiss({"action": "download", "model_ref": _model_reference(model)})
+        self.dismiss(_model_action_payload("download", model))
+
+    def action_verify(self) -> None:
+        model = self._selected_model()
+        if model is None:
+            self.dismiss(None)
+            return
+        self.dismiss(_model_action_payload("verify_model", model))
+
+    def action_remove(self) -> None:
+        model = self._selected_model()
+        if model is None:
+            self.dismiss(None)
+            return
+        self.dismiss(_model_action_payload("remove_model", model))
 
     def _refresh(self) -> None:
         self.query_one("#model-manager-list", Static).update(self._render_list())
@@ -137,6 +156,14 @@ def _model_label(model: dict[str, Any]) -> str:
 
 def _model_reference(model: dict[str, Any]) -> str:
     return str(model.get("entry_id") or model.get("display_name") or "")
+
+
+def _model_action_payload(action: str, model: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": action,
+        "model_ref": _model_reference(model),
+        "label": _model_label(model),
+    }
 
 
 def _quant_label(model: dict[str, Any]) -> str:

@@ -594,6 +594,7 @@ class VllmLoaderApp(App):
         self.search_matches: list[str] = []
         self._pending_log_writes: list[tuple[str, str | None]] = []
         self._pending_build_remove: dict[str, str] | None = None
+        self._pending_model_remove: dict[str, str] | None = None
         self._log_flush_scheduled = False
         self.last_copied_url: str | None = None
         self.reattached_run_id: str | None = None
@@ -1025,18 +1026,28 @@ class VllmLoaderApp(App):
     def _handle_model_manager_selection(self, selection: object) -> None:
         if not isinstance(selection, dict):
             return
-        if selection.get("action") != "download":
-            return
+        action = selection.get("action")
         model_ref = _optional_str(selection.get("model_ref"))
         if model_ref is None:
             return
-        self.run_worker(
-            self._download_model(model_ref),
-            name="model-download",
-            group="model-download",
-            exclusive=True,
-            exit_on_error=False,
-        )
+        if action == "download":
+            self.run_worker(
+                self._download_model(model_ref),
+                name="model-download",
+                group="model-download",
+                exclusive=True,
+                exit_on_error=False,
+            )
+        elif action == "verify_model":
+            self.run_worker(
+                self._verify_model(model_ref),
+                name="model-verify",
+                group="model-manager",
+                exclusive=True,
+                exit_on_error=False,
+            )
+        elif action == "remove_model":
+            self._confirm_remove_model(selection)
 
     async def _download_model(self, model_ref: str) -> None:
         params = {"job_id": uuid.uuid4().hex, "model_ref": model_ref}
@@ -1046,6 +1057,67 @@ class VllmLoaderApp(App):
             error_action="download model",
             incomplete_label="Model download",
         )
+
+    async def _verify_model(self, model_ref: str) -> None:
+        try:
+            result = await self._target_call("verify_model", {"model_ref": model_ref})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to verify model: {exc}", style=f"bold {BAD}")
+            return
+        cache_state = _optional_str(result.get("cache_state")) or "verified"
+        detail = _optional_str(result.get("detail"))
+        suffix = f": {detail}" if detail else ""
+        self.notify(f"Verified model: {model_ref} ({cache_state}){suffix}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
+
+    def _confirm_remove_model(self, selection: dict[str, Any]) -> None:
+        model_ref = _optional_str(selection.get("model_ref"))
+        if model_ref is None:
+            return
+        label = _optional_str(selection.get("label")) or model_ref
+        message = f"Remove model {label}?\n\nThis removes target-local model metadata."
+        self._pending_model_remove = {"model_ref": model_ref, "label": label}
+        self.push_screen(
+            ConfirmScreen(
+                message,
+                title="Remove model",
+                confirm_label="Remove",
+                confirm_action="confirm_remove_model",
+            )
+        )
+
+    def confirm_remove_model(self) -> None:
+        if self.screen.id == "confirm":
+            self.pop_screen()
+        pending = self._pending_model_remove
+        self._pending_model_remove = None
+        if pending is None:
+            return
+        self.run_worker(
+            self._remove_model(pending["model_ref"], pending["label"]),
+            name="model-remove",
+            group="model-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _remove_model(self, model_ref: str, label: str) -> None:
+        try:
+            result = await self._target_call(
+                "remove_model",
+                {"model_ref": model_ref, "configs_dir": str(self.configs_dir)},
+            )
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to remove model: {exc}", style=f"bold {BAD}")
+            return
+        entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
+        removed_label = _optional_str(entry.get("display_name")) or label
+        self.notify(f"Removed model: {removed_label}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
 
     async def _run_target_job(
         self,
