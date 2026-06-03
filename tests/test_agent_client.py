@@ -2227,6 +2227,87 @@ async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_adopts_local_model_path_for_launch_handoff(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+    write_yaml(
+        config_dir / "local-model.yaml",
+        """
+        name: local-model
+        model: local-llama
+        model_ref: 01LOCAL
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "display_name": "local-llama",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        prepared = await client.call(
+            "prepare_launch",
+            {"name": "local-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert adopted["entry"]["entry_id"] == "01LOCAL"
+    assert adopted["entry"]["source"] == "local_path"
+    assert adopted["entry"]["local_path"] == str(model_dir)
+    assert adopted["entry"]["cache_state"] == "cached"
+    assert adopted["entry"]["files"] == {
+        "count": 3,
+        "weights_format": "safetensors",
+    }
+    assert prepared["build"]["argv"][:3] == ["vllm", "serve", str(model_dir)]
+    assert "--revision" not in prepared["build"]["argv"]
+    assert prepared["build"]["metadata"]["model_source"] == "local_path"
+    assert prepared["build"]["metadata"]["model_local_path"] == str(model_dir)
+    json.dumps(adopted)
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_invalid_local_model_adoption(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "broken"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "pin_model",
+                {
+                    "entry_id": "01BROKEN",
+                    "source": "local_path",
+                    "local_path": str(model_dir),
+                },
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.details["reason"] == "missing-weights"
+    assert not registry_path.exists()
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:

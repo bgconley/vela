@@ -314,8 +314,23 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
 
 def _pin_entry_from_params(params: dict[str, Any]) -> dict[str, Any]:
     entry_id = _required_param(params, "entry_id")
-    repo_id = _required_param(params, "repo_id")
     now = _utc_now()
+    source = str(params.get("source") or "hf_repo")
+    if source == "local_path":
+        return _local_path_entry_from_params(params, entry_id, now)
+    if source != "hf_repo":
+        raise ModelRegistryError(
+            "invalid-config",
+            f"unsupported model source: {source}",
+            {"reason": "unsupported-source", "source": source},
+        )
+    return _hf_repo_entry_from_params(params, entry_id, now)
+
+
+def _hf_repo_entry_from_params(
+    params: dict[str, Any], entry_id: str, now: str
+) -> dict[str, Any]:
+    repo_id = _required_param(params, "repo_id")
     entry: dict[str, Any] = {
         "entry_id": entry_id,
         "display_name": _optional_str(params.get("display_name")) or entry_id,
@@ -337,6 +352,95 @@ def _pin_entry_from_params(params: dict[str, Any]) -> dict[str, Any]:
         "notes": str(params.get("notes") or ""),
     }
     return entry
+
+
+def _local_path_entry_from_params(
+    params: dict[str, Any], entry_id: str, now: str
+) -> dict[str, Any]:
+    local_path = _verified_local_model_path(_required_param(params, "local_path"))
+    files = _local_model_files_payload(local_path)
+    return {
+        "entry_id": entry_id,
+        "display_name": _optional_str(params.get("display_name")) or local_path.name,
+        "source": "local_path",
+        "repo_id": None,
+        "revision": None,
+        "commit_sha": None,
+        "local_path": str(local_path),
+        "url": None,
+        "quant_format": _optional_str(params.get("quant_format")) or "none",
+        "tokenizer": _optional_str(params.get("tokenizer")),
+        "files": files,
+        "size_bytes": 0,
+        "cache_state": "cached",
+        "gated": False,
+        "token_required": False,
+        "created_at": _optional_str(params.get("created_at")) or now,
+        "last_used_at": _optional_str(params.get("last_used_at")),
+        "notes": str(params.get("notes") or ""),
+    }
+
+
+def _verified_local_model_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.exists() or not path.is_dir():
+        raise ModelRegistryError(
+            "invalid-config",
+            f"local model path not found: {path}",
+            {"reason": "missing-local-path", "local_path": str(path)},
+        )
+    if not (path / "config.json").exists():
+        raise ModelRegistryError(
+            "invalid-config",
+            f"local model path is missing config.json: {path}",
+            {"reason": "missing-config", "local_path": str(path)},
+        )
+    if not _local_weight_files(path):
+        raise ModelRegistryError(
+            "invalid-config",
+            f"local model path is missing model weights: {path}",
+            {"reason": "missing-weights", "local_path": str(path)},
+        )
+    if not _local_tokenizer_files(path):
+        raise ModelRegistryError(
+            "invalid-config",
+            f"local model path is missing tokenizer files: {path}",
+            {"reason": "missing-tokenizer", "local_path": str(path)},
+        )
+    return path
+
+
+def _local_model_files_payload(path: Path) -> dict[str, Any]:
+    weights = _local_weight_files(path)
+    tokenizer_files = _local_tokenizer_files(path)
+    return {
+        "count": 1 + len(weights) + len(tokenizer_files),
+        "weights_format": _weights_format(weights),
+    }
+
+
+def _local_weight_files(path: Path) -> list[Path]:
+    patterns = ("*.safetensors", "*.bin", "*.gguf")
+    return sorted(file for pattern in patterns for file in path.glob(pattern))
+
+
+def _local_tokenizer_files(path: Path) -> list[Path]:
+    names = (
+        "tokenizer.json",
+        "tokenizer.model",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+    )
+    return [path / name for name in names if (path / name).exists()]
+
+
+def _weights_format(weights: list[Path]) -> str:
+    if any(path.suffix == ".safetensors" for path in weights):
+        return "safetensors"
+    if any(path.suffix == ".gguf" for path in weights):
+        return "gguf"
+    return "bin"
 
 
 def _required_param(params: dict[str, Any], field: str) -> str:
