@@ -1886,22 +1886,20 @@ class VllmLoaderApp(App):
         if self.current_run_id != run_id:
             return
         self.current_run_id = None
-        returncode = wait_result.get("returncode")
         intentional = bool(wait_result.get("intentional"))
-        if terminal_phase in {Phase.ERROR, Phase.STOPPED}:
+        wait_phase = None
+        phase_value = wait_result.get("phase")
+        if phase_value is not None:
+            wait_phase = Phase(str(phase_value))
+        resolved_phase = terminal_phase or wait_phase
+        if resolved_phase is not None:
             if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
                 self._set_error_banner(self.fsm.error_kind)
-            self._set_phase(self.fsm.phase)
+            if intentional and resolved_phase is Phase.STOPPED:
+                self._set_error_text("")
+            self._set_phase(resolved_phase)
             return
-        if intentional:
-            self.fsm.process_exited(0, intentional=True)
-            self._set_error_text("")
-        else:
-            self.fsm.process_exited(
-                int(returncode) if returncode is not None else None,
-            )
-        if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
-            self._set_error_banner(self.fsm.error_kind)
+        self._set_error_text("Agent wait result did not include a terminal phase")
         self._set_phase(self.fsm.phase)
 
     def _handle_command_not_found(

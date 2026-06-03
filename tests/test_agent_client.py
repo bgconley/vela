@@ -1004,6 +1004,7 @@ async def test_local_agent_emits_attached_log_and_phase_events(
 
     assert result["intentional"] is False
     assert result["returncode"] == 0
+    assert result["phase"] == Phase.ERROR.value
     assert log_event["text"] == "INFO Starting to load model"
     assert phase_event["phase"] == Phase.LOADING_WEIGHTS.value
 
@@ -1696,6 +1697,7 @@ async def test_target_client_launches_attached_run_with_serialized_events(
         "run_id": "run-wire-1",
         "returncode": 0,
         "intentional": False,
+        "phase": Phase.ERROR.value,
     }
     json.dumps(wait_result)
 

@@ -440,6 +440,7 @@ class LocalAgent:
             "run_id": run_id,
             "returncode": exit_payload["returncode"],
             "intentional": run.intentional_shutdown,
+            "phase": exit_payload["phase"],
         }
 
     async def _tail_detached(self, params: dict[str, Any]) -> dict[str, Any]:
