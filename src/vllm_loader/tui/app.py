@@ -55,6 +55,7 @@ from vllm_loader.monitoring.gpu import (
     sample_gpus,
 )
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
+from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.help import HelpScreen
@@ -125,6 +126,7 @@ STATUS_ICONS = {
     Phase.STOPPED: "○",
     Phase.ERROR: "✕",
 }
+WIRE_EVENT_META_KEYS = {"event", "run_id", "seq", "ts", "mono"}
 
 
 def _looks_secret_env_key(key: str) -> bool:
@@ -197,6 +199,41 @@ def _message_from_agent_event(
             error_kind=error_kind,
             error_excerpt=_optional_str(payload.get("error_excerpt")),
         )
+    return None
+
+
+def _message_from_wire_event(
+    event: dict[str, Any],
+) -> (
+    LogLineCommitted
+    | ProgressUpdated
+    | PhaseChanged
+    | HealthChanged
+    | ServerReady
+    | None
+):
+    kind = str(event.get("event", ""))
+    payload = {
+        key: value for key, value in event.items() if key not in WIRE_EVENT_META_KEYS
+    }
+    if kind in {"log", "progress", "phase"}:
+        return _message_from_agent_event(
+            AgentEvent(kind=kind, run_id=str(event.get("run_id", "")), payload=payload)
+        )
+    if kind == "health":
+        error_kind = None
+        if payload.get("error_kind") is not None:
+            error_kind = _error_kind_from_agent_payload(payload.get("error_kind"))
+        return HealthChanged(
+            ready=bool(payload.get("ready")),
+            detail=str(payload.get("detail", "")),
+            models=[str(model) for model in payload.get("models") or []],
+            error_kind=error_kind,
+        )
+    if kind == "ready":
+        return ServerReady([str(model) for model in payload.get("models") or []])
+    if kind == "exited" and payload.get("phase") is not None:
+        return PhaseChanged(Phase(str(payload["phase"])))
     return None
 
 
@@ -401,6 +438,7 @@ class VllmLoaderApp(App):
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
         self._agent = agent or LocalAgent(gpu_sampler=gpu_sampler)
+        self._target_client = InProcessTargetClient(self._agent)
         self._clock = clock
         self._gpu_sampler = gpu_sampler
         self._gpu_interval_seconds = gpu_interval_seconds
@@ -1417,6 +1455,42 @@ class VllmLoaderApp(App):
         if message is not None:
             self.post_message(message)
 
+    async def _ensure_target_client_connected(self) -> None:
+        if not getattr(self._target_client, "connected", False):
+            await self._target_client.connect()
+
+    async def _target_call(
+        self, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        await self._ensure_target_client_connected()
+        return await self._target_client.call(method, params)
+
+    def _post_wire_event_message(self, event: dict[str, Any]) -> None:
+        message = _message_from_wire_event(event)
+        if message is not None:
+            self.post_message(message)
+
+    async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
+        await self._ensure_target_client_connected()
+        events = self._target_client.subscribe([run_id], resume_from="live")
+        terminal_phase: Phase | None = None
+        try:
+            async for event in events:
+                if str(event.get("run_id")) != run_id:
+                    continue
+                if event.get("event") == "exited":
+                    phase_value = event.get("phase")
+                    if phase_value is not None:
+                        terminal_phase = Phase(str(phase_value))
+                self._post_wire_event_message(event)
+                if event.get("event") == "exited":
+                    break
+        finally:
+            aclose = getattr(events, "aclose", None)
+            if aclose is not None:
+                await aclose()
+        return terminal_phase
+
     async def _agent_wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
         return await self._agent.wait_attached_run(run_id)
 
@@ -1613,27 +1687,46 @@ class VllmLoaderApp(App):
             self.reattach_detached_run(launch.sidecar_path)
             return
         try:
-            attached_run = self._agent_start_attached_run(prepared)
+            launch = await self._target_call(
+                "launch",
+                self._agent_params(name=cfg.name, configs_dir=self.configs_dir),
+            )
         except TargetCallError as exc:
             self._handle_attached_start_agent_error(exc, build.argv[0])
             return
-        attached_process = attached_run.process
-        self.current_run_id = attached_run.run_id
-        self.current_process = attached_process
+        run_id = str(launch["run_id"])
+        self.current_run_id = run_id
+        self.current_process = None
         health_task = asyncio.create_task(self._probe_until_ready(cfg))
-        returncode, intentional = await self._agent_wait_attached_run(attached_run.run_id)
-        health_task.cancel()
-        if (
-            self.current_run_id != attached_run.run_id
-            and self.current_process is not attached_process
-        ):
+        events_task = asyncio.create_task(
+            self._consume_target_run_events_until_exit(run_id)
+        )
+        await asyncio.sleep(0)
+        try:
+            wait_result = await self._target_call("wait", {"run_id": run_id})
+            terminal_phase = await events_task
+        finally:
+            health_task.cancel()
+            if not events_task.done():
+                events_task.cancel()
+        if self.current_run_id != run_id:
             return
         self.current_run_id = None
-        if intentional or self._consume_intentional_shutdown(attached_process):
+        self.current_process = None
+        returncode = wait_result.get("returncode")
+        intentional = bool(wait_result.get("intentional"))
+        if terminal_phase in {Phase.ERROR, Phase.STOPPED}:
+            if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
+                self._set_error_banner(self.fsm.error_kind)
+            self._set_phase(self.fsm.phase)
+            return
+        if intentional:
             self.fsm.process_exited(0, intentional=True)
             self._set_error_text("")
         else:
-            self.fsm.process_exited(returncode)
+            self.fsm.process_exited(
+                int(returncode) if returncode is not None else None,
+            )
         if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
             self._set_error_banner(self.fsm.error_kind)
         self._set_phase(self.fsm.phase)

@@ -227,22 +227,59 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
                 }
             return super().handle(method, params)
 
-        def start_attached_run(self, prepared, *, emit_event):
-            return SimpleNamespace(
-                run_id="run-1",
-                process=SimpleNamespace(proc=SimpleNamespace(pid=1234)),
-            )
+        def start_attached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct attached TUI start")
 
-        async def wait_attached_run(self, run_id: str):
-            return 0, False
+        async def wait_attached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct attached TUI wait")
 
         async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
             emit(HealthEvent(ready=True, detail="ready from agent", models=["served"]))
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "wait":
+                return {"run_id": "run-1", "returncode": 0, "intentional": False}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": 0,
+                "intentional": False,
+                "phase": Phase.STOPPED.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
 
     def refuse_controller_profile(_cfg):
         raise AssertionError("TUI should use agent profile metadata")
 
     agent = AgentProfileLaunchAgent()
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
     monkeypatch.setattr(
         tui_app_module,
@@ -260,6 +297,119 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
             {"name": "alpha", "configs_dir": str(config_dir)},
         )
         assert app.fsm.profile.version == "agent-profile"
+
+
+@pytest.mark.asyncio
+async def test_tui_attached_launch_uses_target_client_stream(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client_instances: list[object] = []
+
+    class AgentProfileLaunchAgent(RecordingConfigAgent):
+        async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
+            emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {"name": "alpha", "model": "org/alpha"},
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "agent-profile"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+        def start_attached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct attached TUI start")
+
+        async def wait_attached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct attached TUI wait")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.connected = False
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "wait":
+                return {"run_id": "run-1", "returncode": 0, "intentional": False}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "log",
+                "run_id": "run-1",
+                "kind": "committed",
+                "text": "INFO Starting to load model",
+                "level": "INFO",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+            yield {
+                "event": "phase",
+                "run_id": "run-1",
+                "phase": Phase.LOADING_WEIGHTS.value,
+                "prev_phase": Phase.IDLE.value,
+                "seq": 2,
+                "ts": "2026-06-03T00:00:01Z",
+                "mono": 2.0,
+            }
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": 0,
+                "intentional": False,
+                "phase": Phase.ERROR.value,
+                "seq": 3,
+                "ts": "2026-06-03T00:00:02Z",
+                "mono": 3.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient, raising=False)
+    agent = AgentProfileLaunchAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+        await pilot.pause()
+
+        assert client_instances[0].calls == [
+            ("launch", {"name": "alpha", "configs_dir": str(config_dir)}),
+            ("wait", {"run_id": "run-1"}),
+        ]
+        assert app.current_process is None
+        assert app.current_run_id is None
+        assert app.log_lines[-1] == "INFO Starting to load model"
+        assert app.phase is Phase.ERROR
 
 
 @pytest.mark.asyncio
@@ -2799,18 +2949,23 @@ async def test_restart_stops_running_attached_server_and_starts_same_config(
         async with app.run_test() as pilot:
             await pilot.press("l")
             await _wait_for_phase(app, Phase.READY)
-            assert app.current_process is not None
-            first_pid = app.current_process.proc.pid
+            first_start_count = sum(
+                "Initializing a V1 LLM engine" in line for line in app.log_lines
+            )
+            assert app.current_run_id is not None
 
             await pilot.press("r")
-            await _wait_for_new_process(app, first_pid)
+            await _wait_for_log_count(
+                app,
+                "Initializing a V1 LLM engine",
+                first_start_count + 1,
+            )
             await _wait_for_phase(app, Phase.READY)
 
             assert app.current_config is not None
             assert app.current_config.name == "fake"
-            assert app.current_process is not None
-            assert app.current_process.proc.pid != first_pid
-            assert app.current_process.proc.poll() is None
+            assert app.current_process is None
+            assert app.current_run_id is not None
             await pilot.press("s")
             await _wait_for_stopped(app)
     finally:
@@ -2885,11 +3040,12 @@ async def test_quit_while_attached_running_prompts_stop_or_cancel(config_dir: Pa
         await pilot.press("escape")
         await pilot.pause()
         assert app.screen.id != "confirm"
-        assert app.current_process and app.current_process.proc.poll() is None
+        assert app.current_run_id is not None
+        assert app._attached_run_is_alive()
         await pilot.press("q")
         await pilot.press("enter")
-        await _wait_for_stopped(app)
-        await pilot.pause()
+        await _wait_for_condition(lambda: app.is_running is False, "quit did not exit")
+        assert not app._attached_run_is_alive()
         assert app.is_running is False
 
 
@@ -3232,6 +3388,12 @@ async def _wait_for_stopped(app: VllmLoaderApp) -> None:
     while asyncio.get_running_loop().time() < deadline:
         if app.current_process and app.current_process.proc.poll() is not None:
             return
+        if (
+            app.current_process is None
+            and app.current_run_id is None
+            and app.phase is Phase.STOPPED
+        ):
+            return
         await asyncio.sleep(0.05)
     raise AssertionError("fake child did not stop")
 
@@ -3245,17 +3407,13 @@ async def _wait_for_condition(condition, message: str) -> None:
     raise AssertionError(message)
 
 
-async def _wait_for_new_process(app: VllmLoaderApp, previous_pid: int) -> None:
+async def _wait_for_log_count(app: VllmLoaderApp, text: str, count: int) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
-        if (
-            app.current_process is not None
-            and app.current_process.proc.pid != previous_pid
-            and app.current_process.proc.poll() is None
-        ):
+        if sum(text in line for line in app.log_lines) >= count:
             return
         await asyncio.sleep(0.05)
-    raise AssertionError("restart did not start a new fake child")
+    raise AssertionError(f"log line {text!r} did not reach count {count}")
 
 
 async def _wait_for_phase(app: VllmLoaderApp, phase: Phase) -> None:
