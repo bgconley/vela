@@ -22,7 +22,7 @@ from textual.worker import Worker, WorkerState
 
 from vllm_loader.agent.local import AgentEvent, LocalAgent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
-from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
+from vllm_loader.config.schema import ModelConfig, ServerConfig
 from vllm_loader.config.targets import TargetConfig, load_targets_file
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
@@ -2377,8 +2377,3 @@ class VllmLoaderApp(App):
         if ratio >= 0.75:
             return WARN
         return GOOD
-
-    def _runs_dirs(self) -> list[Path]:
-        dirs = {default_run_artifacts_dir()}
-        dirs.update(item.config.run_artifacts_dir for item in self.registry.valid)
-        return sorted(dirs)

@@ -3298,29 +3298,6 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
         await _cleanup_port(port)
 
 
-def test_reattach_discovery_scans_default_and_configured_runs_dirs(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    custom_runs_dir = tmp_path / "custom-runs"
-    write_yaml(
-        config_dir / "custom-runs.yaml",
-        f"""
-        name: custom-runs
-        model: org/model
-        launch:
-          runs_dir: {custom_runs_dir}
-        """,
-    )
-    app = VllmLoaderApp(configs_dir=config_dir)
-    app.registry = load_registry(config_dir)
-
-    assert app._runs_dirs() == sorted(
-        [home / ".local" / "state" / "vllm-loader" / "runs", custom_runs_dir]
-    )
-
-
 @pytest.mark.asyncio
 async def test_load_while_reattached_refuses_second_managed_run(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3516,6 +3493,10 @@ async def test_target_reattach_error_shows_error_without_crashing(
 
 def test_tui_does_not_expose_path_based_detached_reattach() -> None:
     assert "reattach_detached_run" not in VllmLoaderApp.__dict__
+
+
+def test_tui_does_not_compute_target_runs_dirs() -> None:
+    assert "_runs_dirs" not in VllmLoaderApp.__dict__
 
 
 def test_tui_does_not_store_attached_process_handle(config_dir: Path) -> None:
