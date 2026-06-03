@@ -21,7 +21,7 @@ from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import start_detached
-from vllm_loader.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
+from vllm_loader.engine.sidecar import Manifest, Sidecar
 from vllm_loader.messages import (
     EngineError,
     GpuStatsUnavailable,
@@ -2273,34 +2273,29 @@ async def test_load_while_reattached_refuses_second_managed_run(
 
 
 @pytest.mark.asyncio
-async def test_stop_after_reattach_cancels_detached_monitor_workers(
+async def test_stop_after_path_only_reattach_requires_target_run_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sidecar_path = tmp_path / "detached.json"
-    stopped_paths: list[Path] = []
-    cancelled_groups: list[str] = []
 
     def stop_sidecar(path: Path, **_kwargs: object) -> None:
-        stopped_paths.append(path)
+        raise AssertionError(f"controller tried to signal local sidecar path: {path}")
 
-    def cancel_group(_app: VllmLoaderApp, group: str) -> None:
-        cancelled_groups.append(group)
-
-    monkeypatch.setattr(tui_app_module, "stop_sidecar_from_system", stop_sidecar)
+    monkeypatch.setattr(
+        tui_app_module, "stop_sidecar_from_system", stop_sidecar, raising=False
+    )
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        monkeypatch.setattr(app.workers, "cancel_group", cancel_group)
         app.reattached_sidecar_path = sidecar_path
         app._set_phase(Phase.READY)
 
         app.action_stop()
 
-        assert stopped_paths == [sidecar_path]
-        assert cancelled_groups[-2:] == ["tail", "health"]
-        assert app.reattached_sidecar_path is None
-        assert app.phase is Phase.STOPPED
+        assert app.reattached_sidecar_path == sidecar_path
+        assert app.phase is Phase.READY
+        assert "target run id" in app.error_text
 
 
 @pytest.mark.asyncio
@@ -2701,29 +2696,26 @@ async def test_stop_after_detached_reattach_signals_verified_run(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("action_name", "helper_name", "expected_text"),
+    ("action_name", "helper_name"),
     [
-        ("action_stop", "stop_sidecar_from_system", "Unable to stop"),
-        ("action_kill", "signal_sidecar_from_system", "Unable to kill"),
+        ("action_stop", "stop_sidecar_from_system"),
+        ("action_kill", "signal_sidecar_from_system"),
     ],
 )
-async def test_detached_destructive_signal_mismatch_shows_error_without_detaching(
+async def test_path_only_detached_destructive_signal_requires_target_run_id(
     config_dir: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     action_name: str,
     helper_name: str,
-    expected_text: str,
 ) -> None:
     sidecar_path = tmp_path / "stale.json"
     sidecar_path.write_text("{}", encoding="utf-8")
 
     def refuse_signal(*_args: object, **_kwargs: object) -> None:
-        raise TrackedProcessMismatch(
-            "tracked process is gone; refusing to signal a possibly-recycled PID"
-        )
+        raise AssertionError("controller tried to signal local sidecar path")
 
-    monkeypatch.setattr(tui_app_module, helper_name, refuse_signal)
+    monkeypatch.setattr(tui_app_module, helper_name, refuse_signal, raising=False)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
@@ -2741,8 +2733,7 @@ async def test_detached_destructive_signal_mismatch_shows_error_without_detachin
 
         assert app.reattached_sidecar_path == sidecar_path
         assert app.phase is Phase.READY
-        assert expected_text in app.error_text
-        assert "possibly-recycled PID" in app.error_text
+        assert "target run id" in app.error_text
 
 
 @pytest.mark.asyncio
@@ -3334,7 +3325,7 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
 
 
 @pytest.mark.asyncio
-async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
+async def test_restart_after_path_only_reattach_requires_target_run_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sidecar_path = tmp_path / "detached.json"
@@ -3345,16 +3336,10 @@ async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
         model: org/model
         """,
     )
-    stopped_paths: list[Path] = []
     load_calls: list[Path | None] = []
-    sidecar_alive = True
 
     def stop_sidecar(path: Path, **_kwargs: object) -> None:
-        stopped_paths.append(path)
-
-    def alive(path: Path) -> bool:
-        assert path == sidecar_path
-        return sidecar_alive
+        raise AssertionError(f"controller tried to signal local sidecar path: {path}")
 
     app = VllmLoaderApp(configs_dir=config_dir)
 
@@ -3363,8 +3348,9 @@ async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
         app.current_config = load_registry(config_dir).by_name("restart-detached")
         app.reattached_sidecar_path = sidecar_path
         app._set_phase(Phase.READY)
-        monkeypatch.setattr(tui_app_module, "stop_sidecar_from_system", stop_sidecar)
-        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        monkeypatch.setattr(
+            tui_app_module, "stop_sidecar_from_system", stop_sidecar, raising=False
+        )
         monkeypatch.setattr(
             app,
             "action_load",
@@ -3373,18 +3359,12 @@ async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: stopped_paths == [sidecar_path],
-            "sidecar stop was not requested",
+            lambda: "target run id" in app.error_text,
+            "path-only restart did not require target run id",
         )
-
         assert app.reattached_sidecar_path == sidecar_path
+        assert app.phase is Phase.READY
         assert load_calls == []
-
-        sidecar_alive = False
-        await _wait_for_condition(
-            lambda: load_calls == [None],
-            "restart did not load after sidecar exit",
-        )
 
 
 @pytest.mark.asyncio

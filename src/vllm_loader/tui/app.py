@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import signal
 import time
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
@@ -33,8 +32,6 @@ from vllm_loader.engine.profile import (
 )
 from vllm_loader.engine.sidecar import (
     Sidecar,
-    signal_sidecar_from_system,
-    stop_sidecar_from_system,
     verify_sidecar_from_system,
 )
 from vllm_loader.messages import (
@@ -701,12 +698,7 @@ class VllmLoaderApp(App):
             self.current_process.stop(interrupt_timeout=2, terminate_timeout=2)
             return
         if self.reattached_sidecar_path is not None:
-            self._signal_reattached_sidecar(
-                "stop",
-                lambda path: stop_sidecar_from_system(
-                    path, interrupt_timeout=2, terminate_timeout=2
-                ),
-            )
+            self._set_path_only_reattach_signal_error("stop")
             return
         self._set_phase(Phase.STOPPED)
         self._write_log("INFO stop requested")
@@ -812,23 +804,12 @@ class VllmLoaderApp(App):
         self.action_load()
 
     async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
-        try:
-            if self.reattached_run_id is not None:
-                await self._restart_reattached_target_run()
-                return
-            else:
-                await asyncio.to_thread(
-                    stop_sidecar_from_system,
-                    sidecar_path,
-                    interrupt_timeout=2,
-                    terminate_timeout=2,
-                )
-        except Exception as exc:
-            self._set_error_text(f"Unable to restart {sidecar_path.name}: {exc}")
+        if self.reattached_run_id is not None:
+            await self._restart_reattached_target_run()
             return
-        self.workers.cancel_group(self, "tail")
-        self.workers.cancel_group(self, "health")
-        await self._load_after_sidecar_exit(sidecar_path)
+        self._set_error_text(
+            f"Unable to restart {sidecar_path.name}: target run id required"
+        )
 
     async def _load_after_sidecar_exit(self, sidecar_path: Path) -> None:
         while self._sidecar_is_alive(sidecar_path):
@@ -965,22 +946,15 @@ class VllmLoaderApp(App):
         self.reattached_run_id = None
         self._set_phase(Phase.STOPPED)
 
-    def _signal_reattached_sidecar(
-        self, action: str, signaler: Callable[[Path], None]
-    ) -> None:
-        if self.reattached_sidecar_path is None:
-            return
-        sidecar_path = self.reattached_sidecar_path
-        try:
-            signaler(sidecar_path)
-        except Exception as exc:
-            self._set_error_text(f"Unable to {action} {sidecar_path.name}: {exc}")
-            return
-        self.workers.cancel_group(self, "tail")
-        self.workers.cancel_group(self, "health")
-        self.reattached_sidecar_path = None
-        self.reattached_run_id = None
-        self._set_phase(Phase.STOPPED)
+    def _set_path_only_reattach_signal_error(self, action: str) -> None:
+        sidecar_name = (
+            self.reattached_sidecar_path.name
+            if self.reattached_sidecar_path is not None
+            else "detached run"
+        )
+        self._set_error_text(
+            f"Unable to {action} {sidecar_name}: target run id required"
+        )
 
     def _server_url_for_copy(self) -> str | None:
         if self.ready_url:
@@ -1076,10 +1050,7 @@ class VllmLoaderApp(App):
             self.current_process.kill()
             return
         if self.reattached_sidecar_path is not None:
-            self._signal_reattached_sidecar(
-                "kill",
-                lambda path: signal_sidecar_from_system(path, signal.SIGKILL),
-            )
+            self._set_path_only_reattach_signal_error("kill")
             return
         self._set_error_text("Kill requested")
 
