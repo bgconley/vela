@@ -50,6 +50,7 @@ from vllm_loader.monitoring.gpu import (
 )
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.factory import target_client_for_config
+from vllm_loader.tui.screens.build_manager import BuildManagerScreen
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.help import HelpScreen
@@ -505,6 +506,7 @@ class VllmLoaderApp(App):
         ("r", "restart", "Restart"),
         ("c", "config_picker", "Configs"),
         ("t", "targets", "Targets"),
+        ("b", "builds", "Builds"),
         ("R", "reconnect", "Reconnect"),
         ("/", "search", "Search"),
         ("f", "filter", "Filter"),
@@ -735,6 +737,9 @@ class VllmLoaderApp(App):
             "Manage targets", "View and switch controller targets", self.action_targets
         )
         yield SystemCommand(
+            "Manage vLLM builds", "View and select target-local vLLM builds", self.action_builds
+        )
+        yield SystemCommand(
             "Reconnect agent", "Reconnect to the active target", self.action_reconnect
         )
         yield SystemCommand("Search logs", "Search the visible log lines", self.action_search)
@@ -839,6 +844,49 @@ class VllmLoaderApp(App):
             exclusive=True,
             exit_on_error=False,
         )
+
+    def action_builds(self) -> None:
+        self.run_worker(
+            self._open_build_manager(),
+            name="build-manager",
+            group="build-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _open_build_manager(self) -> None:
+        try:
+            result = await self._target_call("list_builds", {})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to list builds: {exc}", style=f"bold {BAD}")
+            return
+        self.push_screen(
+            BuildManagerScreen(result),
+            callback=self._handle_build_manager_selection,
+        )
+
+    def _handle_build_manager_selection(self, build: str | None) -> None:
+        if not build:
+            return
+        self.run_worker(
+            self._select_build(build),
+            name="build-select",
+            group="build-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _select_build(self, build: str) -> None:
+        try:
+            result = await self._target_call("select_build", {"build": build})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to select build: {exc}", style=f"bold {BAD}")
+            return
+        label = _optional_str(result.get("label")) or build
+        self.notify(f"Selected build: {label}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
 
     def action_reconnect(self) -> None:
         self.run_worker(
@@ -2222,7 +2270,7 @@ class VllmLoaderApp(App):
     @staticmethod
     def _render_footer_bindings() -> str:
         return (
-            "l Load   s Stop   K Kill   r Restart   t Targets   R Reconnect   "
+            "l Load   s Stop   K Kill   r Restart   t Targets   b Builds   R Reconnect   "
             "/ Search   f Filter   "
             "p Pause   w Wrap   g/G Top/Bottom   Tab Focus   ? Help   ^P Palette   q Quit"
         )

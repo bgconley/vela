@@ -3279,6 +3279,127 @@ async def test_header_uses_agent_preview_metadata_for_build_model_scope(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_selects_build_through_target_client(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.active_build = "stable-cu124"
+            self.select_calls: list[str] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_id": (
+                            "01NIGHTLY"
+                            if self.active_build == "nightly-cu130"
+                            else "01STABLE"
+                        ),
+                        "build_label": self.active_build,
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": (
+                        "01NIGHTLY"
+                        if self.active_build == "nightly-cu130"
+                        else "01STABLE"
+                    ),
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": self.active_build == "stable-cu124",
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        },
+                        {
+                            "build_id": "01NIGHTLY",
+                            "label": "nightly-cu130",
+                            "status": "ready",
+                            "default": self.active_build == "nightly-cu130",
+                            "resolved": {"vllm": "0.17.0.dev", "cuda": "13.0"},
+                            "paths": {"executable": "bin/vllm"},
+                        },
+                    ],
+                    "skipped": [],
+                }
+            if method == "select_build":
+                self.select_calls.append(str(params["build"]))
+                self.active_build = str(params["build"])
+                return {"build_id": "01NIGHTLY", "label": self.active_build, "active": True}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build manager should not subscribe")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.pause()
+        assert "▣ stable-cu124 ●" in _static_text(app, "#active-model")
+
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        build_list = str(app.screen.query_one("#build-manager-list", Static).content)
+        assert "> ● stable-cu124  ready  ● active" in build_list
+        assert "  ● nightly-cu130  ready" in build_list
+
+        await pilot.press("down")
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: target_client.select_calls == ["nightly-cu130"]
+            and "▣ nightly-cu130 ●" in _static_text(app, "#active-model"),
+            "build selection did not refresh header",
+        )
+
+
+@pytest.mark.asyncio
 async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 
