@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import signal
 import uuid
@@ -30,8 +31,10 @@ app = typer.Typer(
     no_args_is_help=False, invoke_without_command=True, help="Launch and monitor vLLM servers."
 )
 agent_app = typer.Typer(help="Run or connect to the local vLLM Loader agent.")
+build_app = typer.Typer(help="Manage target-local vLLM builds.")
 targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
+app.add_typer(build_app, name="build")
 app.add_typer(targets_app, name="targets")
 
 
@@ -158,6 +161,130 @@ def targets_test(
     )
 
 
+@build_app.command("list")
+def build_list(
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable build list."),
+    ] = False,
+) -> None:
+    result = _agent_call("list_builds", target_name=target)
+    if json_output:
+        _echo_json(result)
+        return
+    for build in result.get("builds", []):
+        marker = "*" if build.get("default") else " "
+        typer.echo(
+            "\t".join(
+                [
+                    marker,
+                    str(build.get("build_id") or ""),
+                    str(build.get("label") or ""),
+                    str(build.get("status") or "unknown"),
+                ]
+            )
+        )
+    for skipped in result.get("skipped", []):
+        typer.echo(
+            f"SKIPPED {skipped.get('build_id', '')}\t{skipped.get('reason', 'unknown')}"
+        )
+
+
+@build_app.command("select")
+def build_select(
+    build: Annotated[str, typer.Argument(help="Build id or label to make active.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable selection result."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "select_build",
+            {"build": build},
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    typer.echo(
+        f"selected build\t{result.get('build_id', '')}\t{result.get('label', '')}"
+    )
+
+
+@build_app.command("verify")
+def build_verify(
+    build: Annotated[str, typer.Argument(help="Build id or label to verify.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable verification result."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "verify_build",
+            {"build": build},
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    verdict = "OK" if result.get("ok") else "FAIL"
+    typer.echo(
+        "\t".join(
+            [
+                verdict,
+                str(result.get("build_id") or build),
+                str(result.get("status") or "unknown"),
+                str(result.get("detail") or ""),
+            ]
+        )
+    )
+
+
+@build_app.command("remove")
+def build_remove(
+    build: Annotated[str, typer.Argument(help="Build id or label to remove.")],
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Config directory for pin checks."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Confirm removing the agent-owned build directory."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable removal result."),
+    ] = False,
+) -> None:
+    if not yes:
+        typer.echo("ERROR: use --yes to remove a build", err=True)
+        raise typer.Exit(2)
+    try:
+        result = _agent_call(
+            "remove_build",
+            _agent_params(build=build, configs_dir=configs_dir),
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    typer.echo(
+        f"removed build\t{result.get('build_id', '')}\t{result.get('label', '')}"
+    )
+
+
 @app.command("list")
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
@@ -249,6 +376,10 @@ def smoke_tui_config(
 def _echo_warnings(warnings) -> None:
     for warning in warnings:
         typer.echo(f"WARNING: {warning}", err=True)
+
+
+def _echo_json(payload: dict[str, Any]) -> None:
+    typer.echo(json.dumps(payload, sort_keys=True))
 
 
 def _prepare_launch_with_client_or_exit(

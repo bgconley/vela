@@ -191,6 +191,196 @@ def test_cli_preview_target_option_uses_selected_target_from_registry(
     ]
 
 
+def test_cli_build_list_uses_selected_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "builds": [
+                {
+                    "build_id": "01BUILD",
+                    "label": "nightly-cu130",
+                    "status": "ready",
+                    "default": True,
+                }
+            ],
+            "default_build_id": "01BUILD",
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "list", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("list_builds", None, "blackbird")]
+    assert result.output.splitlines() == [
+        "*\t01BUILD\tnightly-cu130\tready",
+    ]
+
+
+def test_cli_build_list_json_outputs_agent_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "builds": [
+            {
+                "build_id": "01BUILD",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "default": True,
+            }
+        ],
+        "default_build_id": "01BUILD",
+        "skipped": [],
+    }
+
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": payload,
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["build", "list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == payload
+
+
+def test_cli_build_select_uses_selected_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {"build_id": "01BUILD", "label": "nightly-cu130", "active": True}
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "select", "nightly-cu130", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("select_build", {"build": "nightly-cu130"}, "blackbird")]
+    assert result.output == "selected build\t01BUILD\tnightly-cu130\n"
+
+
+def test_cli_build_verify_prints_agent_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "build_id": "01BUILD",
+            "ok": True,
+            "status": "ready",
+            "detail": "build verified",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "verify", "01BUILD", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("verify_build", {"build": "01BUILD"}, "blackbird")]
+    assert result.output == "OK\t01BUILD\tready\tbuild verified\n"
+
+
+def test_cli_build_remove_requires_yes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": calls.append(
+            (method, params, target_name)
+        ),
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["build", "remove", "01BUILD"])
+
+    assert result.exit_code == 2
+    assert calls == []
+    assert "use --yes to remove a build" in result.output
+
+
+def test_cli_build_remove_passes_configs_dir_to_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "build_id": "01BUILD",
+            "label": "nightly-cu130",
+            "removed": True,
+            "removed_path": "/agent/builds/01BUILD",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "remove",
+            "nightly-cu130",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path),
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "remove_build",
+            {"build": "nightly-cu130", "configs_dir": str(tmp_path)},
+            "blackbird",
+        )
+    ]
+    assert result.output == "removed build\t01BUILD\tnightly-cu130\n"
+
+
 def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatch) -> None:
     blackbird = TargetConfig(
         name="blackbird",
