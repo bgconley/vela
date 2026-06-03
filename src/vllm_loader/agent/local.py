@@ -41,7 +41,7 @@ from vllm_loader.engine.sidecar import (
 )
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
-from vllm_loader.monitoring.health import HealthEvent, probe_loop
+from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
 
 PROTOCOL_VERSION = 1
 
@@ -808,7 +808,7 @@ def _gpu_sample_payload(sample: GpuSample) -> dict[str, Any]:
 
 
 def _reachable_url(cfg: ModelConfig) -> str:
-    return f"http://{cfg.server.host}:{cfg.server.port}"
+    return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
 
 
 def _config_by_name(registry: ConfigRegistry, name: str):

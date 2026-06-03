@@ -256,9 +256,14 @@ def _message_from_wire_event(
             detail=str(payload.get("detail", "")),
             models=[str(model) for model in payload.get("models") or []],
             error_kind=error_kind,
+            feed_phase=False,
         )
     if kind == "ready":
-        return ServerReady([str(model) for model in payload.get("models") or []])
+        return ServerReady(
+            [str(model) for model in payload.get("models") or []],
+            reachable_url=_optional_str(payload.get("reachable_url")),
+            feed_phase=False,
+        )
     if kind == "exited" and payload.get("phase") is not None:
         return PhaseChanged(
             Phase(str(payload["phase"])),
@@ -1065,7 +1070,11 @@ class VllmLoaderApp(App):
         self._set_phase(message.phase, agent_mono=message.agent_mono)
 
     def on_server_ready(self, message: ServerReady) -> None:
-        self._handle_server_ready(message.models)
+        self._handle_server_ready(
+            message.models,
+            reachable_url=message.reachable_url,
+            feed_phase=message.feed_phase,
+        )
 
     def on_health_changed(self, message: HealthChanged) -> None:
         self._handle_health_changed(
@@ -1073,6 +1082,7 @@ class VllmLoaderApp(App):
             detail=message.detail,
             models=message.models,
             error_kind=message.error_kind,
+            feed_phase=message.feed_phase,
         )
 
     def on_process_exited(self, message: ProcessExited) -> None:
@@ -1851,10 +1861,13 @@ class VllmLoaderApp(App):
         detail: str,
         models: list[str] | None = None,
         error_kind: ErrorKind | None = None,
+        feed_phase: bool = True,
     ) -> None:
         self.health_detail = detail
         if ready:
-            self._handle_server_ready(models or [])
+            self._handle_server_ready(models or [], feed_phase=feed_phase)
+            return
+        if not feed_phase:
             return
         if error_kind:
             self.fsm.health_error(error_kind, detail)
@@ -1863,10 +1876,22 @@ class VllmLoaderApp(App):
             self.fsm.health_failed(detail)
         self._set_phase(self.fsm.phase)
 
-    def _handle_server_ready(self, models: list[str]) -> None:
-        if self.current_config is not None:
+    def _handle_server_ready(
+        self,
+        models: list[str],
+        *,
+        reachable_url: str | None = None,
+        feed_phase: bool = True,
+    ) -> None:
+        if reachable_url is not None:
+            self.ready_url = reachable_url
+        elif self.current_config is not None:
             self.ready_url = self._server_url(self.current_config)
         self.served_models = models
+        if not feed_phase:
+            self._refresh_chrome()
+            self._refresh_sidebar_overlay()
+            return
         self.fsm.health_ready(models)
         self._set_phase(self.fsm.phase)
 

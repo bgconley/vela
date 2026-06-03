@@ -42,6 +42,8 @@ class PhaseChanged(LoaderMessage):
 @dataclass
 class ServerReady(LoaderMessage):
     models: list[str]
+    reachable_url: str | None = None
+    feed_phase: bool = True
 
 
 @dataclass
@@ -50,6 +52,7 @@ class HealthChanged(LoaderMessage):
     detail: str
     models: list[str] | None = None
     error_kind: ErrorKind | None = None
+    feed_phase: bool = True
 
 
 @dataclass

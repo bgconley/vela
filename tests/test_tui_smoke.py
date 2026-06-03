@@ -1396,6 +1396,44 @@ async def test_wire_phase_timing_uses_agent_monotonic_clock(config_dir: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_wire_ready_uses_agent_reachable_url_without_phase_mutation(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "remote-ready.yaml",
+        """
+        name: remote-ready
+        model: org/remote
+        server:
+          host: 127.0.0.1
+          port: 8126
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("remote-ready")
+        app._set_phase(Phase.SERVER_STARTING)
+
+        app._post_wire_event_message(
+            {
+                "event": "ready",
+                "run_id": "run-1",
+                "models": ["served"],
+                "reachable_url": "http://10.25.0.51:18003",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 12.0,
+            }
+        )
+        await pilot.pause()
+
+        assert app.ready_url == "http://10.25.0.51:18003"
+        assert app.served_models == ["served"]
+        assert app.phase is Phase.SERVER_STARTING
+
+
+@pytest.mark.asyncio
 async def test_tui_gpu_sampling_runs_through_target_client(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
