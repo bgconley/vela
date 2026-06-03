@@ -125,6 +125,9 @@ class SubprocessTargetClient:
             raise
         return await future
 
+    async def ping(self) -> dict[str, Any]:
+        return await self.call("ping")
+
     def subscribe(
         self,
         run_ids: list[str],

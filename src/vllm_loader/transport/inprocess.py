@@ -44,6 +44,9 @@ class InProcessTargetClient:
             return await result
         return result
 
+    async def ping(self) -> dict[str, Any]:
+        return await self.call("ping")
+
     def subscribe(
         self,
         run_ids: list[str],

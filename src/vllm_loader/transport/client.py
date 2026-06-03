@@ -16,6 +16,8 @@ class TargetClient(Protocol):
         self, method: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]: ...
 
+    async def ping(self) -> dict[str, Any]: ...
+
     def subscribe(
         self,
         run_ids: list[str],
