@@ -1155,13 +1155,23 @@ async def test_detached_missing_executable_shows_launch_guidance(
 
 
 @pytest.mark.asyncio
-async def test_command_palette_exposes_core_actions_and_config_loads(config_dir: Path) -> None:
+async def test_command_palette_exposes_core_actions_and_config_loads(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
     app = VllmLoaderApp(configs_dir=config_dir)
+    load_calls: list[str | None] = []
 
     async with app.run_test() as pilot:
         await pilot.pause()
+        monkeypatch.setattr(
+            app,
+            "action_load",
+            lambda: load_calls.append(
+                app.current_config.name if app.current_config is not None else None
+            ),
+        )
         commands = list(app.get_system_commands(app.screen))
         titles = {command.title for command in commands}
         assert {
@@ -1187,6 +1197,7 @@ async def test_command_palette_exposes_core_actions_and_config_loads(config_dir:
         beta.callback()
         assert app.current_config is not None
         assert app.current_config.name == "beta"
+        assert load_calls == ["beta"]
 
 
 @pytest.mark.asyncio

@@ -515,8 +515,8 @@ class VllmLoaderApp(App):
             name = item.config.name
             yield SystemCommand(
                 f"Load config: {name}",
-                f"Select {name} for launch",
-                lambda selected=name: self.select_config(selected),
+                f"Select and launch {name}",
+                lambda selected=name: self._load_config_from_palette(selected),
             )
         for path in discover_active_sidecars(self._runs_dirs()):
             sidecar = load_sidecar(path)
@@ -525,6 +525,10 @@ class VllmLoaderApp(App):
                 f"Resume tailing {sidecar.config_name}",
                 lambda sidecar_path=path: self.reattach_detached_run(sidecar_path),
             )
+
+    def _load_config_from_palette(self, name: str) -> None:
+        self.select_config(name)
+        self.action_load()
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen(id="help"))
