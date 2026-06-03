@@ -1424,10 +1424,16 @@ class VllmLoaderApp(App):
             return
 
     async def _load_registry_from_agent(self) -> ConfigRegistry:
-        result = await self._target_call(
-            "list_configs",
-            self._agent_params(configs_dir=self.configs_dir),
-        )
+        try:
+            result = await self._target_call(
+                "list_configs",
+                self._agent_params(configs_dir=self.configs_dir),
+            )
+        except TargetCallError as exc:
+            if exc.code not in {"version-mismatch", "agent-unreachable"}:
+                raise
+            self._mark_target_connection_error(exc)
+            return ConfigRegistry()
         return _config_registry_from_agent_payload(result)
 
     def _agent_params(self, **values) -> dict[str, str]:
@@ -1444,7 +1450,15 @@ class VllmLoaderApp(App):
             self.target_connection_state = (
                 "reconnecting" if self._target_has_connected_once else "connecting"
             )
-            agent_info = await self._target_client.connect()
+            try:
+                agent_info = await self._target_client.connect()
+            except TargetCallError as exc:
+                self._mark_target_connection_error(exc)
+                raise
+            except Exception as exc:
+                self.target_connection_state = "unreachable"
+                self.target_connection_detail = str(exc)
+                raise
             if isinstance(agent_info, dict):
                 daemon_start_ts = agent_info.get("daemon_start_ts")
                 if isinstance(daemon_start_ts, str) and daemon_start_ts:
@@ -1470,6 +1484,15 @@ class VllmLoaderApp(App):
         )
         if agent_restarted:
             await self._refresh_detached_runs()
+
+    def _mark_target_connection_error(self, exc: TargetCallError) -> None:
+        if exc.code == "version-mismatch":
+            self.target_connection_state = "version-mismatch"
+        elif exc.code in {"agent-unreachable", "command-not-found"}:
+            self.target_connection_state = "unreachable"
+        else:
+            self.target_connection_state = "disconnected"
+        self.target_connection_detail = str(exc)
 
     async def _target_call(
         self, method: str, params: dict[str, Any] | None = None

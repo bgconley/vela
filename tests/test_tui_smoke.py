@@ -292,6 +292,47 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
 
 
 @pytest.mark.asyncio
+async def test_tui_surfaces_target_version_mismatch_on_mount(
+    config_dir: Path,
+) -> None:
+    class VersionMismatchTargetClient:
+        connected = False
+
+        async def connect(self):
+            raise TargetCallError(
+                "version-mismatch",
+                "controller protocol version 2 is newer than agent protocol 1",
+                {"required": 2, "actual": 1},
+            )
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def ping(self):
+            raise AssertionError("version mismatch should not ping")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("version mismatch should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=VersionMismatchTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert app.target_connection_state == "version-mismatch"
+        assert "controller protocol version 2" in app.target_connection_detail
+        assert app.registry.valid == []
+        assert app.registry.invalid == []
+
+
+@pytest.mark.asyncio
 async def test_tui_keepalive_timeout_marks_target_disconnected(
     config_dir: Path,
 ) -> None:
