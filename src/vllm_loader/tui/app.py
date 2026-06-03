@@ -35,8 +35,6 @@ from vllm_loader.engine.profile import (
 )
 from vllm_loader.engine.sidecar import (
     Sidecar,
-    discover_active_sidecars,
-    load_sidecar,
     signal_sidecar_from_system,
     stop_sidecar_from_system,
     verify_sidecar_from_system,
@@ -593,12 +591,13 @@ class VllmLoaderApp(App):
                 f"Select and launch {name}",
                 lambda selected=name: self._load_config_from_palette(selected),
             )
-        for path in discover_active_sidecars(self._runs_dirs()):
-            sidecar = load_sidecar(path)
+        for run in self._agent_discover_detached_runs():
             yield SystemCommand(
-                f"Reattach detached run: {sidecar.config_name}",
-                f"Resume tailing {sidecar.config_name}",
-                lambda sidecar_path=path: self.reattach_detached_run(sidecar_path),
+                f"Reattach detached run: {run.config_name}",
+                f"Resume tailing {run.config_name}",
+                lambda sidecar_path=run.sidecar_path: self.reattach_detached_run(
+                    sidecar_path
+                ),
             )
 
     def _load_config_from_palette(self, name: str) -> None:
@@ -1404,6 +1403,9 @@ class VllmLoaderApp(App):
 
     def _agent_reattach_detached_run(self, sidecar_path: Path):
         return self._agent.reattach_detached_run(sidecar_path)
+
+    def _agent_discover_detached_runs(self):
+        return self._agent.discover_detached_runs(self._runs_dirs())
 
     def _post_agent_event_message(self, event: AgentEvent) -> None:
         message = _message_from_agent_event(event)

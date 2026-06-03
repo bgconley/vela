@@ -28,6 +28,7 @@ from vllm_loader.engine.profile import (
 from vllm_loader.engine.sidecar import (
     Manifest,
     Sidecar,
+    discover_active_sidecars,
     load_manifest,
     load_sidecar,
     signal_sidecar_from_system,
@@ -74,6 +75,13 @@ class LocalDetachedRun:
     sidecar_path: Path
     sidecar: Sidecar
     manifest: Manifest
+
+
+@dataclass(frozen=True)
+class LocalDetachedRunSummary:
+    run_id: str
+    sidecar_path: Path
+    config_name: str
 
 
 class LocalAgent:
@@ -238,6 +246,21 @@ class LocalAgent:
         )
         self._detached_runs[run.run_id] = run
         return run
+
+    def discover_detached_runs(
+        self, runs_dirs: list[Path | str]
+    ) -> list[LocalDetachedRunSummary]:
+        summaries: list[LocalDetachedRunSummary] = []
+        for path in discover_active_sidecars([Path(item) for item in runs_dirs]):
+            sidecar = load_sidecar(path)
+            summaries.append(
+                LocalDetachedRunSummary(
+                    run_id=sidecar.run_id,
+                    sidecar_path=path,
+                    config_name=sidecar.config_name,
+                )
+            )
+        return summaries
 
     def is_run_alive(self, run_id: str) -> bool:
         run = self._attached_runs.get(run_id)

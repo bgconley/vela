@@ -413,6 +413,45 @@ def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
     assert stopped == [(sidecar_path, 2, 3)]
 
 
+def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run-1.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(tmp_path / "run-1.manifest.json"),
+    )
+    seen: dict[str, object] = {}
+
+    def fake_discover(runs_dirs):
+        seen["runs_dirs"] = runs_dirs
+        return [sidecar_path]
+
+    monkeypatch.setattr(local_agent_module, "discover_active_sidecars", fake_discover)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    agent = LocalAgent()
+
+    runs = agent.discover_detached_runs([tmp_path / "runs"])
+
+    assert seen["runs_dirs"] == [tmp_path / "runs"]
+    assert runs[0].run_id == "run-1"
+    assert runs[0].config_name == "detached"
+    assert runs[0].sidecar_path == sidecar_path
+
+
 def test_local_agent_samples_gpus_with_injected_sampler() -> None:
     calls = 0
 

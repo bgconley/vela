@@ -77,6 +77,9 @@ class RecordingConfigAgent:
             return {"preview": f"cwd=/agent\nvllm serve org/{name}", "warnings": []}
         raise AssertionError(f"unexpected method: {method}")
 
+    def discover_detached_runs(self, runs_dirs):
+        return []
+
 
 class RecordingLaunchPrepareAgent(RecordingConfigAgent):
     def handle(self, method: str, params: dict[str, str] | None = None):
@@ -266,6 +269,45 @@ async def test_tui_detached_launch_runs_through_agent(config_dir: Path, tmp_path
 
         assert len(agent.detached_launches) == 1
         assert reattached == [tmp_path / "runs" / "run-1.json"]
+
+
+@pytest.mark.asyncio
+async def test_command_palette_discovers_detached_runs_through_agent(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    sidecar_path = tmp_path / "runs" / "run-1.json"
+
+    class DiscoveryAgent(RecordingConfigAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.discovered_dirs: list[list[Path]] = []
+
+        def discover_detached_runs(self, runs_dirs):
+            self.discovered_dirs.append(list(runs_dirs))
+            return [
+                SimpleNamespace(
+                    run_id="run-1",
+                    sidecar_path=sidecar_path,
+                    config_name="detached",
+                )
+            ]
+
+    agent = DiscoveryAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    reattached: list[Path] = []
+    app.reattach_detached_run = reattached.append
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        commands = list(app.get_system_commands(app.screen))
+        command = next(
+            item for item in commands if item.title == "Reattach detached run: detached"
+        )
+        command.callback()
+
+        assert agent.discovered_dirs == [app._runs_dirs()]
+        assert reattached == [sidecar_path]
 
 
 @pytest.mark.asyncio
