@@ -311,10 +311,10 @@ async def test_in_process_target_client_handshake_rejects_newer_controller_proto
     with pytest.raises(TargetCallError) as exc_info:
         await client.call("handshake", {"protocol_version": 2})
 
-    assert exc_info.value.code == "agent-version-mismatch"
+    assert exc_info.value.code == "version-mismatch"
     assert exc_info.value.details == {
-        "agent_protocol_version": 1,
-        "controller_protocol_version": 2,
+        "required": 2,
+        "actual": 1,
     }
 
 
@@ -397,10 +397,10 @@ async def test_subprocess_target_client_handshake_rejects_newer_controller_proto
     finally:
         await client.disconnect()
 
-    assert exc_info.value.code == "agent-version-mismatch"
+    assert exc_info.value.code == "version-mismatch"
     assert exc_info.value.details == {
-        "agent_protocol_version": 1,
-        "controller_protocol_version": 2,
+        "required": 2,
+        "actual": 1,
     }
 
 

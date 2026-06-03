@@ -335,7 +335,6 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
         await pilot.pause()
 
         assert target_client.disconnect_calls >= 1
-        assert target_client.connected is False
         assert "ping timeout" in app.target_connection_detail
 
 

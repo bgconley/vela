@@ -164,15 +164,15 @@ class LocalAgent:
             and int(controller_protocol_version) > PROTOCOL_VERSION
         ):
             raise TargetCallError(
-                "agent-version-mismatch",
+                "version-mismatch",
                 (
                     "controller protocol version "
                     f"{controller_protocol_version} is newer than agent protocol "
                     f"{PROTOCOL_VERSION}"
                 ),
                 {
-                    "agent_protocol_version": PROTOCOL_VERSION,
-                    "controller_protocol_version": int(controller_protocol_version),
+                    "required": int(controller_protocol_version),
+                    "actual": PROTOCOL_VERSION,
                 },
             )
         requested_capabilities = params.get("capabilities") or []
