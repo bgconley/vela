@@ -478,6 +478,8 @@ class VllmLoaderApp(App):
         agent: Any | None = None,
         target_client: Any | None = None,
         target_name: str = "local",
+        target_ping_interval_seconds: float | None = 30.0,
+        target_ping_timeout_seconds: float = 15.0,
     ) -> None:
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
@@ -499,6 +501,10 @@ class VllmLoaderApp(App):
                     ),
                 )
         self._target_client = target_client
+        self.target_connection_state = "disconnected"
+        self.target_connection_detail = ""
+        self._target_ping_interval_seconds = target_ping_interval_seconds
+        self._target_ping_timeout_seconds = target_ping_timeout_seconds
         self._clock = clock
         self._gpu_sampler = gpu_sampler
         self._gpu_interval_seconds = gpu_interval_seconds
@@ -618,6 +624,13 @@ class VllmLoaderApp(App):
             self._refresh_detached_runs(),
             name="detached-discovery",
             group="detached-discovery",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self.run_worker(
+            self._poll_target_keepalive(),
+            name="target-keepalive",
+            group="target-connection",
             exclusive=True,
             exit_on_error=False,
         )
@@ -1422,13 +1435,49 @@ class VllmLoaderApp(App):
 
     async def _ensure_target_client_connected(self) -> None:
         if not getattr(self._target_client, "connected", False):
+            self.target_connection_state = "connecting"
+            self.target_connection_detail = ""
             await self._target_client.connect()
+        self.target_connection_state = "connected"
+        self.target_connection_detail = ""
 
     async def _target_call(
         self, method: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         await self._ensure_target_client_connected()
         return await self._target_client.call(method, params)
+
+    async def _poll_target_keepalive(self) -> None:
+        interval = self._target_ping_interval_seconds
+        ping = getattr(self._target_client, "ping", None)
+        if interval is None or interval <= 0 or not callable(ping):
+            return
+        while True:
+            await asyncio.sleep(interval)
+            await self._target_keepalive_once()
+
+    async def _target_keepalive_once(self) -> None:
+        try:
+            await self._ensure_target_client_connected()
+            await asyncio.wait_for(
+                self._target_client.ping(),
+                timeout=self._target_ping_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            await self._mark_target_disconnected("ping timeout")
+        except Exception as exc:
+            await self._mark_target_disconnected(str(exc))
+        else:
+            self.target_connection_state = "connected"
+            self.target_connection_detail = ""
+
+    async def _mark_target_disconnected(self, detail: str) -> None:
+        self.target_connection_state = "disconnected"
+        self.target_connection_detail = detail
+        try:
+            await self._target_client.disconnect()
+        except Exception:
+            return
 
     async def _refresh_detached_runs(self) -> None:
         try:

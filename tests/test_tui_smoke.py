@@ -292,6 +292,54 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
 
 
 @pytest.mark.asyncio
+async def test_tui_keepalive_timeout_marks_target_disconnected(
+    config_dir: Path,
+) -> None:
+    class HangingPingTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.disconnect_calls = 0
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+            self.disconnect_calls += 1
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def ping(self):
+            await asyncio.sleep(60)
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive should not subscribe")
+
+    target_client = HangingPingTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=target_client,
+        target_ping_interval_seconds=0.01,
+        target_ping_timeout_seconds=0.01,
+    )
+
+    async with app.run_test() as pilot:
+        await _wait_for_target_connection_state(app, "disconnected")
+        await pilot.pause()
+
+        assert target_client.disconnect_calls >= 1
+        assert target_client.connected is False
+        assert "ping timeout" in app.target_connection_detail
+
+
+@pytest.mark.asyncio
 async def test_tui_default_local_target_uses_target_client_factory(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4346,6 +4394,19 @@ async def _wait_for_gpu_calls(calls: list[int], count: int) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError(f"GPU sampler was called {len(calls)} times, expected {count}")
+
+
+async def _wait_for_target_connection_state(
+    app: VllmLoaderApp, state: str, *, timeout: float = 5.0
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if app.target_connection_state == state:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(
+        f"target connection state was {app.target_connection_state!r}, expected {state!r}"
+    )
 
 
 async def _wait_for_stopped(app: VllmLoaderApp) -> None:
