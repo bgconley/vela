@@ -73,6 +73,7 @@ class DetachedLaunch:
     manifest_path: Path
     log_path: Path
     exit_status_path: Path | None = None
+    event_log_path: Path | None = None
 
 
 def start_attached(
@@ -127,6 +128,7 @@ def start_detached(
     manifest_path = run_dir / f"{run_id}.manifest.json"
     sidecar_path = run_dir / f"{run_id}.json"
     exit_status_path = run_dir / f"{run_id}.exit-status"
+    event_log_path = run_dir / f"{run_id}.events.ndjson"
     payload_path = run_dir / f"{run_id}.supervisor-payload.json"
     payload = {
         "argv": build.argv,
@@ -136,6 +138,7 @@ def start_detached(
         "manifest_path": str(manifest_path),
         "sidecar_path": str(sidecar_path),
         "exit_status_path": str(exit_status_path),
+        "event_log_path": str(event_log_path),
         "secrets": secret_values,
         "run_id": run_id,
         "config_name": cfg.name,
@@ -188,6 +191,7 @@ def start_detached(
         manifest_path=manifest_path,
         log_path=log_path,
         exit_status_path=exit_status_path,
+        event_log_path=event_log_path,
     )
 
 

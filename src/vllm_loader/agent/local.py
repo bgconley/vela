@@ -459,34 +459,37 @@ class LocalAgent:
     ) -> dict[str, Any]:
         run = self._detached_run_or_error(run_id)
         log_path = Path(run.manifest.active_log.path)
-        position = (
-            start_position
-            if start_position is not None
-            else log_path.stat().st_size
-            if log_path.exists()
-            else 0
-        )
+        if wait_for_exit_status:
+            await _wait_for_path(_detached_event_log_path(run.sidecar_path), timeout=0.5)
+        position = 0
         pending = ""
+        active_source: str | None = None
         while True:
-            if log_path.exists():
-                with log_path.open("r", encoding="utf-8", errors="replace") as file:
-                    file.seek(position)
-                    chunk = file.read()
-                    position = file.tell()
-                if chunk:
-                    pending += chunk
-                    *lines, pending = pending.split("\n")
-                    for line in lines:
-                        if line:
-                            record = LogRecord(
-                                "committed",
-                                line,
-                                level=level_for_line(line),
-                            )
-                            for event in _events_from_log_record(
-                                run_id, run.fsm, record
-                            ):
-                                self._publish_event(event)
+            event_log_path = _detached_event_log_path(run.sidecar_path)
+            source_path = event_log_path if event_log_path.exists() else log_path
+            source = "event" if source_path == event_log_path else "durable"
+            if source != active_source:
+                position = _initial_tail_position(
+                    source_path,
+                    source=source,
+                    start_position=start_position,
+                )
+                pending = ""
+                active_source = source
+            if source == "event":
+                position, pending = self._publish_event_spool_records(
+                    run,
+                    source_path,
+                    position=position,
+                    pending=pending,
+                )
+            elif source_path.exists():
+                position, pending = self._publish_durable_log_records(
+                    run,
+                    source_path,
+                    position=position,
+                    pending=pending,
+                )
             if not self.is_run_alive(run_id):
                 break
             await asyncio.sleep(poll_interval)
@@ -517,6 +520,59 @@ class LocalAgent:
             "intentional": run.intentional_shutdown,
             "phase": run.fsm.phase.value,
         }
+
+    def _publish_event_spool_records(
+        self,
+        run: LocalDetachedRun,
+        path: Path,
+        *,
+        position: int,
+        pending: str,
+    ) -> tuple[int, str]:
+        if position > path.stat().st_size:
+            position = 0
+        with path.open("r", encoding="utf-8", errors="replace") as file:
+            file.seek(position)
+            chunk = file.read()
+            position = file.tell()
+        if not chunk:
+            return position, pending
+        pending += chunk
+        *lines, pending = pending.split("\n")
+        for line in lines:
+            if not line:
+                continue
+            record = _log_record_from_event_spool_line(line)
+            if record is None:
+                continue
+            for event in _events_from_log_record(run.run_id, run.fsm, record):
+                self._publish_event(event)
+        return position, pending
+
+    def _publish_durable_log_records(
+        self,
+        run: LocalDetachedRun,
+        path: Path,
+        *,
+        position: int,
+        pending: str,
+    ) -> tuple[int, str]:
+        if position > path.stat().st_size:
+            position = 0
+        with path.open("r", encoding="utf-8", errors="replace") as file:
+            file.seek(position)
+            chunk = file.read()
+            position = file.tell()
+        if not chunk:
+            return position, pending
+        pending += chunk
+        *lines, pending = pending.split("\n")
+        for line in lines:
+            if line:
+                record = LogRecord("committed", line, level=level_for_line(line))
+                for event in _events_from_log_record(run.run_id, run.fsm, record):
+                    self._publish_event(event)
+        return position, pending
 
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()
@@ -692,6 +748,16 @@ async def _wait_detached_returncode(
         await asyncio.sleep(0.05)
 
 
+async def _wait_for_path(path: Path, *, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        if path.exists():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        await asyncio.sleep(0.02)
+
+
 def _read_detached_returncode(run: LocalDetachedRun) -> int | None:
     path = _detached_exit_status_path(run.sidecar_path)
     try:
@@ -709,6 +775,40 @@ def _read_detached_returncode(run: LocalDetachedRun) -> int | None:
 
 def _detached_exit_status_path(sidecar_path: Path) -> Path:
     return sidecar_path.with_suffix(".exit-status")
+
+
+def _detached_event_log_path(sidecar_path: Path) -> Path:
+    return sidecar_path.with_suffix(".events.ndjson")
+
+
+def _initial_tail_position(
+    path: Path, *, source: str, start_position: int | None
+) -> int:
+    if start_position is not None:
+        if source == "durable":
+            return start_position
+        return 0
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _log_record_from_event_spool_line(line: str) -> LogRecord | None:
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    kind = payload.get("kind")
+    if kind not in {"committed", "transient"}:
+        return None
+    text = payload.get("text")
+    if not isinstance(text, str):
+        return None
+    level = payload.get("level")
+    return LogRecord(kind, text, level=str(level) if level is not None else None)
 
 
 def _config_from_detached_sidecar(sidecar: Sidecar) -> ModelConfig:

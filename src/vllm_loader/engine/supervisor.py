@@ -15,7 +15,7 @@ from pathlib import Path
 
 import psutil
 
-from vllm_loader.engine.log_sink import LogSink, is_pty_eof
+from vllm_loader.engine.log_sink import LogRecord, LogSink, is_pty_eof
 from vllm_loader.engine.redaction import scrub_text as scrub_secret_text
 from vllm_loader.engine.sidecar import Manifest, Sidecar, command_hash, procfs_starttime_from_pid
 
@@ -34,6 +34,38 @@ class _DrainOnlySink:
 
     def rotate_to(self, path: Path) -> None:
         self.path = path
+
+
+class _EventSpool:
+    def __init__(self, path: Path | None) -> None:
+        self.path = path
+        self._file = None
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            self._file = os.fdopen(fd, "w", encoding="utf-8")
+        except OSError:
+            self._file = None
+
+    def emit(self, record: LogRecord) -> None:
+        if self._file is None:
+            return
+        payload = {"kind": record.kind, "text": record.text, "level": record.level}
+        try:
+            self._file.write(json.dumps(payload, separators=(",", ":")) + "\n")
+            self._file.flush()
+        except OSError:
+            self.close()
+
+    def close(self) -> None:
+        if self._file is None:
+            return
+        try:
+            self._file.close()
+        finally:
+            self._file = None
 
 
 def run_supervisor(
@@ -64,7 +96,12 @@ def run_supervisor(
             raise
     finally:
         os.close(slave_fd)
-    sink, durable_log_available = _open_log_sink(log_path, secrets)
+    event_spool = _EventSpool(_event_log_path(payload))
+    sink, durable_log_available = _open_log_sink(
+        log_path,
+        secrets,
+        emit=event_spool.emit,
+    )
     manifest_path = Path(payload["manifest_path"]) if payload is not None else None
     manifest: Manifest | None = None
     rotate_bytes = _log_rotate_bytes(payload)
@@ -104,6 +141,7 @@ def run_supervisor(
             sink.close()
         except Exception:
             pass
+        event_spool.close()
 
     thread = threading.Thread(target=drain, daemon=True)
     thread.start()
@@ -126,9 +164,23 @@ def _set_winsize(fd: int, *, rows: int, cols: int) -> None:
         pass
 
 
-def _open_log_sink(log_path: Path, secrets: list[str]) -> tuple[LogSink | _DrainOnlySink, bool]:
+def _event_log_path(payload: dict | None) -> Path | None:
+    if payload is None:
+        return None
+    value = payload.get("event_log_path")
+    if value is None:
+        return None
+    return Path(value)
+
+
+def _open_log_sink(
+    log_path: Path,
+    secrets: list[str],
+    *,
+    emit,
+) -> tuple[LogSink | _DrainOnlySink, bool]:
     try:
-        return LogSink(log_path, secrets=secrets), True
+        return LogSink(log_path, secrets=secrets, emit=emit), True
     except OSError:
         return _DrainOnlySink(log_path), False
 

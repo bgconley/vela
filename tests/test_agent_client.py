@@ -241,6 +241,7 @@ async def test_subprocess_target_client_demuxes_run_events(
                 "import sys",
                 "import time",
                 "print('INFO Starting to load model', flush=True)",
+                "print('Loading checkpoint shards: 45% 1/2', end='\\r', flush=True)",
                 "time.sleep(0.05)",
                 "print('INFO Uvicorn running on http://127.0.0.1:8000', flush=True)",
                 "sys.exit(0)",
@@ -259,6 +260,8 @@ async def test_subprocess_target_client_demuxes_run_events(
           executable: {child}
         server:
           port: {_free_port()}
+        launch:
+          runs_dir: {tmp_path / "runs"}
         """,
     )
     client = _subprocess_target_client_class()(_agent_connect_command())
@@ -266,23 +269,37 @@ async def test_subprocess_target_client_demuxes_run_events(
     await client.connect()
     events = client.subscribe(["rpc-run"], resume_from="live")
     try:
-        event_task = asyncio.create_task(_next_event(events, event_name="log"))
         launch = await client.call(
             "launch",
             {"run_id": "rpc-run", "name": "rpc-events", "configs_dir": str(config_dir)},
         )
         wait_task = asyncio.create_task(client.call("wait", {"run_id": "rpc-run"}))
-        event = await asyncio.wait_for(event_task, timeout=5)
+        observed: dict[str, dict] = {}
+        for _ in range(6):
+            item = await asyncio.wait_for(events.__anext__(), timeout=5)
+            if item.get("event") in {"log", "progress"}:
+                observed[str(item["event"])] = item
+            if {"log", "progress"}.issubset(observed):
+                break
         wait_result = await wait_task
     finally:
         await events.aclose()
         await client.disconnect()
 
     assert launch["run_id"] == "rpc-run"
+    event = observed["log"]
+    progress = observed["progress"]
     assert event["run_id"] == "rpc-run"
     assert event["event"] == "log"
     assert event["text"] == "INFO Starting to load model"
+    assert progress["run_id"] == "rpc-run"
+    assert progress["event"] == "progress"
+    assert progress["text"] == "Loading checkpoint shards: 45% 1/2"
     assert wait_result["returncode"] == 0
+    durable_log = tmp_path / "runs" / "rpc-run.run.log"
+    event_spool = tmp_path / "runs" / "rpc-run.events.ndjson"
+    assert "Loading checkpoint shards" not in durable_log.read_text(encoding="utf-8")
+    assert "Loading checkpoint shards" in event_spool.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
