@@ -13,7 +13,7 @@ from conftest import write_yaml
 
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.engine.phases import Phase
+from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import Manifest, Sidecar
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
@@ -1005,6 +1005,8 @@ async def test_local_agent_emits_attached_log_and_phase_events(
     assert result["intentional"] is False
     assert result["returncode"] == 0
     assert result["phase"] == Phase.ERROR.value
+    assert result["error_kind"] == ErrorKind.CRASHED.value
+    assert result["error_excerpt"] == "INFO Starting to load model"
     assert log_event["text"] == "INFO Starting to load model"
     assert phase_event["phase"] == Phase.LOADING_WEIGHTS.value
 
@@ -1698,6 +1700,8 @@ async def test_target_client_launches_attached_run_with_serialized_events(
         "returncode": 0,
         "intentional": False,
         "phase": Phase.ERROR.value,
+        "error_kind": ErrorKind.CRASHED.value,
+        "error_excerpt": "INFO Starting to load model",
     }
     json.dumps(wait_result)
 

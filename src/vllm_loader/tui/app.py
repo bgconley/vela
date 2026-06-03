@@ -1570,6 +1570,12 @@ class VllmLoaderApp(App):
         self.served_models = [str(model) for model in sidecar.get("served_model_names") or []]
         self._set_phase(Phase.SERVER_STARTING)
         self.run_worker(
+            self._target_tail_detached_run(self.reattached_run_id, start_position=0),
+            name="reattach-tail",
+            group="tail",
+            exclusive=True,
+        )
+        self.run_worker(
             self._target_probe_run_until_ready(
                 self.reattached_run_id,
                 publish_result=False,
@@ -1578,12 +1584,6 @@ class VllmLoaderApp(App):
             group="health",
             exclusive=True,
             exit_on_error=False,
-        )
-        self.run_worker(
-            self._target_tail_detached_run(self.reattached_run_id, start_position=0),
-            name="reattach-tail",
-            group="tail",
-            exclusive=True,
         )
 
     def _post_wire_event_message(self, event: dict[str, Any]) -> None:
@@ -1903,7 +1903,14 @@ class VllmLoaderApp(App):
             wait_phase = Phase(str(phase_value))
         resolved_phase = terminal_phase or wait_phase
         if resolved_phase is not None:
-            if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
+            if wait_result.get("error_kind") is not None:
+                self.fsm.error_kind = _error_kind_from_agent_payload(
+                    wait_result.get("error_kind")
+                )
+            if wait_result.get("error_excerpt") is not None:
+                self.fsm.error_excerpt = str(wait_result["error_excerpt"])
+            self.fsm.phase = resolved_phase
+            if resolved_phase is Phase.ERROR and self.fsm.error_kind is not None:
                 self._set_error_banner(self.fsm.error_kind)
             if intentional and resolved_phase is Phase.STOPPED:
                 self._set_error_text("")

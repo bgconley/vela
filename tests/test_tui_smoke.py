@@ -1130,6 +1130,105 @@ async def test_tui_attached_launch_uses_wait_phase_without_controller_exit_fsm(
 
 
 @pytest.mark.asyncio
+async def test_tui_attached_launch_uses_wait_error_metadata_without_terminal_event(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class LaunchAgent(RecordingConfigAgent):
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {"name": "alpha", "model": "org/alpha"},
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "agent-profile"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(LaunchAgent(), method, params)
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "health":
+                return {
+                    "run_id": "run-1",
+                    "ready": False,
+                    "detail": "not ready",
+                    "models": [],
+                    "error_kind": None,
+                }
+            if method == "wait":
+                return {
+                    "run_id": "run-1",
+                    "returncode": 7,
+                    "intentional": False,
+                    "phase": Phase.ERROR.value,
+                    "error_kind": ErrorKind.CRASHED.value,
+                    "error_excerpt": "process exited with code 7",
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": 7,
+                "intentional": False,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
+
+    def refuse_controller_exit_fsm(
+        self, returncode: int | None, *, intentional: bool = False
+    ) -> None:
+        raise AssertionError("TUI should consume the serialized wait error metadata")
+
+    monkeypatch.setattr(
+        tui_app_module.PhaseFSM,
+        "process_exited",
+        refuse_controller_exit_fsm,
+    )
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.CRASHED
+        assert "CRASHED" in app.error_text
+        assert "process exited with code 7" in app.error_text
+
+
+@pytest.mark.asyncio
 async def test_tui_attached_launch_subscribes_before_probe(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3692,6 +3791,36 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
         )
         assert health_worker["group"] == "health"
         assert health_worker["exit_on_error"] is False
+
+
+@pytest.mark.asyncio
+async def test_reattach_starts_tail_worker_before_health_probe(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_target_client = _fake_reattach_target_client(
+        _target_reattach_payload(served_model_names=["fake-model"])
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: fake_target_client(),
+    )
+    worker_names: list[str] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_names.append(str(kwargs.get("name")))
+        coro.close()
+        return SimpleNamespace()
+
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        await app._reattach_target_detached_run("run-1")
+
+        assert worker_names[:2] == ["reattach-tail", "reattach-health"]
 
 
 @pytest.mark.asyncio

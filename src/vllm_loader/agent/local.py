@@ -444,6 +444,7 @@ class LocalAgent:
             "returncode": exit_payload["returncode"],
             "intentional": run.intentional_shutdown,
             "phase": exit_payload["phase"],
+            **_error_payload_from_fsm(run.fsm),
         }
 
     async def _tail_detached(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -541,6 +542,7 @@ class LocalAgent:
                     "returncode": returncode,
                     "intentional": run.intentional_shutdown,
                     "phase": run.fsm.phase.value,
+                    **_error_payload_from_fsm(run.fsm),
                 },
             )
         )
@@ -549,6 +551,7 @@ class LocalAgent:
             "returncode": returncode,
             "intentional": run.intentional_shutdown,
             "phase": run.fsm.phase.value,
+            **_error_payload_from_fsm(run.fsm),
         }
 
     def _publish_event_spool_records(
@@ -836,6 +839,15 @@ def _phase_event_from_transition(
     if fsm.error_excerpt is not None:
         payload["error_excerpt"] = fsm.error_excerpt
     return AgentEvent("phase", run_id, payload)
+
+
+def _error_payload_from_fsm(fsm: PhaseFSM) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    if fsm.error_kind is not None:
+        payload["error_kind"] = fsm.error_kind.value
+    if fsm.error_excerpt is not None:
+        payload["error_excerpt"] = fsm.error_excerpt
+    return payload
 
 
 def _detached_run_alive(run: LocalDetachedRun) -> bool:
