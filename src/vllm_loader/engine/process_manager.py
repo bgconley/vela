@@ -148,15 +148,35 @@ def start_detached(
     if log_rotate_bytes is not None:
         payload["log_rotate_bytes"] = log_rotate_bytes
     _write_secret_payload(payload_path, payload)
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "vllm_loader.engine.supervisor", "--payload", str(payload_path)],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        close_fds=True,
-    )
-    _wait_for_sidecar(sidecar_path, proc, wait_timeout)
+    proc: subprocess.Popen[bytes] | None = None
+    try:
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "vllm_loader.engine.supervisor",
+                "--payload",
+                str(payload_path),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        _wait_for_sidecar(sidecar_path, proc, wait_timeout)
+    except Exception:
+        if proc is not None and proc.poll() is None:
+            _signal_group_with_escalation(
+                proc,
+                interrupt_timeout=1,
+                terminate_timeout=1,
+            )
+        try:
+            payload_path.unlink()
+        except OSError:
+            pass
+        raise
     return DetachedLaunch(
         run_id=run_id,
         supervisor_pid=proc.pid,

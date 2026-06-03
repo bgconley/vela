@@ -11,6 +11,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+import vllm_loader.engine.process_manager as process_manager_module
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord
@@ -18,6 +19,7 @@ from vllm_loader.engine.process_manager import (
     _scrub_config_snapshot,
     _signal_group_with_escalation,
     start_attached,
+    start_detached,
 )
 
 
@@ -164,6 +166,54 @@ def test_config_snapshot_scrubs_generic_secret_patterns() -> None:
     assert "hf_extra_secret" not in text
     assert "Authorization: Bearer ••••" in text
     assert "••••" in text
+
+
+def test_detached_launch_cleans_up_supervisor_when_sidecar_handshake_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_dir = tmp_path / "runs"
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "detached-timeout",
+            "model": "fake/model",
+            "launch": {"mode": "detached", "runs_dir": runs_dir},
+        }
+    )
+    build = CommandBuildResult(
+        argv=[sys.executable, "-c", "pass"],
+        env={},
+        cwd=tmp_path,
+    )
+    cleanup_pids: list[int] = []
+
+    class FakeSupervisor:
+        pid = 4321
+        returncode = None
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        process_manager_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeSupervisor(),
+    )
+    monkeypatch.setattr(
+        process_manager_module,
+        "_wait_for_sidecar",
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("missing sidecar")),
+    )
+    monkeypatch.setattr(
+        process_manager_module,
+        "_signal_group_with_escalation",
+        lambda proc, interrupt_timeout=1, terminate_timeout=1: cleanup_pids.append(proc.pid),
+    )
+
+    with pytest.raises(TimeoutError, match="missing sidecar"):
+        start_detached(cfg, build, secrets=["secret-value"], wait_timeout=0.01)
+
+    assert cleanup_pids == [4321]
+    assert list(runs_dir.glob("*.supervisor-payload.json")) == []
 
 
 async def _wait_for_health(port: int) -> None:
