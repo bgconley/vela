@@ -465,6 +465,7 @@ class VllmLoaderApp(App):
         self.last_copied_url: str | None = None
         self.reattached_sidecar_path: Path | None = None
         self.reattached_run_id: str | None = None
+        self.detached_run_summaries: list[dict[str, str]] = []
         self.status_text = "○ IDLE"
         self.error_text = ""
         self.error_jump_text = ""
@@ -553,6 +554,13 @@ class VllmLoaderApp(App):
             exclusive=True,
             exit_on_error=False,
         )
+        self.run_worker(
+            self._refresh_detached_runs(),
+            name="detached-discovery",
+            group="detached-discovery",
+            exclusive=True,
+            exit_on_error=False,
+        )
         self._write_log("INFO vLLM Loader ready")
         self._debug_event(
             "app.mounted",
@@ -618,7 +626,7 @@ class VllmLoaderApp(App):
                 "Highlight the log line referenced by the current error banner",
                 self.action_jump_to_error,
             )
-        if self.reattached_sidecar_path is not None:
+        if self._has_reattached_run():
             yield SystemCommand(
                 "Detach from detached run",
                 "Stop tailing this run while leaving the server running",
@@ -632,12 +640,17 @@ class VllmLoaderApp(App):
                 f"Select and launch {name}",
                 lambda selected=name: self._load_config_from_palette(selected),
             )
-        for run in self._agent_discover_detached_runs():
+        for run in self.detached_run_summaries:
+            run_id = run["run_id"]
+            config_name = run["config_name"]
             yield SystemCommand(
-                f"Reattach detached run: {run.config_name}",
-                f"Resume tailing {run.config_name}",
-                lambda sidecar_path=run.sidecar_path: self.reattach_detached_run(
-                    sidecar_path
+                f"Reattach detached run: {config_name}",
+                f"Resume tailing {config_name}",
+                lambda selected_run_id=run_id: self.run_worker(
+                    self._reattach_target_detached_run(selected_run_id),
+                    name="reattach",
+                    group="engine",
+                    exclusive=True,
                 ),
             )
 
@@ -652,7 +665,7 @@ class VllmLoaderApp(App):
         if self._attached_run_is_alive():
             self.notify("A process is already running", severity="warning")
             return
-        if self.reattached_sidecar_path is not None:
+        if self._has_reattached_run():
             self.notify("A detached run is already attached", severity="warning")
             return
         if not self.registry.valid:
@@ -885,18 +898,25 @@ class VllmLoaderApp(App):
         self.notify(f"Server URL: {self.last_copied_url}")
 
     def action_detach(self) -> None:
-        if self.reattached_sidecar_path is None:
+        if not self._has_reattached_run():
             self.notify("No detached run is attached", severity="warning")
             return
         self.workers.cancel_group(self, "tail")
         self.workers.cancel_group(self, "health")
-        sidecar_name = self.reattached_sidecar_path.name
+        sidecar_name = (
+            self.reattached_sidecar_path.name
+            if self.reattached_sidecar_path is not None
+            else str(self.reattached_run_id)
+        )
         self.reattached_sidecar_path = None
         self.reattached_run_id = None
         self.current_process = None
         self.current_run_id = None
         self._write_log(f"INFO detached from {sidecar_name}; server continues running")
         self.notify("Detached from run; server continues running")
+
+    def _has_reattached_run(self) -> bool:
+        return self.reattached_run_id is not None or self.reattached_sidecar_path is not None
 
     async def _signal_reattached_target_run(self, action: str) -> None:
         if self.reattached_run_id is None:
@@ -1501,6 +1521,71 @@ class VllmLoaderApp(App):
     ) -> dict[str, Any]:
         await self._ensure_target_client_connected()
         return await self._target_client.call(method, params)
+
+    async def _refresh_detached_runs(self) -> None:
+        try:
+            result = await self._target_call(
+                "discover_detached",
+                {"runs_dirs": [str(path) for path in self._runs_dirs()]},
+            )
+        except Exception as exc:
+            self.detached_run_summaries = []
+            self._debug_event("detached.discovery_failed", error=str(exc))
+            return
+        summaries: list[dict[str, str]] = []
+        for item in result.get("runs", []):
+            if not isinstance(item, dict):
+                continue
+            run_id = item.get("run_id")
+            config_name = item.get("config_name")
+            if run_id is None or config_name is None:
+                continue
+            summaries.append(
+                {
+                    "run_id": str(run_id),
+                    "config_name": str(config_name),
+                }
+            )
+        self.detached_run_summaries = summaries
+
+    async def _reattach_target_detached_run(self, run_id: str) -> None:
+        try:
+            result = await self._target_call("reattach_detached", {"run_id": run_id})
+        except Exception as exc:
+            self._set_error_text(f"Unable to reattach {run_id}: {exc}")
+            return
+        sidecar = dict(result.get("sidecar") or {})
+        config_name = str(sidecar.get("config_name") or result.get("run_id") or run_id)
+        try:
+            self.current_config = self._config_from_sidecar_snapshot(
+                config_name, dict(result["config"])
+            )
+        except Exception as exc:
+            self._set_error_text(f"Unable to reattach {run_id}: {exc}")
+            return
+        self.reattached_sidecar_path = None
+        self.reattached_run_id = str(result["run_id"])
+        self.current_process = None
+        self.current_run_id = None
+        self.fsm = _phase_fsm_from_agent_metadata(
+            dict(result.get("fsm") or {})
+        )
+        self.ready_url = self._server_url_from_sidecar_payload(sidecar)
+        self.served_models = [str(model) for model in sidecar.get("served_model_names") or []]
+        self._set_phase(Phase.SERVER_STARTING)
+        self.run_worker(
+            self._target_probe_run_until_ready(self.reattached_run_id),
+            name="reattach-health",
+            group="health",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self.run_worker(
+            self._target_tail_detached_run(self.reattached_run_id, start_position=0),
+            name="reattach-tail",
+            group="tail",
+            exclusive=True,
+        )
 
     def _post_wire_event_message(self, event: dict[str, Any]) -> None:
         message = _message_from_wire_event(event)
@@ -2110,6 +2195,15 @@ class VllmLoaderApp(App):
             exposure=sidecar.exposure,
         )
         return f"http://{probe_host_for(server)}:{sidecar.port}"
+
+    @staticmethod
+    def _server_url_from_sidecar_payload(sidecar: dict[str, Any]) -> str:
+        server = ServerConfig(
+            host=str(sidecar.get("host", "127.0.0.1")),
+            port=int(sidecar.get("port", 8000)),
+            exposure=str(sidecar.get("exposure", "local")),
+        )
+        return f"http://{probe_host_for(server)}:{server.port}"
 
     def _render_phase_timeline(self) -> Text:
         rows = self._phase_timeline_rows()

@@ -418,7 +418,11 @@ async def test_tui_attached_launch_uses_target_client_stream(
         await app._run_selected_config()
         await pilot.pause()
 
-        assert client_instances[0].calls == [
+        assert [
+            call
+            for call in client_instances[0].calls
+            if call[0] != "discover_detached"
+        ] == [
             ("launch", {"name": "alpha", "configs_dir": str(config_dir)}),
             ("probe_until_ready", {"run_id": "run-1"}),
             ("wait", {"run_id": "run-1"}),
@@ -496,42 +500,122 @@ async def test_tui_detached_launch_runs_through_agent(config_dir: Path, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_command_palette_discovers_detached_runs_through_agent(
-    config_dir: Path, tmp_path: Path
+async def test_command_palette_discovers_detached_runs_through_target_client(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "runs" / "run-1.json"
-
     class DiscoveryAgent(RecordingConfigAgent):
-        def __init__(self) -> None:
-            super().__init__()
-            self.discovered_dirs: list[list[Path]] = []
+        def discover_detached_runs(self, *_args, **_kwargs):
+            raise AssertionError("direct detached discovery")
 
-        def discover_detached_runs(self, runs_dirs):
-            self.discovered_dirs.append(list(runs_dirs))
-            return [
-                SimpleNamespace(
-                    run_id="run-1",
-                    sidecar_path=sidecar_path,
-                    config_name="detached",
-                )
-            ]
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
 
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "discover_detached":
+                return {"runs": [{"run_id": "run-1", "config_name": "detached"}]}
+            if method == "reattach_detached":
+                return {
+                    "run_id": params["run_id"],
+                    "config": {
+                        "name": "detached",
+                        "model": "fake/model",
+                        "server": {"host": "0.0.0.0", "port": 8000, "exposure": "lan"},
+                        "launch": {"mode": "detached"},
+                    },
+                    "sidecar": {
+                        "config_name": "detached",
+                        "host": "0.0.0.0",
+                        "port": 8000,
+                        "exposure": "lan",
+                        "served_model_names": ["served"],
+                        "launch_mode": "detached",
+                        "vllm_version_profile": "current",
+                    },
+                    "fsm": {"vllm_version_profile": "current"},
+                }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            if method == "tail_detached":
+                return {"run_id": params["run_id"], "status": "ended"}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": None,
+                "intentional": False,
+                "phase": Phase.READY.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = DiscoveryAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
-    reattached: list[Path] = []
-    app.reattach_detached_run = reattached.append
 
-    async with app.run_test() as pilot:
-        await pilot.pause()
-
-        commands = list(app.get_system_commands(app.screen))
-        command = next(
-            item for item in commands if item.title == "Reattach detached run: detached"
-        )
+    async with app.run_test():
+        command = await _wait_for_command(app, "Reattach detached run: detached")
         command.callback()
+        await _wait_for_condition(
+            lambda: ("reattach_detached", {"run_id": "run-1"})
+            in app._target_client.calls,
+            "target client reattach was not requested",
+        )
 
-        assert agent.discovered_dirs == [app._runs_dirs()]
-        assert reattached == [sidecar_path]
+        assert app._target_client.calls[0] == (
+            "discover_detached",
+            {"runs_dirs": [str(path) for path in app._runs_dirs()]},
+        )
+        assert app.reattached_run_id == "run-1"
+        assert app.reattached_sidecar_path is None
+        assert app.ready_url == "http://127.0.0.1:8000"
+
+        notifications: list[str] = []
+        load_workers: list[str] = []
+
+        def capture_worker(coro, **kwargs):
+            load_workers.append(str(kwargs.get("name", "")))
+            coro.close()
+
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **_kwargs: notifications.append(str(message)),
+        )
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        app.action_load()
+
+        assert notifications == ["A detached run is already attached"]
+        assert "load" not in load_workers
+
+        app.action_detach()
+
+        assert app.reattached_run_id is None
+        assert app.reattached_sidecar_path is None
 
 
 @pytest.mark.asyncio
@@ -589,7 +673,7 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
 
         app.action_stop()
         await _wait_for_condition(
-            lambda: app._target_client.calls
+            lambda: _non_discovery_target_calls(app)
             == [
                 (
                     "stop",
@@ -653,7 +737,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
         await app._probe_until_ready(app.current_config)
         await pilot.pause()
 
-        assert app._target_client.calls == [
+        assert _non_discovery_target_calls(app) == [
             ("probe_until_ready", {"run_id": "run-1"})
         ]
         assert app.phase is Phase.READY
@@ -709,7 +793,7 @@ async def test_tui_detached_health_probe_runs_through_target_client(
         await app._probe_detached_until_ready(app.current_config, sidecar_path)
         await pilot.pause()
 
-        assert app._target_client.calls == [
+        assert _non_discovery_target_calls(app) == [
             ("probe_until_ready", {"run_id": "run-1"})
         ]
         assert app.phase is Phase.READY
@@ -970,7 +1054,7 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
         await pilot.press("K")
         await pilot.press("enter")
         await _wait_for_condition(
-            lambda: app._target_client.calls == [("kill", {"run_id": "run-1"})],
+            lambda: _non_discovery_target_calls(app) == [("kill", {"run_id": "run-1"})],
             "target client kill was not requested",
         )
 
@@ -2045,7 +2129,8 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
             )
             reattach.callback()
             await _wait_for_phase(app, Phase.READY)
-            assert app.reattached_sidecar_path == launch.sidecar_path
+            assert app.reattached_run_id == launch.run_id
+            assert app.reattached_sidecar_path is None
             assert any("Uvicorn running" in line for line in app.log_lines)
     finally:
         await _cleanup_port(port)
@@ -2196,7 +2281,7 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
 
         app.action_stop()
         await _wait_for_condition(
-            lambda: app._target_client.calls
+            lambda: _non_discovery_target_calls(app)
             == [
                 (
                     "stop",
@@ -2267,7 +2352,7 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
         await pilot.press("K")
         await pilot.press("enter")
         await _wait_for_condition(
-            lambda: app._target_client.calls == [("kill", {"run_id": "run-1"})],
+            lambda: _non_discovery_target_calls(app) == [("kill", {"run_id": "run-1"})],
             "target client reattached kill was not requested",
         )
 
@@ -2796,7 +2881,7 @@ async def test_tui_detached_tail_consumes_agent_events(
         await app._tail_detached_log(log_path, sidecar_path, start_position=123)
         await pilot.pause()
 
-        assert app._target_client.calls == [
+        assert _non_discovery_target_calls(app) == [
             ("tail_detached", {"run_id": "run-1", "start_position": 123})
         ]
         assert app.log_lines[-1] == "INFO Starting to load model"
@@ -3147,7 +3232,7 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: app._target_client.calls
+            lambda: _non_discovery_target_calls(app)
             == [
                 (
                     "stop",
@@ -3286,7 +3371,7 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: app._target_client.calls
+            lambda: _non_discovery_target_calls(app)
             == [
                 (
                     "stop",
@@ -3517,7 +3602,7 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
 
         app.confirm_stop_running()
         await _wait_for_condition(
-            lambda: app._target_client.calls
+            lambda: _non_discovery_target_calls(app)
             == [
                 (
                     "stop",
@@ -3814,6 +3899,14 @@ async def _wait_for_command(app: VllmLoaderApp, title: str):
                 return command
         await asyncio.sleep(0.05)
     raise AssertionError(f"command {title!r} was not available")
+
+
+def _non_discovery_target_calls(app: VllmLoaderApp):
+    return [
+        call
+        for call in app._target_client.calls
+        if call[0] != "discover_detached"
+    ]
 
 
 async def _wait_for_gpu_text(app: VllmLoaderApp, text: str) -> None:

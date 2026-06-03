@@ -508,6 +508,79 @@ def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
 
 
 @pytest.mark.asyncio
+async def test_target_client_discovers_and_reattaches_detached_runs_by_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "run-1.run.log"
+    log_path.write_text("INFO Uvicorn running on http://127.0.0.1:8000\n", encoding="utf-8")
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "run-1.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="0.0.0.0",
+        port=8000,
+        served_model_names=["served"],
+        exposure="lan",
+        manifest_path=str(tmp_path / "run-1.manifest.json"),
+        config_snapshot={
+            "name": "detached",
+            "model": "fake/model",
+            "server": {"host": "0.0.0.0", "port": 8000, "exposure": "lan"},
+            "launch": {"mode": "detached"},
+        },
+        vllm_version_profile="current",
+    )
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    discovered = await client.call(
+        "discover_detached", {"runs_dirs": [str(tmp_path / "runs")]}
+    )
+    reattached = await client.call("reattach_detached", {"run_id": "run-1"})
+
+    assert discovered == {
+        "runs": [
+            {
+                "run_id": "run-1",
+                "config_name": "detached",
+            }
+        ]
+    }
+    json.dumps(discovered)
+    assert reattached["run_id"] == "run-1"
+    assert reattached["config"]["name"] == "detached"
+    assert reattached["sidecar"] == {
+        "config_name": "detached",
+        "host": "0.0.0.0",
+        "port": 8000,
+        "exposure": "lan",
+        "served_model_names": ["served"],
+        "launch_mode": "detached",
+        "vllm_version_profile": "current",
+    }
+    assert reattached["fsm"] == {"vllm_version_profile": "current"}
+    json.dumps(reattached)
+
+
+@pytest.mark.asyncio
 async def test_local_agent_tails_detached_log_and_emits_phase_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

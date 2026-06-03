@@ -102,6 +102,7 @@ class LocalAgent:
         self._gpu_sampler = gpu_sampler
         self._attached_runs: dict[str, LocalAttachedRun] = {}
         self._detached_runs: dict[str, LocalDetachedRun] = {}
+        self._detached_sidecar_paths: dict[str, Path] = {}
         self._event_sequences: dict[str, int] = {}
         self._event_buffers: dict[str, list[dict[str, Any]]] = {}
         self._event_buffer_size = 5000
@@ -131,6 +132,10 @@ class LocalAgent:
             return self._probe_until_ready(payload)
         if method == "tail_detached":
             return self._tail_detached(payload)
+        if method == "discover_detached":
+            return self._discover_detached(payload)
+        if method == "reattach_detached":
+            return self._reattach_detached(payload)
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
 
     def _handshake(self) -> dict[str, Any]:
@@ -149,6 +154,8 @@ class LocalAgent:
                 "kill",
                 "probe_until_ready",
                 "tail_detached",
+                "discover_detached",
+                "reattach_detached",
                 "subscribe",
             ],
         }
@@ -363,6 +370,7 @@ class LocalAgent:
             fsm=PhaseFSM(select_profile(sidecar.vllm_version_profile)),
         )
         self._detached_runs[run.run_id] = run
+        self._detached_sidecar_paths[run.run_id] = path
         return run
 
     def discover_detached_runs(
@@ -371,6 +379,7 @@ class LocalAgent:
         summaries: list[LocalDetachedRunSummary] = []
         for path in discover_active_sidecars([Path(item) for item in runs_dirs]):
             sidecar = load_sidecar(path)
+            self._detached_sidecar_paths[sidecar.run_id] = path
             summaries.append(
                 LocalDetachedRunSummary(
                     run_id=sidecar.run_id,
@@ -478,6 +487,25 @@ class LocalAgent:
             poll_interval=poll_interval,
         )
         return {"run_id": run_id, "status": "ended"}
+
+    def _discover_detached(self, params: dict[str, Any]) -> dict[str, Any]:
+        runs_dirs = params.get("runs_dirs")
+        if not isinstance(runs_dirs, list):
+            raise TargetCallError(
+                "invalid-params", "discover_detached requires runs_dirs list"
+            )
+        summaries = self.discover_detached_runs([Path(str(item)) for item in runs_dirs])
+        return {"runs": [_detached_summary_payload(summary) for summary in summaries]}
+
+    def _reattach_detached(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        run = self._detached_runs.get(run_id)
+        if run is None:
+            sidecar_path = self._detached_sidecar_paths.get(run_id)
+            if sidecar_path is None:
+                raise TargetCallError("run-not-found", f"unknown detached run: {run_id}")
+            run = self.reattach_detached_run(sidecar_path)
+        return _detached_run_payload(run)
 
     async def tail_detached_run(
         self,
@@ -797,6 +825,33 @@ def _invalid_config_payload(item: InvalidConfig) -> dict[str, Any]:
         "path": str(item.path),
         "errors": list(item.errors),
         "raw_name": item.raw_name,
+    }
+
+
+def _detached_summary_payload(summary: LocalDetachedRunSummary) -> dict[str, Any]:
+    return {
+        "run_id": summary.run_id,
+        "config_name": summary.config_name,
+    }
+
+
+def _detached_run_payload(run: LocalDetachedRun) -> dict[str, Any]:
+    sidecar = run.sidecar
+    return {
+        "run_id": run.run_id,
+        "config": run.config.model_dump(mode="json"),
+        "sidecar": {
+            "config_name": sidecar.config_name,
+            "host": sidecar.host,
+            "port": sidecar.port,
+            "exposure": sidecar.exposure,
+            "served_model_names": list(sidecar.served_model_names),
+            "launch_mode": sidecar.launch_mode,
+            "vllm_version_profile": sidecar.vllm_version_profile,
+        },
+        "fsm": {
+            "vllm_version_profile": sidecar.vllm_version_profile,
+        },
     }
 
 
