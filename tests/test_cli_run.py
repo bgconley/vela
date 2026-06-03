@@ -1085,16 +1085,21 @@ def test_cli_run_attached_launches_through_target_client(
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
     assert len(client_instances) == 1
-    assert client_instances[0].calls == [
+    calls = client_instances[0].calls
+    assert calls[0] == (
+        "prepare_launch",
+        {"name": "agent-attached", "configs_dir": str(config_dir)},
+    )
+    assert calls[1][0] == "launch"
+    assert calls[1][1]["name"] == "agent-attached"
+    assert calls[1][1]["configs_dir"] == str(config_dir)
+    assert isinstance(calls[1][1]["run_id"], str)
+    assert calls[1][1]["run_id"]
+    assert calls[2:] == [
         (
-            "prepare_launch",
-            {"name": "agent-attached", "configs_dir": str(config_dir)},
+            "wait",
+            {"run_id": "run-1"},
         ),
-        (
-            "launch",
-            {"name": "agent-attached", "configs_dir": str(config_dir)},
-        ),
-        ("wait", {"run_id": "run-1"}),
     ]
     assert client_instances[0].connected is False
     assert "INFO agent log" in captured.out
@@ -1122,6 +1127,7 @@ def test_cli_run_detached_launches_through_target_client(
           runs_dir: {tmp_path / "runs"}
         """,
     )
+    client_instances: list[object] = []
 
     class FakeAgent:
         def handle(self, method: str, params):
@@ -1155,6 +1161,7 @@ def test_cli_run_detached_launches_through_target_client(
             self.agent = agent
             self.connected = False
             self.calls: list[tuple[str, dict[str, object]]] = []
+            client_instances.append(self)
 
         async def connect(self) -> None:
             self.connected = True
@@ -1201,6 +1208,12 @@ def test_cli_run_detached_launches_through_target_client(
     assert "detached run started: run-1" in captured.out
     assert "sidecar:" not in captured.out
     assert "log:" not in captured.out
+    launch_call = client_instances[0].calls[1]
+    assert launch_call[0] == "launch"
+    assert launch_call[1]["name"] == "agent-detached"
+    assert launch_call[1]["configs_dir"] == str(config_dir)
+    assert isinstance(launch_call[1]["run_id"], str)
+    assert launch_call[1]["run_id"]
 
 
 def test_cli_smoke_attached_uses_target_client(
@@ -1328,16 +1341,16 @@ def test_cli_smoke_attached_uses_target_client(
     assert exc_info.value.exit_code == 0
     assert "READY http://127.0.0.1:8123 models=served" in captured.out
     assert len(client_instances) == 1
-    assert client_instances[0].calls[:2] == [
-        (
-            "prepare_launch",
-            {"name": "smoke-attached", "configs_dir": str(config_dir)},
-        ),
-        (
-            "launch",
-            {"name": "smoke-attached", "configs_dir": str(config_dir)},
-        ),
-    ]
+    assert client_instances[0].calls[0] == (
+        "prepare_launch",
+        {"name": "smoke-attached", "configs_dir": str(config_dir)},
+    )
+    launch_call = client_instances[0].calls[1]
+    assert launch_call[0] == "launch"
+    assert launch_call[1]["name"] == "smoke-attached"
+    assert launch_call[1]["configs_dir"] == str(config_dir)
+    assert isinstance(launch_call[1]["run_id"], str)
+    assert launch_call[1]["run_id"]
     assert (
         "probe_until_ready",
         {"run_id": "run-1"},
@@ -1379,6 +1392,7 @@ def test_cli_smoke_detached_uses_target_client(
           runs_dir: {tmp_path / "runs"}
         """,
     )
+    client_instances: list[object] = []
 
     class FakeAgent:
         def handle(self, method: str, params):
@@ -1419,6 +1433,7 @@ def test_cli_smoke_detached_uses_target_client(
             self.agent = agent
             self.connected = False
             self.calls: list[tuple[str, dict[str, object]]] = []
+            client_instances.append(self)
 
         async def connect(self) -> None:
             self.connected = True
@@ -1483,6 +1498,12 @@ def test_cli_smoke_detached_uses_target_client(
     assert exc_info.value.exit_code == 0
     assert "detached smoke run: run-1" in captured.out
     assert "READY http://127.0.0.1:8124 models=served" in captured.out
+    launch_call = client_instances[0].calls[1]
+    assert launch_call[0] == "launch"
+    assert launch_call[1]["name"] == "smoke-detached"
+    assert launch_call[1]["configs_dir"] == str(config_dir)
+    assert isinstance(launch_call[1]["run_id"], str)
+    assert launch_call[1]["run_id"]
 
 
 @pytest.mark.asyncio

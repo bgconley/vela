@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import time
+import uuid
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1414,6 +1415,11 @@ class VllmLoaderApp(App):
     def _agent_params(self, **values) -> dict[str, str]:
         return {key: str(value) for key, value in values.items() if value is not None}
 
+    def _launch_agent_params(self, **values) -> dict[str, str]:
+        params = self._agent_params(**values)
+        params["run_id"] = uuid.uuid4().hex
+        return params
+
     async def _ensure_target_client_connected(self) -> None:
         if not getattr(self._target_client, "connected", False):
             await self._target_client.connect()
@@ -1729,7 +1735,10 @@ class VllmLoaderApp(App):
             try:
                 launch = await self._target_call(
                     "launch",
-                    self._agent_params(name=cfg.name, configs_dir=self.configs_dir),
+                    self._launch_agent_params(
+                        name=cfg.name,
+                        configs_dir=self.configs_dir,
+                    ),
                 )
             except TargetCallError as exc:
                 self._handle_attached_start_agent_error(exc, build.argv[0])
@@ -1739,7 +1748,10 @@ class VllmLoaderApp(App):
         try:
             launch = await self._target_call(
                 "launch",
-                self._agent_params(name=cfg.name, configs_dir=self.configs_dir),
+                self._launch_agent_params(
+                    name=cfg.name,
+                    configs_dir=self.configs_dir,
+                ),
             )
         except TargetCallError as exc:
             self._handle_attached_start_agent_error(exc, build.argv[0])

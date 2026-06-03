@@ -797,8 +797,13 @@ async def test_tui_attached_launch_uses_target_client_stream(
         await app._run_selected_config()
         await pilot.pause()
 
-        assert _non_discovery_target_calls(app) == [
-            ("launch", {"name": "alpha", "configs_dir": str(config_dir)}),
+        calls = _non_discovery_target_calls(app)
+        assert calls[0][0] == "launch"
+        assert calls[0][1]["name"] == "alpha"
+        assert calls[0][1]["configs_dir"] == str(config_dir)
+        assert isinstance(calls[0][1]["run_id"], str)
+        assert calls[0][1]["run_id"]
+        assert calls[1:] == [
             ("probe_until_ready", {"run_id": "run-1"}),
             ("wait", {"run_id": "run-1"}),
         ]
@@ -1026,10 +1031,13 @@ async def test_tui_detached_launch_runs_through_target_client(
         await pilot.pause()
         await app._run_selected_config()
 
-        assert _non_discovery_target_calls(app)[:2] == [
-            ("launch", {"name": "detached", "configs_dir": str(config_dir)}),
-            ("reattach_detached", {"run_id": "run-1"}),
-        ]
+        calls = _non_discovery_target_calls(app)
+        assert calls[0][0] == "launch"
+        assert calls[0][1]["name"] == "detached"
+        assert calls[0][1]["configs_dir"] == str(config_dir)
+        assert isinstance(calls[0][1]["run_id"], str)
+        assert calls[0][1]["run_id"]
+        assert calls[1] == ("reattach_detached", {"run_id": "run-1"})
         assert app.reattached_run_id == "run-1"
 
 

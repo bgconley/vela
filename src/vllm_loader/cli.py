@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -266,6 +267,12 @@ def _agent_params(**values) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if value is not None}
 
 
+def _launch_agent_params(**values) -> dict[str, str]:
+    params = _agent_params(**values)
+    params["run_id"] = uuid.uuid4().hex
+    return params
+
+
 def _load_targets_or_exit() -> TargetsRegistry:
     try:
         return load_targets_file()
@@ -382,7 +389,7 @@ async def _run_attached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(name=name, configs_dir=configs_dir),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
@@ -413,7 +420,7 @@ async def _run_detached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(name=name, configs_dir=configs_dir),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
@@ -511,7 +518,7 @@ async def _smoke_attached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(name=name, configs_dir=configs_dir),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
@@ -555,7 +562,7 @@ async def _smoke_detached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(name=name, configs_dir=configs_dir),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
