@@ -14,6 +14,7 @@ from vllm_loader.agent.daemon import (
 from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
 from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport.rpc_errors import target_call_error_from_rpc_payload
 
 
 class UnixSocketTargetClient:
@@ -240,10 +241,7 @@ class UnixSocketTargetClient:
 
 
 def _target_call_error_from_payload(payload: dict[str, Any]) -> TargetCallError:
-    code = str(payload.get("code") or "target-error")
-    message = str(payload.get("message") or code)
-    details = payload.get("details")
-    return TargetCallError(code, message, details if isinstance(details, dict) else {})
+    return target_call_error_from_rpc_payload(payload)
 
 
 def _agent_unreachable_error(message: str) -> TargetCallError:

@@ -10,6 +10,7 @@ from typing import Any, BinaryIO
 
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport.rpc_errors import rpc_error_payload
 
 
 async def serve_stdio_agent(
@@ -73,11 +74,11 @@ async def _handle_frame(
         await write_frame(
             {
                 "id": request_id,
-                "error": {
-                    "code": "invalid-request",
-                    "message": "request method is required",
-                    "details": {},
-                },
+                "error": rpc_error_payload(
+                    "invalid-request",
+                    "request method is required",
+                    {},
+                ),
             }
         )
         return
@@ -95,22 +96,14 @@ async def _handle_frame(
         await write_frame(
             {
                 "id": request_id,
-                "error": {
-                    "code": exc.code,
-                    "message": exc.message,
-                    "details": exc.details,
-                },
+                "error": rpc_error_payload(exc.code, exc.message, exc.details),
             }
         )
     except Exception as exc:
         await write_frame(
             {
                 "id": request_id,
-                "error": {
-                    "code": "internal-error",
-                    "message": str(exc),
-                    "details": {},
-                },
+                "error": rpc_error_payload("internal-error", str(exc), {}),
             }
         )
 
