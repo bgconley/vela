@@ -646,6 +646,18 @@ def agent_connect(
     asyncio.run(serve_stdio_agent(LocalAgent()))
 
 
+@agent_app.command("run")
+def agent_run(
+    socket_path: Annotated[
+        Path | None,
+        typer.Option("--socket", help="Unix socket path for the foreground agent daemon."),
+    ] = None,
+) -> None:
+    from vllm_loader.agent.daemon import run_agent_daemon
+
+    asyncio.run(run_agent_daemon(socket_path=socket_path))
+
+
 def main() -> None:
     app()
 
