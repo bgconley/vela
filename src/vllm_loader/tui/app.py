@@ -1747,6 +1747,11 @@ class VllmLoaderApp(App):
         self._set_phase(self.fsm.phase)
 
     def _sidecar_is_alive(self, sidecar_path: Path) -> bool:
+        if (
+            self.reattached_sidecar_path == sidecar_path
+            and self.reattached_run_id is not None
+        ):
+            return self._agent_run_is_alive(self.reattached_run_id)
         try:
             return verify_sidecar_from_system(sidecar_path)
         except Exception:

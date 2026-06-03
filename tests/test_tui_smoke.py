@@ -1794,6 +1794,37 @@ async def test_stop_after_agent_reattach_signals_run_id(
 
 
 @pytest.mark.asyncio
+async def test_reattached_sidecar_liveness_uses_agent_run_id(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "detached.json"
+
+    class AliveAgent(RecordingConfigAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.alive_calls: list[str] = []
+
+        def is_run_alive(self, run_id: str) -> bool:
+            self.alive_calls.append(run_id)
+            return True
+
+    def refuse_local_verify(_path: Path) -> bool:
+        raise AssertionError("TUI should not verify an agent-reattached sidecar")
+
+    agent = AliveAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", refuse_local_verify)
+        app.reattached_sidecar_path = sidecar_path
+        app.reattached_run_id = "run-1"
+
+        assert app._sidecar_is_alive(sidecar_path) is True
+        assert agent.alive_calls == ["run-1"]
+
+
+@pytest.mark.asyncio
 async def test_reattach_invalid_sidecar_shows_error_without_crashing(
     config_dir: Path, tmp_path: Path
 ) -> None:
