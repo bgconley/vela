@@ -10,9 +10,11 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.schema import ModelConfig
+from vllm_loader.config.targets import TargetConfig
 from vllm_loader.engine.phases import Phase
 from vllm_loader.monitoring.health import probe_host_for
-from vllm_loader.transport.inprocess import InProcessTargetClient
+from vllm_loader.transport.client import TargetClient
+from vllm_loader.transport.factory import target_client_for_config
 from vllm_loader.tui.app import VllmLoaderApp
 
 app = typer.Typer(
@@ -104,11 +106,11 @@ def run_config(
         bool, typer.Option("--preview", help="Print command instead of launching.")
     ] = False,
 ) -> None:
-    agent = LocalAgent()
+    client = _local_target_client()
     if preview_only:
         try:
             result = _target_call(
-                agent,
+                client,
                 "preview",
                 _agent_params(name=name, configs_dir=configs_dir),
             )
@@ -117,13 +119,13 @@ def run_config(
         typer.echo(result["preview"])
         _echo_warnings(result.get("warnings", []))
         return
-    prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
+    prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        asyncio.run(_run_detached_cli(agent, name, configs_dir, prepared))
+        asyncio.run(_run_detached_cli(client, name, configs_dir, prepared))
         return
 
-    raise typer.Exit(asyncio.run(_run_attached_cli(agent, name, configs_dir, prepared)))
+    raise typer.Exit(asyncio.run(_run_attached_cli(client, name, configs_dir, prepared)))
 
 
 @app.command("smoke")
@@ -131,9 +133,9 @@ def smoke_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
 ) -> None:
-    agent = LocalAgent()
-    prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
-    raise typer.Exit(asyncio.run(_smoke_config_cli(agent, prepared, name, configs_dir)))
+    client = _local_target_client()
+    prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
+    raise typer.Exit(asyncio.run(_smoke_config_cli(client, prepared, name, configs_dir)))
 
 
 @app.command("smoke-tui")
@@ -141,8 +143,8 @@ def smoke_tui_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
 ) -> None:
-    agent = LocalAgent()
-    prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
+    client = _local_target_client()
+    prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
     cfg = ModelConfig.model_validate(prepared["config"])
     raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir)))
 
@@ -152,12 +154,12 @@ def _echo_warnings(warnings) -> None:
         typer.echo(f"WARNING: {warning}", err=True)
 
 
-def _prepare_launch_with_agent_or_exit(
-    agent: LocalAgent, name: str, configs_dir: Path | None
+def _prepare_launch_with_client_or_exit(
+    client: TargetClient, name: str, configs_dir: Path | None
 ) -> dict[str, Any]:
     try:
         return _target_call(
-            agent,
+            client,
             "prepare_launch",
             _agent_params(name=name, configs_dir=configs_dir),
         )
@@ -169,24 +171,27 @@ def _agent_params(**values) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if value is not None}
 
 
+def _local_target_client() -> TargetClient:
+    return target_client_for_config(TargetConfig(name="local"))
+
+
 def _agent_call(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    return _target_call(LocalAgent(), method, params)
+    return _target_call(_local_target_client(), method, params)
 
 
 async def _agent_call_async(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    return await _target_call_async(LocalAgent(), method, params)
+    return await _target_call_async(_local_target_client(), method, params)
 
 
 def _target_call(
-    agent: LocalAgent, method: str, params: dict[str, Any] | None = None
+    client: TargetClient, method: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    return asyncio.run(_target_call_async(agent, method, params))
+    return asyncio.run(_target_call_async(client, method, params))
 
 
 async def _target_call_async(
-    agent: LocalAgent, method: str, params: dict[str, Any] | None = None
+    client: TargetClient, method: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    client = InProcessTargetClient(agent)
     await client.connect()
     try:
         return await client.call(method, params)
@@ -242,12 +247,11 @@ def _fallback_command_from_prepared(prepared: dict[str, Any]) -> str:
 
 
 async def _run_attached_cli(
-    agent: LocalAgent,
+    client: TargetClient,
     name: str,
     configs_dir: Path | None,
     prepared: dict[str, Any],
 ) -> int:
-    client = InProcessTargetClient(agent)
     await client.connect()
     try:
         try:
@@ -274,12 +278,11 @@ async def _run_attached_cli(
 
 
 async def _run_detached_cli(
-    agent: LocalAgent,
+    client: TargetClient,
     name: str,
     configs_dir: Path | None,
     prepared: dict[str, Any],
 ) -> None:
-    client = InProcessTargetClient(agent)
     await client.connect()
     try:
         try:
@@ -306,15 +309,15 @@ async def _echo_attached_event_stream_until_exit(events, wait_task) -> int:
 
 
 async def _smoke_config_cli(
-    agent: LocalAgent,
+    client: TargetClient,
     prepared: dict[str, Any],
     name: str,
     configs_dir: Path | None,
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        return await _smoke_detached_cli(agent, prepared, name, configs_dir)
-    return await _smoke_attached_cli(agent, prepared, name, configs_dir)
+        return await _smoke_detached_cli(client, prepared, name, configs_dir)
+    return await _smoke_attached_cli(client, prepared, name, configs_dir)
 
 
 async def _smoke_tui_config_cli(name: str, configs_dir: Path | None) -> int:
@@ -372,13 +375,12 @@ async def _wait_for_tui_stopped(tui: VllmLoaderApp, *, timeout: float) -> bool:
 
 
 async def _smoke_attached_cli(
-    agent: LocalAgent,
+    client: TargetClient,
     prepared: dict[str, Any],
     name: str,
     configs_dir: Path | None,
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
-    client = InProcessTargetClient(agent)
     await client.connect()
     try:
         try:
@@ -417,13 +419,12 @@ async def _smoke_attached_cli(
 
 
 async def _smoke_detached_cli(
-    agent: LocalAgent,
+    client: TargetClient,
     prepared: dict[str, Any],
     name: str,
     configs_dir: Path | None,
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
-    client = InProcessTargetClient(agent)
     await client.connect()
     try:
         try:
@@ -455,7 +456,7 @@ async def _smoke_detached_cli(
 
 
 async def _wait_target_until_ready_or_exit(
-    client: InProcessTargetClient,
+    client: TargetClient,
     run_id: str,
     cfg: ModelConfig,
     *,

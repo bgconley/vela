@@ -88,18 +88,14 @@ def test_cli_preview_uses_local_target_client(
     assert stderr == "WARNING: heads up\n"
 
 
-def test_cli_run_preview_uses_local_target_client(
+def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     client_instances: list[object] = []
-
-    class HandleRefusingAgent:
-        def handle(self, method: str, _params=None):
-            raise AssertionError(f"direct CLI handle call: {method}")
+    requested_targets: list[str] = []
 
     class FakeTargetClient:
-        def __init__(self, agent) -> None:
-            self.agent = agent
+        def __init__(self) -> None:
             self.connected = False
             self.calls: list[tuple[str, dict[str, str]]] = []
             client_instances.append(self)
@@ -116,12 +112,33 @@ def test_cli_run_preview_uses_local_target_client(
                 return {"preview": "target-preview", "warnings": ["heads up"]}
             raise AssertionError(f"unexpected target client call: {method}")
 
-    monkeypatch.setattr(cli_module, "LocalAgent", HandleRefusingAgent)
-    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+    def fake_target_client_for_config(target, **_kwargs):
+        requested_targets.append(target.name)
+        return FakeTargetClient()
+
+    monkeypatch.setattr(
+        cli_module, "target_client_for_config", fake_target_client_for_config, raising=False
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "InProcessTargetClient",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed an InProcessTargetClient")
+        ),
+        raising=False,
+    )
 
     cli_module.run_config("agent-cfg", configs_dir=tmp_path, preview_only=True)
 
     stdout, stderr = capsys.readouterr()
+    assert requested_targets == ["local"]
     assert client_instances[0].calls == [
         ("preview", {"name": "agent-cfg", "configs_dir": str(tmp_path)})
     ]
@@ -580,8 +597,19 @@ def test_cli_smoke_tui_prepares_through_target_client(
         smoke_calls.append((name, configs_dir))
         return 0
 
-    monkeypatch.setattr(cli_module, "LocalAgent", FakeAgent)
-    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(
+        cli_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(fake_agent),
+    )
     monkeypatch.setattr(cli_module, "_smoke_tui_config_cli", fake_smoke_tui)
     monkeypatch.setattr(
         cli_module,
@@ -777,8 +805,18 @@ def test_cli_run_attached_launches_through_target_client(
             return self._events()
 
     fake_agent = FakeAgent()
-    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
-    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+    monkeypatch.setattr(
+        cli_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(fake_agent),
+    )
     monkeypatch.setattr(
         process_manager_module,
         "start_attached",
@@ -792,14 +830,12 @@ def test_cli_run_attached_launches_through_target_client(
 
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
-    assert len(client_instances) == 2
+    assert len(client_instances) == 1
     assert client_instances[0].calls == [
         (
             "prepare_launch",
             {"name": "agent-attached", "configs_dir": str(config_dir)},
-        )
-    ]
-    assert client_instances[1].calls == [
+        ),
         (
             "launch",
             {"name": "agent-attached", "configs_dir": str(config_dir)},
@@ -807,7 +843,6 @@ def test_cli_run_attached_launches_through_target_client(
         ("wait", {"run_id": "run-1"}),
     ]
     assert client_instances[0].connected is False
-    assert client_instances[1].connected is False
     assert "INFO agent log" in captured.out
 
 
@@ -886,8 +921,18 @@ def test_cli_run_detached_launches_through_target_client(
             raise AssertionError(f"unexpected target client call: {method}")
 
     fake_agent = FakeAgent()
-    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
-    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+    monkeypatch.setattr(
+        cli_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(fake_agent),
+    )
     monkeypatch.setattr(
         process_manager_module,
         "start_detached",
@@ -994,8 +1039,18 @@ def test_cli_smoke_attached_uses_target_client(
             raise AssertionError(f"unexpected call: {method}")
 
     fake_agent = FakeAgent()
-    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
-    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+    monkeypatch.setattr(
+        cli_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(fake_agent),
+    )
     monkeypatch.setattr(
         process_manager_module,
         "start_attached",
@@ -1018,32 +1073,31 @@ def test_cli_smoke_attached_uses_target_client(
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
     assert "READY http://127.0.0.1:8123 models=served" in captured.out
-    assert len(client_instances) == 2
-    assert client_instances[0].calls == [
+    assert len(client_instances) == 1
+    assert client_instances[0].calls[:2] == [
         (
             "prepare_launch",
             {"name": "smoke-attached", "configs_dir": str(config_dir)},
-        )
+        ),
+        (
+            "launch",
+            {"name": "smoke-attached", "configs_dir": str(config_dir)},
+        ),
     ]
-    assert client_instances[1].calls[0] == (
-        "launch",
-        {"name": "smoke-attached", "configs_dir": str(config_dir)},
-    )
     assert (
         "probe_until_ready",
         {"run_id": "run-1"},
-    ) in client_instances[1].calls
+    ) in client_instances[0].calls
     assert (
         "stop",
         {"run_id": "run-1", "interrupt_timeout": 2, "terminate_timeout": 2},
-    ) in client_instances[1].calls
+    ) in client_instances[0].calls
     assert (
         "wait",
         {"run_id": "run-1"},
-    ) in client_instances[1].calls
-    assert len(client_instances[1].calls) == 4
+    ) in client_instances[0].calls
+    assert len(client_instances[0].calls) == 5
     assert client_instances[0].connected is False
-    assert client_instances[1].connected is False
 
 
 def test_cli_smoke_detached_uses_target_client(
@@ -1141,8 +1195,18 @@ def test_cli_smoke_detached_uses_target_client(
             raise AssertionError(f"unexpected target client call: {method}")
 
     fake_agent = FakeAgent()
-    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
-    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+    monkeypatch.setattr(
+        cli_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CLI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(fake_agent),
+    )
     monkeypatch.setattr(
         process_manager_module,
         "start_detached",
