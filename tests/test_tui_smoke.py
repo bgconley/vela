@@ -1440,6 +1440,58 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
 
 
 @pytest.mark.asyncio
+async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "detached.log"
+    log_path.write_text("INFO Uvicorn running on http://0.0.0.0:8123\n", encoding="utf-8")
+    manifest_path = tmp_path / "detached.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "detached.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="fake-child",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="0.0.0.0",
+        port=8123,
+        served_model_names=["sidecar-model"],
+        exposure="lan",
+        manifest_path=str(manifest_path),
+        config_snapshot={
+            "name": "fake-child",
+            "model": "fake/model",
+            "server": {"host": "0.0.0.0", "port": 8123, "exposure": "lan"},
+        },
+    )
+
+    def capture_worker(coro, **_kwargs):
+        coro.close()
+
+    monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(tui_app_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(tui_app_module, "load_manifest", lambda path: manifest)
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        app.reattach_detached_run(sidecar_path)
+
+        assert app.ready_url == "http://127.0.0.1:8123"
+        assert app.served_models == ["sidecar-model"]
+        assert app._server_url_for_copy() == "http://127.0.0.1:8123"
+        assert app.phase is Phase.SERVER_STARTING
+
+
+@pytest.mark.asyncio
 async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -20,7 +20,7 @@ from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
 from vllm_loader.config.loader import ConfigRegistry, load_registry
-from vllm_loader.config.schema import ModelConfig, default_run_artifacts_dir
+from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -38,6 +38,7 @@ from vllm_loader.engine.profile import (
     select_profile_for_config,
 )
 from vllm_loader.engine.sidecar import (
+    Sidecar,
     discover_active_sidecars,
     load_manifest,
     load_sidecar,
@@ -826,6 +827,8 @@ class VllmLoaderApp(App):
         self.reattached_sidecar_path = sidecar_path
         self.current_process = None
         self.fsm = PhaseFSM(select_profile(sidecar.vllm_version_profile))
+        self.ready_url = self._server_url_from_sidecar(sidecar)
+        self.served_models = list(sidecar.served_model_names)
         tail_position = self._load_scrubbed_log_file(log_path)
         self.run_worker(
             self._probe_detached_until_ready(self.current_config, sidecar_path),
@@ -1660,6 +1663,15 @@ class VllmLoaderApp(App):
 
     def _server_url(self, cfg: ModelConfig) -> str:
         return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
+
+    @staticmethod
+    def _server_url_from_sidecar(sidecar: Sidecar) -> str:
+        server = ServerConfig(
+            host=sidecar.host,
+            port=sidecar.port,
+            exposure=sidecar.exposure,
+        )
+        return f"http://{probe_host_for(server)}:{sidecar.port}"
 
     def _render_phase_timeline(self) -> Text:
         rows = self._phase_timeline_rows()
