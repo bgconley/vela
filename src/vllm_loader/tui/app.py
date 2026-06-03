@@ -676,10 +676,15 @@ class VllmLoaderApp(App):
             )
             return
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
-            self._agent_stop_run(
-                self.current_run_id,
-                interrupt_timeout=2,
-                terminate_timeout=2,
+            self.run_worker(
+                self._target_stop_run(
+                    self.current_run_id,
+                    interrupt_timeout=2,
+                    terminate_timeout=2,
+                ),
+                name="stop",
+                group="engine-signal",
+                exclusive=True,
             )
             return
         if self.current_process and self.current_process.proc.poll() is None:
@@ -1469,6 +1474,25 @@ class VllmLoaderApp(App):
         message = _message_from_wire_event(event)
         if message is not None:
             self.post_message(message)
+
+    async def _target_stop_run(
+        self,
+        run_id: str,
+        *,
+        interrupt_timeout: float,
+        terminate_timeout: float,
+    ) -> None:
+        try:
+            await self._target_call(
+                "stop",
+                {
+                    "run_id": run_id,
+                    "interrupt_timeout": interrupt_timeout,
+                    "terminate_timeout": terminate_timeout,
+                },
+            )
+        except Exception as exc:
+            self._set_error_text(f"Unable to stop {run_id}: {exc}")
 
     async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
         await self._ensure_target_client_connected()

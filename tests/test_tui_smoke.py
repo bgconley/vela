@@ -518,7 +518,9 @@ async def test_command_palette_discovers_detached_runs_through_agent(
 
 
 @pytest.mark.asyncio
-async def test_tui_stop_attached_run_signals_agent_by_run_id(config_dir: Path) -> None:
+async def test_tui_stop_attached_run_signals_target_client_by_run_id(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class RunningProcess:
         def __init__(self) -> None:
             self.proc = self
@@ -530,7 +532,36 @@ async def test_tui_stop_attached_run_signals_agent_by_run_id(config_dir: Path) -
         def stop(self, *args, **kwargs) -> None:
             self.stopped = True
 
-    agent = StopRecordingAgent()
+    class StopRefusingAgent(RecordingConfigAgent):
+        def is_run_alive(self, run_id: str) -> bool:
+            return run_id == "run-1"
+
+        def stop_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct attached TUI stop")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("stop should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    agent = StopRefusingAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
     async with app.run_test() as pilot:
@@ -540,8 +571,21 @@ async def test_tui_stop_attached_run_signals_agent_by_run_id(config_dir: Path) -
         app.current_run_id = "run-1"
 
         app.action_stop()
+        await _wait_for_condition(
+            lambda: app._target_client.calls
+            == [
+                (
+                    "stop",
+                    {
+                        "run_id": "run-1",
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            ],
+            "target client stop was not requested",
+        )
 
-        assert agent.stop_calls == [("run-1", 2, 2)]
         assert fake_process.stopped is False
 
 
