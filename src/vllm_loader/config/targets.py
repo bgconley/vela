@@ -15,6 +15,11 @@ class TransportKind(str, Enum):
     SSH = "ssh"
 
 
+class LocalTransportKind(str, Enum):
+    IN_PROCESS = "in_process"
+    SOCKET = "socket"
+
+
 class TargetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -24,6 +29,8 @@ class TargetConfig(BaseModel):
     workdir: Path | None = None
     venv: Path | None = None
     ssh_opts_env: str | None = None
+    local_transport: LocalTransportKind = LocalTransportKind.IN_PROCESS
+    socket_path: Path | None = None
 
     @field_validator("name")
     @classmethod

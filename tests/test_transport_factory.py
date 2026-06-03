@@ -6,6 +6,7 @@ import pytest
 
 from vllm_loader.config.targets import TargetConfig, TransportKind
 from vllm_loader.transport.inprocess import InProcessTargetClient
+from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.subprocess import SubprocessTargetClient
 
 
@@ -29,6 +30,22 @@ async def test_target_client_factory_builds_local_in_process_client() -> None:
         await client.disconnect()
 
     assert handshake["target"] == "local"
+
+
+def test_target_client_factory_builds_explicit_local_socket_client(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "agent.sock"
+    target = TargetConfig(
+        name="local-socket",
+        local_transport="socket",
+        socket_path=socket_path,
+    )
+
+    client = _target_client_for_config()(target)
+
+    assert isinstance(client, UnixSocketTargetClient)
+    assert client._socket_path == socket_path
 
 
 def test_target_client_factory_builds_ssh_subprocess_client(

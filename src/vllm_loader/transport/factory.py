@@ -4,10 +4,12 @@ import os
 import shlex
 from collections.abc import Callable, Sequence
 
+from vllm_loader.agent.daemon import default_agent_socket_path
 from vllm_loader.agent.local import LocalAgent
-from vllm_loader.config.targets import TargetConfig, TransportKind
+from vllm_loader.config.targets import LocalTransportKind, TargetConfig, TransportKind
 from vllm_loader.transport.client import TargetClient
 from vllm_loader.transport.inprocess import InProcessTargetClient
+from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.subprocess import SubprocessTargetClient
 
 DEFAULT_AGENT_COMMAND = ("vllm-loader", "agent", "connect")
@@ -20,6 +22,8 @@ def target_client_for_config(
     local_agent_factory: Callable[..., LocalAgent] = LocalAgent,
 ) -> TargetClient:
     if target.transport is TransportKind.LOCAL:
+        if target.local_transport is LocalTransportKind.SOCKET:
+            return UnixSocketTargetClient(target.socket_path or default_agent_socket_path())
         return InProcessTargetClient(local_agent_factory(target_name=target.name))
     if target.transport is TransportKind.SSH:
         return SubprocessTargetClient(_ssh_agent_command(target, agent_command))
