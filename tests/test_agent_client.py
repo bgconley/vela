@@ -2303,6 +2303,93 @@ async def test_gpu_method_can_emit_serialized_agent_stream_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_download_model_job_streams_by_job_id() -> None:
+    async def model_job_runner(params, emit, cancel_event) -> dict[str, object]:
+        assert params["job_id"] == "job-model-1"
+        assert cancel_event.is_set() is False
+        emit(
+            {
+                "kind": "committed",
+                "text": "Resolving model",
+                "level": "INFO",
+                "phase": "RESOLVING",
+            }
+        )
+        return {"ok": True, "detail": "model cached"}
+
+    client = InProcessTargetClient(LocalAgent(model_job_runner=model_job_runner))
+    await client.connect()
+    events = client.subscribe(["job-model-1"], resume_from="live")
+    try:
+        result = await client.call(
+            "download_model",
+            {"job_id": "job-model-1", "model_ref": "01MODEL"},
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert result == {
+        "job_id": "job-model-1",
+        "kind": "download_model",
+        "status": "running",
+    }
+    assert progress["event"] == "job_progress"
+    assert progress["job_id"] == "job-model-1"
+    assert "run_id" not in progress
+    assert progress["text"] == "Resolving model"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-model-1"
+    assert done["ok"] is True
+    assert done["detail"] == "model cached"
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_cancel_job_emits_cancelled_job_done() -> None:
+    started = asyncio.Event()
+
+    async def model_job_runner(_params, emit, _cancel_event) -> dict[str, object]:
+        emit({"kind": "committed", "text": "Downloading model", "level": "INFO"})
+        started.set()
+        await asyncio.Event().wait()
+        return {"ok": True}
+
+    client = InProcessTargetClient(LocalAgent(model_job_runner=model_job_runner))
+    await client.connect()
+    events = client.subscribe(["job-model-2"], resume_from="live")
+    try:
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-2", "model_ref": "01MODEL"},
+        )
+        await asyncio.wait_for(started.wait(), timeout=2)
+        cancel_result = await client.call("cancel_job", {"job_id": "job-model-2"})
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert cancel_result == {
+        "job_id": "job-model-2",
+        "cancelled": True,
+        "status": "cancelled",
+    }
+    assert progress["event"] == "job_progress"
+    assert progress["job_id"] == "job-model-2"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-model-2"
+    assert done["ok"] is False
+    assert done["error_kind"] == "cancelled"
+    assert done["detail"] == "cancelled"
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_target_client_launches_attached_run_with_serialized_events(
     config_dir: Path, tmp_path: Path
 ) -> None:

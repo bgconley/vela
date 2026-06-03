@@ -121,7 +121,7 @@ STATUS_ICONS = {
     Phase.STOPPED: "○",
     Phase.ERROR: "✕",
 }
-WIRE_EVENT_META_KEYS = {"event", "run_id", "seq", "ts", "mono"}
+WIRE_EVENT_META_KEYS = {"event", "run_id", "job_id", "seq", "ts", "mono"}
 
 
 def _looks_secret_env_key(key: str) -> bool:
@@ -239,6 +239,7 @@ def _message_from_wire_event(
     | ServerReady
     | GpuStatsUpdated
     | GpuStatsUnavailable
+    | EngineError
     | None
 ):
     kind = str(event.get("event", ""))
@@ -275,6 +276,22 @@ def _message_from_wire_event(
         if result.unavailable:
             return GpuStatsUnavailable(result.note or "GPU stats unavailable")
         return GpuStatsUpdated(result)
+    if kind == "job_progress":
+        if payload.get("kind") == "committed":
+            return LogLineCommitted(
+                str(payload.get("text", "")),
+                _optional_str(payload.get("level")),
+                feed_phase=False,
+            )
+        return ProgressUpdated(str(payload.get("text", "")))
+    if kind == "job_done":
+        detail = str(payload.get("detail") or "")
+        if bool(payload.get("ok")):
+            return ProgressUpdated(detail or "Job complete")
+        return EngineError(
+            _error_kind_from_agent_payload(payload.get("error_kind")),
+            detail or "Job failed",
+        )
     if kind == "exited" and payload.get("phase") is not None:
         return PhaseChanged(
             Phase(str(payload["phase"])),

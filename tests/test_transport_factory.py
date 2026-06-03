@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from vllm_loader.config.targets import TargetConfig, TransportKind
+from vllm_loader.transport.client import event_matches_subscription
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.subprocess import SubprocessTargetClient
@@ -16,6 +17,17 @@ def _target_client_for_config():
     except ModuleNotFoundError as exc:
         pytest.fail(f"target client factory missing: {exc}")
     return target_client_for_config
+
+
+def test_subscription_event_matcher_accepts_job_ids() -> None:
+    assert event_matches_subscription(
+        {"event": "job_progress", "job_id": "job-1"},
+        {"job-1"},
+    )
+    assert not event_matches_subscription(
+        {"event": "job_progress", "job_id": "job-1"},
+        {"run-1"},
+    )
 
 
 def test_target_client_factory_builds_implicit_local_socket_client() -> None:

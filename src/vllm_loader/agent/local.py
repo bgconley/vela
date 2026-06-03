@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import platform
@@ -80,9 +81,18 @@ AGENT_CAPABILITIES = [
     "reattach_detached",
     "list_builds",
     "list_models",
+    "create_build",
+    "download_model",
+    "cancel_job",
     "sample_gpus",
     "subscribe",
     "unsubscribe",
+]
+
+JobProgressEmitter = Callable[[dict[str, Any]], None]
+JobRunner = Callable[
+    [dict[str, Any], JobProgressEmitter, asyncio.Event],
+    Awaitable[dict[str, Any]],
 ]
 
 
@@ -121,6 +131,16 @@ class LocalDetachedRunSummary:
     config_name: str
 
 
+@dataclass
+class LocalJob:
+    job_id: str
+    kind: str
+    task: asyncio.Task[None]
+    cancel_event: asyncio.Event
+    status: str = "running"
+    result: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class LocalCommandPreparation:
     result: CommandBuildResult
@@ -135,6 +155,8 @@ class LocalAgent:
         gpu_sampler: Callable[[], GpuPollResult] = default_gpu_sampler,
         builds_root: str | Path | None = None,
         models_registry_path: str | Path | None = None,
+        build_job_runner: JobRunner | None = None,
+        model_job_runner: JobRunner | None = None,
     ) -> None:
         self.target_name = target_name
         self._gpu_sampler = gpu_sampler
@@ -144,6 +166,9 @@ class LocalAgent:
             if models_registry_path is not None
             else default_models_registry_path()
         )
+        self._build_job_runner = build_job_runner or self._default_build_job_runner
+        self._model_job_runner = model_job_runner or self._default_model_job_runner
+        self._jobs: dict[str, LocalJob] = {}
         self._detached_runs: dict[str, LocalDetachedRun] = {}
         self._detached_sidecar_paths: dict[str, Path] = {}
         self._known_runs_dirs: set[Path] = {default_run_artifacts_dir()}
@@ -190,6 +215,12 @@ class LocalAgent:
             return self._list_builds()
         if method == "list_models":
             return self._list_models()
+        if method == "create_build":
+            return self._create_build(payload)
+        if method == "download_model":
+            return self._download_model(payload)
+        if method == "cancel_job":
+            return self._cancel_job(payload)
         if method in {"gpu", "sample_gpus"}:
             return self._sample_gpus(payload)
         if method == "unsubscribe":
@@ -660,6 +691,119 @@ class LocalAgent:
     def _list_models(self) -> dict[str, Any]:
         return list_models(self._models_registry_path)
 
+    async def _create_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        return await self._start_job("create_build", params, self._build_job_runner)
+
+    async def _download_model(self, params: dict[str, Any]) -> dict[str, Any]:
+        return await self._start_job("download_model", params, self._model_job_runner)
+
+    async def _cancel_job(self, params: dict[str, Any]) -> dict[str, Any]:
+        job_id = _job_id_param(params)
+        job = self._jobs.get(job_id)
+        if job is None:
+            return {"job_id": job_id, "cancelled": False, "status": "not-found"}
+        if job.task.done():
+            return {"job_id": job_id, "cancelled": False, "status": job.status}
+        job.cancel_event.set()
+        job.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await job.task
+        return {"job_id": job_id, "cancelled": True, "status": job.status}
+
+    async def _start_job(
+        self,
+        kind: str,
+        params: dict[str, Any],
+        runner: JobRunner,
+    ) -> dict[str, Any]:
+        job_id = _job_id_param(params)
+        existing = self._jobs.get(job_id)
+        if existing is not None:
+            return _job_payload(existing)
+        payload = {**params, "job_id": job_id}
+        cancel_event = asyncio.Event()
+        task = asyncio.create_task(
+            self._run_job(job_id, kind, payload, runner, cancel_event)
+        )
+        job = LocalJob(
+            job_id=job_id,
+            kind=kind,
+            task=task,
+            cancel_event=cancel_event,
+        )
+        self._jobs[job_id] = job
+        return _job_payload(job)
+
+    async def _run_job(
+        self,
+        job_id: str,
+        kind: str,
+        params: dict[str, Any],
+        runner: JobRunner,
+        cancel_event: asyncio.Event,
+    ) -> None:
+        job = self._jobs[job_id]
+
+        def emit(payload: dict[str, Any]) -> None:
+            self._publish_event(AgentEvent("job_progress", job_id, dict(payload)))
+
+        try:
+            result = await runner(params, emit, cancel_event)
+        except asyncio.CancelledError:
+            job.status = "cancelled"
+            result = {"ok": False, "error_kind": "cancelled", "detail": "cancelled"}
+        except Exception as exc:
+            job.status = "failed"
+            result = {
+                "ok": False,
+                "error_kind": "agent-internal",
+                "detail": str(exc),
+            }
+        else:
+            job.status = "succeeded" if bool(result.get("ok")) else "failed"
+        job.result = dict(result)
+        self._publish_event(AgentEvent("job_done", job_id, dict(result)))
+
+    async def _default_build_job_runner(
+        self,
+        _params: dict[str, Any],
+        emit: JobProgressEmitter,
+        _cancel_event: asyncio.Event,
+    ) -> dict[str, Any]:
+        emit(
+            {
+                "kind": "committed",
+                "text": "Build creation is not implemented for this agent yet",
+                "level": "WARNING",
+                "phase": "FAILED",
+            }
+        )
+        return {
+            "ok": False,
+            "error_kind": "feature-unavailable",
+            "detail": "create_build is not implemented for this agent yet",
+        }
+
+    async def _default_model_job_runner(
+        self,
+        _params: dict[str, Any],
+        emit: JobProgressEmitter,
+        _cancel_event: asyncio.Event,
+    ) -> dict[str, Any]:
+        emit(
+            {
+                "kind": "committed",
+                "text": "Model download is not implemented for this agent yet",
+                "level": "WARNING",
+                "phase": "FAILED",
+            }
+        )
+        return {
+            "ok": False,
+            "error_kind": "feature-unavailable",
+            "detail": "download_model is not implemented for this agent yet",
+        }
+
     def _unsubscribe(self, params: dict[str, Any]) -> dict[str, Any]:
         sub_id = params.get("sub_id")
         if not isinstance(sub_id, str) or not sub_id.strip():
@@ -855,9 +999,10 @@ class LocalAgent:
     def _wire_event(self, event: AgentEvent) -> dict[str, Any]:
         seq = self._event_sequences.get(event.run_id, 0) + 1
         self._event_sequences[event.run_id] = seq
+        id_key = "job_id" if event.kind in {"job_progress", "job_done"} else "run_id"
         return {
             "event": event.kind,
-            "run_id": event.run_id,
+            id_key: event.run_id,
             "seq": seq,
             "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "mono": time.monotonic(),
@@ -882,7 +1027,10 @@ class LocalAgent:
             for event in self._event_buffers.get(run_id, []):
                 if event["seq"] > min_seq:
                     events.append(event)
-        return sorted(events, key=lambda item: (str(item["run_id"]), int(item["seq"])))
+        return sorted(
+            events,
+            key=lambda item: (_event_stream_id(item) or "", int(item["seq"])),
+        )
 
     def _replay_durable_log_events(
         self, run_ids: set[str], resume_from: object
@@ -1188,6 +1336,14 @@ def _extra_args_include_tokenizer(extra_args: list[str]) -> bool:
     return any(arg == "--tokenizer" or arg.startswith("--tokenizer=") for arg in extra_args)
 
 
+def _event_stream_id(event: dict[str, Any]) -> str | None:
+    for key in ("run_id", "job_id", "sub_id"):
+        value = event.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def _driver_version() -> str | None:
     return os.environ.get("NVIDIA_DRIVER_VERSION")
 
@@ -1197,6 +1353,24 @@ def _run_id_param(params: dict[str, Any]) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TargetCallError("invalid-params", "run_id is required")
     return value
+
+
+def _job_id_param(params: dict[str, Any]) -> str:
+    value = params.get("job_id")
+    if not isinstance(value, str) or not value.strip():
+        raise TargetCallError("invalid-params", "job_id is required")
+    return value
+
+
+def _job_payload(job: LocalJob) -> dict[str, Any]:
+    payload = {
+        "job_id": job.job_id,
+        "kind": job.kind,
+        "status": job.status,
+    }
+    if job.result:
+        payload["result"] = dict(job.result)
+    return payload
 
 
 def _health_payload(event: HealthEvent, cfg: ModelConfig | None = None) -> dict[str, Any]:

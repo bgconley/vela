@@ -23,6 +23,21 @@ REQUIRED_AGENT_CAPABILITIES = (
 )
 
 
+def subscription_event_id(event: dict[str, Any]) -> str | None:
+    for key in ("run_id", "job_id", "sub_id"):
+        value = event.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def event_matches_subscription(event: dict[str, Any], selected_ids: set[str]) -> bool:
+    if not selected_ids:
+        return True
+    event_id = subscription_event_id(event)
+    return event_id in selected_ids if event_id is not None else False
+
+
 class TargetClient(Protocol):
     @property
     def connected(self) -> bool: ...

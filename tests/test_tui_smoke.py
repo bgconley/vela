@@ -41,6 +41,40 @@ from vllm_loader.tui.app import VllmLoaderApp
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 
 
+def test_wire_job_events_map_to_existing_tui_messages() -> None:
+    progress = tui_app_module._message_from_wire_event(
+        {
+            "event": "job_progress",
+            "job_id": "job-1",
+            "kind": "committed",
+            "text": "Downloading model",
+            "level": "INFO",
+            "seq": 1,
+            "ts": "2026-06-03T00:00:00Z",
+            "mono": 1.0,
+        }
+    )
+    done = tui_app_module._message_from_wire_event(
+        {
+            "event": "job_done",
+            "job_id": "job-1",
+            "ok": False,
+            "error_kind": "config-invalid",
+            "detail": "download failed",
+            "seq": 2,
+            "ts": "2026-06-03T00:00:01Z",
+            "mono": 2.0,
+        }
+    )
+
+    assert isinstance(progress, LogLineCommitted)
+    assert progress.text == "Downloading model"
+    assert progress.feed_phase is False
+    assert isinstance(done, EngineError)
+    assert done.kind is ErrorKind.CONFIG_INVALID
+    assert done.detail == "download failed"
+
+
 class RecordingConfigAgent:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, str] | None]] = []
@@ -543,7 +577,7 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
         target_ping_timeout_seconds=0.01,
     )
 
-    async with app.run_test() as pilot:
+    async with app.run_test():
         await _wait_for_condition(
             lambda: target_client.disconnect_calls >= 1
             and app.target_connection_state == "disconnected"

@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
-from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
+from vllm_loader.transport.client import (
+    REQUIRED_AGENT_CAPABILITIES,
+    event_matches_subscription,
+)
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 from vllm_loader.transport.rpc_errors import target_call_error_from_rpc_payload
 
@@ -165,8 +168,7 @@ class SubprocessTargetClient:
                 selected = set(run_ids)
                 while True:
                     event = await self._events.get()
-                    run_id = event.get("run_id")
-                    if not selected or run_id in selected:
+                    if event_matches_subscription(event, selected):
                         yield event
             finally:
                 if not subscribe_task.done():
