@@ -778,8 +778,7 @@ class VllmLoaderApp(App):
     async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
         try:
             if self.reattached_run_id is not None:
-                await asyncio.to_thread(
-                    self._agent_stop_run,
+                await self._target_stop_run(
                     self.reattached_run_id,
                     interrupt_timeout=2,
                     terminate_timeout=2,

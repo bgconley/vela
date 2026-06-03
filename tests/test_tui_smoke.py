@@ -3235,7 +3235,33 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
         model: org/model
         """,
     )
-    agent = StopRecordingAgent()
+    class RestartRefusingAgent(RecordingConfigAgent):
+        def stop_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct reattached TUI restart stop")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("reattached restart stop should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    agent = RestartRefusingAgent()
     load_calls: list[Path | None] = []
     sidecar_alive = True
 
@@ -3260,8 +3286,18 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: agent.stop_calls == [("run-1", 2, 2)],
-            "agent stop was not requested",
+            lambda: app._target_client.calls
+            == [
+                (
+                    "stop",
+                    {
+                        "run_id": "run-1",
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            ],
+            "target client reattached restart stop was not requested",
         )
 
         assert app.reattached_sidecar_path == sidecar_path
