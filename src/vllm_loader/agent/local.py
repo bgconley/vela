@@ -151,7 +151,7 @@ class LocalAgent:
             return self._probe_until_ready(payload)
         if method == "tail_detached":
             return self._tail_detached(payload)
-        if method in {"discover_runs", "discover_detached"}:
+        if method in {"discover_runs", "discover_runs_no_paths", "discover_detached"}:
             return self._discover_detached(payload)
         if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)

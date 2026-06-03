@@ -1492,11 +1492,15 @@ async def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     try:
         await client.call("list_configs", {"configs_dir": str(config_dir)})
         discovered = await client.call("discover_runs")
+        discovered_no_paths = await client.call("discover_runs_no_paths")
     finally:
         await client.disconnect()
 
     assert runs_dir in seen["runs_dirs"]
     assert discovered == {"runs": [{"run_id": "run-1", "config_name": "detached"}]}
+    assert discovered_no_paths == discovered
+    assert "sidecar_path" not in discovered_no_paths["runs"][0]
+    json.dumps(discovered_no_paths)
 
 
 @pytest.mark.asyncio
