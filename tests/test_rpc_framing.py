@@ -43,3 +43,18 @@ async def test_subprocess_target_client_reports_command_startup_failure() -> Non
 
     assert exc_info.value.code == "agent-unreachable"
     assert "definitely-missing-vllm-loader-agent" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_reports_bridge_exit_before_response() -> None:
+    client = SubprocessTargetClient(["python", "-c", ""])
+
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("handshake")
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "agent-unreachable"
+    assert "target agent process exited" in exc_info.value.message

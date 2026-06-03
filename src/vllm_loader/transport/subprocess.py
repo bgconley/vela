@@ -156,7 +156,7 @@ class SubprocessTargetClient:
                     await self._events.put(frame)
         finally:
             self._connected = False
-            self._fail_pending(RuntimeError("target process exited"))
+            self._fail_pending(_agent_unreachable_error("target agent process exited"))
 
     async def _drain_stderr(self) -> None:
         assert self._process is not None
@@ -188,3 +188,7 @@ def _target_call_error_from_payload(payload: dict[str, Any]) -> TargetCallError:
     message = str(payload.get("message") or code)
     details = payload.get("details")
     return TargetCallError(code, message, details if isinstance(details, dict) else {})
+
+
+def _agent_unreachable_error(message: str) -> TargetCallError:
+    return TargetCallError("agent-unreachable", message)
