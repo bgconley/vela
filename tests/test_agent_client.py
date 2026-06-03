@@ -8,6 +8,7 @@ from conftest import write_yaml
 
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
 
@@ -258,3 +259,32 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
         if agent.is_run_alive(run.run_id):
             agent.kill_run(run.run_id)
         await agent.wait_attached_run(run.run_id)
+
+
+def test_local_agent_samples_gpus_with_injected_sampler() -> None:
+    calls = 0
+
+    def sampler() -> GpuPollResult:
+        nonlocal calls
+        calls += 1
+        return GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=1024,
+                    memory_total_mb=81920,
+                    utilization_percent=25,
+                    temperature_c=42,
+                    power_w=110,
+                )
+            ]
+        )
+
+    agent = LocalAgent(gpu_sampler=sampler)
+
+    result = agent.sample_gpus()
+
+    assert calls == 1
+    assert result.samples[0].name == "A100"

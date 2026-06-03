@@ -14,6 +14,8 @@ from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.process_manager import AttachedProcess, start_attached
 from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
+from vllm_loader.monitoring.gpu import GpuPollResult
+from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
 from vllm_loader.monitoring.health import HealthEvent, probe_loop
 
 PROTOCOL_VERSION = 1
@@ -39,8 +41,14 @@ class LocalAttachedRun:
 
 
 class LocalAgent:
-    def __init__(self, *, target_name: str = "local") -> None:
+    def __init__(
+        self,
+        *,
+        target_name: str = "local",
+        gpu_sampler: Callable[[], GpuPollResult] = default_gpu_sampler,
+    ) -> None:
         self.target_name = target_name
+        self._gpu_sampler = gpu_sampler
         self._attached_runs: dict[str, LocalAttachedRun] = {}
 
     def handle(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -189,6 +197,9 @@ class LocalAgent:
             emit=emit,
             is_process_alive=lambda: self.is_run_alive(run_id),
         )
+
+    def sample_gpus(self) -> GpuPollResult:
+        return self._gpu_sampler()
 
     def _attached_run_or_error(self, run_id: str) -> LocalAttachedRun:
         run = self._attached_runs.get(run_id)

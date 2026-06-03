@@ -113,6 +113,29 @@ class HealthProbeRecordingAgent(StopRecordingAgent):
         emit(HealthEvent(ready=True, detail="ready from agent", models=["served"]))
 
 
+class GpuRecordingAgent(RecordingConfigAgent):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sample_calls = 0
+
+    def sample_gpus(self) -> GpuPollResult:
+        self.sample_calls += 1
+        return GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=1024,
+                    memory_total_mb=81920,
+                    utilization_percent=25,
+                    temperature_c=42,
+                    power_w=110,
+                )
+            ]
+        )
+
+
 @pytest.mark.asyncio
 async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
@@ -222,6 +245,20 @@ async def test_tui_attached_health_probe_runs_through_agent(config_dir: Path) ->
         assert agent.probe_calls == ["run-1"]
         assert app.phase is Phase.READY
         assert app.served_models == ["served"]
+
+
+@pytest.mark.asyncio
+async def test_tui_gpu_sampling_runs_through_agent(config_dir: Path) -> None:
+    agent = GpuRecordingAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent, gpu_interval_seconds=60)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._sample_gpu_panel_once()
+        await pilot.pause()
+
+        assert agent.sample_calls >= 1
+        assert "A100" in app.gpu_panel_text
 
 
 @pytest.mark.asyncio

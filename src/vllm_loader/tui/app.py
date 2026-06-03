@@ -371,7 +371,7 @@ class VllmLoaderApp(App):
     ) -> None:
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
-        self._agent = agent or LocalAgent()
+        self._agent = agent or LocalAgent(gpu_sampler=gpu_sampler)
         self._clock = clock
         self._gpu_sampler = gpu_sampler
         self._gpu_interval_seconds = gpu_interval_seconds
@@ -1935,7 +1935,7 @@ class VllmLoaderApp(App):
 
     async def _sample_gpu_panel_once(self) -> None:
         try:
-            result = await asyncio.to_thread(self._gpu_sampler)
+            result = await asyncio.to_thread(self._agent_sample_gpus)
         except Exception as exc:
             self.post_message(GpuStatsUnavailable(f"GPU stats unavailable: {exc}"))
             return
@@ -1943,6 +1943,12 @@ class VllmLoaderApp(App):
             self.post_message(GpuStatsUnavailable(result.note or "GPU stats unavailable"))
             return
         self.post_message(GpuStatsUpdated(result))
+
+    def _agent_sample_gpus(self) -> GpuPollResult:
+        sampler = getattr(self._agent, "sample_gpus", None)
+        if sampler is None:
+            return self._gpu_sampler()
+        return sampler()
 
     def _render_gpu_panel(self, result: GpuPollResult) -> None:
         try:
