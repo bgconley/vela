@@ -755,6 +755,14 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
+        if self.reattached_run_id is not None:
+            self.run_worker(
+                self._restart_reattached_target_run(),
+                name="restart",
+                group="restart",
+                exclusive=True,
+            )
+            return
         if self.reattached_sidecar_path is not None:
             self.run_worker(
                 self._restart_reattached_sidecar(self.reattached_sidecar_path),
@@ -786,14 +794,28 @@ class VllmLoaderApp(App):
             await asyncio.sleep(0.05)
         self.action_load()
 
+    async def _restart_reattached_target_run(self) -> None:
+        if self.reattached_run_id is None:
+            return
+        await self._target_stop_run(
+            self.reattached_run_id,
+            interrupt_timeout=2,
+            terminate_timeout=2,
+        )
+        self.workers.cancel_group(self, "tail")
+        self.workers.cancel_group(self, "health")
+        self.reattached_sidecar_path = None
+        self.reattached_run_id = None
+        self.current_process = None
+        self.current_run_id = None
+        self._set_phase(Phase.STOPPED)
+        self.action_load()
+
     async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
         try:
             if self.reattached_run_id is not None:
-                await self._target_stop_run(
-                    self.reattached_run_id,
-                    interrupt_timeout=2,
-                    terminate_timeout=2,
-                )
+                await self._restart_reattached_target_run()
+                return
             else:
                 await asyncio.to_thread(
                     stop_sidecar_from_system,

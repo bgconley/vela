@@ -3427,11 +3427,9 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
     monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = RestartRefusingAgent()
     load_calls: list[Path | None] = []
-    sidecar_alive = True
 
-    def alive(path: Path) -> bool:
-        assert path == sidecar_path
-        return sidecar_alive
+    def refuse_local_liveness(path: Path) -> bool:
+        raise AssertionError(f"direct reattached TUI sidecar liveness check: {path}")
 
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
@@ -3441,7 +3439,7 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
         app.reattached_sidecar_path = sidecar_path
         app.reattached_run_id = "run-1"
         app._set_phase(Phase.READY)
-        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        monkeypatch.setattr(app, "_sidecar_is_alive", refuse_local_liveness)
         monkeypatch.setattr(
             app,
             "action_load",
@@ -3464,14 +3462,85 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
             "target client reattached restart stop was not requested",
         )
 
-        assert app.reattached_sidecar_path == sidecar_path
-        assert load_calls == []
-
-        sidecar_alive = False
         await _wait_for_condition(
             lambda: load_calls == [None],
-            "restart did not load after sidecar exit",
+            "restart did not load after target stop",
         )
+        assert app.reattached_sidecar_path is None
+        assert app.reattached_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_restart_after_target_detached_reattach_without_sidecar_path(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "restart-target-detached.yaml",
+        """
+        name: restart-target-detached
+        model: org/model
+        """,
+    )
+
+    class RestartRefusingAgent(RecordingConfigAgent):
+        def stop_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct target-reattached TUI restart stop")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target-reattached restart stop should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=RestartRefusingAgent())
+    load_calls: list[str | None] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = load_registry(config_dir).by_name("restart-target-detached")
+        app.reattached_run_id = "run-1"
+        app.reattached_sidecar_path = None
+        app._set_phase(Phase.READY)
+        monkeypatch.setattr(app, "action_load", lambda: load_calls.append(app.reattached_run_id))
+
+        app.action_restart()
+        await _wait_for_condition(
+            lambda: _non_discovery_target_calls(app)
+            == [
+                (
+                    "stop",
+                    {
+                        "run_id": "run-1",
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            ],
+            "target client target-reattached restart stop was not requested",
+        )
+
+        await _wait_for_condition(
+            lambda: load_calls == [None],
+            "restart did not load after target-only stop",
+        )
+        assert app.reattached_run_id is None
+        assert app.reattached_sidecar_path is None
 
 
 @pytest.mark.asyncio
