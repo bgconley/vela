@@ -398,6 +398,24 @@ def model_verify(
     )
 
 
+@model_app.command("download")
+def model_download(
+    model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Revision override for the download job."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+) -> None:
+    client = _target_client_for_name_or_exit(target)
+    params = _agent_params(
+        job_id=uuid.uuid4().hex,
+        model_ref=model_ref,
+        revision=revision,
+    )
+    raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "download_model", params)))
+
+
 @model_app.command("remove")
 def model_remove(
     model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
@@ -766,6 +784,47 @@ async def _echo_attached_event_stream_until_exit(events, wait_task) -> int:
             break
     result = await wait_task
     return int(result.get("returncode") or 0)
+
+
+async def _run_agent_job_cli(
+    client: TargetClient,
+    method: str,
+    params: dict[str, str],
+) -> int:
+    job_id = params["job_id"]
+    await client.connect()
+    events = client.subscribe([job_id], resume_from="live")
+    try:
+        try:
+            await client.call(method, params)
+        except TargetCallError as exc:
+            _echo_target_error_or_exit(exc)
+            return 2
+        return await _echo_job_event_stream_until_done(events, job_id)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+
+async def _echo_job_event_stream_until_done(events, job_id: str) -> int:
+    async for event in events:
+        if event.get("job_id") != job_id:
+            continue
+        if event.get("event") == "job_progress":
+            text = event.get("text")
+            if isinstance(text, str) and text:
+                typer.echo(text)
+            continue
+        if event.get("event") != "job_done":
+            continue
+        detail = str(event.get("detail") or "")
+        if event.get("ok"):
+            typer.echo(f"DONE\t{job_id}\t{detail}")
+            return 0
+        typer.echo(f"ERROR\t{job_id}\t{detail}", err=True)
+        return 2
+    typer.echo(f"ERROR\t{job_id}\tjob stream ended before completion", err=True)
+    return 2
 
 
 async def _smoke_config_cli(

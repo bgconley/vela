@@ -570,6 +570,97 @@ def test_cli_model_remove_passes_configs_dir_to_agent(
     assert result.output == "removed model\t01MODEL\tllama-pin\n"
 
 
+def test_cli_model_download_streams_job_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeUuid:
+        hex = "job-model-1"
+
+    class FakeEvents:
+        def __init__(self) -> None:
+            self._events = iter(
+                [
+                    {
+                        "event": "job_progress",
+                        "job_id": "job-model-1",
+                        "kind": "committed",
+                        "text": "Resolving model",
+                        "level": "INFO",
+                    },
+                    {
+                        "event": "job_done",
+                        "job_id": "job-model-1",
+                        "ok": True,
+                        "detail": "model cached",
+                    },
+                ]
+            )
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+            self.events = FakeEvents()
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "download_model":
+                return {
+                    "job_id": params["job_id"],
+                    "kind": "download_model",
+                    "status": "running",
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((run_ids, resume_from))
+            return self.events
+
+    target_client = FakeTargetClient()
+    monkeypatch.setattr(cli_module.uuid, "uuid4", lambda: FakeUuid())
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target_name: target_client,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "download", "01MODEL", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert target_client.subscribe_calls == [(["job-model-1"], "live")]
+    assert target_client.calls == [
+        ("download_model", {"job_id": "job-model-1", "model_ref": "01MODEL"})
+    ]
+    assert target_client.events.closed is True
+    assert result.output.splitlines() == [
+        "Resolving model",
+        "DONE\tjob-model-1\tmodel cached",
+    ]
+
+
 def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatch) -> None:
     blackbird = TargetConfig(
         name="blackbird",
