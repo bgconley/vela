@@ -26,11 +26,10 @@ from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_art
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
-from vllm_loader.engine.process_manager import AttachedProcess, start_detached
+from vllm_loader.engine.process_manager import AttachedProcess
 from vllm_loader.engine.profile import (
     VllmProfileError,
     bundled_profile,
-    detect_vllm_version_for_config,
     select_profile,
     select_profile_for_config,
 )
@@ -1351,6 +1350,9 @@ class VllmLoaderApp(App):
             emit_event=self._post_agent_event_message,
         )
 
+    def _agent_start_detached_run(self, prepared: dict[str, Any]):
+        return self._agent.start_detached_run(prepared)
+
     def _post_agent_event_message(self, event: AgentEvent) -> None:
         message = _message_from_agent_event(event)
         if message is not None:
@@ -1532,20 +1534,13 @@ class VllmLoaderApp(App):
         self.current_config = cfg
         build = _command_build_result_from_agent_payload(prepared["build"])
         self._record_warnings(build.warnings)
-        secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
         if cfg.launch.mode.value == "detached":
             try:
                 launch = await asyncio.to_thread(
-                    lambda: start_detached(
-                        cfg,
-                        build,
-                        secrets=secrets,
-                        vllm_version=detect_vllm_version_for_config(cfg),
-                        vllm_version_profile=build.metadata.get("vllm_version_profile"),
-                    )
+                    lambda: self._agent_start_detached_run(prepared)
                 )
-            except FileNotFoundError as exc:
-                self._handle_command_not_found(exc, build.argv[0])
+            except TargetCallError as exc:
+                self._handle_attached_start_agent_error(exc, build.argv[0])
                 return
             self.reattach_detached_run(launch.sidecar_path)
             return

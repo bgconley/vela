@@ -202,6 +202,72 @@ async def test_tui_launch_preparation_runs_through_agent(config_dir: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_tui_detached_launch_runs_through_agent(config_dir: Path, tmp_path: Path) -> None:
+    class DetachedLaunchAgent(RecordingConfigAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.detached_launches: list[dict[str, object]] = []
+
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/detached.yaml",
+                            "name": "detached",
+                            "model": "org/detached",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "detached",
+                                "model": "org/detached",
+                                "launch": {"mode": "detached"},
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {
+                        "name": "detached",
+                        "model": "org/detached",
+                        "launch": {
+                            "mode": "detached",
+                            "runs_dir": str(tmp_path / "runs"),
+                        },
+                    },
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "current"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+        def start_detached_run(self, prepared):
+            self.detached_launches.append(prepared)
+            return SimpleNamespace(sidecar_path=tmp_path / "runs" / "run-1.json")
+
+    agent = DetachedLaunchAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    reattached: list[Path] = []
+    app.reattach_detached_run = reattached.append
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+
+        assert len(agent.detached_launches) == 1
+        assert reattached == [tmp_path / "runs" / "run-1.json"]
+
+
+@pytest.mark.asyncio
 async def test_tui_stop_attached_run_signals_agent_by_run_id(config_dir: Path) -> None:
     class RunningProcess:
         def __init__(self) -> None:

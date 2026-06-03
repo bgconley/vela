@@ -9,6 +9,7 @@ from conftest import write_yaml
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.engine.phases import Phase
+from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
@@ -302,6 +303,66 @@ async def test_local_agent_emits_attached_log_and_phase_events(
     phase_events = [event for event in events if getattr(event, "kind", None) == "phase"]
     assert log_events[-1].payload["text"] == "INFO Starting to load model"
     assert phase_events[-1].payload["phase"] == Phase.LOADING_WEIGHTS.value
+
+
+def test_local_agent_starts_detached_run_from_prepared_launch(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "detached.yaml",
+        f"""
+        name: detached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        server:
+          api_key: literal-api-key
+        env:
+          HF_TOKEN: hf_literal
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        vllm:
+          version_profile: current
+        """,
+    )
+    sidecar_path = tmp_path / "runs" / "run-1.json"
+    manifest_path = tmp_path / "runs" / "run-1.manifest.json"
+    log_path = tmp_path / "runs" / "run-1.run.log"
+    seen: dict[str, object] = {}
+
+    def fake_start_detached(cfg, build, **kwargs):
+        seen["cfg_name"] = cfg.name
+        seen["argv"] = list(build.argv)
+        seen["secrets"] = kwargs["secrets"]
+        seen["vllm_version"] = kwargs["vllm_version"]
+        seen["vllm_version_profile"] = kwargs["vllm_version_profile"]
+        return DetachedLaunch(
+            run_id="run-1",
+            supervisor_pid=123,
+            sidecar_path=sidecar_path,
+            manifest_path=manifest_path,
+            log_path=log_path,
+        )
+
+    monkeypatch.setattr(local_agent_module, "start_detached", fake_start_detached)
+    agent = LocalAgent()
+    prepared = agent.handle(
+        "prepare_launch", {"name": "detached", "configs_dir": str(config_dir)}
+    )
+
+    launch = agent.start_detached_run(prepared)
+
+    assert launch.run_id == "run-1"
+    assert launch.sidecar_path == sidecar_path
+    assert seen["cfg_name"] == "detached"
+    assert seen["secrets"] == ["literal-api-key", "hf_literal"]
+    assert seen["vllm_version"] is None
+    assert seen["vllm_version_profile"] == "current"
 
 
 def test_local_agent_samples_gpus_with_injected_sampler() -> None:

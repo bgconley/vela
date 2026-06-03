@@ -13,8 +13,17 @@ from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
-from vllm_loader.engine.process_manager import AttachedProcess, start_attached
-from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
+from vllm_loader.engine.process_manager import (
+    AttachedProcess,
+    DetachedLaunch,
+    start_attached,
+    start_detached,
+)
+from vllm_loader.engine.profile import (
+    VllmProfileError,
+    detect_vllm_version_for_config,
+    select_profile_for_config,
+)
 from vllm_loader.monitoring.gpu import GpuPollResult
 from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
 from vllm_loader.monitoring.health import HealthEvent, probe_loop
@@ -176,6 +185,26 @@ class LocalAgent:
         )
         self._attached_runs[run.run_id] = run
         return run
+
+    def start_detached_run(self, prepared: dict[str, Any]) -> DetachedLaunch:
+        cfg = ModelConfig.model_validate(prepared["config"])
+        build = _build_result_from_payload(prepared["build"])
+        secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
+        try:
+            return start_detached(
+                cfg,
+                build,
+                secrets=secrets,
+                vllm_version=detect_vllm_version_for_config(cfg),
+                vllm_version_profile=build.metadata.get("vllm_version_profile"),
+            )
+        except FileNotFoundError as exc:
+            command = str(exc.filename or build.argv[0])
+            raise TargetCallError(
+                "command-not-found",
+                f"Command not found: {command}",
+                {"command": command, "fallback": build.argv[0]},
+            ) from exc
 
     def is_run_alive(self, run_id: str) -> bool:
         run = self._attached_runs.get(run_id)
