@@ -91,6 +91,13 @@ class RecordingLaunchPrepareAgent(RecordingConfigAgent):
         return super().handle(method, params)
 
 
+_TARGET_CONFIG_METHODS = {"list_configs", "preview", "prepare_launch"}
+
+
+def _delegate_config_target_call(agent, method: str, params):
+    return agent.handle(method, params)
+
+
 class StopRecordingAgent(RecordingConfigAgent):
     def __init__(self) -> None:
         super().__init__()
@@ -152,9 +159,55 @@ async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_loads_registry_and_preview_through_agent(config_dir: Path) -> None:
-    agent = RecordingConfigAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+async def test_tui_loads_registry_and_preview_through_target_client(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class HandleRefusingAgent:
+        def handle(self, method: str, _params=None):
+            raise AssertionError(f"direct TUI handle call: {method}")
+
+    client_instances: list[object] = []
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/alpha.yaml",
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "target": None,
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/alpha", "warnings": []}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("config load should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=HandleRefusingAgent())
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -163,32 +216,111 @@ async def test_tui_loads_registry_and_preview_through_agent(config_dir: Path) ->
         assert app.current_config.name == "alpha"
         assert "alpha" in app.config_summary
         assert "vllm serve org/alpha" in app.selected_config_preview
-        assert agent.calls[:2] == [
+        assert client_instances[0].calls[:2] == [
             ("list_configs", {"configs_dir": str(config_dir)}),
             ("preview", {"name": "alpha", "configs_dir": str(config_dir)}),
         ]
 
 
 @pytest.mark.asyncio
-async def test_tui_select_config_refreshes_preview_through_agent(config_dir: Path) -> None:
-    agent = RecordingConfigAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+async def test_tui_select_config_refreshes_preview_through_target_client(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class HandleRefusingAgent:
+        def handle(self, method: str, _params=None):
+            raise AssertionError(f"direct TUI handle call: {method}")
+
+    client_instances: list[object] = []
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return RecordingConfigAgent().handle(method, params)
+            if method == "preview":
+                name = str(params["name"])
+                return {"preview": f"cwd=/agent\nvllm serve org/{name}", "warnings": []}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("preview refresh should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=HandleRefusingAgent())
 
     async with app.run_test() as pilot:
         await pilot.pause()
         app.select_config("beta")
+        await _wait_for_condition(
+            lambda: "vllm serve org/beta" in app.selected_config_preview,
+            "selected config preview did not refresh",
+        )
 
         assert app.current_config is not None
         assert app.current_config.name == "beta"
         assert app.current_config.target == "blackbird"
-        assert "vllm serve org/beta" in app.selected_config_preview
-        assert agent.calls[-1] == ("preview", {"name": "beta", "configs_dir": str(config_dir)})
+        assert client_instances[0].calls[-1] == (
+            "preview",
+            {"name": "beta", "configs_dir": str(config_dir)},
+        )
 
 
 @pytest.mark.asyncio
-async def test_tui_launch_preparation_runs_through_agent(config_dir: Path) -> None:
-    agent = RecordingLaunchPrepareAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+async def test_tui_launch_preparation_runs_through_target_client(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class HandleRefusingAgent:
+        def handle(self, method: str, _params=None):
+            raise AssertionError(f"direct TUI handle call: {method}")
+
+    client_instances: list[object] = []
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method in {"list_configs", "preview"}:
+                return RecordingConfigAgent().handle(method, params)
+            if method == "prepare_launch":
+                raise TargetCallError(
+                    "preflight-failed",
+                    "agent-side missing model",
+                    {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"},
+                )
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("prepare should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=HandleRefusingAgent())
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -197,7 +329,7 @@ async def test_tui_launch_preparation_runs_through_agent(config_dir: Path) -> No
         assert app.phase is Phase.ERROR
         assert app.fsm.error_kind is ErrorKind.MODEL_NOT_FOUND
         assert "agent-side missing model" in app.error_text
-        assert agent.calls[-1] == (
+        assert client_instances[0].calls[-1] == (
             "prepare_launch",
             {"name": "alpha", "configs_dir": str(config_dir)},
         )
@@ -246,6 +378,8 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
             self.connected = False
 
         async def call(self, method: str, _params):
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, _params)
             if method == "launch":
                 return {
                     "run_id": "run-1",
@@ -353,6 +487,8 @@ async def test_tui_attached_launch_uses_target_client_stream(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "launch":
                 return {
                     "run_id": "run-1",
@@ -416,11 +552,7 @@ async def test_tui_attached_launch_uses_target_client_stream(
         await app._run_selected_config()
         await pilot.pause()
 
-        assert [
-            call
-            for call in client_instances[0].calls
-            if call[0] != "discover_detached"
-        ] == [
+        assert _non_discovery_target_calls(app) == [
             ("launch", {"name": "alpha", "configs_dir": str(config_dir)}),
             ("probe_until_ready", {"run_id": "run-1"}),
             ("wait", {"run_id": "run-1"}),
@@ -494,6 +626,8 @@ async def test_tui_detached_launch_runs_through_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "discover_detached":
                 return {"runs": []}
             if method == "launch":
@@ -590,6 +724,8 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "discover_detached":
                 return {"runs": [{"run_id": "run-1", "config_name": "detached"}]}
             if method == "reattach_detached":
@@ -654,7 +790,10 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
             "target client reattach was not requested",
         )
 
-        assert app._target_client.calls[0] == (
+        discovery_calls = [
+            call for call in app._target_client.calls if call[0] == "discover_detached"
+        ]
+        assert discovery_calls[0] == (
             "discover_detached",
             {"runs_dirs": [str(path) for path in app._runs_dirs()]},
         )
@@ -710,6 +849,8 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -764,6 +905,8 @@ async def test_tui_attached_health_probe_runs_through_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "probe_until_ready":
                 return {
                     "run_id": params["run_id"],
@@ -818,6 +961,8 @@ async def test_tui_detached_health_probe_runs_through_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "probe_until_ready":
                 return {
                     "run_id": params["run_id"],
@@ -885,16 +1030,70 @@ async def test_tui_consumes_serialized_run_events(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_gpu_sampling_runs_through_agent(config_dir: Path) -> None:
-    agent = GpuRecordingAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent, gpu_interval_seconds=60)
+async def test_tui_gpu_sampling_runs_through_target_client(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class GpuRefusingAgent(RecordingConfigAgent):
+        def sample_gpus(self) -> GpuPollResult:
+            raise AssertionError("direct TUI GPU sampling")
+
+    client_instances: list[object] = []
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object] | None]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method == "sample_gpus":
+                return {
+                    "samples": [
+                        {
+                            "visible_index": 0,
+                            "uuid": "GPU-a",
+                            "name": "A100",
+                            "memory_used_mb": 1024,
+                            "memory_total_mb": 81920,
+                            "utilization_percent": 25,
+                            "temperature_c": 42,
+                            "power_w": 110,
+                            "mig_instance_id": None,
+                        }
+                    ],
+                    "note": "",
+                    "unavailable": False,
+                }
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("GPU sampling should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        agent=GpuRefusingAgent(),
+        gpu_interval_seconds=60,
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
         await app._sample_gpu_panel_once()
         await pilot.pause()
 
-        assert agent.sample_calls >= 1
+        assert any(call[0] == "sample_gpus" for call in client_instances[0].calls)
         assert "A100" in app.gpu_panel_text
 
 
@@ -1026,6 +1225,8 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "kill":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -2211,6 +2412,8 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -2278,6 +2481,8 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "kill":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -2627,6 +2832,8 @@ async def test_tui_detached_tail_consumes_agent_events(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "tail_detached":
                 return {"run_id": params["run_id"], "status": "ended"}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -2943,6 +3150,8 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -3012,6 +3221,8 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -3089,6 +3300,8 @@ async def test_restart_after_target_detached_reattach(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -3282,6 +3495,8 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -3603,7 +3818,7 @@ def _non_discovery_target_calls(app: VllmLoaderApp):
     return [
         call
         for call in app._target_client.calls
-        if call[0] != "discover_detached"
+        if call[0] not in {"discover_detached", "sample_gpus", *_TARGET_CONFIG_METHODS}
     ]
 
 
@@ -3622,6 +3837,8 @@ def _fake_reattach_target_client(payload: dict | None = None, error: Exception |
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
             if method == "reattach_detached":
                 if error is not None:
                     raise error

@@ -158,6 +158,35 @@ def _command_build_result_from_agent_payload(payload: dict[str, Any]) -> Command
     )
 
 
+def _gpu_poll_result_from_agent_payload(payload: dict[str, Any]) -> GpuPollResult:
+    return GpuPollResult(
+        samples=[
+            GpuSample(
+                visible_index=int(item["visible_index"]),
+                uuid=str(item["uuid"]),
+                name=str(item["name"]),
+                memory_used_mb=int(item["memory_used_mb"]),
+                memory_total_mb=int(item["memory_total_mb"]),
+                utilization_percent=_optional_int(item.get("utilization_percent")),
+                temperature_c=_optional_int(item.get("temperature_c")),
+                power_w=_optional_int(item.get("power_w")),
+                mig_instance_id=(
+                    str(item["mig_instance_id"])
+                    if item.get("mig_instance_id") is not None
+                    else None
+                ),
+            )
+            for item in payload.get("samples", [])
+        ],
+        note=str(payload.get("note") or ""),
+        unavailable=bool(payload.get("unavailable", False)),
+    )
+
+
+def _optional_int(value: object) -> int | None:
+    return int(value) if value is not None else None
+
+
 def _phase_fsm_from_agent_metadata(metadata: dict[str, Any] | None) -> PhaseFSM:
     profile_name = str((metadata or {}).get("vllm_version_profile") or "current")
     return PhaseFSM(bundled_profile(profile_name))
@@ -519,11 +548,11 @@ class VllmLoaderApp(App):
                             yield Static("", id="progress-text")
             yield Static(self._render_footer_bindings(), id="footer-bindings")
 
-    def on_mount(self) -> None:
-        self.registry = self._load_registry_from_agent()
+    async def on_mount(self) -> None:
+        self.registry = await self._load_registry_from_agent()
         if self.current_config is None and self.registry.valid:
             self.current_config = self.registry.valid[0].config
-            self._refresh_selected_config_preview()
+            await self._refresh_selected_config_preview()
         self.config_summary = self._render_config_summary_plain()
         self.query_one("#configs-title", Static).update(self._render_configs_title())
         self.query_one("#configs", Static).update(self._render_config_summary())
@@ -894,12 +923,18 @@ class VllmLoaderApp(App):
 
     def select_config(self, name: str) -> None:
         self.current_config = self.registry.by_name(name)
-        self._refresh_selected_config_preview()
         self.config_summary = self._render_config_summary_plain()
         self.query_one("#configs", Static).update(self._render_config_summary())
         self.query_one("#configs-title", Static).update(self._render_configs_title())
         self._refresh_sidebar_overlay()
         self._refresh_chrome()
+        self.run_worker(
+            self._refresh_selected_config_preview(),
+            name="config-preview",
+            group="config-preview",
+            exclusive=True,
+            exit_on_error=False,
+        )
 
     def confirm_stop_running(self) -> None:
         if self.current_run_id is not None:
@@ -1304,21 +1339,28 @@ class VllmLoaderApp(App):
             parts.append(str(cfg.engine.kv_cache_dtype).upper())
         return " ".join(parts)
 
-    def _refresh_selected_config_preview(self) -> None:
+    async def _refresh_selected_config_preview(self) -> None:
         if self.current_config is None:
             self.selected_config_preview = ""
             return
         try:
-            result = self._agent_handle(
+            result = await self._target_call(
                 "preview",
                 self._agent_params(name=self.current_config.name, configs_dir=self.configs_dir),
             )
             self.selected_config_preview = str(result["preview"])
         except TargetCallError as exc:
             self.selected_config_preview = f"Preview unavailable: {exc}"
+        self.config_summary = self._render_config_summary_plain()
+        try:
+            self.query_one("#configs", Static).update(self._render_config_summary())
+            self.query_one("#configs-title", Static).update(self._render_configs_title())
+            self._refresh_sidebar_overlay()
+        except WIDGET_MISSING_EXCEPTIONS:
+            return
 
-    def _load_registry_from_agent(self) -> ConfigRegistry:
-        result = self._agent_handle(
+    async def _load_registry_from_agent(self) -> ConfigRegistry:
+        result = await self._target_call(
             "list_configs",
             self._agent_params(configs_dir=self.configs_dir),
         )
@@ -1326,11 +1368,6 @@ class VllmLoaderApp(App):
 
     def _agent_params(self, **values) -> dict[str, str]:
         return {key: str(value) for key, value in values.items() if value is not None}
-
-    def _agent_handle(
-        self, method: str, params: dict[str, str] | None = None
-    ) -> dict[str, Any]:
-        return self._agent.handle(method, params)
 
     async def _ensure_target_client_connected(self) -> None:
         if not getattr(self._target_client, "connected", False):
@@ -1627,7 +1664,7 @@ class VllmLoaderApp(App):
         self.fsm = PhaseFSM(bundled_profile("current"))
         self._set_phase(Phase.STARTING)
         try:
-            prepared = self._prepare_launch_from_agent(cfg.name)
+            prepared = await self._prepare_launch_from_agent(cfg.name)
         except TargetCallError as exc:
             self._handle_launch_agent_error(exc)
             return
@@ -1706,8 +1743,8 @@ class VllmLoaderApp(App):
         self._set_error_banner(ErrorKind.CONFIG_INVALID)
         self._set_phase(self.fsm.phase)
 
-    def _prepare_launch_from_agent(self, name: str) -> dict[str, Any]:
-        return self._agent_handle(
+    async def _prepare_launch_from_agent(self, name: str) -> dict[str, Any]:
+        return await self._target_call(
             "prepare_launch",
             self._agent_params(name=name, configs_dir=self.configs_dir),
         )
@@ -2022,7 +2059,9 @@ class VllmLoaderApp(App):
 
     async def _sample_gpu_panel_once(self) -> None:
         try:
-            result = await asyncio.to_thread(self._agent_sample_gpus)
+            result = _gpu_poll_result_from_agent_payload(
+                await self._target_call("sample_gpus")
+            )
         except Exception as exc:
             self.post_message(GpuStatsUnavailable(f"GPU stats unavailable: {exc}"))
             return
@@ -2030,12 +2069,6 @@ class VllmLoaderApp(App):
             self.post_message(GpuStatsUnavailable(result.note or "GPU stats unavailable"))
             return
         self.post_message(GpuStatsUpdated(result))
-
-    def _agent_sample_gpus(self) -> GpuPollResult:
-        sampler = getattr(self._agent, "sample_gpus", None)
-        if sampler is None:
-            return self._gpu_sampler()
-        return sampler()
 
     def _render_gpu_panel(self, result: GpuPollResult) -> None:
         try:

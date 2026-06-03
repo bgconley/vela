@@ -105,7 +105,8 @@ def run_config(
     agent = LocalAgent()
     if preview_only:
         try:
-            result = agent.handle(
+            result = _target_call(
+                agent,
                 "preview",
                 _agent_params(name=name, configs_dir=configs_dir),
             )
@@ -153,7 +154,8 @@ def _prepare_launch_with_agent_or_exit(
     agent: LocalAgent, name: str, configs_dir: Path | None
 ) -> dict[str, Any]:
     try:
-        return agent.handle(
+        return _target_call(
+            agent,
             "prepare_launch",
             _agent_params(name=name, configs_dir=configs_dir),
         )
@@ -166,11 +168,23 @@ def _agent_params(**values) -> dict[str, str]:
 
 
 def _agent_call(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    return asyncio.run(_agent_call_async(method, params))
+    return _target_call(LocalAgent(), method, params)
 
 
 async def _agent_call_async(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    client = InProcessTargetClient(LocalAgent())
+    return await _target_call_async(LocalAgent(), method, params)
+
+
+def _target_call(
+    agent: LocalAgent, method: str, params: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    return asyncio.run(_target_call_async(agent, method, params))
+
+
+async def _target_call_async(
+    agent: LocalAgent, method: str, params: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    client = InProcessTargetClient(agent)
     await client.connect()
     try:
         return await client.call(method, params)

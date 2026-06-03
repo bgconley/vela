@@ -88,6 +88,48 @@ def test_cli_preview_uses_local_target_client(
     assert stderr == "WARNING: heads up\n"
 
 
+def test_cli_run_preview_uses_local_target_client(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    client_instances: list[object] = []
+
+    class HandleRefusingAgent:
+        def handle(self, method: str, _params=None):
+            raise AssertionError(f"direct CLI handle call: {method}")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "preview":
+                return {"preview": "target-preview", "warnings": ["heads up"]}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+    monkeypatch.setattr(cli_module, "LocalAgent", HandleRefusingAgent)
+    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
+
+    cli_module.run_config("agent-cfg", configs_dir=tmp_path, preview_only=True)
+
+    stdout, stderr = capsys.readouterr()
+    assert client_instances[0].calls == [
+        ("preview", {"name": "agent-cfg", "configs_dir": str(tmp_path)})
+    ]
+    assert client_instances[0].connected is False
+    assert stdout == "target-preview\n"
+    assert stderr == "WARNING: heads up\n"
+
+
 def test_cli_preview_reports_unsupported_required_flags_without_traceback(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -468,7 +510,7 @@ async def test_wait_for_tui_stopped_waits_for_target_run_id(config_dir: Path) ->
         assert await cli_module._wait_for_tui_stopped(app, timeout=0.2) is True
 
 
-def test_cli_smoke_tui_prepares_through_local_agent(
+def test_cli_smoke_tui_prepares_through_target_client(
     config_dir: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -489,35 +531,57 @@ def test_cli_smoke_tui_prepares_through_local_agent(
           port: 8125
         """,
     )
-    calls: list[tuple[str, dict[str, str]]] = []
+    client_instances: list[object] = []
     smoke_calls: list[tuple[str, Path | None]] = []
 
     class FakeAgent:
-        def handle(self, method: str, params):
-            calls.append((method, params))
-            return {
-                "config": {
-                    "name": "agent-tui",
-                    "model": "fake/model",
-                    "command": {"entrypoint": "serve", "executable": str(executable)},
-                    "server": {"host": "127.0.0.1", "port": 8125},
-                },
-                "build": {
-                    "argv": [str(executable)],
-                    "env": {},
-                    "cwd": str(tmp_path),
-                    "warnings": [],
-                    "metadata": {},
-                    "preview": "",
-                },
-                "preflight": None,
-            }
+        def handle(self, method: str, _params=None):
+            raise AssertionError(f"direct CLI handle call: {method}")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "prepare_launch":
+                return {
+                    "config": {
+                        "name": "agent-tui",
+                        "model": "fake/model",
+                        "command": {
+                            "entrypoint": "serve",
+                            "executable": str(executable),
+                        },
+                        "server": {"host": "127.0.0.1", "port": 8125},
+                    },
+                    "build": {
+                        "argv": [str(executable)],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
 
     async def fake_smoke_tui(name: str, configs_dir: Path | None) -> int:
         smoke_calls.append((name, configs_dir))
         return 0
 
     monkeypatch.setattr(cli_module, "LocalAgent", FakeAgent)
+    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
     monkeypatch.setattr(cli_module, "_smoke_tui_config_cli", fake_smoke_tui)
     monkeypatch.setattr(
         cli_module,
@@ -540,7 +604,10 @@ def test_cli_smoke_tui_prepares_through_local_agent(
         cli_module.smoke_tui_config("agent-tui", configs_dir=config_dir)
 
     assert exc_info.value.exit_code == 0
-    assert calls == [("prepare_launch", {"name": "agent-tui", "configs_dir": str(config_dir)})]
+    assert client_instances[0].calls == [
+        ("prepare_launch", {"name": "agent-tui", "configs_dir": str(config_dir)})
+    ]
+    assert client_instances[0].connected is False
     assert smoke_calls == [("agent-tui", config_dir)]
 
 
@@ -670,6 +737,8 @@ def test_cli_run_attached_launches_through_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method == "prepare_launch":
+                return self.agent.handle(method, params)
             if method == "launch":
                 return {
                     "run_id": "run-1",
@@ -723,8 +792,14 @@ def test_cli_run_attached_launches_through_target_client(
 
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
-    assert len(client_instances) == 1
+    assert len(client_instances) == 2
     assert client_instances[0].calls == [
+        (
+            "prepare_launch",
+            {"name": "agent-attached", "configs_dir": str(config_dir)},
+        )
+    ]
+    assert client_instances[1].calls == [
         (
             "launch",
             {"name": "agent-attached", "configs_dir": str(config_dir)},
@@ -732,6 +807,7 @@ def test_cli_run_attached_launches_through_target_client(
         ("wait", {"run_id": "run-1"}),
     ]
     assert client_instances[0].connected is False
+    assert client_instances[1].connected is False
     assert "INFO agent log" in captured.out
 
 
@@ -799,6 +875,8 @@ def test_cli_run_detached_launches_through_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method == "prepare_launch":
+                return self.agent.handle(method, params)
             if method == "launch":
                 return {
                     "run_id": "run-1",
@@ -893,6 +971,8 @@ def test_cli_smoke_attached_uses_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method == "prepare_launch":
+                return self.agent.handle(method, params)
             if method == "launch":
                 return {
                     "run_id": "run-1",
@@ -938,25 +1018,32 @@ def test_cli_smoke_attached_uses_target_client(
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
     assert "READY http://127.0.0.1:8123 models=served" in captured.out
-    assert len(client_instances) == 1
-    assert client_instances[0].calls[0] == (
+    assert len(client_instances) == 2
+    assert client_instances[0].calls == [
+        (
+            "prepare_launch",
+            {"name": "smoke-attached", "configs_dir": str(config_dir)},
+        )
+    ]
+    assert client_instances[1].calls[0] == (
         "launch",
         {"name": "smoke-attached", "configs_dir": str(config_dir)},
     )
     assert (
         "probe_until_ready",
         {"run_id": "run-1"},
-    ) in client_instances[0].calls
+    ) in client_instances[1].calls
     assert (
         "stop",
         {"run_id": "run-1", "interrupt_timeout": 2, "terminate_timeout": 2},
-    ) in client_instances[0].calls
+    ) in client_instances[1].calls
     assert (
         "wait",
         {"run_id": "run-1"},
-    ) in client_instances[0].calls
-    assert len(client_instances[0].calls) == 4
+    ) in client_instances[1].calls
+    assert len(client_instances[1].calls) == 4
     assert client_instances[0].connected is False
+    assert client_instances[1].connected is False
 
 
 def test_cli_smoke_detached_uses_target_client(
@@ -1033,6 +1120,8 @@ def test_cli_smoke_detached_uses_target_client(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method == "prepare_launch":
+                return self.agent.handle(method, params)
             if method == "launch":
                 return {
                     "run_id": "run-1",

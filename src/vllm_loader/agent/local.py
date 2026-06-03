@@ -39,7 +39,7 @@ from vllm_loader.engine.sidecar import (
     stop_sidecar_from_system,
     verify_sidecar_from_system,
 )
-from vllm_loader.monitoring.gpu import GpuPollResult
+from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
 from vllm_loader.monitoring.health import HealthEvent, probe_loop
 
@@ -136,6 +136,8 @@ class LocalAgent:
             return self._discover_detached(payload)
         if method == "reattach_detached":
             return self._reattach_detached(payload)
+        if method == "sample_gpus":
+            return self._sample_gpus()
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
 
     def _handshake(self) -> dict[str, Any]:
@@ -156,6 +158,7 @@ class LocalAgent:
                 "tail_detached",
                 "discover_detached",
                 "reattach_detached",
+                "sample_gpus",
                 "subscribe",
             ],
         }
@@ -508,6 +511,9 @@ class LocalAgent:
             run = self.reattach_detached_run(sidecar_path)
         return _detached_run_payload(run)
 
+    async def _sample_gpus(self) -> dict[str, Any]:
+        return _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+
     async def tail_detached_run(
         self,
         run_id: str,
@@ -776,6 +782,28 @@ def _health_payload(event: HealthEvent) -> dict[str, Any]:
         "detail": event.detail,
         "models": list(event.models or []),
         "error_kind": event.error_kind.value if event.error_kind is not None else None,
+    }
+
+
+def _gpu_poll_payload(result: GpuPollResult) -> dict[str, Any]:
+    return {
+        "samples": [_gpu_sample_payload(sample) for sample in result.samples],
+        "note": result.note,
+        "unavailable": result.unavailable,
+    }
+
+
+def _gpu_sample_payload(sample: GpuSample) -> dict[str, Any]:
+    return {
+        "visible_index": sample.visible_index,
+        "uuid": sample.uuid,
+        "name": sample.name,
+        "memory_used_mb": sample.memory_used_mb,
+        "memory_total_mb": sample.memory_total_mb,
+        "utilization_percent": sample.utilization_percent,
+        "temperature_c": sample.temperature_c,
+        "power_w": sample.power_w,
+        "mig_instance_id": sample.mig_instance_id,
     }
 
 
