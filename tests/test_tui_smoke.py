@@ -708,7 +708,7 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
 
     class StopRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
-            return run_id == "run-1"
+            raise AssertionError(f"direct attached TUI liveness check: {run_id}")
 
         def stop_run(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct attached TUI stop")
@@ -1089,7 +1089,7 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
 
     class KillRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
-            return run_id == "run-1"
+            raise AssertionError(f"direct attached TUI liveness check: {run_id}")
 
         def kill_run(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct attached TUI kill")
@@ -2311,7 +2311,7 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
 
     class StopRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
-            return run_id == "run-1"
+            raise AssertionError(f"direct reattached TUI liveness check: {run_id}")
 
         def stop_run(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct reattached TUI stop")
@@ -2382,7 +2382,7 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
 
     class KillRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
-            return run_id == "run-1"
+            raise AssertionError(f"direct reattached TUI liveness check: {run_id}")
 
         def kill_run(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct reattached TUI kill")
@@ -3274,7 +3274,7 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
 ) -> None:
     class RestartRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
-            return run_id == "run-1"
+            raise AssertionError(f"direct attached TUI liveness check: {run_id}")
 
         def stop_run(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct attached TUI restart stop")
@@ -3644,7 +3644,7 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
 ) -> None:
     class QuitStopRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
-            return run_id == "run-1"
+            raise AssertionError(f"direct attached TUI liveness check: {run_id}")
 
         def stop_run(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct attached TUI quit stop")

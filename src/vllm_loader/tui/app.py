@@ -676,9 +676,7 @@ class VllmLoaderApp(App):
         self.run_worker(self._run_selected_config(), name="load", group="engine", exclusive=True)
 
     def action_stop(self) -> None:
-        if self.reattached_run_id is not None and self._agent_run_is_alive(
-            self.reattached_run_id
-        ):
+        if self.reattached_run_id is not None:
             self.run_worker(
                 self._signal_reattached_target_run("stop"),
                 name="reattach-stop",
@@ -686,7 +684,7 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+        if self.current_run_id is not None:
             self.run_worker(
                 self._target_stop_run(
                     self.current_run_id,
@@ -724,7 +722,7 @@ class VllmLoaderApp(App):
                 )
             )
             return
-        if self.reattached_sidecar_path is not None:
+        if self._has_reattached_run():
             self.push_screen(
                 ConfirmScreen(
                     "Force kill the detached server process group?",
@@ -737,7 +735,7 @@ class VllmLoaderApp(App):
         self._set_error_text("Kill requested")
 
     def action_restart(self) -> None:
-        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+        if self.current_run_id is not None:
             run_id = self.current_run_id
             self.run_worker(
                 self._restart_attached_run(run_id),
@@ -990,7 +988,7 @@ class VllmLoaderApp(App):
         self._refresh_chrome()
 
     def confirm_stop_running(self) -> None:
-        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+        if self.current_run_id is not None:
             run_id = self.current_run_id
             self.run_worker(
                 self._exit_after_target_run_exit(run_id),
@@ -1035,9 +1033,7 @@ class VllmLoaderApp(App):
     def confirm_kill_running(self) -> None:
         if self.screen.id == "confirm":
             self.pop_screen()
-        if self.reattached_run_id is not None and self._agent_run_is_alive(
-            self.reattached_run_id
-        ):
+        if self.reattached_run_id is not None:
             self.run_worker(
                 self._signal_reattached_target_run("kill"),
                 name="reattach-kill",
@@ -1045,7 +1041,7 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+        if self.current_run_id is not None:
             self.run_worker(
                 self._target_kill_run(self.current_run_id),
                 name="kill",
@@ -1704,7 +1700,7 @@ class VllmLoaderApp(App):
         self._agent.kill_run(run_id)
 
     def _attached_run_is_alive(self) -> bool:
-        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+        if self.current_run_id is not None:
             return True
         return bool(self.current_process and self.current_process.proc.poll() is None)
 
