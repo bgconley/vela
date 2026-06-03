@@ -2255,6 +2255,60 @@ async def test_detached_tail_starts_from_loaded_log_position(
 
 
 @pytest.mark.asyncio
+async def test_tui_detached_tail_consumes_agent_events(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    sidecar_path = tmp_path / "sidecar.json"
+    log_path = tmp_path / "run.log"
+
+    class TailAgent(RecordingConfigAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.tail_calls: list[tuple[str, int | None]] = []
+
+        def is_run_alive(self, run_id: str) -> bool:
+            return False
+
+        async def tail_detached_run(
+            self, run_id: str, *, start_position, emit_event, poll_interval=0.25
+        ) -> None:
+            self.tail_calls.append((run_id, start_position))
+            emit_event(
+                SimpleNamespace(
+                    kind="log",
+                    run_id=run_id,
+                    payload={
+                        "kind": "committed",
+                        "text": "INFO Starting to load model",
+                        "level": "INFO",
+                    },
+                )
+            )
+            emit_event(
+                SimpleNamespace(
+                    kind="phase",
+                    run_id=run_id,
+                    payload={"phase": Phase.LOADING_WEIGHTS.value},
+                )
+            )
+
+    agent = TailAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.reattached_sidecar_path = sidecar_path
+        app.reattached_run_id = "run-1"
+
+        await app._tail_detached_log(log_path, sidecar_path, start_position=123)
+        await pilot.pause()
+
+        assert agent.tail_calls == [("run-1", 123)]
+        assert app.log_lines[-1] == "INFO Starting to load model"
+        assert app.phase is Phase.LOADING_WEIGHTS
+
+
+@pytest.mark.asyncio
 async def test_detached_tail_classified_error_shows_named_banner(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

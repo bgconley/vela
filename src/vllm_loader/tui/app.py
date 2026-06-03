@@ -1418,6 +1418,15 @@ class VllmLoaderApp(App):
     async def _agent_probe_run_until_ready(self, run_id: str) -> None:
         await self._agent.probe_run_until_ready(run_id, emit=self._post_health_message)
 
+    async def _agent_tail_detached_run(
+        self, run_id: str, *, start_position: int | None = None
+    ) -> None:
+        await self._agent.tail_detached_run(
+            run_id,
+            start_position=start_position,
+            emit_event=self._post_agent_event_message,
+        )
+
     def _agent_run_is_alive(self, run_id: str) -> bool:
         return bool(self._agent.is_run_alive(run_id))
 
@@ -1712,6 +1721,15 @@ class VllmLoaderApp(App):
     async def _tail_detached_log(
         self, log_path: Path, sidecar_path: Path, *, start_position: int | None = None
     ) -> None:
+        if (
+            self.reattached_sidecar_path == sidecar_path
+            and self.reattached_run_id is not None
+        ):
+            await self._agent_tail_detached_run(
+                self.reattached_run_id,
+                start_position=start_position,
+            )
+            return
         position = (
             start_position
             if start_position is not None

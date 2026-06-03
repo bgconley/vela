@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import signal
 import uuid
 from collections.abc import Callable
@@ -11,7 +12,7 @@ from vllm_loader import __version__
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
-from vllm_loader.engine.log_sink import LogRecord
+from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.process_manager import (
@@ -23,6 +24,7 @@ from vllm_loader.engine.process_manager import (
 from vllm_loader.engine.profile import (
     VllmProfileError,
     detect_vllm_version_for_config,
+    select_profile,
     select_profile_for_config,
 )
 from vllm_loader.engine.sidecar import (
@@ -76,6 +78,8 @@ class LocalDetachedRun:
     sidecar: Sidecar
     manifest: Manifest
     config: ModelConfig
+    fsm: PhaseFSM
+    intentional_shutdown: bool = False
 
 
 @dataclass(frozen=True)
@@ -245,6 +249,7 @@ class LocalAgent:
             sidecar=sidecar,
             manifest=manifest,
             config=_config_from_detached_sidecar(sidecar),
+            fsm=PhaseFSM(select_profile(sidecar.vllm_version_profile)),
         )
         self._detached_runs[run.run_id] = run
         return run
@@ -289,6 +294,7 @@ class LocalAgent:
             )
             return
         detached = self._detached_run_or_error(run_id)
+        detached.intentional_shutdown = True
         stop_sidecar_from_system(
             detached.sidecar_path,
             interrupt_timeout=interrupt_timeout,
@@ -302,6 +308,7 @@ class LocalAgent:
             run.process.kill()
             return
         detached = self._detached_run_or_error(run_id)
+        detached.intentional_shutdown = True
         signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
 
     async def wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
@@ -323,6 +330,51 @@ class LocalAgent:
             emit=emit,
             is_process_alive=lambda: self.is_run_alive(run_id),
         )
+
+    async def tail_detached_run(
+        self,
+        run_id: str,
+        *,
+        emit_event: Callable[[AgentEvent], None],
+        start_position: int | None = None,
+        poll_interval: float = 0.25,
+    ) -> None:
+        run = self._detached_run_or_error(run_id)
+        log_path = Path(run.manifest.active_log.path)
+        position = (
+            start_position
+            if start_position is not None
+            else log_path.stat().st_size
+            if log_path.exists()
+            else 0
+        )
+        pending = ""
+        while self.is_run_alive(run_id):
+            if log_path.exists():
+                with log_path.open("r", encoding="utf-8", errors="replace") as file:
+                    file.seek(position)
+                    chunk = file.read()
+                    position = file.tell()
+                if chunk:
+                    pending += chunk
+                    *lines, pending = pending.split("\n")
+                    for line in lines:
+                        if line:
+                            record = LogRecord(
+                                "committed",
+                                line,
+                                level=level_for_line(line),
+                            )
+                            for event in _events_from_log_record(
+                                run_id, run.fsm, record
+                            ):
+                                emit_event(event)
+            await asyncio.sleep(poll_interval)
+        previous_phase = run.fsm.phase
+        run.fsm.process_exited(None, intentional=run.intentional_shutdown)
+        event = _phase_event_from_transition(run_id, run.fsm, previous_phase)
+        if event is not None:
+            emit_event(event)
 
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()
@@ -360,17 +412,26 @@ def _events_from_log_record(
     ]
     previous_phase = fsm.phase
     fsm.feed_line(record.text)
-    if fsm.phase is not previous_phase:
-        payload: dict[str, Any] = {
-            "phase": fsm.phase.value,
-            "prev_phase": previous_phase.value,
-        }
-        if fsm.error_kind is not None:
-            payload["error_kind"] = fsm.error_kind.value
-        if fsm.error_excerpt is not None:
-            payload["error_excerpt"] = fsm.error_excerpt
-        events.append(AgentEvent("phase", run_id, payload))
+    phase_event = _phase_event_from_transition(run_id, fsm, previous_phase)
+    if phase_event is not None:
+        events.append(phase_event)
     return events
+
+
+def _phase_event_from_transition(
+    run_id: str, fsm: PhaseFSM, previous_phase
+) -> AgentEvent | None:
+    if fsm.phase is previous_phase:
+        return None
+    payload: dict[str, Any] = {
+        "phase": fsm.phase.value,
+        "prev_phase": previous_phase.value,
+    }
+    if fsm.error_kind is not None:
+        payload["error_kind"] = fsm.error_kind.value
+    if fsm.error_excerpt is not None:
+        payload["error_excerpt"] = fsm.error_excerpt
+    return AgentEvent("phase", run_id, payload)
 
 
 def _detached_run_alive(run: LocalDetachedRun) -> bool:
