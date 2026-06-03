@@ -965,9 +965,8 @@ class VllmLoaderApp(App):
     def confirm_stop_running(self) -> None:
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
             run_id = self.current_run_id
-            self._agent_stop_run(run_id, interrupt_timeout=2, terminate_timeout=2)
             self.run_worker(
-                self._exit_after_run_exit(run_id),
+                self._exit_after_target_run_exit(run_id),
                 name="quit-stop",
                 group="quit",
                 exclusive=True,
@@ -993,6 +992,16 @@ class VllmLoaderApp(App):
 
     async def _exit_after_run_exit(self, run_id: str) -> None:
         while self._agent_run_is_alive(run_id):
+            await asyncio.sleep(0.05)
+        self.exit()
+
+    async def _exit_after_target_run_exit(self, run_id: str) -> None:
+        await self._target_stop_run(
+            run_id,
+            interrupt_timeout=2,
+            terminate_timeout=2,
+        )
+        while self.current_run_id == run_id:
             await asyncio.sleep(0.05)
         self.exit()
 

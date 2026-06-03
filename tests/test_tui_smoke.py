@@ -3258,6 +3258,68 @@ async def test_quit_confirm_stop_waits_for_attached_process_exit(
 
 
 @pytest.mark.asyncio
+async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class QuitStopRefusingAgent(RecordingConfigAgent):
+        def is_run_alive(self, run_id: str) -> bool:
+            return run_id == "run-1"
+
+        def stop_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct attached TUI quit stop")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("quit stop should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=QuitStopRefusingAgent())
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        app.confirm_stop_running()
+        await _wait_for_condition(
+            lambda: app._target_client.calls
+            == [
+                (
+                    "stop",
+                    {
+                        "run_id": "run-1",
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            ],
+            "target client quit stop was not requested",
+        )
+
+        assert exit_calls == []
+        app.current_run_id = None
+        await _wait_for_condition(lambda: exit_calls == [True], "quit did not exit after run")
+
+
+@pytest.mark.asyncio
 async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 
