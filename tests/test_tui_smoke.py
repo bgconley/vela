@@ -2213,9 +2213,10 @@ async def test_bursty_log_output_batches_richlog_writes(config_dir: Path) -> Non
         assert app.visible_log_lines[-1] == "INFO burst line 24"
         assert len(log.lines) == baseline_lines
 
-        await pilot.pause(0.1)
-
-        assert any("INFO burst line 24" in strip.text for strip in log.lines)
+        await _wait_for_condition(
+            lambda: any("INFO burst line 24" in strip.text for strip in log.lines),
+            "batched log line was not flushed to RichLog",
+        )
 
 
 @pytest.mark.asyncio
