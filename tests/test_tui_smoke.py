@@ -14,14 +14,12 @@ from textual.screen import ModalScreen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import WorkerState
 
-from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import start_detached
-from vllm_loader.engine.sidecar import Manifest, Sidecar
 from vllm_loader.messages import (
     EngineError,
     GpuStatsUnavailable,
@@ -819,9 +817,8 @@ async def test_tui_attached_health_probe_runs_through_target_client(
 
 @pytest.mark.asyncio
 async def test_tui_detached_health_probe_runs_through_target_client(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "detached.json"
     class ProbeRefusingAgent(StopRecordingAgent):
         async def probe_run_until_ready(self, *_args, **_kwargs) -> None:
             raise AssertionError("direct reattached TUI probe")
@@ -860,10 +857,8 @@ async def test_tui_detached_health_probe_runs_through_target_client(
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.current_config is not None
-        app.reattached_sidecar_path = sidecar_path
-        app.reattached_run_id = "run-1"
 
-        await app._probe_detached_until_ready(app.current_config, sidecar_path)
+        await app._target_probe_run_until_ready("run-1")
         await pilot.pause()
 
         assert _non_discovery_target_calls(app) == [
@@ -874,36 +869,34 @@ async def test_tui_detached_health_probe_runs_through_target_client(
 
 
 @pytest.mark.asyncio
-async def test_tui_consumes_attached_run_events_from_agent(config_dir: Path) -> None:
-    class EventEmittingAgent(RecordingConfigAgent):
-        def start_attached_run(self, prepared, *, emit_event):
-            emit_event(
-                SimpleNamespace(
-                    kind="log",
-                    run_id="run-1",
-                    payload={
-                        "kind": "committed",
-                        "text": "INFO Starting to load model",
-                        "level": "INFO",
-                    },
-                )
-            )
-            emit_event(
-                SimpleNamespace(
-                    kind="phase",
-                    run_id="run-1",
-                    payload={"phase": Phase.LOADING_WEIGHTS.value},
-                )
-            )
-            return SimpleNamespace(run_id="run-1", process=SimpleNamespace(proc=None))
-
-    agent = EventEmittingAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
-
+async def test_tui_consumes_serialized_run_events(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        app._agent_start_attached_run({})
+        app._post_wire_event_message(
+            {
+                "event": "log",
+                "run_id": "run-1",
+                "kind": "committed",
+                "text": "INFO Starting to load model",
+                "level": "INFO",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+        )
+        app._post_wire_event_message(
+            {
+                "event": "phase",
+                "run_id": "run-1",
+                "phase": Phase.LOADING_WEIGHTS.value,
+                "prev_phase": Phase.IDLE.value,
+                "seq": 2,
+                "ts": "2026-06-03T00:00:01Z",
+                "mono": 2.0,
+            }
+        )
         await pilot.pause()
 
         assert app.log_lines[-1] == "INFO Starting to load model"
@@ -2431,84 +2424,42 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
 
 
 @pytest.mark.asyncio
-async def test_reattached_sidecar_liveness_uses_agent_run_id(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_target_reattach_error_shows_error_without_crashing(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "detached.json"
-
-    class AliveAgent(RecordingConfigAgent):
-        def __init__(self) -> None:
-            super().__init__()
-            self.alive_calls: list[str] = []
-
-        def is_run_alive(self, run_id: str) -> bool:
-            self.alive_calls.append(run_id)
-            return True
-
-    def refuse_local_verify(_path: Path) -> bool:
-        raise AssertionError("TUI should not verify an agent-reattached sidecar")
-
-    agent = AliveAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", refuse_local_verify)
-        app.reattached_sidecar_path = sidecar_path
-        app.reattached_run_id = "run-1"
-
-        assert app._sidecar_is_alive(sidecar_path) is True
-        assert agent.alive_calls == ["run-1"]
-
-
-@pytest.mark.asyncio
-async def test_reattach_invalid_sidecar_shows_error_without_crashing(
-    config_dir: Path, tmp_path: Path
-) -> None:
-    sidecar_path = tmp_path / "broken.json"
-    sidecar_path.write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(
+        tui_app_module,
+        "InProcessTargetClient",
+        _fake_reattach_target_client(
+            error=TargetCallError("run-not-found", "unknown detached run: run-1")
+        ),
+    )
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        app.reattach_detached_run(sidecar_path)
+        await app._reattach_target_detached_run("run-1")
 
         assert app.reattached_sidecar_path is None
         assert "Unable to reattach" in app.error_text
-        assert "broken.json" in app.error_text
+        assert "run-1" in app.error_text
+
+
+def test_tui_does_not_expose_path_based_detached_reattach() -> None:
+    assert "reattach_detached_run" not in VllmLoaderApp.__dict__
 
 
 @pytest.mark.asyncio
 async def test_reattach_health_worker_is_non_crashing_monitor(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    log_path = tmp_path / "detached.log"
-    log_path.write_text("INFO Uvicorn running on http://127.0.0.1:8000\n", encoding="utf-8")
-    manifest_path = tmp_path / "detached.manifest.json"
-    manifest = Manifest.from_active_log(log_path)
-    sidecar_path = tmp_path / "detached.json"
-    sidecar = Sidecar(
-        run_id="run-1",
-        config_name="fake-child",
-        command_argv=["vllm", "serve", "fake/model"],
-        command_hash="sha256:abc",
-        pid=123,
-        pgid=123,
-        process_create_time=1.0,
-        executable="/bin/vllm",
-        cwd=str(tmp_path),
-        launch_mode="detached",
-        host="127.0.0.1",
-        port=8000,
-        served_model_names=["fake-model"],
-        exposure="local",
-        manifest_path=str(manifest_path),
-        config_snapshot={
-            "name": "fake-child",
-            "model": "fake/model",
-            "server": {"host": "127.0.0.1", "port": 8000},
-        },
+    monkeypatch.setattr(
+        tui_app_module,
+        "InProcessTargetClient",
+        _fake_reattach_target_client(
+            _target_reattach_payload(served_model_names=["fake-model"])
+        ),
     )
     worker_calls: list[dict[str, object]] = []
 
@@ -2516,16 +2467,13 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
         worker_calls.append(kwargs)
         coro.close()
 
-    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         monkeypatch.setattr(app, "run_worker", capture_worker)
 
-        app.reattach_detached_run(sidecar_path)
+        await app._reattach_target_detached_run("run-1")
 
         health_worker = next(
             call for call in worker_calls if call["name"] == "reattach-health"
@@ -2536,49 +2484,31 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
 
 @pytest.mark.asyncio
 async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    log_path = tmp_path / "detached.log"
-    log_path.write_text("INFO Uvicorn running on http://0.0.0.0:8123\n", encoding="utf-8")
-    manifest_path = tmp_path / "detached.manifest.json"
-    manifest = Manifest.from_active_log(log_path)
-    sidecar_path = tmp_path / "detached.json"
-    sidecar = Sidecar(
-        run_id="run-1",
-        config_name="fake-child",
-        command_argv=["vllm", "serve", "fake/model"],
-        command_hash="sha256:abc",
-        pid=123,
-        pgid=123,
-        process_create_time=1.0,
-        executable="/bin/vllm",
-        cwd=str(tmp_path),
-        launch_mode="detached",
-        host="0.0.0.0",
-        port=8123,
-        served_model_names=["sidecar-model"],
-        exposure="lan",
-        manifest_path=str(manifest_path),
-        config_snapshot={
-            "name": "fake-child",
-            "model": "fake/model",
-            "server": {"host": "0.0.0.0", "port": 8123, "exposure": "lan"},
-        },
+    monkeypatch.setattr(
+        tui_app_module,
+        "InProcessTargetClient",
+        _fake_reattach_target_client(
+            _target_reattach_payload(
+                host="0.0.0.0",
+                port=8123,
+                exposure="lan",
+                served_model_names=["sidecar-model"],
+            )
+        ),
     )
 
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         monkeypatch.setattr(app, "run_worker", capture_worker)
 
-        app.reattach_detached_run(sidecar_path)
+        await app._reattach_target_detached_run("run-1")
 
         assert app.ready_url == "http://127.0.0.1:8123"
         assert app.served_models == ["sidecar-model"]
@@ -2588,7 +2518,7 @@ async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
 
 @pytest.mark.asyncio
 async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_yaml(
         config_dir / "secret-detached.yaml",
@@ -2603,48 +2533,29 @@ async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
           HF_TOKEN: registry-hf-token
         """,
     )
-    log_path = tmp_path / "detached.log"
-    log_path.write_text("INFO Uvicorn running on http://127.0.0.1:8000\n", encoding="utf-8")
-    manifest_path = tmp_path / "detached.manifest.json"
-    manifest = Manifest.from_active_log(log_path)
-    sidecar_path = tmp_path / "detached.json"
-    sidecar = Sidecar(
-        run_id="run-1",
-        config_name="secret-detached",
-        command_argv=["vllm", "serve", "snapshot/model"],
-        command_hash="sha256:abc",
-        pid=123,
-        pgid=123,
-        process_create_time=1.0,
-        executable="/bin/vllm",
-        cwd=str(tmp_path),
-        launch_mode="detached",
-        host="127.0.0.1",
-        port=8000,
-        served_model_names=["snapshot-model"],
-        exposure="local",
-        manifest_path=str(manifest_path),
-        config_snapshot={
-            "name": "secret-detached",
-            "model": "snapshot/model",
-            "server": {"host": "127.0.0.1", "port": 8000, "api_key": None},
-            "env": {},
-        },
+    monkeypatch.setattr(
+        tui_app_module,
+        "InProcessTargetClient",
+        _fake_reattach_target_client(
+            _target_reattach_payload(
+                config_name="secret-detached",
+                model="snapshot/model",
+                served_model_names=["snapshot-model"],
+                config_extra={"server": {"host": "127.0.0.1", "port": 8000}, "env": {}},
+            )
+        ),
     )
 
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         monkeypatch.setattr(app, "run_worker", capture_worker)
 
-        app.reattach_detached_run(sidecar_path)
+        await app._reattach_target_detached_run("run-1")
 
         assert app.current_config is not None
         assert app.current_config.model == "snapshot/model"
@@ -2686,7 +2597,7 @@ async def test_stop_after_detached_reattach_signals_verified_run(
     try:
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.reattach_detached_run(launch.sidecar_path)
+            await _reattach_discovered_target_run(app, launch.run_id)
             await _wait_for_phase(app, Phase.READY)
             await pilot.press("s")
             await _wait_for_port_down(port)
@@ -2769,7 +2680,7 @@ async def test_detach_after_reattach_leaves_detached_server_running(
     try:
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.reattach_detached_run(launch.sidecar_path)
+            await _reattach_discovered_target_run(app, launch.run_id)
             await _wait_for_phase(app, Phase.READY)
 
             commands = list(app.get_system_commands(app.screen))
@@ -2841,43 +2752,9 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_detached_tail_starts_from_loaded_log_position(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    log_path = tmp_path / "run.log"
-    log_path.write_text("INFO Initializing a V1 LLM engine\n", encoding="utf-8")
-    app = VllmLoaderApp(configs_dir=config_dir)
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        loaded_position = app._load_scrubbed_log_file(log_path)
-        log_path.write_text(
-            "INFO Initializing a V1 LLM engine\n"
-            "INFO Uvicorn running on http://127.0.0.1:8000\n",
-            encoding="utf-8",
-        )
-        checks = 0
-
-        def alive(_sidecar_path: Path) -> bool:
-            nonlocal checks
-            checks += 1
-            return checks < 3
-
-        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
-        await app._tail_detached_log(
-            log_path, tmp_path / "sidecar.json", start_position=loaded_position
-        )
-
-        assert any("Uvicorn running" in line for line in app.log_lines)
-
-
-@pytest.mark.asyncio
 async def test_tui_detached_tail_consumes_agent_events(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "sidecar.json"
-    log_path = tmp_path / "run.log"
-
     class TailAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
             return False
@@ -2945,10 +2822,8 @@ async def test_tui_detached_tail_consumes_agent_events(
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        app.reattached_sidecar_path = sidecar_path
-        app.reattached_run_id = "run-1"
 
-        await app._tail_detached_log(log_path, sidecar_path, start_position=123)
+        await app._target_tail_detached_run("run-1", start_position=123)
         await pilot.pause()
 
         assert _non_discovery_target_calls(app) == [
@@ -2959,59 +2834,44 @@ async def test_tui_detached_tail_consumes_agent_events(
 
 
 @pytest.mark.asyncio
-async def test_detached_tail_classified_error_shows_named_banner(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("kind", "excerpt", "guidance"),
+    [
+        (
+            ErrorKind.OOM,
+            "CUDA out of memory while profiling KV cache",
+            "gpu_memory_utilization",
+        ),
+        (ErrorKind.CRASHED, "INFO Starting to load model", "last log lines"),
+    ],
+)
+async def test_wire_phase_error_shows_named_banner(
+    config_dir: Path, kind: ErrorKind, excerpt: str, guidance: str
 ) -> None:
-    log_path = tmp_path / "run.log"
-    log_path.write_text("ERROR CUDA out of memory while profiling KV cache\n", encoding="utf-8")
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        checks = 0
-
-        def alive(_sidecar_path: Path) -> bool:
-            nonlocal checks
-            checks += 1
-            return checks < 2
-
-        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
-        await app._tail_detached_log(log_path, tmp_path / "sidecar.json", start_position=0)
-
-        assert app.phase is Phase.ERROR
-        assert app.fsm.error_kind is ErrorKind.OOM
-        assert "OOM" in app.error_text
-        assert "CUDA out of memory" in app.error_text
-        assert "gpu_memory_utilization" in app.error_text
-
-
-@pytest.mark.asyncio
-async def test_detached_tail_reports_unexpected_disappearance_before_ready(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sidecar_path = tmp_path / "sidecar.json"
-    log_path = tmp_path / "run.log"
-    log_path.write_text("INFO Starting to load model\n", encoding="utf-8")
-    app = VllmLoaderApp(configs_dir=config_dir)
-
-    async with app.run_test() as pilot:
+        app._post_wire_event_message(
+            {
+                "event": "phase",
+                "run_id": "run-1",
+                "phase": Phase.ERROR.value,
+                "prev_phase": Phase.LOADING_WEIGHTS.value,
+                "error_kind": kind.value,
+                "error_excerpt": excerpt,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+        )
         await pilot.pause()
-        app.reattached_sidecar_path = sidecar_path
-        checks = 0
-
-        def alive(path: Path) -> bool:
-            nonlocal checks
-            assert path == sidecar_path
-            checks += 1
-            return checks < 2
-
-        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
-        await app._tail_detached_log(log_path, sidecar_path, start_position=0)
 
         assert app.phase is Phase.ERROR
-        assert app.fsm.error_kind is ErrorKind.CRASHED
-        assert "CRASHED" in app.error_text
-        assert "Starting to load model" in app.error_text
+        assert app.fsm.error_kind is kind
+        assert kind.value in app.error_text
+        assert excerpt in app.error_text
+        assert guidance in app.error_text
 
 
 @pytest.mark.asyncio
@@ -3408,9 +3268,6 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
     agent = RestartRefusingAgent()
     load_calls: list[Path | None] = []
 
-    def refuse_local_liveness(path: Path) -> bool:
-        raise AssertionError(f"direct reattached TUI sidecar liveness check: {path}")
-
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
     async with app.run_test() as pilot:
@@ -3419,7 +3276,6 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
         app.reattached_sidecar_path = sidecar_path
         app.reattached_run_id = "run-1"
         app._set_phase(Phase.READY)
-        monkeypatch.setattr(app, "_sidecar_is_alive", refuse_local_liveness)
         monkeypatch.setattr(
             app,
             "action_load",
@@ -4035,6 +3891,75 @@ def _non_discovery_target_calls(app: VllmLoaderApp):
         for call in app._target_client.calls
         if call[0] != "discover_detached"
     ]
+
+
+def _fake_reattach_target_client(payload: dict | None = None, error: Exception | None = None):
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "reattach_detached":
+                if error is not None:
+                    raise error
+                assert payload is not None
+                return payload
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("reattach test should not subscribe")
+
+    return FakeTargetClient
+
+
+def _target_reattach_payload(
+    *,
+    run_id: str = "run-1",
+    config_name: str = "fake-child",
+    model: str = "fake/model",
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    exposure: str = "local",
+    served_model_names: list[str] | None = None,
+    config_extra: dict | None = None,
+) -> dict:
+    config = {
+        "name": config_name,
+        "model": model,
+        "server": {"host": host, "port": port, "exposure": exposure},
+        "launch": {"mode": "detached"},
+    }
+    if config_extra:
+        config.update(config_extra)
+    return {
+        "run_id": run_id,
+        "config": config,
+        "sidecar": {
+            "config_name": config_name,
+            "host": host,
+            "port": port,
+            "exposure": exposure,
+            "served_model_names": served_model_names or [model],
+            "launch_mode": "detached",
+            "vllm_version_profile": "current",
+        },
+        "fsm": {"vllm_version_profile": "current"},
+    }
+
+
+async def _reattach_discovered_target_run(app: VllmLoaderApp, run_id: str) -> None:
+    await app._refresh_detached_runs()
+    assert any(run["run_id"] == run_id for run in app.detached_run_summaries)
+    await app._reattach_target_detached_run(run_id)
 
 
 async def _wait_for_gpu_text(app: VllmLoaderApp, text: str) -> None:

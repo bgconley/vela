@@ -30,10 +30,6 @@ from vllm_loader.engine.profile import (
     VllmProfileError,
     bundled_profile,
 )
-from vllm_loader.engine.sidecar import (
-    Sidecar,
-    verify_sidecar_from_system,
-)
 from vllm_loader.messages import (
     EngineError,
     GpuStatsUnavailable,
@@ -771,11 +767,6 @@ class VllmLoaderApp(App):
             await asyncio.sleep(0.05)
         self.action_load()
 
-    async def _load_after_run_exit(self, run_id: str) -> None:
-        while self._agent_run_is_alive(run_id):
-            await asyncio.sleep(0.05)
-        self.action_load()
-
     async def _restart_attached_run(self, run_id: str) -> None:
         await self._target_stop_run(
             run_id,
@@ -810,18 +801,6 @@ class VllmLoaderApp(App):
         self._set_error_text(
             f"Unable to restart {sidecar_path.name}: target run id required"
         )
-
-    async def _load_after_sidecar_exit(self, sidecar_path: Path) -> None:
-        while self._sidecar_is_alive(sidecar_path):
-            await asyncio.sleep(0.05)
-        if self.reattached_sidecar_path != sidecar_path:
-            return
-        self.reattached_sidecar_path = None
-        self.reattached_run_id = None
-        self.current_process = None
-        self.current_run_id = None
-        self._set_phase(Phase.STOPPED)
-        self.action_load()
 
     def action_config_picker(self) -> None:
         self.push_screen(ConfigPickerScreen(self.registry))
@@ -1011,11 +990,6 @@ class VllmLoaderApp(App):
             await asyncio.sleep(0.05)
         self.exit()
 
-    async def _exit_after_run_exit(self, run_id: str) -> None:
-        while self._agent_run_is_alive(run_id):
-            await asyncio.sleep(0.05)
-        self.exit()
-
     async def _exit_after_target_run_exit(self, run_id: str) -> None:
         await self._target_stop_run(
             run_id,
@@ -1053,45 +1027,6 @@ class VllmLoaderApp(App):
             self._set_path_only_reattach_signal_error("kill")
             return
         self._set_error_text("Kill requested")
-
-    def reattach_detached_run(self, sidecar_path: Path) -> None:
-        try:
-            run = self._agent_reattach_detached_run(sidecar_path)
-            sidecar = run.sidecar
-            manifest = run.manifest
-        except Exception as exc:
-            self._set_error_text(f"Unable to reattach {sidecar_path.name}: {exc}")
-            return
-        log_path = Path(manifest.active_log.path)
-        if sidecar.config_snapshot:
-            self.current_config = self._config_from_sidecar_snapshot(
-                sidecar.config_name, sidecar.config_snapshot
-            )
-        else:
-            self.current_config = self.registry.by_name(sidecar.config_name)
-        self.reattached_sidecar_path = sidecar_path
-        self.reattached_run_id = run.run_id
-        self.current_process = None
-        self.current_run_id = None
-        self.fsm = _phase_fsm_from_agent_metadata(
-            {"vllm_version_profile": sidecar.vllm_version_profile}
-        )
-        self.ready_url = self._server_url_from_sidecar(sidecar)
-        self.served_models = list(sidecar.served_model_names)
-        tail_position = self._load_scrubbed_log_file(log_path)
-        self.run_worker(
-            self._probe_detached_until_ready(self.current_config, sidecar_path),
-            name="reattach-health",
-            group="health",
-            exclusive=True,
-            exit_on_error=False,
-        )
-        self.run_worker(
-            self._tail_detached_log(log_path, sidecar_path, start_position=tail_position),
-            name="reattach-tail",
-            group="tail",
-            exclusive=True,
-        )
 
     def _config_from_sidecar_snapshot(self, config_name: str, snapshot: dict) -> ModelConfig:
         snapshot_config = ModelConfig.model_validate(snapshot)
@@ -1481,26 +1416,6 @@ class VllmLoaderApp(App):
     ) -> dict[str, Any]:
         return self._agent.handle(method, params)
 
-    def _agent_start_attached_run(self, prepared: dict[str, Any]):
-        return self._agent.start_attached_run(
-            prepared,
-            emit_event=self._post_agent_event_message,
-        )
-
-    def _agent_start_detached_run(self, prepared: dict[str, Any]):
-        return self._agent.start_detached_run(prepared)
-
-    def _agent_reattach_detached_run(self, sidecar_path: Path):
-        return self._agent.reattach_detached_run(sidecar_path)
-
-    def _agent_discover_detached_runs(self):
-        return self._agent.discover_detached_runs(self._runs_dirs())
-
-    def _post_agent_event_message(self, event: AgentEvent) -> None:
-        message = _message_from_agent_event(event)
-        if message is not None:
-            self.post_message(message)
-
     async def _ensure_target_client_connected(self) -> None:
         if not getattr(self._target_client, "connected", False):
             await self._target_client.connect()
@@ -1657,40 +1572,6 @@ class VllmLoaderApp(App):
             if aclose is not None:
                 await aclose()
         return terminal_phase
-
-    async def _agent_wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
-        return await self._agent.wait_attached_run(run_id)
-
-    async def _agent_probe_run_until_ready(self, run_id: str) -> None:
-        await self._agent.probe_run_until_ready(run_id, emit=self._post_health_message)
-
-    async def _agent_tail_detached_run(
-        self, run_id: str, *, start_position: int | None = None
-    ) -> None:
-        await self._agent.tail_detached_run(
-            run_id,
-            start_position=start_position,
-            emit_event=self._post_agent_event_message,
-        )
-
-    def _agent_run_is_alive(self, run_id: str) -> bool:
-        return bool(self._agent.is_run_alive(run_id))
-
-    def _agent_stop_run(
-        self,
-        run_id: str,
-        *,
-        interrupt_timeout: float,
-        terminate_timeout: float,
-    ) -> None:
-        self._agent.stop_run(
-            run_id,
-            interrupt_timeout=interrupt_timeout,
-            terminate_timeout=terminate_timeout,
-        )
-
-    def _agent_kill_run(self, run_id: str) -> None:
-        self._agent.kill_run(run_id)
 
     def _attached_run_is_alive(self) -> bool:
         if self.current_run_id is not None:
@@ -1971,82 +1852,6 @@ class VllmLoaderApp(App):
             ),
         )
 
-    async def _probe_detached_until_ready(self, cfg: ModelConfig, sidecar_path: Path) -> None:
-        if (
-            self.reattached_sidecar_path == sidecar_path
-            and self.reattached_run_id is not None
-        ):
-            await self._target_probe_run_until_ready(self.reattached_run_id)
-            return
-        await probe_loop(
-            cfg,
-            emit=self._post_health_message,
-            is_process_alive=lambda: self._sidecar_is_alive(sidecar_path),
-        )
-
-    async def _tail_detached_log(
-        self, log_path: Path, sidecar_path: Path, *, start_position: int | None = None
-    ) -> None:
-        if (
-            self.reattached_sidecar_path == sidecar_path
-            and self.reattached_run_id is not None
-        ):
-            await self._target_tail_detached_run(
-                self.reattached_run_id,
-                start_position=start_position,
-            )
-            return
-        position = (
-            start_position
-            if start_position is not None
-            else log_path.stat().st_size
-            if log_path.exists()
-            else 0
-        )
-        pending = ""
-        while self._sidecar_is_alive(sidecar_path):
-            if log_path.exists():
-                with log_path.open("r", encoding="utf-8", errors="replace") as file:
-                    file.seek(position)
-                    chunk = file.read()
-                    position = file.tell()
-                if chunk:
-                    pending += chunk
-                    *lines, pending = pending.split("\n")
-                    for line in lines:
-                        if line:
-                            self.fsm.feed_line(line)
-                            self._set_phase(self.fsm.phase)
-                            if (
-                                self.fsm.phase is Phase.ERROR
-                                and self.fsm.error_kind is not None
-                            ):
-                                self._set_error_banner(self.fsm.error_kind)
-                            self._write_log(line, level_for_line(line))
-            await asyncio.sleep(0.25)
-        self._handle_detached_tail_ended(sidecar_path)
-
-    def _handle_detached_tail_ended(self, sidecar_path: Path) -> None:
-        if self.reattached_sidecar_path != sidecar_path:
-            return
-        if self.phase in {Phase.ERROR, Phase.STOPPED}:
-            return
-        self.fsm.process_exited(None)
-        if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
-            self._set_error_banner(self.fsm.error_kind)
-        self._set_phase(self.fsm.phase)
-
-    def _sidecar_is_alive(self, sidecar_path: Path) -> bool:
-        if (
-            self.reattached_sidecar_path == sidecar_path
-            and self.reattached_run_id is not None
-        ):
-            return self._agent_run_is_alive(self.reattached_run_id)
-        try:
-            return verify_sidecar_from_system(sidecar_path)
-        except Exception:
-            return False
-
     def _handle_health_event(self, event: HealthEvent) -> None:
         self._handle_health_changed(
             ready=event.ready,
@@ -2176,15 +1981,6 @@ class VllmLoaderApp(App):
 
     def _server_url(self, cfg: ModelConfig) -> str:
         return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
-
-    @staticmethod
-    def _server_url_from_sidecar(sidecar: Sidecar) -> str:
-        server = ServerConfig(
-            host=sidecar.host,
-            port=sidecar.port,
-            exposure=sidecar.exposure,
-        )
-        return f"http://{probe_host_for(server)}:{sidecar.port}"
 
     @staticmethod
     def _server_url_from_sidecar_payload(sidecar: dict[str, Any]) -> str:
