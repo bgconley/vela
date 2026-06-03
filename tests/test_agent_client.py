@@ -111,6 +111,33 @@ async def test_unix_socket_target_client_handshake_exposes_socket_agent() -> Non
 
 
 @pytest.mark.asyncio
+async def test_unix_socket_target_client_ping_returns_agent_timestamps() -> None:
+    from vllm_loader.agent.socket import serve_unix_socket_agent
+    from vllm_loader.transport.socket import UnixSocketTargetClient
+
+    socket_path = _short_socket_path()
+    server = await serve_unix_socket_agent(
+        LocalAgent(target_name="socket-client-local"),
+        socket_path,
+    )
+    client = UnixSocketTargetClient(socket_path, auto_start=False)
+    try:
+        await client.connect()
+
+        result = await client.call("ping")
+
+        assert result["pong"] is True
+        assert result["target"] == "socket-client-local"
+        assert isinstance(result["ts"], str)
+        assert isinstance(result["mono"], float)
+    finally:
+        await client.disconnect()
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_unix_socket_target_client_auto_starts_missing_socket_daemon() -> None:
     from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
     from vllm_loader.transport.socket import UnixSocketTargetClient
@@ -155,6 +182,38 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
 
     await client.disconnect()
     assert client.connected is False
+
+
+@pytest.mark.asyncio
+async def test_in_process_target_client_ping_returns_agent_timestamps() -> None:
+    client = InProcessTargetClient(LocalAgent(target_name="local-ping"))
+
+    await client.connect()
+    try:
+        result = await client.call("ping")
+    finally:
+        await client.disconnect()
+
+    assert result["pong"] is True
+    assert result["target"] == "local-ping"
+    assert isinstance(result["ts"], str)
+    assert isinstance(result["mono"], float)
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_ping_returns_agent_timestamps() -> None:
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    try:
+        result = await client.call("ping")
+    finally:
+        await client.disconnect()
+
+    assert result["pong"] is True
+    assert result["target"] == "local"
+    assert isinstance(result["ts"], str)
+    assert isinstance(result["mono"], float)
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,7 @@ from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loo
 PROTOCOL_VERSION = 1
 AGENT_CAPABILITIES = [
     "handshake",
+    "ping",
     "list_configs",
     "preview",
     "prepare_launch",
@@ -120,6 +121,8 @@ class LocalAgent:
         payload = params or {}
         if method == "handshake":
             return self._handshake(payload)
+        if method == "ping":
+            return self._ping()
         if method == "list_configs":
             return self._list_configs(payload)
         if method == "preview":
@@ -145,6 +148,14 @@ class LocalAgent:
         if method == "sample_gpus":
             return self._sample_gpus()
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
+
+    def _ping(self) -> dict[str, Any]:
+        return {
+            "pong": True,
+            "target": self.target_name,
+            "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "mono": time.monotonic(),
+        }
 
     def _handshake(self, params: dict[str, Any]) -> dict[str, Any]:
         controller_protocol_version = params.get("protocol_version")
