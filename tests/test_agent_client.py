@@ -94,3 +94,52 @@ async def test_local_agent_preview_reports_unknown_config(config_dir: Path) -> N
         await client.call("preview", {"name": "missing", "configs_dir": str(config_dir)})
 
     assert exc_info.value.code == "unknown-config"
+
+
+@pytest.mark.asyncio
+async def test_local_agent_prepare_launch_returns_serialized_build(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "launch.yaml",
+        """
+        name: launch
+        model: org/model
+        vllm:
+          version_profile: current
+        server:
+          port: 8017
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    result = await client.call("prepare_launch", {"name": "launch", "configs_dir": str(config_dir)})
+
+    assert result["config"]["name"] == "launch"
+    assert result["build"]["argv"][:3] == ["vllm", "serve", "org/model"]
+    assert result["build"]["env"]["PYTHONUNBUFFERED"] == "1"
+    assert result["build"]["cwd"]
+    assert result["build"]["warnings"] == []
+    assert result["preflight"] is None
+
+
+@pytest.mark.asyncio
+async def test_local_agent_prepare_launch_reports_preflight_failure(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    missing_model = tmp_path / "missing-model"
+    write_yaml(
+        config_dir / "missing.yaml",
+        f"""
+        name: missing
+        model: {missing_model}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.call("prepare_launch", {"name": "missing", "configs_dir": str(config_dir)})
+
+    assert exc_info.value.code == "preflight-failed"
+    assert exc_info.value.details["kind"] == "MODEL_NOT_FOUND"
+    assert str(missing_model) in exc_info.value.details["detail"]

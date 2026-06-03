@@ -23,14 +23,9 @@ from textual.worker import Worker, WorkerState
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
-from vllm_loader.engine.command_builder import build_command
+from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
-from vllm_loader.engine.preflight import (
-    missing_local_model_path,
-    occupied_port_detail,
-    parallel_world_size_mismatch,
-)
 from vllm_loader.engine.process_manager import AttachedProcess, start_attached, start_detached
 from vllm_loader.engine.profile import (
     VllmProfileError,
@@ -164,6 +159,24 @@ def _config_registry_from_agent_payload(payload: dict[str, Any]) -> ConfigRegist
     )
 
 
+def _command_build_result_from_agent_payload(payload: dict[str, Any]) -> CommandBuildResult:
+    return CommandBuildResult(
+        argv=list(payload["argv"]),
+        env=dict(payload["env"]),
+        cwd=Path(payload["cwd"]),
+        warnings=list(payload.get("warnings", [])),
+        metadata=dict(payload.get("metadata", {})),
+        preview=str(payload.get("preview", "")),
+    )
+
+
+def _error_kind_from_agent_payload(value: object) -> ErrorKind:
+    try:
+        return ErrorKind(str(value))
+    except ValueError:
+        return ErrorKind.CONFIG_INVALID
+
+
 OPTIONAL_MONITOR_GROUP_LABELS = {
     "gpu": "gpu",
     "gpu-initial": "gpu",
@@ -185,7 +198,6 @@ ERROR_GUIDANCE = {
 
 DEFAULT_MAX_LOG_LINES = 50_000
 DEFAULT_LOG_BATCH_INTERVAL_SECONDS = 0.025
-PORT_PREFLIGHT_GRACE_SECONDS = 2.0
 
 
 class VllmLoaderApp(App):
@@ -1381,22 +1393,13 @@ class VllmLoaderApp(App):
         self.fsm = PhaseFSM(profile)
         self._set_phase(Phase.STARTING)
         try:
-            build = build_command(cfg, profile)
-        except VllmProfileError as exc:
-            self._handle_profile_error(exc)
+            prepared = self._prepare_launch_from_agent(cfg.name)
+        except TargetCallError as exc:
+            self._handle_launch_agent_error(exc)
             return
-        missing_model_path = self._missing_local_model_path(cfg, build.cwd)
-        if missing_model_path is not None:
-            self._handle_model_not_found(missing_model_path)
-            return
-        parallel_mismatch = self._parallel_world_size_mismatch(cfg)
-        if parallel_mismatch is not None:
-            self._handle_tp_mismatch(parallel_mismatch)
-            return
-        occupied_port = await self._occupied_port_detail_after_grace(cfg)
-        if occupied_port is not None:
-            self._handle_port_in_use(occupied_port)
-            return
+        cfg = ModelConfig.model_validate(prepared["config"])
+        self.current_config = cfg
+        build = _command_build_result_from_agent_payload(prepared["build"])
         self._record_warnings(build.warnings)
         secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
         if cfg.launch.mode.value == "detached":
@@ -1474,44 +1477,24 @@ class VllmLoaderApp(App):
         self._set_error_banner(ErrorKind.CONFIG_INVALID)
         self._set_phase(self.fsm.phase)
 
-    def _missing_local_model_path(self, cfg: ModelConfig, cwd: Path) -> Path | None:
-        return missing_local_model_path(cfg, cwd=cwd)
-
-    def _handle_model_not_found(self, model_path: Path) -> None:
-        self.fsm.health_error(
-            ErrorKind.MODEL_NOT_FOUND,
-            f"Local model path not found: {model_path}",
+    def _prepare_launch_from_agent(self, name: str) -> dict[str, Any]:
+        return self._agent_handle(
+            "prepare_launch",
+            self._agent_params(name=name, configs_dir=self.configs_dir),
         )
-        self._set_error_banner(ErrorKind.MODEL_NOT_FOUND)
-        self._set_phase(self.fsm.phase)
 
-    def _parallel_world_size_mismatch(self, cfg: ModelConfig) -> str | None:
-        return parallel_world_size_mismatch(cfg)
-
-    def _handle_tp_mismatch(self, detail: str) -> None:
-        self.fsm.health_error(ErrorKind.TP_MISMATCH, detail)
-        self._set_error_banner(ErrorKind.TP_MISMATCH)
-        self._set_phase(self.fsm.phase)
-
-    def _occupied_port_detail(self, cfg: ModelConfig) -> str | None:
-        return occupied_port_detail(cfg)
-
-    async def _occupied_port_detail_after_grace(self, cfg: ModelConfig) -> str | None:
-        detail = self._occupied_port_detail(cfg)
-        if detail is None:
-            return None
-        deadline = self._clock() + PORT_PREFLIGHT_GRACE_SECONDS
-        while self._clock() < deadline:
-            await asyncio.sleep(0.05)
-            detail = self._occupied_port_detail(cfg)
-            if detail is None:
-                return None
-        return detail
-
-    def _handle_port_in_use(self, detail: str) -> None:
-        self.fsm.health_error(ErrorKind.PORT_IN_USE, detail)
-        self._set_error_banner(ErrorKind.PORT_IN_USE)
-        self._set_phase(self.fsm.phase)
+    def _handle_launch_agent_error(self, exc: TargetCallError) -> None:
+        if exc.code == "profile-error":
+            self._handle_profile_error(VllmProfileError(str(exc)))
+            return
+        if exc.code == "preflight-failed":
+            kind = _error_kind_from_agent_payload(exc.details.get("kind"))
+            detail = str(exc.details.get("detail") or exc)
+            self.fsm.health_error(kind, detail)
+            self._set_error_banner(kind)
+            self._set_phase(self.fsm.phase)
+            return
+        self._handle_profile_error(VllmProfileError(str(exc)))
 
     async def _probe_until_ready(self, cfg: ModelConfig) -> None:
         await probe_loop(

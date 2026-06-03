@@ -14,6 +14,7 @@ from textual.screen import ModalScreen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import WorkerState
 
+from vllm_loader.agent.local import TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord
@@ -76,6 +77,18 @@ class RecordingConfigAgent:
         raise AssertionError(f"unexpected method: {method}")
 
 
+class RecordingLaunchPrepareAgent(RecordingConfigAgent):
+    def handle(self, method: str, params: dict[str, str] | None = None):
+        if method == "prepare_launch":
+            self.calls.append((method, params))
+            raise TargetCallError(
+                "preflight-failed",
+                "agent-side missing model",
+                {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"},
+            )
+        return super().handle(method, params)
+
+
 @pytest.mark.asyncio
 async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
@@ -121,6 +134,24 @@ async def test_tui_select_config_refreshes_preview_through_agent(config_dir: Pat
         assert app.current_config.target == "blackbird"
         assert "vllm serve org/beta" in app.selected_config_preview
         assert agent.calls[-1] == ("preview", {"name": "beta", "configs_dir": str(config_dir)})
+
+
+@pytest.mark.asyncio
+async def test_tui_launch_preparation_runs_through_agent(config_dir: Path) -> None:
+    agent = RecordingLaunchPrepareAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+
+        assert app.phase is Phase.ERROR
+        assert app.fsm.error_kind is ErrorKind.MODEL_NOT_FOUND
+        assert "agent-side missing model" in app.error_text
+        assert agent.calls[-1] == (
+            "prepare_launch",
+            {"name": "alpha", "configs_dir": str(config_dir)},
+        )
 
 
 @pytest.mark.asyncio
