@@ -36,6 +36,7 @@ class PhaseChanged(LoaderMessage):
     phase: Phase
     error_kind: ErrorKind | None = None
     error_excerpt: str | None = None
+    agent_mono: float | None = None
 
 
 @dataclass

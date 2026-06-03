@@ -1361,6 +1361,41 @@ async def test_tui_consumes_serialized_run_events(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_wire_phase_timing_uses_agent_monotonic_clock(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir, clock=lambda: 1_000.0)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        app._post_wire_event_message(
+            {
+                "event": "phase",
+                "run_id": "run-1",
+                "phase": Phase.SERVER_STARTING.value,
+                "prev_phase": Phase.IDLE.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 10.0,
+            }
+        )
+        app._post_wire_event_message(
+            {
+                "event": "phase",
+                "run_id": "run-1",
+                "phase": Phase.LOADING_WEIGHTS.value,
+                "prev_phase": Phase.SERVER_STARTING.value,
+                "seq": 2,
+                "ts": "2026-06-03T00:00:07Z",
+                "mono": 17.0,
+            }
+        )
+        await pilot.pause()
+
+        assert app.run_started_at == 10.0
+        assert app.current_phase_started_at == 17.0
+        assert app.phase_elapsed[Phase.SERVER_STARTING] == 7.0
+
+
+@pytest.mark.asyncio
 async def test_tui_gpu_sampling_runs_through_target_client(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

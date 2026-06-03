@@ -203,6 +203,8 @@ def _error_kind_from_agent_payload(value: object) -> ErrorKind:
 
 def _message_from_agent_event(
     event: AgentEvent,
+    *,
+    agent_mono: float | None = None,
 ) -> LogLineCommitted | ProgressUpdated | PhaseChanged | None:
     payload = event.payload
     if event.kind == "log":
@@ -221,6 +223,7 @@ def _message_from_agent_event(
             Phase(str(payload["phase"])),
             error_kind=error_kind,
             error_excerpt=_optional_str(payload.get("error_excerpt")),
+            agent_mono=agent_mono,
         )
     return None
 
@@ -241,7 +244,8 @@ def _message_from_wire_event(
     }
     if kind in {"log", "progress", "phase"}:
         return _message_from_agent_event(
-            AgentEvent(kind=kind, run_id=str(event.get("run_id", "")), payload=payload)
+            AgentEvent(kind=kind, run_id=str(event.get("run_id", "")), payload=payload),
+            agent_mono=_optional_float(event.get("mono")) if kind == "phase" else None,
         )
     if kind == "health":
         error_kind = None
@@ -256,7 +260,10 @@ def _message_from_wire_event(
     if kind == "ready":
         return ServerReady([str(model) for model in payload.get("models") or []])
     if kind == "exited" and payload.get("phase") is not None:
-        return PhaseChanged(Phase(str(payload["phase"])))
+        return PhaseChanged(
+            Phase(str(payload["phase"])),
+            agent_mono=_optional_float(event.get("mono")),
+        )
     return None
 
 
@@ -264,6 +271,12 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
 
 
 OPTIONAL_MONITOR_GROUP_LABELS = {
@@ -514,7 +527,9 @@ class VllmLoaderApp(App):
         self.served_models: list[str] = []
         self.health_detail = ""
         self.run_started_at: float | None = None
+        self.run_started_uses_agent_mono = False
         self.current_phase_started_at: float | None = None
+        self.current_phase_started_uses_agent_mono = False
         self._intentional_shutdown_pids: set[int] = set()
         self.phase_elapsed: dict[Phase, float] = {}
         self.phase_history: list[Phase] = []
@@ -1047,7 +1062,7 @@ class VllmLoaderApp(App):
             self.fsm.error_excerpt = message.error_excerpt
         if message.phase is Phase.ERROR and message.error_kind is not None:
             self._set_error_banner(message.error_kind)
-        self._set_phase(message.phase)
+        self._set_phase(message.phase, agent_mono=message.agent_mono)
 
     def on_server_ready(self, message: ServerReady) -> None:
         self._handle_server_ready(message.models)
@@ -1855,10 +1870,10 @@ class VllmLoaderApp(App):
         self.fsm.health_ready(models)
         self._set_phase(self.fsm.phase)
 
-    def _set_phase(self, phase: Phase) -> None:
+    def _set_phase(self, phase: Phase, *, agent_mono: float | None = None) -> None:
         if phase in {Phase.READY, Phase.DEGRADED, Phase.ERROR, Phase.STOPPED, Phase.IDLE}:
             self._clear_progress()
-        self._track_phase_time(phase)
+        self._track_phase_time(phase, agent_mono=agent_mono)
         self.phase = phase
         self.status_text = self._render_status(phase)
         timeline = self._render_phase_timeline()
@@ -1874,19 +1889,24 @@ class VllmLoaderApp(App):
         self._refresh_sidebar_overlay()
         self._refresh_chrome()
 
-    def _track_phase_time(self, phase: Phase) -> None:
-        now = self._clock()
+    def _track_phase_time(self, phase: Phase, *, agent_mono: float | None = None) -> None:
+        now = agent_mono if agent_mono is not None else self._clock()
+        uses_agent_mono = agent_mono is not None
         if self.run_started_at is None and phase not in {Phase.IDLE, Phase.STOPPED}:
             self.run_started_at = now
+            self.run_started_uses_agent_mono = uses_agent_mono
         previous = self.phase
         if previous is not phase:
             if self.current_phase_started_at is not None:
+                elapsed_delta = 0.0
+                if self.current_phase_started_uses_agent_mono == uses_agent_mono:
+                    elapsed_delta = now - self.current_phase_started_at
                 self.phase_elapsed[previous] = (
                     self.phase_elapsed.get(previous, 0.0)
-                    + now
-                    - self.current_phase_started_at
+                    + max(0.0, elapsed_delta)
                 )
             self.current_phase_started_at = now
+            self.current_phase_started_uses_agent_mono = uses_agent_mono
             if phase not in self.phase_history:
                 self.phase_history.append(phase)
 
@@ -1960,7 +1980,7 @@ class VllmLoaderApp(App):
             text.append(f" {phase.value}", style=style if state == "upcoming" else f"bold {TEXT}")
             text.append(f" {elapsed}", style=MUTED)
         if self.run_started_at is not None:
-            overall = self._format_duration(self._clock() - self.run_started_at)
+            overall = self._format_duration(self._overall_elapsed())
             text.append(f"\nOverall {overall}", style=MUTED)
         return text
 
@@ -2002,8 +2022,17 @@ class VllmLoaderApp(App):
     def _elapsed_for(self, phase: Phase) -> float:
         elapsed = self.phase_elapsed.get(phase, 0.0)
         if phase is self.phase and self.current_phase_started_at is not None:
+            if self.current_phase_started_uses_agent_mono:
+                return elapsed
             elapsed += self._clock() - self.current_phase_started_at
         return elapsed
+
+    def _overall_elapsed(self) -> float:
+        if self.run_started_at is None:
+            return 0.0
+        if self.run_started_uses_agent_mono:
+            return sum(self.phase_elapsed.values()) + self._elapsed_for(self.phase)
+        return self._clock() - self.run_started_at
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
@@ -2020,7 +2049,9 @@ class VllmLoaderApp(App):
         self.health_detail = ""
         self.warning_lines = []
         self.run_started_at = None
+        self.run_started_uses_agent_mono = False
         self.current_phase_started_at = None
+        self.current_phase_started_uses_agent_mono = False
         self.phase_elapsed = {}
         self.phase_history = []
         self.phase_timeline_text = "Phases\n○ IDLE"
