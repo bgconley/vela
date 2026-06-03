@@ -503,6 +503,7 @@ class VllmLoaderApp(App):
         self._target_client = target_client
         self.target_connection_state = "disconnected"
         self.target_connection_detail = ""
+        self._target_has_connected_once = False
         self._target_ping_interval_seconds = target_ping_interval_seconds
         self._target_ping_timeout_seconds = target_ping_timeout_seconds
         self._clock = clock
@@ -1435,9 +1436,11 @@ class VllmLoaderApp(App):
 
     async def _ensure_target_client_connected(self) -> None:
         if not getattr(self._target_client, "connected", False):
-            self.target_connection_state = "connecting"
-            self.target_connection_detail = ""
+            self.target_connection_state = (
+                "reconnecting" if self._target_has_connected_once else "connecting"
+            )
             await self._target_client.connect()
+        self._target_has_connected_once = True
         self.target_connection_state = "connected"
         self.target_connection_detail = ""
 

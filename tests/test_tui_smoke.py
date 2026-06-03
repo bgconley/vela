@@ -340,6 +340,74 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
 
 
 @pytest.mark.asyncio
+async def test_tui_keepalive_timeout_reconnects_to_target(
+    config_dir: Path,
+) -> None:
+    reconnect_started = asyncio.Event()
+    allow_reconnect = asyncio.Event()
+
+    class ReconnectingTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.connect_calls = 0
+            self.disconnect_calls = 0
+            self.ping_calls = 0
+
+        async def connect(self) -> None:
+            self.connect_calls += 1
+            if self.connect_calls > 1:
+                reconnect_started.set()
+                await allow_reconnect.wait()
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+            self.disconnect_calls += 1
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def ping(self):
+            self.ping_calls += 1
+            if self.ping_calls == 1:
+                await asyncio.sleep(60)
+            return {
+                "pong": True,
+                "target": "local",
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive reconnect should not subscribe")
+
+    target_client = ReconnectingTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=target_client,
+        target_ping_interval_seconds=0.01,
+        target_ping_timeout_seconds=0.01,
+    )
+
+    async with app.run_test() as pilot:
+        await asyncio.wait_for(reconnect_started.wait(), timeout=5)
+        await _wait_for_target_connection_state(app, "reconnecting")
+        allow_reconnect.set()
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.pause()
+
+        assert target_client.connect_calls >= 2
+        assert target_client.disconnect_calls >= 1
+        assert app.target_connection_detail == ""
+
+
+@pytest.mark.asyncio
 async def test_tui_default_local_target_uses_target_client_factory(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
