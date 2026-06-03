@@ -193,6 +193,51 @@ def build_list(
         )
 
 
+@build_app.command("add")
+def build_add(
+    method: Annotated[str, typer.Option("--method", help="Build install method.")],
+    label: Annotated[str | None, typer.Option("--label", help="Build label.")] = None,
+    channel: Annotated[
+        str | None,
+        typer.Option("--channel", help="Nightly or wheel CUDA channel."),
+    ] = None,
+    python_version: Annotated[
+        str | None,
+        typer.Option("--python", help="Requested Python version."),
+    ] = None,
+    spec: Annotated[str | None, typer.Option("--spec", help="Pip package spec.")] = None,
+    commit: Annotated[str | None, typer.Option("--commit", help="vLLM commit sha.")] = None,
+    url: Annotated[str | None, typer.Option("--url", help="Git repository URL.")] = None,
+    ref: Annotated[str | None, typer.Option("--ref", help="Git ref.")] = None,
+    path: Annotated[Path | None, typer.Option("--path", help="Wheel or venv path.")] = None,
+    env: Annotated[
+        list[str] | None,
+        typer.Option("--env", help="Build environment override KEY=VALUE."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+) -> None:
+    client = _target_client_for_name_or_exit(target)
+    params: dict[str, Any] = {
+        "job_id": uuid.uuid4().hex,
+        "method": method,
+    }
+    for key, value in {
+        "label": label,
+        "channel": channel,
+        "python": python_version,
+        "spec": spec,
+        "commit": commit,
+        "url": url,
+        "ref": ref,
+        "path": str(path) if path is not None else None,
+    }.items():
+        if value is not None:
+            params[key] = value
+    if env:
+        params["env"] = list(env)
+    raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "create_build", params)))
+
+
 @build_app.command("select")
 def build_select(
     build: Annotated[str, typer.Argument(help="Build id or label to make active.")],
@@ -789,9 +834,9 @@ async def _echo_attached_event_stream_until_exit(events, wait_task) -> int:
 async def _run_agent_job_cli(
     client: TargetClient,
     method: str,
-    params: dict[str, str],
+    params: dict[str, Any],
 ) -> int:
-    job_id = params["job_id"]
+    job_id = str(params["job_id"])
     await client.connect()
     events = client.subscribe([job_id], resume_from="live")
     try:

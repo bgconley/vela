@@ -258,6 +258,122 @@ def test_cli_build_list_json_outputs_agent_payload(
     assert json.loads(result.output) == payload
 
 
+def test_cli_build_add_streams_job_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeUuid:
+        hex = "job-build-1"
+
+    class FakeEvents:
+        def __init__(self) -> None:
+            self._events = iter(
+                [
+                    {
+                        "event": "job_progress",
+                        "job_id": "job-build-1",
+                        "kind": "committed",
+                        "text": "Installing build",
+                        "level": "INFO",
+                    },
+                    {
+                        "event": "job_done",
+                        "job_id": "job-build-1",
+                        "ok": True,
+                        "detail": "build ready",
+                    },
+                ]
+            )
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+            self.events = FakeEvents()
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "create_build":
+                return {
+                    "job_id": params["job_id"],
+                    "kind": "create_build",
+                    "status": "running",
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((run_ids, resume_from))
+            return self.events
+
+    target_client = FakeTargetClient()
+    monkeypatch.setattr(cli_module.uuid, "uuid4", lambda: FakeUuid())
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target_name: target_client,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "add",
+            "--method",
+            "nightly",
+            "--channel",
+            "cu130",
+            "--label",
+            "nvfp4",
+            "--python",
+            "3.12",
+            "--env",
+            "TORCH_CUDA_ARCH_LIST=10.0",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert target_client.subscribe_calls == [(["job-build-1"], "live")]
+    assert target_client.calls == [
+        (
+            "create_build",
+            {
+                "job_id": "job-build-1",
+                "method": "nightly",
+                "channel": "cu130",
+                "label": "nvfp4",
+                "python": "3.12",
+                "env": ["TORCH_CUDA_ARCH_LIST=10.0"],
+            },
+        )
+    ]
+    assert target_client.events.closed is True
+    assert result.output.splitlines() == [
+        "Installing build",
+        "DONE\tjob-build-1\tbuild ready",
+    ]
+
+
 def test_cli_build_select_uses_selected_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
