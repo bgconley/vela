@@ -764,14 +764,29 @@ class LocalAgent:
             run = self._detached_run_or_error(run_id)
             active_log = run.manifest.active_log
             if active_log.inode != expected_inode:
-                raise TargetCallError(
-                    "identity-verification-failed",
-                    "active log inode does not match resume cursor",
-                    {
-                        "run_id": run_id,
-                        "expected_log_inode": expected_inode,
-                        "active_log_inode": active_log.inode,
-                    },
+                if not _manifest_has_rotated_inode(run.manifest, expected_inode):
+                    raise TargetCallError(
+                        "identity-verification-failed",
+                        "active log inode does not match resume cursor",
+                        {
+                            "run_id": run_id,
+                            "expected_log_inode": expected_inode,
+                            "active_log_inode": active_log.inode,
+                        },
+                    )
+                start_position = 0
+                events.append(
+                    self._wire_event(
+                        AgentEvent(
+                            "log",
+                            run.run_id,
+                            {
+                                "kind": "committed",
+                                "text": "[resumed after rotation]",
+                                "level": "INFO",
+                            },
+                        )
+                    )
                 )
             path = Path(active_log.path)
             if not path.exists():
@@ -1023,6 +1038,10 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _manifest_has_rotated_inode(manifest: Manifest, inode: int) -> bool:
+    return any(pointer.inode == inode for pointer in manifest.rotated)
 
 
 def _driver_version() -> str | None:

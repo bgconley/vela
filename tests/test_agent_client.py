@@ -1996,6 +1996,72 @@ async def test_target_client_replays_durable_log_events_from_offset(
 
 
 @pytest.mark.asyncio
+async def test_target_client_replays_from_new_active_log_after_rotation(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "print('INFO old active line', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "rotation-replay.yaml",
+        f"""
+        name: rotation-replay
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    agent = LocalAgent()
+    client = InProcessTargetClient(agent)
+    await client.connect()
+
+    await client.call(
+        "launch",
+        {
+            "name": "rotation-replay",
+            "configs_dir": str(config_dir),
+            "run_id": "run-rotation-replay-1",
+        },
+    )
+    await client.call("wait", {"run_id": "run-rotation-replay-1"})
+
+    old_log_path = tmp_path / "runs" / "run-rotation-replay-1.run.log"
+    old_inode = old_log_path.stat().st_ino
+    rotated_log_path = tmp_path / "runs" / "run-rotation-replay-1.run.log.1"
+    rotated_log_path.write_text("INFO new active line\n", encoding="utf-8")
+    run = agent._detached_runs["run-rotation-replay-1"]
+    run.manifest.rotate_to(rotated_log_path)
+
+    events = client.subscribe(
+        ["run-rotation-replay-1"],
+        resume_from={
+            "log_inode": old_inode,
+            "byte_offset": old_log_path.stat().st_size,
+        },
+    )
+    resumed = await asyncio.wait_for(events.__anext__(), timeout=2)
+    replayed = await asyncio.wait_for(events.__anext__(), timeout=2)
+    await events.aclose()
+
+    assert resumed["event"] == "log"
+    assert resumed["text"] == "[resumed after rotation]"
+    assert replayed["event"] == "log"
+    assert replayed["text"] == "INFO new active line"
+    assert replayed["log_inode"] == rotated_log_path.stat().st_ino
+
+
+@pytest.mark.asyncio
 async def test_target_client_kills_attached_run_by_run_id(
     config_dir: Path, tmp_path: Path
 ) -> None:
