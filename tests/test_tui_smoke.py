@@ -89,6 +89,20 @@ class RecordingLaunchPrepareAgent(RecordingConfigAgent):
         return super().handle(method, params)
 
 
+class StopRecordingAgent(RecordingConfigAgent):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stop_calls: list[tuple[str, float, float]] = []
+
+    def is_run_alive(self, run_id: str) -> bool:
+        return run_id == "run-1"
+
+    def stop_run(
+        self, run_id: str, *, interrupt_timeout: float, terminate_timeout: float
+    ) -> None:
+        self.stop_calls.append((run_id, interrupt_timeout, terminate_timeout))
+
+
 @pytest.mark.asyncio
 async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
@@ -152,6 +166,34 @@ async def test_tui_launch_preparation_runs_through_agent(config_dir: Path) -> No
             "prepare_launch",
             {"name": "alpha", "configs_dir": str(config_dir)},
         )
+
+
+@pytest.mark.asyncio
+async def test_tui_stop_attached_run_signals_agent_by_run_id(config_dir: Path) -> None:
+    class RunningProcess:
+        def __init__(self) -> None:
+            self.proc = self
+            self.stopped = False
+
+        def poll(self) -> None:
+            return None
+
+        def stop(self, *args, **kwargs) -> None:
+            self.stopped = True
+
+    agent = StopRecordingAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        fake_process = RunningProcess()
+        app.current_process = fake_process
+        app.current_run_id = "run-1"
+
+        app.action_stop()
+
+        assert agent.stop_calls == [("run-1", 2, 2)]
+        assert fake_process.stopped is False
 
 
 @pytest.mark.asyncio

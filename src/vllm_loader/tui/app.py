@@ -26,7 +26,7 @@ from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_art
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
-from vllm_loader.engine.process_manager import AttachedProcess, start_attached, start_detached
+from vllm_loader.engine.process_manager import AttachedProcess, start_detached
 from vllm_loader.engine.profile import (
     VllmProfileError,
     bundled_profile,
@@ -388,6 +388,7 @@ class VllmLoaderApp(App):
         self.fsm = PhaseFSM(bundled_profile("current"))
         self.current_config: ModelConfig | None = None
         self.current_process: AttachedProcess | None = None
+        self.current_run_id: str | None = None
         self.log_lines: list[str] = []
         self.log_records: list[tuple[str, str | None]] = []
         self.visible_log_lines: list[str] = []
@@ -579,7 +580,7 @@ class VllmLoaderApp(App):
         self.push_screen(HelpScreen(id="help"))
 
     def action_load(self) -> None:
-        if self.current_process and self.current_process.proc.poll() is None:
+        if self._attached_run_is_alive():
             self.notify("A process is already running", severity="warning")
             return
         if self.reattached_sidecar_path is not None:
@@ -593,6 +594,13 @@ class VllmLoaderApp(App):
         self.run_worker(self._run_selected_config(), name="load", group="engine", exclusive=True)
 
     def action_stop(self) -> None:
+        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+            self._agent_stop_run(
+                self.current_run_id,
+                interrupt_timeout=2,
+                terminate_timeout=2,
+            )
+            return
         if self.current_process and self.current_process.proc.poll() is None:
             self._mark_current_process_shutdown_intent()
             self.current_process.stop(interrupt_timeout=2, terminate_timeout=2)
@@ -609,7 +617,7 @@ class VllmLoaderApp(App):
         self._write_log("INFO stop requested")
 
     def action_kill(self) -> None:
-        if self.current_process and self.current_process.proc.poll() is None:
+        if self._attached_run_is_alive():
             self.push_screen(
                 ConfirmScreen(
                     "Force kill the attached server process?",
@@ -632,6 +640,16 @@ class VllmLoaderApp(App):
         self._set_error_text("Kill requested")
 
     def action_restart(self) -> None:
+        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+            run_id = self.current_run_id
+            self._agent_stop_run(run_id, interrupt_timeout=2, terminate_timeout=2)
+            self.run_worker(
+                self._load_after_run_exit(run_id),
+                name="restart",
+                group="restart",
+                exclusive=True,
+            )
+            return
         if self.current_process and self.current_process.proc.poll() is None:
             process = self.current_process
             self._mark_current_process_shutdown_intent()
@@ -659,6 +677,11 @@ class VllmLoaderApp(App):
             await asyncio.sleep(0.05)
         self.action_load()
 
+    async def _load_after_run_exit(self, run_id: str) -> None:
+        while self._agent_run_is_alive(run_id):
+            await asyncio.sleep(0.05)
+        self.action_load()
+
     async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
         try:
             await asyncio.to_thread(
@@ -681,6 +704,7 @@ class VllmLoaderApp(App):
             return
         self.reattached_sidecar_path = None
         self.current_process = None
+        self.current_run_id = None
         self._set_phase(Phase.STOPPED)
         self.action_load()
 
@@ -768,6 +792,7 @@ class VllmLoaderApp(App):
         sidecar_name = self.reattached_sidecar_path.name
         self.reattached_sidecar_path = None
         self.current_process = None
+        self.current_run_id = None
         self._write_log(f"INFO detached from {sidecar_name}; server continues running")
         self.notify("Detached from run; server continues running")
 
@@ -798,7 +823,7 @@ class VllmLoaderApp(App):
         return self._server_url(cfg)
 
     def action_quit(self) -> None:
-        if self.current_process and self.current_process.proc.poll() is None:
+        if self._attached_run_is_alive():
             self.push_screen(
                 ConfirmScreen("Attached server is still running. Stop it before quit?")
             )
@@ -815,6 +840,16 @@ class VllmLoaderApp(App):
         self._refresh_chrome()
 
     def confirm_stop_running(self) -> None:
+        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+            run_id = self.current_run_id
+            self._agent_stop_run(run_id, interrupt_timeout=2, terminate_timeout=2)
+            self.run_worker(
+                self._exit_after_run_exit(run_id),
+                name="quit-stop",
+                group="quit",
+                exclusive=True,
+            )
+            return
         if self.current_process and self.current_process.proc.poll() is None:
             process = self.current_process
             self._mark_current_process_shutdown_intent()
@@ -833,9 +868,17 @@ class VllmLoaderApp(App):
             await asyncio.sleep(0.05)
         self.exit()
 
+    async def _exit_after_run_exit(self, run_id: str) -> None:
+        while self._agent_run_is_alive(run_id):
+            await asyncio.sleep(0.05)
+        self.exit()
+
     def confirm_kill_running(self) -> None:
         if self.screen.id == "confirm":
             self.pop_screen()
+        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+            self._agent_kill_run(self.current_run_id)
+            return
         if self.current_process and self.current_process.proc.poll() is None:
             self._mark_current_process_shutdown_intent()
             self.current_process.kill()
@@ -865,6 +908,7 @@ class VllmLoaderApp(App):
             self.current_config = self.registry.by_name(sidecar.config_name)
         self.reattached_sidecar_path = sidecar_path
         self.current_process = None
+        self.current_run_id = None
         self.fsm = PhaseFSM(select_profile(sidecar.vllm_version_profile))
         self.ready_url = self._server_url_from_sidecar(sidecar)
         self.served_models = list(sidecar.served_model_names)
@@ -1255,6 +1299,39 @@ class VllmLoaderApp(App):
     ) -> dict[str, Any]:
         return self._agent.handle(method, params)
 
+    def _agent_start_attached_run(self, prepared: dict[str, Any]):
+        return self._agent.start_attached_run(
+            prepared,
+            emit=self._post_log_record_message,
+        )
+
+    async def _agent_wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
+        return await self._agent.wait_attached_run(run_id)
+
+    def _agent_run_is_alive(self, run_id: str) -> bool:
+        return bool(self._agent.is_run_alive(run_id))
+
+    def _agent_stop_run(
+        self,
+        run_id: str,
+        *,
+        interrupt_timeout: float,
+        terminate_timeout: float,
+    ) -> None:
+        self._agent.stop_run(
+            run_id,
+            interrupt_timeout=interrupt_timeout,
+            terminate_timeout=terminate_timeout,
+        )
+
+    def _agent_kill_run(self, run_id: str) -> None:
+        self._agent.kill_run(run_id)
+
+    def _attached_run_is_alive(self) -> bool:
+        if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
+            return True
+        return bool(self.current_process and self.current_process.proc.poll() is None)
+
     def _refresh_dashboard_shell(self) -> None:
         self._refresh_chrome()
         self._refresh_log_controls()
@@ -1418,25 +1495,24 @@ class VllmLoaderApp(App):
                 return
             self.reattach_detached_run(launch.sidecar_path)
             return
-        run_dir = cfg.run_artifacts_dir
-        run_dir.mkdir(parents=True, exist_ok=True)
         try:
-            attached_process = start_attached(
-                build,
-                log_path=run_dir / f"{cfg.name}.run.log",
-                secrets=secrets,
-                emit=self._post_log_record_message,
-            )
-        except FileNotFoundError as exc:
-            self._handle_command_not_found(exc, build.argv[0])
+            attached_run = self._agent_start_attached_run(prepared)
+        except TargetCallError as exc:
+            self._handle_attached_start_agent_error(exc, build.argv[0])
             return
+        attached_process = attached_run.process
+        self.current_run_id = attached_run.run_id
         self.current_process = attached_process
         health_task = asyncio.create_task(self._probe_until_ready(cfg))
-        returncode = await attached_process.read_loop()
+        returncode, intentional = await self._agent_wait_attached_run(attached_run.run_id)
         health_task.cancel()
-        if self.current_process is not attached_process:
+        if (
+            self.current_run_id != attached_run.run_id
+            and self.current_process is not attached_process
+        ):
             return
-        if self._consume_intentional_shutdown(attached_process):
+        self.current_run_id = None
+        if intentional or self._consume_intentional_shutdown(attached_process):
             self.fsm.process_exited(0, intentional=True)
             self._set_error_text("")
         else:
@@ -1495,6 +1571,15 @@ class VllmLoaderApp(App):
             self._set_phase(self.fsm.phase)
             return
         self._handle_profile_error(VllmProfileError(str(exc)))
+
+    def _handle_attached_start_agent_error(
+        self, exc: TargetCallError, fallback_command: str
+    ) -> None:
+        if exc.code == "command-not-found":
+            command = str(exc.details.get("command") or fallback_command)
+            self._handle_command_not_found(FileNotFoundError(command), fallback_command)
+            return
+        self._handle_launch_agent_error(exc)
 
     async def _probe_until_ready(self, cfg: ModelConfig) -> None:
         await probe_loop(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -143,3 +144,67 @@ async def test_local_agent_prepare_launch_reports_preflight_failure(
     assert exc_info.value.code == "preflight-failed"
     assert exc_info.value.details["kind"] == "MODEL_NOT_FOUND"
     assert str(missing_model) in exc_info.value.details["detail"]
+
+
+@pytest.mark.asyncio
+async def test_local_agent_starts_and_stops_attached_run_by_run_id(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    marker = tmp_path / "marker.txt"
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import signal",
+                "import time",
+                "from pathlib import Path",
+                f"marker = Path({str(marker)!r})",
+                "marker.write_text('started', encoding='utf-8')",
+                "def stop(signum, frame):",
+                "    marker.write_text('stopped', encoding='utf-8')",
+                "    raise SystemExit(0)",
+                "signal.signal(signal.SIGINT, stop)",
+                "while True:",
+                "    time.sleep(0.05)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "attached.yaml",
+        f"""
+        name: attached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    agent = LocalAgent()
+    prepared = agent.handle("prepare_launch", {"name": "attached", "configs_dir": str(config_dir)})
+
+    run = agent.start_attached_run(prepared)
+    try:
+        for _ in range(100):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.01)
+
+        assert marker.read_text(encoding="utf-8") == "started"
+        assert agent.is_run_alive(run.run_id) is True
+
+        agent.stop_run(run.run_id, interrupt_timeout=1, terminate_timeout=1)
+        returncode, intentional = await agent.wait_attached_run(run.run_id)
+
+        assert intentional is True
+        assert returncode == 0
+        assert marker.read_text(encoding="utf-8") == "stopped"
+        assert agent.is_run_alive(run.run_id) is False
+    finally:
+        if agent.is_run_alive(run.run_id):
+            agent.kill_run(run.run_id)
+            await agent.wait_attached_run(run.run_id)
