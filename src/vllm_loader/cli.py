@@ -399,9 +399,9 @@ async def _run_attached_cli(
         events = client.subscribe([run_id], resume_from="live")
         try:
             return await _echo_attached_event_stream_until_exit(events, wait_task)
-        except KeyboardInterrupt:
-            await client.call("stop", {"run_id": run_id})
-            result = await wait_task
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            await asyncio.shield(client.call("stop", {"run_id": run_id}))
+            result = await asyncio.shield(wait_task)
             return int(result.get("returncode") or 0)
         finally:
             await events.aclose()

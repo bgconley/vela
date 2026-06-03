@@ -67,11 +67,6 @@ def run_supervisor(
     sink, durable_log_available = _open_log_sink(log_path, secrets)
     manifest_path = Path(payload["manifest_path"]) if payload is not None else None
     manifest: Manifest | None = None
-    if payload is not None and durable_log_available:
-        try:
-            manifest = _write_run_artifacts(payload, child, log_path)
-        except Exception:
-            manifest = None
     rotate_bytes = _log_rotate_bytes(payload)
     rotation_index = 0
 
@@ -112,8 +107,15 @@ def run_supervisor(
 
     thread = threading.Thread(target=drain, daemon=True)
     thread.start()
+    if payload is not None and durable_log_available:
+        try:
+            manifest = _write_run_artifacts(payload, child, log_path)
+        except Exception:
+            manifest = None
     returncode = child.wait()
     thread.join(timeout=5)
+    if payload is not None:
+        _write_exit_status(payload, returncode)
     return returncode
 
 
@@ -165,6 +167,8 @@ def _write_run_artifacts(
     supervisor_proc = psutil.Process(os.getpid())
     secrets = [secret for secret in payload.get("secrets", []) if secret]
     actual_cmdline = _wait_for_actual_cmdline(child_proc, payload["argv"])
+    child_create_time = _safe_create_time(child_proc, fallback=0.0)
+    child_pgid = _safe_pgid(child.pid, fallback=child.pid)
     sidecar = Sidecar(
         run_id=payload["run_id"],
         config_name=payload["config_name"],
@@ -176,11 +180,11 @@ def _write_run_artifacts(
         executable=_safe_exe(child_proc, fallback=payload["argv"][0]),
         cwd=payload.get("cwd") or os.getcwd(),
         pid=child.pid,
-        pgid=os.getpgid(child.pid),
-        process_create_time=child_proc.create_time(),
+        pgid=child_pgid,
+        process_create_time=child_create_time,
         procfs_starttime=procfs_starttime_from_pid(child.pid),
         supervisor_pid=os.getpid(),
-        supervisor_create_time=supervisor_proc.create_time(),
+        supervisor_create_time=_safe_create_time(supervisor_proc, fallback=0.0),
         supervisor_procfs_starttime=procfs_starttime_from_pid(os.getpid()),
         supervisor_executable=_safe_exe(supervisor_proc, fallback=sys.executable),
         host=payload["host"],
@@ -244,9 +248,45 @@ def _prepare_private_log(path: Path) -> None:
         os.close(fd)
 
 
+def _write_exit_status(payload: dict, returncode: int) -> None:
+    path_value = payload.get("exit_status_path")
+    if path_value is None:
+        return
+    path = Path(path_value)
+    body = json.dumps(
+        {
+            "run_id": payload.get("run_id"),
+            "returncode": returncode,
+            "exited_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+        indent=2,
+    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(body)
+    except OSError:
+        return
+
+
 def _safe_exe(proc: psutil.Process, *, fallback: str) -> str:
     try:
         return proc.exe()
+    except Exception:
+        return fallback
+
+
+def _safe_create_time(proc: psutil.Process, *, fallback: float) -> float:
+    try:
+        return proc.create_time()
+    except Exception:
+        return fallback
+
+
+def _safe_pgid(pid: int, *, fallback: int) -> int:
+    try:
+        return os.getpgid(pid)
     except Exception:
         return fallback
 

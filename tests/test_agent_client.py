@@ -130,7 +130,7 @@ def test_local_agent_lifecycle_boundary_is_handle_and_subscribe_only() -> None:
 
 def test_local_agent_lifecycle_helpers_do_not_accept_controller_callbacks() -> None:
     lifecycle_helpers = [
-        LocalAgent._spawn_attached_process,
+        LocalAgent._spawn_detached_supervisor,
         LocalAgent._tail_detached_log_to_events,
     ]
 
@@ -628,6 +628,7 @@ async def test_local_agent_emits_attached_log_and_phase_events(
           runs_dir: {tmp_path / "runs"}
         """,
     )
+    assert not hasattr(local_agent_module, "start_attached")
     client = InProcessTargetClient(LocalAgent())
     await client.connect()
     try:
@@ -687,6 +688,30 @@ async def test_local_agent_starts_detached_run_from_prepared_launch(
         seen["secrets"] = kwargs["secrets"]
         seen["vllm_version"] = kwargs["vllm_version"]
         seen["vllm_version_profile"] = kwargs["vllm_version_profile"]
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("", encoding="utf-8")
+        Manifest.from_active_log(log_path).write_atomic(manifest_path)
+        Sidecar(
+            run_id="run-1",
+            config_name=cfg.name,
+            command_argv=list(build.argv),
+            command_hash="sha256:abc",
+            pid=123,
+            pgid=123,
+            process_create_time=1.0,
+            executable=str(build.argv[0]),
+            cwd=str(build.cwd),
+            launch_mode=cfg.launch.mode.value,
+            host=cfg.server.host,
+            port=cfg.server.port,
+            served_model_names=[cfg.served_model_name]
+            if cfg.served_model_name
+            else [],
+            exposure=cfg.server.exposure.value,
+            manifest_path=str(manifest_path),
+            config_snapshot=cfg.model_dump(mode="json"),
+            vllm_version_profile=kwargs["vllm_version_profile"],
+        ).write_atomic(sidecar_path)
         return DetachedLaunch(
             run_id="run-1",
             supervisor_pid=123,
@@ -816,15 +841,41 @@ async def test_target_client_detached_launch_is_idempotent_by_requested_run_id(
     )
     starts: list[str | None] = []
 
-    def fake_start_detached(*_args, run_id=None, **_kwargs) -> DetachedLaunch:
+    def fake_start_detached(cfg, build, *_, run_id=None, **_kwargs) -> DetachedLaunch:
         starts.append(run_id)
         actual_run_id = str(run_id or "generated")
+        log_path = tmp_path / "runs" / f"{actual_run_id}.run.log"
+        manifest_path = tmp_path / "runs" / f"{actual_run_id}.manifest.json"
+        sidecar_path = tmp_path / "runs" / f"{actual_run_id}.json"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("", encoding="utf-8")
+        Manifest.from_active_log(log_path).write_atomic(manifest_path)
+        Sidecar(
+            run_id=actual_run_id,
+            config_name=cfg.name,
+            command_argv=list(build.argv),
+            command_hash="sha256:abc",
+            pid=123,
+            pgid=123,
+            process_create_time=1.0,
+            executable=str(build.argv[0]),
+            cwd=str(build.cwd),
+            launch_mode=cfg.launch.mode.value,
+            host=cfg.server.host,
+            port=cfg.server.port,
+            served_model_names=[cfg.served_model_name]
+            if cfg.served_model_name
+            else [],
+            exposure=cfg.server.exposure.value,
+            manifest_path=str(manifest_path),
+            config_snapshot=cfg.model_dump(mode="json"),
+        ).write_atomic(sidecar_path)
         return DetachedLaunch(
             run_id=actual_run_id,
             supervisor_pid=123,
-            sidecar_path=tmp_path / "runs" / f"{actual_run_id}.json",
-            manifest_path=tmp_path / "runs" / f"{actual_run_id}.manifest.json",
-            log_path=tmp_path / "runs" / f"{actual_run_id}.run.log",
+            sidecar_path=sidecar_path,
+            manifest_path=manifest_path,
+            log_path=log_path,
         )
 
     monkeypatch.setattr(local_agent_module, "start_detached", fake_start_detached)

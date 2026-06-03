@@ -3432,8 +3432,6 @@ async def test_attached_tui_launch_uses_configured_runs_dir_for_durable_log(
         """,
     )
     app = VllmLoaderApp(configs_dir=config_dir)
-    durable_log = runs_dir / "fake-runs.run.log"
-
     try:
         async with app.run_test() as pilot:
             await pilot.press("l")
@@ -3444,6 +3442,9 @@ async def test_attached_tui_launch_uses_configured_runs_dir_for_durable_log(
     finally:
         await _cleanup_port(port)
 
+    durable_logs = list(runs_dir.glob("*.run.log"))
+    assert len(durable_logs) == 1
+    durable_log = durable_logs[0]
     assert durable_log.exists()
     assert "Uvicorn running" in durable_log.read_text(encoding="utf-8")
     assert "checkpoint shards" not in durable_log.read_text(encoding="utf-8")

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import platform
 import signal
 import time
-import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -20,9 +20,7 @@ from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.process_manager import (
-    AttachedProcess,
     DetachedLaunch,
-    start_attached,
     start_detached,
 )
 from vllm_loader.engine.profile import (
@@ -82,16 +80,6 @@ class AgentEvent:
 
 
 @dataclass
-class LocalAttachedRun:
-    run_id: str
-    config: ModelConfig
-    build: CommandBuildResult
-    process: AttachedProcess
-    fsm: PhaseFSM
-    intentional_shutdown: bool = False
-
-
-@dataclass
 class LocalDetachedRun:
     run_id: str
     sidecar_path: Path
@@ -118,7 +106,6 @@ class LocalAgent:
     ) -> None:
         self.target_name = target_name
         self._gpu_sampler = gpu_sampler
-        self._attached_runs: dict[str, LocalAttachedRun] = {}
         self._detached_runs: dict[str, LocalDetachedRun] = {}
         self._detached_sidecar_paths: dict[str, Path] = {}
         self._event_sequences: dict[str, int] = {}
@@ -255,39 +242,27 @@ class LocalAgent:
         cfg = ModelConfig.model_validate(prepared["config"])
         requested_run_id = params.get("run_id")
         run_id = str(requested_run_id) if requested_run_id is not None else None
-        if run_id is not None and run_id in self._attached_runs:
+        requested_launch_mode = cfg.launch.mode.value
+        if run_id is not None and (
+            run_id in self._detached_runs or run_id in self._detached_sidecar_paths
+        ):
             return {
                 "run_id": run_id,
-                "launch_mode": "attached",
+                "launch_mode": requested_launch_mode,
                 "status": "already-running",
             }
-        if cfg.launch.mode.value == "detached":
-            if run_id is not None and (
-                run_id in self._detached_runs
-                or run_id in self._detached_sidecar_paths
-            ):
-                return {
-                    "run_id": run_id,
-                    "launch_mode": "detached",
-                    "status": "already-running",
-                }
-            launch = self._spawn_detached_supervisor(prepared, run_id=run_id)
-            self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
-            return {
-                "run_id": launch.run_id,
-                "launch_mode": "detached",
-                "status": "started",
-            }
-        run = self._spawn_attached_process(prepared, run_id=run_id)
+        launch = self._spawn_detached_supervisor(prepared, run_id=run_id)
+        self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
+        self._load_detached_run(launch.sidecar_path, verify=False)
         return {
-            "run_id": run.run_id,
-            "launch_mode": "attached",
+            "run_id": launch.run_id,
+            "launch_mode": requested_launch_mode,
             "status": "started",
         }
 
     async def _wait(self, params: dict[str, Any]) -> dict[str, Any]:
         run_id = _run_id_param(params)
-        return await self._await_attached_exit_payload(run_id)
+        return await self._await_run_exit_payload(run_id)
 
     def _stop(self, params: dict[str, Any]) -> dict[str, Any]:
         run_id = _run_id_param(params)
@@ -335,52 +310,6 @@ class LocalAgent:
             completed_task.cancel()
         return {"run_id": run_id, **last_event}
 
-    def _spawn_attached_process(
-        self,
-        prepared: dict[str, Any],
-        *,
-        run_id: str | None = None,
-    ) -> LocalAttachedRun:
-        cfg = ModelConfig.model_validate(prepared["config"])
-        build = _build_result_from_payload(prepared["build"])
-        run_id = run_id or uuid.uuid4().hex
-        existing = self._attached_runs.get(run_id)
-        if existing is not None:
-            return existing
-        fsm = PhaseFSM(select_profile_for_config(cfg))
-        run_dir = cfg.run_artifacts_dir
-        run_dir.mkdir(parents=True, exist_ok=True)
-        secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
-
-        def emit_record(record: LogRecord) -> None:
-            events = _events_from_log_record(run_id, fsm, record)
-            for event in events:
-                self._publish_event(event)
-
-        try:
-            process = start_attached(
-                build,
-                log_path=run_dir / f"{cfg.name}.run.log",
-                secrets=secrets,
-                emit=emit_record,
-            )
-        except FileNotFoundError as exc:
-            command = str(exc.filename or build.argv[0])
-            raise TargetCallError(
-                "command-not-found",
-                f"Command not found: {command}",
-                {"command": command, "fallback": build.argv[0]},
-            ) from exc
-        run = LocalAttachedRun(
-            run_id=run_id,
-            config=cfg,
-            build=build,
-            process=process,
-            fsm=fsm,
-        )
-        self._attached_runs[run.run_id] = run
-        return run
-
     def _spawn_detached_supervisor(
         self, prepared: dict[str, Any], *, run_id: str | None = None
     ) -> DetachedLaunch:
@@ -407,9 +336,12 @@ class LocalAgent:
                 {"command": command, "fallback": build.argv[0]},
             ) from exc
 
-    def _load_verified_detached_run(self, sidecar_path: Path | str) -> LocalDetachedRun:
+    def _load_detached_run(
+        self, sidecar_path: Path | str, *, verify: bool
+    ) -> LocalDetachedRun:
         path = Path(sidecar_path)
-        verify_sidecar_from_system(path)
+        if verify:
+            verify_sidecar_from_system(path)
         sidecar = load_sidecar(path)
         manifest = load_manifest(sidecar.manifest_path)
         run = LocalDetachedRun(
@@ -423,6 +355,9 @@ class LocalAgent:
         self._detached_runs[run.run_id] = run
         self._detached_sidecar_paths[run.run_id] = path
         return run
+
+    def _load_verified_detached_run(self, sidecar_path: Path | str) -> LocalDetachedRun:
+        return self._load_detached_run(sidecar_path, verify=True)
 
     def _discover_detached_sidecars(
         self, runs_dirs: list[Path | str]
@@ -441,9 +376,6 @@ class LocalAgent:
         return summaries
 
     def is_run_alive(self, run_id: str) -> bool:
-        run = self._attached_runs.get(run_id)
-        if run is not None:
-            return run.process.proc.poll() is None
         detached = self._detached_runs.get(run_id)
         if detached is not None:
             return _detached_run_alive(detached)
@@ -456,14 +388,6 @@ class LocalAgent:
         interrupt_timeout: float = 5,
         terminate_timeout: float = 5,
     ) -> None:
-        run = self._attached_runs.get(run_id)
-        if run is not None:
-            run.intentional_shutdown = True
-            run.process.stop(
-                interrupt_timeout=interrupt_timeout,
-                terminate_timeout=terminate_timeout,
-            )
-            return
         detached = self._detached_run_or_error(run_id)
         detached.intentional_shutdown = True
         stop_sidecar_from_system(
@@ -473,40 +397,21 @@ class LocalAgent:
         )
 
     def _request_kill_signal(self, run_id: str) -> None:
-        run = self._attached_runs.get(run_id)
-        if run is not None:
-            run.intentional_shutdown = True
-            run.process.kill()
-            return
         detached = self._detached_run_or_error(run_id)
         detached.intentional_shutdown = True
         signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
 
-    async def _await_attached_exit_payload(self, run_id: str) -> dict[str, Any]:
-        run = self._attached_run_or_error(run_id)
-        returncode = await run.process.read_loop()
-        intentional = run.intentional_shutdown
-        previous_phase = run.fsm.phase
-        run.fsm.process_exited(returncode, intentional=intentional)
-        phase_event = _phase_event_from_transition(run_id, run.fsm, previous_phase)
-        if phase_event is not None:
-            self._publish_event(phase_event)
-        self._publish_event(
-            AgentEvent(
-                "exited",
-                run_id,
-                {
-                    "returncode": returncode,
-                    "intentional": intentional,
-                    "phase": run.fsm.phase.value,
-                },
-            )
+    async def _await_run_exit_payload(self, run_id: str) -> dict[str, Any]:
+        run = self._detached_run_or_error(run_id)
+        exit_payload = await self._tail_detached_log_to_events(
+            run_id,
+            start_position=0,
+            wait_for_exit_status=True,
         )
-        self._attached_runs.pop(run_id, None)
         return {
             "run_id": run_id,
-            "returncode": returncode,
-            "intentional": intentional,
+            "returncode": exit_payload["returncode"],
+            "intentional": run.intentional_shutdown,
         }
 
     async def _tail_detached(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -550,7 +455,8 @@ class LocalAgent:
         *,
         start_position: int | None = None,
         poll_interval: float = 0.25,
-    ) -> None:
+        wait_for_exit_status: bool = False,
+    ) -> dict[str, Any]:
         run = self._detached_run_or_error(run_id)
         log_path = Path(run.manifest.active_log.path)
         position = (
@@ -561,7 +467,7 @@ class LocalAgent:
             else 0
         )
         pending = ""
-        while self.is_run_alive(run_id):
+        while True:
             if log_path.exists():
                 with log_path.open("r", encoding="utf-8", errors="replace") as file:
                     file.seek(position)
@@ -581,9 +487,16 @@ class LocalAgent:
                                 run_id, run.fsm, record
                             ):
                                 self._publish_event(event)
+            if not self.is_run_alive(run_id):
+                break
             await asyncio.sleep(poll_interval)
+        returncode = (
+            await _wait_detached_returncode(run)
+            if wait_for_exit_status
+            else _read_detached_returncode(run)
+        )
         previous_phase = run.fsm.phase
-        run.fsm.process_exited(None, intentional=run.intentional_shutdown)
+        run.fsm.process_exited(returncode, intentional=run.intentional_shutdown)
         event = _phase_event_from_transition(run_id, run.fsm, previous_phase)
         if event is not None:
             self._publish_event(event)
@@ -592,17 +505,23 @@ class LocalAgent:
                 "exited",
                 run_id,
                 {
-                    "returncode": None,
+                    "returncode": returncode,
                     "intentional": run.intentional_shutdown,
                     "phase": run.fsm.phase.value,
                 },
             )
         )
+        return {
+            "run_id": run_id,
+            "returncode": returncode,
+            "intentional": run.intentional_shutdown,
+            "phase": run.fsm.phase.value,
+        }
 
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()
 
-    async def subscribe(
+    def subscribe(
         self,
         run_ids: list[str] | tuple[str, ...] | set[str],
         *,
@@ -612,24 +531,22 @@ class LocalAgent:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         for run_id in selected_run_ids:
             self._subscribers.setdefault(run_id, []).append(queue)
-        try:
-            for event in self._replay_events(selected_run_ids, resume_from):
-                yield event
-            while True:
-                yield await queue.get()
-        finally:
-            for run_id in selected_run_ids:
-                queues = self._subscribers.get(run_id, [])
-                if queue in queues:
-                    queues.remove(queue)
-                if not queues:
-                    self._subscribers.pop(run_id, None)
 
-    def _attached_run_or_error(self, run_id: str) -> LocalAttachedRun:
-        run = self._attached_runs.get(run_id)
-        if run is None:
-            raise TargetCallError("run-not-found", f"unknown run: {run_id}")
-        return run
+        async def iterator() -> AsyncIterator[dict[str, Any]]:
+            try:
+                for event in self._replay_events(selected_run_ids, resume_from):
+                    yield event
+                while True:
+                    yield await queue.get()
+            finally:
+                for run_id in selected_run_ids:
+                    queues = self._subscribers.get(run_id, [])
+                    if queue in queues:
+                        queues.remove(queue)
+                    if not queues:
+                        self._subscribers.pop(run_id, None)
+
+        return iterator()
 
     def _detached_run_or_error(self, run_id: str) -> LocalDetachedRun:
         run = self._detached_runs.get(run_id)
@@ -638,9 +555,6 @@ class LocalAgent:
         return run
 
     def _run_config_and_fsm_or_error(self, run_id: str) -> tuple[ModelConfig, PhaseFSM]:
-        attached = self._attached_runs.get(run_id)
-        if attached is not None:
-            return attached.config, attached.fsm
         detached = self._detached_run_or_error(run_id)
         return detached.config, detached.fsm
 
@@ -763,6 +677,38 @@ def _detached_run_alive(run: LocalDetachedRun) -> bool:
         return verify_sidecar_from_system(run.sidecar_path)
     except Exception:
         return False
+
+
+async def _wait_detached_returncode(
+    run: LocalDetachedRun, *, timeout: float = 5.0
+) -> int | None:
+    deadline = time.monotonic() + timeout
+    while True:
+        returncode = _read_detached_returncode(run)
+        if returncode is not None:
+            return returncode
+        if time.monotonic() >= deadline:
+            return None
+        await asyncio.sleep(0.05)
+
+
+def _read_detached_returncode(run: LocalDetachedRun) -> int | None:
+    path = _detached_exit_status_path(run.sidecar_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = payload.get("returncode")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _detached_exit_status_path(sidecar_path: Path) -> Path:
+    return sidecar_path.with_suffix(".exit-status")
 
 
 def _config_from_detached_sidecar(sidecar: Sidecar) -> ModelConfig:
