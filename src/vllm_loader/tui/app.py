@@ -908,7 +908,58 @@ class VllmLoaderApp(App):
         except TargetCallError as exc:
             self._set_error_text(f"Unable to list models: {exc}", style=f"bold {BAD}")
             return
-        self.push_screen(ModelManagerScreen(result))
+        self.push_screen(
+            ModelManagerScreen(result),
+            callback=self._handle_model_manager_selection,
+        )
+
+    def _handle_model_manager_selection(self, selection: object) -> None:
+        if not isinstance(selection, dict):
+            return
+        if selection.get("action") != "download":
+            return
+        model_ref = _optional_str(selection.get("model_ref"))
+        if model_ref is None:
+            return
+        self.run_worker(
+            self._download_model(model_ref),
+            name="model-download",
+            group="model-download",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _download_model(self, model_ref: str) -> None:
+        job_id = uuid.uuid4().hex
+        params = {"job_id": job_id, "model_ref": model_ref}
+        await self._ensure_target_client_connected()
+        events = self._target_client.subscribe([job_id], resume_from="live")
+        try:
+            try:
+                await self._target_client.call("download_model", params)
+            except TargetCallError as exc:
+                self._set_error_text(f"Unable to download model: {exc}", style=f"bold {BAD}")
+                return
+            await self._consume_target_job_events_until_done(job_id, events)
+        finally:
+            aclose = getattr(events, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    async def _consume_target_job_events_until_done(self, job_id: str, events) -> None:
+        async for event in events:
+            if event.get("job_id") != job_id:
+                continue
+            self._post_wire_event_message(event)
+            if event.get("event") != "job_done":
+                continue
+            if event.get("ok") and self.current_config is not None:
+                await self._refresh_selected_config_preview()
+            return
+        self._set_error_text(
+            f"Model download stream ended before completion: {job_id}",
+            style=f"bold {BAD}",
+        )
 
     def action_reconnect(self) -> None:
         self.run_worker(

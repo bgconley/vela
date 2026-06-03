@@ -48,6 +48,7 @@ class ModelManagerScreen(ModalScreen):
     BINDINGS = [
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
+        ("d", "download", "Download"),
         ("escape", "cancel", "Close"),
     ]
 
@@ -62,7 +63,7 @@ class ModelManagerScreen(ModalScreen):
             with Horizontal():
                 yield Static("", id="model-manager-list")
                 yield Static("", id="model-manager-detail")
-            yield Static("Esc Close", id="model-manager-footer")
+            yield Static("d Download   Esc Close", id="model-manager-footer")
 
     def on_mount(self) -> None:
         self._refresh()
@@ -79,6 +80,13 @@ class ModelManagerScreen(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_download(self) -> None:
+        model = self._selected_model()
+        if model is None:
+            self.dismiss(None)
+            return
+        self.dismiss({"action": "download", "model_ref": _model_reference(model)})
 
     def _refresh(self) -> None:
         self.query_one("#model-manager-list", Static).update(self._render_list())
@@ -125,6 +133,10 @@ class ModelManagerScreen(ModalScreen):
 
 def _model_label(model: dict[str, Any]) -> str:
     return str(model.get("display_name") or model.get("entry_id") or "unnamed-model")
+
+
+def _model_reference(model: dict[str, Any]) -> str:
+    return str(model.get("entry_id") or model.get("display_name") or "")
 
 
 def _quant_label(model: dict[str, Any]) -> str:
