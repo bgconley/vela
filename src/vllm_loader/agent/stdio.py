@@ -20,6 +20,14 @@ async def serve_stdio_agent(
         stdin or sys.stdin.buffer,
         stdout or sys.stdout.buffer,
     )
+    await serve_agent_stream(agent, reader, writer)
+
+
+async def serve_agent_stream(
+    agent: LocalAgent,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+) -> None:
     write_lock = asyncio.Lock()
     subscription_tasks: set[asyncio.Task[None]] = set()
 

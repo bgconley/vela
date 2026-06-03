@@ -629,7 +629,18 @@ def version() -> None:
 
 
 @agent_app.command("connect")
-def agent_connect() -> None:
+def agent_connect(
+    socket_path: Annotated[
+        Path | None,
+        typer.Option("--socket", help="Connect stdio to an existing agent socket."),
+    ] = None,
+) -> None:
+    if socket_path is not None:
+        from vllm_loader.agent.socket import bridge_stdio_to_unix_socket
+
+        asyncio.run(bridge_stdio_to_unix_socket(socket_path))
+        return
+
     from vllm_loader.agent.stdio import serve_stdio_agent
 
     asyncio.run(serve_stdio_agent(LocalAgent()))

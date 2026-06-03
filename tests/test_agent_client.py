@@ -5,6 +5,7 @@ import inspect
 import json
 import socket
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,22 @@ def _agent_connect_command() -> list[str]:
     return [sys.executable, "-m", "vllm_loader.cli", "agent", "connect"]
 
 
+def _agent_connect_socket_command(socket_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "vllm_loader.cli",
+        "agent",
+        "connect",
+        "--socket",
+        str(socket_path),
+    ]
+
+
+def _short_socket_path() -> Path:
+    return Path("/tmp") / f"vllm-loader-agent-{uuid.uuid4().hex}.sock"
+
+
 def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -43,6 +60,28 @@ async def _next_event(events, *, event_name: str) -> dict:
         event = await anext(events)
         if event.get("event") == event_name:
             return event
+
+
+@pytest.mark.asyncio
+async def test_agent_connect_bridges_stdio_to_unix_socket_agent() -> None:
+    from vllm_loader.agent.socket import serve_unix_socket_agent
+
+    socket_path = _short_socket_path()
+    server = await serve_unix_socket_agent(
+        LocalAgent(target_name="socket-local"),
+        socket_path,
+    )
+    client = _subprocess_target_client_class()(_agent_connect_socket_command(socket_path))
+    try:
+        connected = await client.connect()
+
+        assert connected["protocol_version"] == 1
+        assert connected["target"] == "socket-local"
+    finally:
+        await client.disconnect()
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
 
 
 @pytest.mark.asyncio
