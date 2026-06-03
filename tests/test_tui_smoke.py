@@ -2171,6 +2171,47 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
 
 
 @pytest.mark.asyncio
+async def test_kill_confirm_names_active_target(config_dir: Path) -> None:
+    class TargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target-name confirm should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=TargetClient(),
+    )
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+
+        await pilot.press("K")
+        await pilot.pause()
+
+        assert app.screen.id == "confirm"
+        message = app.screen.query_one("#confirm-message", Static)
+        assert "on blackbird" in message.content.plain
+
+
+@pytest.mark.asyncio
 async def test_config_picker_displays_valid_invalid_and_selects_config(config_dir: Path) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")

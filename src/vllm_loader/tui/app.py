@@ -781,7 +781,7 @@ class VllmLoaderApp(App):
         if self._attached_run_is_alive():
             self.push_screen(
                 ConfirmScreen(
-                    "Force kill the attached server process?",
+                    f"Force kill the attached server process on {self._target_label()}?",
                     title="Confirm kill",
                     confirm_label="Kill",
                     confirm_action="confirm_kill_running",
@@ -791,7 +791,7 @@ class VllmLoaderApp(App):
         if self._has_reattached_run():
             self.push_screen(
                 ConfirmScreen(
-                    "Force kill the detached server process group?",
+                    f"Force kill the detached server process group on {self._target_label()}?",
                     title="Confirm kill",
                     confirm_label="Kill",
                     confirm_action="confirm_kill_running",
@@ -820,6 +820,9 @@ class VllmLoaderApp(App):
             return
         self.action_stop()
         self.action_load()
+
+    def _target_label(self) -> str:
+        return self.target_name
 
     async def _restart_attached_run(self, run_id: str) -> None:
         await self._target_stop_run(
