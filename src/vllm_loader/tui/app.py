@@ -1387,7 +1387,7 @@ class VllmLoaderApp(App):
         if self.current_process is not attached_process:
             return
         if self._consume_intentional_shutdown(attached_process):
-            self.fsm.process_exited(0)
+            self.fsm.process_exited(0, intentional=True)
             self._set_error_text("")
         else:
             self.fsm.process_exited(returncode)

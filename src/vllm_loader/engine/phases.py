@@ -84,10 +84,10 @@ class PhaseFSM:
         self.error_excerpt = detail
         self._transition(Phase.ERROR)
 
-    def process_exited(self, returncode: int | None) -> None:
+    def process_exited(self, returncode: int | None, *, intentional: bool = False) -> None:
         if self.phase is Phase.ERROR:
             return
-        if returncode == 0:
+        if intentional or (returncode == 0 and self.phase in {Phase.READY, Phase.DEGRADED}):
             self._transition(Phase.STOPPED)
             return
         if self.error_kind is None:

@@ -155,6 +155,20 @@ def test_nonzero_exit_before_ready_is_crashed_unless_better_error() -> None:
     assert better.error_kind is ErrorKind.OOM
 
 
+def test_zero_exit_before_ready_is_crashed_unless_intentional() -> None:
+    fsm = walk(["INFO Initializing a V1 LLM engine"])
+    fsm.process_exited(0)
+
+    assert fsm.phase is Phase.ERROR
+    assert fsm.error_kind is ErrorKind.CRASHED
+    assert fsm.error_excerpt == "INFO Initializing a V1 LLM engine"
+
+    intentional = walk(["INFO Initializing a V1 LLM engine"])
+    intentional.process_exited(0, intentional=True)
+    assert intentional.phase is Phase.STOPPED
+    assert intentional.error_kind is None
+
+
 def test_generic_crash_uses_recent_log_excerpt() -> None:
     fsm = walk(["INFO starting", "ERROR synthetic loader abort before ready"])
     fsm.process_exited(7)
