@@ -658,6 +658,30 @@ def agent_run(
     asyncio.run(run_agent_daemon(socket_path=socket_path))
 
 
+@agent_app.command("start")
+def agent_start(
+    socket_path: Annotated[
+        Path | None,
+        typer.Option("--socket", help="Unix socket path for the agent daemon."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable daemon start result."),
+    ] = False,
+) -> None:
+    import json
+
+    from vllm_loader.agent.daemon import start_agent_daemon_process
+
+    result = start_agent_daemon_process(socket_path)
+    if json_output:
+        typer.echo(json.dumps(result, sort_keys=True))
+    else:
+        typer.echo(_format_agent_status(result))
+    if result["status"] != "running":
+        raise typer.Exit(1)
+
+
 @agent_app.command("status")
 def agent_status(
     socket_path: Annotated[

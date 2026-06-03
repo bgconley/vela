@@ -4,6 +4,8 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -68,6 +70,55 @@ def inspect_agent_daemon(socket_path: str | Path | None = None) -> dict[str, Any
     if not _identity_matches_live_process(identity):
         return {"status": "stale", "reason": "identity process mismatch", **base, **identity}
     return {"status": "running", **base, **identity}
+
+
+def start_agent_daemon_process(
+    socket_path: str | Path | None = None,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    resolved_socket_path = (
+        Path(socket_path) if socket_path is not None else default_agent_socket_path()
+    )
+    current_status = inspect_agent_daemon(resolved_socket_path)
+    if current_status["status"] == "running":
+        return current_status
+    command = [
+        sys.executable,
+        "-m",
+        "vllm_loader.cli",
+        "agent",
+        "run",
+        "--socket",
+        str(resolved_socket_path),
+    ]
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status = inspect_agent_daemon(resolved_socket_path)
+        if status["status"] == "running":
+            return status
+        if process.poll() is not None:
+            return {
+                "status": "start-failed",
+                "reason": f"daemon exited with {process.returncode}",
+                "socket_path": str(resolved_socket_path),
+                "identity_path": str(agent_identity_path(resolved_socket_path)),
+            }
+        time.sleep(0.05)
+    return {
+        "status": "starting",
+        "pid": process.pid,
+        "socket_path": str(resolved_socket_path),
+        "identity_path": str(agent_identity_path(resolved_socket_path)),
+    }
 
 
 def stop_agent_daemon(

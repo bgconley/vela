@@ -42,6 +42,19 @@ def _agent_run_socket_command(socket_path: Path) -> list[str]:
     ]
 
 
+def _agent_start_json_command(socket_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "vllm_loader.cli",
+        "agent",
+        "start",
+        "--socket",
+        str(socket_path),
+        "--json",
+    ]
+
+
 def _agent_status_json_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
@@ -142,6 +155,35 @@ async def test_agent_status_reports_missing_daemon_identity() -> None:
     assert status["status"] == "not-running"
     assert status["socket_path"] == str(socket_path)
     assert status["identity_path"] == str(socket_path.with_name("agent.json"))
+
+
+@pytest.mark.asyncio
+async def test_agent_start_spawns_detached_socket_daemon() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    client = SubprocessTargetClient(_agent_connect_socket_command(socket_path))
+    try:
+        result = await _run_command(_agent_start_json_command(socket_path))
+        started = json.loads(result["stdout"])
+
+        assert result["returncode"] == 0
+        assert started["status"] == "running"
+        assert started["pid"] > 0
+        assert started["socket_path"] == str(socket_path)
+        assert identity_path.exists()
+
+        connected = await client.connect()
+
+        assert connected["daemon_pid"] == started["pid"]
+    finally:
+        await client.disconnect()
+        await _run_command(_agent_stop_json_command(socket_path))
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
 
 
 @pytest.mark.asyncio
