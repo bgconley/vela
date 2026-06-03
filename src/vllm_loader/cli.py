@@ -10,7 +10,13 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.config.targets import TargetsRegistry, load_targets_file
+from vllm_loader.config.targets import (
+    TargetConfig,
+    TargetsRegistry,
+    TransportKind,
+    load_targets_file,
+    upsert_target_file,
+)
 from vllm_loader.engine.phases import Phase
 from vllm_loader.monitoring.health import probe_host_for
 from vllm_loader.transport.client import TargetClient
@@ -81,6 +87,43 @@ def targets_list() -> None:
     registry = _load_targets_or_exit()
     for target in registry.targets:
         typer.echo(f"{target.name}\t{target.transport.value}\t{target.host or '-'}")
+
+
+@targets_app.command("add")
+def targets_add(
+    name: Annotated[str, typer.Argument(help="Target name to add or update.")],
+    transport: Annotated[
+        TransportKind,
+        typer.Option("--transport", help="Target transport kind."),
+    ] = TransportKind.SSH,
+    host: Annotated[str | None, typer.Option("--host", help="SSH host.")] = None,
+    workdir: Annotated[
+        Path | None,
+        typer.Option("--workdir", help="Remote working directory."),
+    ] = None,
+    venv: Annotated[
+        Path | None,
+        typer.Option("--venv", help="Remote virtualenv path."),
+    ] = None,
+    ssh_opts_env: Annotated[
+        str | None,
+        typer.Option("--ssh-opts-env", help="Environment variable with SSH options."),
+    ] = None,
+) -> None:
+    try:
+        target = TargetConfig(
+            name=name,
+            transport=transport,
+            host=host,
+            workdir=workdir,
+            venv=venv,
+            ssh_opts_env=ssh_opts_env,
+        )
+        upsert_target_file(target)
+    except ValueError as exc:
+        typer.echo(f"ERROR: Unable to add target: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"added target {name}")
 
 
 @targets_app.command("test")

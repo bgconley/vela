@@ -18,7 +18,7 @@ from typer.testing import CliRunner
 from vllm_loader import __version__
 from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
-from vllm_loader.config.targets import TargetConfig, TransportKind
+from vllm_loader.config.targets import TargetConfig, TransportKind, load_targets_file
 from vllm_loader.engine import process_manager as process_manager_module
 from vllm_loader.engine import supervisor as supervisor_module
 from vllm_loader.engine.phases import Phase
@@ -251,6 +251,44 @@ def test_cli_targets_test_handshakes_with_selected_target(
     assert requested_target_names == ["blackbird"]
     assert requested_targets == [blackbird]
     assert client_events == ["connect", "call:handshake", "disconnect"]
+
+
+def test_cli_targets_add_persists_ssh_target(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "targets",
+            "add",
+            "blackbird",
+            "--transport",
+            "ssh",
+            "--host",
+            "bgconley@10.25.0.51",
+            "--workdir",
+            "/tank/repos/lab-tui",
+            "--venv",
+            "/tank/venvs/lab-tui",
+            "--ssh-opts-env",
+            "VLLM_LOADER_SSH_OPTS",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "added target blackbird\n"
+
+    registry = load_targets_file(tmp_path / "vllm-loader" / "targets.yaml")
+    blackbird = registry.by_name("blackbird")
+    assert [target.name for target in registry.targets] == ["local", "blackbird"]
+    assert blackbird.transport is TransportKind.SSH
+    assert blackbird.host == "bgconley@10.25.0.51"
+    assert blackbird.workdir == Path("/tank/repos/lab-tui")
+    assert blackbird.venv == Path("/tank/venvs/lab-tui")
+    assert blackbird.ssh_opts_env == "VLLM_LOADER_SSH_OPTS"
 
 
 def test_cli_run_preview_uses_target_client_factory(

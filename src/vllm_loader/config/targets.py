@@ -93,6 +93,42 @@ def load_targets_file(path: str | Path | None = None) -> TargetsRegistry:
     return TargetsRegistry(tuple(targets))
 
 
+def save_targets_file(
+    registry: TargetsRegistry, path: str | Path | None = None
+) -> Path:
+    target_path = Path(path).expanduser() if path is not None else default_targets_path()
+    payload = {
+        "targets": {
+            target.name: target.model_dump(
+                mode="json",
+                exclude={"name"},
+                exclude_none=True,
+            )
+            for target in registry.targets
+            if target.name != "local"
+        }
+    }
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(
+        yaml.safe_dump(payload, sort_keys=True),
+        encoding="utf-8",
+    )
+    return target_path
+
+
+def upsert_target_file(target: TargetConfig, path: str | Path | None = None) -> Path:
+    if target.name == "local":
+        raise ValueError("local target is implicit and cannot be added")
+    registry = load_targets_file(path)
+    targets = [
+        item
+        for item in registry.targets
+        if item.name not in {"local", target.name}
+    ]
+    targets.append(target)
+    return save_targets_file(TargetsRegistry(tuple((_local_target(), *targets))), path)
+
+
 def _local_target() -> TargetConfig:
     return TargetConfig(name="local", transport=TransportKind.LOCAL)
 
