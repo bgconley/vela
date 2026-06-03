@@ -41,14 +41,22 @@ class SubprocessTargetClient:
         env = os.environ.copy()
         if self._env is not None:
             env.update(self._env)
-        self._process = await asyncio.create_subprocess_exec(
-            *self._command,
-            cwd=str(self._cwd) if self._cwd is not None else None,
-            env=env,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *self._command,
+                cwd=str(self._cwd) if self._cwd is not None else None,
+                env=env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:
+            command = str(exc.filename or self._command[0])
+            raise TargetCallError(
+                "agent-unreachable",
+                f"Unable to start target agent command: {command}",
+                {"command": command},
+            ) from exc
         self._connected = True
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._drain_stderr())

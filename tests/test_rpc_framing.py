@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from vllm_loader.agent.local import TargetCallError
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 from vllm_loader.transport.subprocess import SubprocessTargetClient
 
@@ -31,3 +32,14 @@ async def test_subprocess_target_client_requires_connection() -> None:
 
     with pytest.raises(RuntimeError, match="not connected"):
         await client.call("handshake")
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_reports_command_startup_failure() -> None:
+    client = SubprocessTargetClient(["definitely-missing-vllm-loader-agent"])
+
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.connect()
+
+    assert exc_info.value.code == "agent-unreachable"
+    assert "definitely-missing-vllm-loader-agent" in exc_info.value.message

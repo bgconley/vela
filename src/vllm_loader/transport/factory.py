@@ -29,7 +29,15 @@ def target_client_for_config(
 def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> list[str]:
     if target.host is None:
         raise ValueError(f"ssh target {target.name!r} requires host")
-    command = ["ssh", "-o", "BatchMode=yes"]
+    command = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+    ]
     if target.ssh_opts_env:
         command.extend(shlex.split(os.environ.get(target.ssh_opts_env, "")))
     command.append(target.host)
