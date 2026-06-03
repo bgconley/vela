@@ -1034,6 +1034,15 @@ class VllmLoaderApp(App):
                 callback=self._handle_pin_model_submission,
             )
             return
+        if action == "refresh_models":
+            self.run_worker(
+                self._refresh_models(),
+                name="model-refresh",
+                group="model-manager",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
         model_ref = _optional_str(selection.get("model_ref"))
         if model_ref is None:
             return
@@ -1063,6 +1072,28 @@ class VllmLoaderApp(App):
             params,
             error_action="download model",
             incomplete_label="Model download",
+        )
+
+    async def _refresh_models(self) -> None:
+        try:
+            result = await self._target_call("refresh_models", {})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to refresh models: {exc}", style=f"bold {BAD}")
+            return
+        try:
+            refreshed = int(result.get("refreshed") or 0)
+        except (TypeError, ValueError):
+            refreshed = 0
+        self.notify(f"Refreshed models: {refreshed}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
+        self.call_later(self._push_model_manager_screen, result)
+
+    def _push_model_manager_screen(self, result: dict[str, Any]) -> None:
+        self.push_screen(
+            ModelManagerScreen(result),
+            callback=self._handle_model_manager_selection,
         )
 
     def _handle_pin_model_submission(self, params: dict[str, Any] | None) -> None:

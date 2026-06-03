@@ -361,6 +361,39 @@ def model_list(
         )
 
 
+@model_app.command("refresh")
+def model_refresh(
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable refresh result."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call("refresh_models", target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    typer.echo(f"refreshed models\t{result.get('refreshed', 0)}")
+    for model in result.get("models", []):
+        typer.echo(
+            "\t".join(
+                [
+                    str(model.get("entry_id") or ""),
+                    str(model.get("display_name") or ""),
+                    str(model.get("source") or ""),
+                    str(model.get("cache_state") or "unknown"),
+                ]
+            )
+        )
+    for skipped in result.get("skipped", []):
+        typer.echo(
+            f"SKIPPED {skipped.get('entry_id', '')}\t{skipped.get('reason', 'unknown')}"
+        )
+
+
 @model_app.command("pin")
 def model_pin(
     entry_id: Annotated[str, typer.Argument(help="Stable model entry id.")],

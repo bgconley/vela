@@ -138,6 +138,39 @@ def verify_model(reference: str, registry_path: str | Path | None = None) -> dic
     return result
 
 
+def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_for_write(path)
+    entries = registry.get("entries") or []
+    if not isinstance(entries, list):
+        entries = []
+
+    refreshed = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = entry.get("entry_id")
+        if not isinstance(entry_id, str) or not entry_id:
+            continue
+        if entry.get("source") == "local_path":
+            _verify_local_model_entry(entry)
+            refreshed += 1
+
+    registry["schema_version"] = 1
+    registry["default_cache"] = str(registry.get("default_cache") or "hf")
+    registry.setdefault("app_download_dir", None)
+    registry["entries"] = entries
+    _write_registry_atomic(path, registry)
+
+    result = list_models(path)
+    result["refreshed"] = refreshed
+    return result
+
+
 def model_reference_aliases(
     reference: str, registry_path: str | Path | None = None
 ) -> set[str]:

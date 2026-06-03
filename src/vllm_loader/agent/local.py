@@ -36,6 +36,7 @@ from vllm_loader.engine.model_registry import (
     list_models,
     model_reference_aliases,
     pin_model,
+    refresh_models,
     remove_model,
     resolve_model_handoff,
     verify_model,
@@ -93,6 +94,7 @@ AGENT_CAPABILITIES = [
     "remove_build",
     "list_models",
     "pin_model",
+    "refresh_models",
     "verify_model",
     "remove_model",
     "create_build",
@@ -237,6 +239,8 @@ class LocalAgent:
             return self._list_models()
         if method == "pin_model":
             return self._pin_model(payload)
+        if method == "refresh_models":
+            return self._refresh_models()
         if method == "verify_model":
             return self._verify_model(payload)
         if method == "remove_model":
@@ -762,6 +766,12 @@ class LocalAgent:
     def _pin_model(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
             return pin_model(params, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _refresh_models(self) -> dict[str, Any]:
+        try:
+            return refresh_models(self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 

@@ -2616,6 +2616,39 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_agent_refresh_reconciles_local_model_entries(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    weights_path = model_dir / "model.safetensors"
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    weights_path.write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "display_name": "local-llama",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        weights_path.unlink()
+        refreshed = await client.call("refresh_models")
+    finally:
+        await client.disconnect()
+
+    assert refreshed["refreshed"] == 1
+    assert refreshed["models"][0]["entry_id"] == "01LOCAL"
+    assert refreshed["models"][0]["cache_state"] == "partial"
+    json.dumps(refreshed)
+
+
+@pytest.mark.asyncio
 async def test_agent_removes_unpinned_local_model_metadata(
     config_dir: Path, tmp_path: Path
 ) -> None:

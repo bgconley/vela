@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
@@ -50,6 +51,7 @@ class ModelManagerScreen(ModalScreen):
         ("down", "next", "Next"),
         ("d", "download", "Download"),
         ("p", "pin", "Pin"),
+        Binding("r", "refresh_models", "Refresh", priority=True),
         ("v", "verify", "Verify"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Close"),
@@ -67,7 +69,7 @@ class ModelManagerScreen(ModalScreen):
                 yield Static("", id="model-manager-list")
                 yield Static("", id="model-manager-detail")
             yield Static(
-                "d Download   p Pin   v Verify   x Remove   Esc Close",
+                "d Download   p Pin   r Refresh   v Verify   x Remove   Esc Close",
                 id="model-manager-footer",
             )
 
@@ -105,6 +107,9 @@ class ModelManagerScreen(ModalScreen):
         model = self._selected_model()
         initial = _initial_pin_text(model) if model is not None else ""
         self.dismiss({"action": "pin_model", "initial": initial})
+
+    def action_refresh_models(self) -> None:
+        self.dismiss({"action": "refresh_models"})
 
     def action_remove(self) -> None:
         model = self._selected_model()

@@ -537,6 +537,46 @@ def test_cli_model_list_uses_selected_target(
     ]
 
 
+def test_cli_model_refresh_prints_refreshed_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "refreshed": 1,
+            "models": [
+                {
+                    "entry_id": "01MODEL",
+                    "display_name": "llama-pin",
+                    "source": "hf_repo",
+                    "cache_state": "cached",
+                }
+            ],
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "refresh", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("refresh_models", None, "blackbird")]
+    assert result.output.splitlines() == [
+        "refreshed models\t1",
+        "01MODEL\tllama-pin\thf_repo\tcached",
+    ]
+
+
 def test_cli_model_pin_passes_metadata_to_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
