@@ -13,10 +13,12 @@ import httpx
 import pytest
 import typer
 from conftest import write_yaml
+from typer.testing import CliRunner
 
 from vllm_loader import __version__
 from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
+from vllm_loader.config.targets import TargetConfig, TransportKind
 from vllm_loader.engine import process_manager as process_manager_module
 from vllm_loader.engine import supervisor as supervisor_module
 from vllm_loader.engine.phases import Phase
@@ -51,7 +53,8 @@ def test_cli_list_uses_local_target_client(
 ) -> None:
     calls: list[tuple[str, dict[str, str]]] = []
 
-    def fake_agent_call(method: str, params: dict[str, str]):
+    def fake_agent_call(method: str, params: dict[str, str], *, target_name: str = "local"):
+        assert target_name == "local"
         calls.append((method, params))
         return {
             "valid": [{"name": "agent-cfg", "model": "org/model"}],
@@ -74,7 +77,8 @@ def test_cli_preview_uses_local_target_client(
 ) -> None:
     calls: list[tuple[str, dict[str, str]]] = []
 
-    def fake_agent_call(method: str, params: dict[str, str]):
+    def fake_agent_call(method: str, params: dict[str, str], *, target_name: str = "local"):
+        assert target_name == "local"
         calls.append((method, params))
         return {"preview": "agent-preview", "warnings": ["heads up"]}
 
@@ -86,6 +90,77 @@ def test_cli_preview_uses_local_target_client(
     assert calls == [("preview", {"name": "agent-cfg", "configs_dir": str(tmp_path)})]
     assert stdout == "agent-preview\n"
     assert stderr == "WARNING: heads up\n"
+
+
+def test_cli_preview_target_option_uses_selected_target_from_registry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+    requested_target_names: list[str] = []
+    requested_targets: list[TargetConfig] = []
+    client_calls: list[tuple[str, dict[str, str]]] = []
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            requested_target_names.append(name)
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FakeTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            client_calls.append((method, params))
+            if method == "preview":
+                return {"preview": "remote-preview", "warnings": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+    def fake_target_client_for_config(target):
+        requested_targets.append(target)
+        return FakeTargetClient()
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(cli_module, "target_client_for_config", fake_target_client_for_config)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "preview",
+            "remote-cfg",
+            "--configs-dir",
+            str(tmp_path),
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "remote-preview\n"
+    assert requested_target_names == ["blackbird"]
+    assert requested_targets == [blackbird]
+    assert client_calls == [
+        ("preview", {"name": "remote-cfg", "configs_dir": str(tmp_path)})
+    ]
 
 
 def test_cli_run_preview_uses_target_client_factory(

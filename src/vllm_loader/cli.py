@@ -10,7 +10,7 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.config.targets import TargetConfig
+from vllm_loader.config.targets import load_targets_file
 from vllm_loader.engine.phases import Phase
 from vllm_loader.monitoring.health import probe_host_for
 from vllm_loader.transport.client import TargetClient
@@ -77,8 +77,13 @@ def _default_debug_log_path() -> Path:
 @app.command("list")
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
-    result = _agent_call("list_configs", _agent_params(configs_dir=configs_dir))
+    result = _agent_call(
+        "list_configs",
+        _agent_params(configs_dir=configs_dir),
+        target_name=target,
+    )
     for item in result["valid"]:
         typer.echo(f"{item['name']}\t{item['model']}")
     for item in result["invalid"]:
@@ -89,9 +94,14 @@ def list_configs(
 def preview(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
     try:
-        result = _agent_call("preview", _agent_params(name=name, configs_dir=configs_dir))
+        result = _agent_call(
+            "preview",
+            _agent_params(name=name, configs_dir=configs_dir),
+            target_name=target,
+        )
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, fallback_name=name)
     typer.echo(result["preview"])
@@ -105,8 +115,9 @@ def run_config(
     preview_only: Annotated[
         bool, typer.Option("--preview", help="Print command instead of launching.")
     ] = False,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
-    client = _local_target_client()
+    client = _target_client_for_name_or_exit(target)
     if preview_only:
         try:
             result = _target_call(
@@ -132,8 +143,9 @@ def run_config(
 def smoke_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
-    client = _local_target_client()
+    client = _target_client_for_name_or_exit(target)
     prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
     raise typer.Exit(asyncio.run(_smoke_config_cli(client, prepared, name, configs_dir)))
 
@@ -142,8 +154,9 @@ def smoke_config(
 def smoke_tui_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
-    client = _local_target_client()
+    client = _target_client_for_name_or_exit(target)
     prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
     cfg = ModelConfig.model_validate(prepared["config"])
     raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir)))
@@ -171,16 +184,42 @@ def _agent_params(**values) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if value is not None}
 
 
-def _local_target_client() -> TargetClient:
-    return target_client_for_config(TargetConfig(name="local"))
+def _target_client_for_name_or_exit(target_name: str) -> TargetClient:
+    try:
+        registry = load_targets_file()
+    except ValueError as exc:
+        typer.echo(f"ERROR: Unable to load targets: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    try:
+        target = registry.by_name(target_name)
+    except KeyError as exc:
+        available = ", ".join(target.name for target in registry.targets) or "none"
+        typer.echo(f"ERROR: Unknown target: {target_name}", err=True)
+        typer.echo(f"Available targets: {available}", err=True)
+        raise typer.Exit(2) from exc
+    return target_client_for_config(target)
 
 
-def _agent_call(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    return _target_call(_local_target_client(), method, params)
+def _agent_call(
+    method: str,
+    params: dict[str, Any] | None = None,
+    *,
+    target_name: str = "local",
+) -> dict[str, Any]:
+    return _target_call(_target_client_for_name_or_exit(target_name), method, params)
 
 
-async def _agent_call_async(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    return await _target_call_async(_local_target_client(), method, params)
+async def _agent_call_async(
+    method: str,
+    params: dict[str, Any] | None = None,
+    *,
+    target_name: str = "local",
+) -> dict[str, Any]:
+    return await _target_call_async(
+        _target_client_for_name_or_exit(target_name),
+        method,
+        params,
+    )
 
 
 def _target_call(
