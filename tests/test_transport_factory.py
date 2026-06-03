@@ -18,9 +18,17 @@ def _target_client_for_config():
     return target_client_for_config
 
 
-@pytest.mark.asyncio
-async def test_target_client_factory_builds_local_in_process_client() -> None:
+def test_target_client_factory_builds_implicit_local_socket_client() -> None:
     client = _target_client_for_config()(TargetConfig(name="local"))
+
+    assert isinstance(client, UnixSocketTargetClient)
+
+
+@pytest.mark.asyncio
+async def test_target_client_factory_builds_explicit_local_in_process_client() -> None:
+    client = _target_client_for_config()(
+        TargetConfig(name="local", local_transport="in_process")
+    )
 
     assert isinstance(client, InProcessTargetClient)
     await client.connect()

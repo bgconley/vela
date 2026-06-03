@@ -29,7 +29,7 @@ class TargetConfig(BaseModel):
     workdir: Path | None = None
     venv: Path | None = None
     ssh_opts_env: str | None = None
-    local_transport: LocalTransportKind = LocalTransportKind.IN_PROCESS
+    local_transport: LocalTransportKind = LocalTransportKind.SOCKET
     socket_path: Path | None = None
 
     @field_validator("name")

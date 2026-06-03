@@ -14,7 +14,7 @@ from textual.screen import ModalScreen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import WorkerState
 
-from vllm_loader.agent.local import TargetCallError
+from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.config.targets import TargetConfig, TransportKind
 from vllm_loader.engine.command_builder import build_command
@@ -2234,7 +2234,11 @@ async def test_gpu_panel_refreshes_periodically(config_dir: Path) -> None:
         calls += 1
         return result
 
-    app = VllmLoaderApp(configs_dir=config_dir, gpu_sampler=sampler, gpu_interval_seconds=0.05)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        agent=LocalAgent(gpu_sampler=sampler),
+        gpu_interval_seconds=0.05,
+    )
 
     async with app.run_test() as pilot:
         await _wait_for_gpu_text(app, "2048/81920MB")
@@ -2254,7 +2258,11 @@ async def test_gpu_sampler_runs_off_event_loop_thread(config_dir: Path) -> None:
         sampler_threads.append(threading.get_ident())
         return GpuPollResult([])
 
-    app = VllmLoaderApp(configs_dir=config_dir, gpu_sampler=sampler, gpu_interval_seconds=0.01)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        agent=LocalAgent(gpu_sampler=sampler),
+        gpu_interval_seconds=0.01,
+    )
 
     async with app.run_test() as pilot:
         await _wait_for_gpu_calls(sampler_threads, 2)
@@ -2272,7 +2280,11 @@ async def test_gpu_sampler_error_renders_unavailable_detail(config_dir: Path) ->
         calls += 1
         raise RuntimeError("nvml exploded")
 
-    app = VllmLoaderApp(configs_dir=config_dir, gpu_sampler=sampler, gpu_interval_seconds=60)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        agent=LocalAgent(gpu_sampler=sampler),
+        gpu_interval_seconds=60,
+    )
 
     async with app.run_test() as pilot:
         await _wait_for_gpu_text(app, "GPU stats unavailable: nvml exploded")
