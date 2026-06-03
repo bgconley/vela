@@ -198,3 +198,29 @@ def test_secret_masking_in_preview() -> None:
     assert mask_preview_value("HF_TOKEN", "hf_secret") == "••••"
     assert mask_preview_value("VLLM_API_KEY", "sk-secret") == "••••"
     assert mask_preview_value("CUDA_VISIBLE_DEVICES", "0") == "0"
+
+
+def test_secret_like_argv_values_are_masked_in_preview() -> None:
+    model_cfg = cfg(
+        {
+            "extra_args": [
+                "--api-key",
+                "sk-preview-secret",
+                "--header",
+                "Authorization: Bearer preview-bearer",
+                "--hf-token-copy",
+                "hf_preview_secret",
+            ]
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert "sk-preview-secret" in result.argv
+    assert "Authorization: Bearer preview-bearer" in result.argv
+    assert "hf_preview_secret" in result.argv
+    assert "sk-preview-secret" not in result.preview
+    assert "preview-bearer" not in result.preview
+    assert "hf_preview_secret" not in result.preview
+    assert "Authorization: Bearer ••••" in result.preview
+    assert "••••" in result.preview

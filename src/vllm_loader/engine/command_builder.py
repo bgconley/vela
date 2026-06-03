@@ -8,6 +8,7 @@ from typing import Any
 
 from vllm_loader.config.schema import EntryPoint, ModelConfig
 from vllm_loader.engine.profile import VllmProfile, select_profile_for_config
+from vllm_loader.engine.redaction import MASK, scrub_text
 
 
 @dataclass(frozen=True)
@@ -134,17 +135,15 @@ def is_local_model_reference(model: str, *, cwd: str | Path | None = None) -> bo
 def mask_preview_value(key: str, value: str) -> str:
     upper = key.upper()
     if "TOKEN" in upper or "KEY" in upper or upper in {"AUTHORIZATION"}:
-        return "••••"
-    if value.startswith("sk-") or value.startswith("hf_"):
-        return "••••"
-    return value
+        return MASK
+    return scrub_text(value)
 
 
 def render_preview(argv: list[str], env: dict[str, str], cwd: Path) -> str:
     env_text = " ".join(
         f"{key}={shlex.quote(mask_preview_value(key, value))}" for key, value in sorted(env.items())
     )
-    argv_text = " ".join(shlex.quote(part) for part in argv)
+    argv_text = " ".join(shlex.quote(scrub_text(part)) for part in argv)
     if env_text:
         return f"cwd={cwd}\n{env_text} {argv_text}"
     return f"cwd={cwd}\n{argv_text}"
