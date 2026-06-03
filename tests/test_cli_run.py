@@ -1792,6 +1792,37 @@ def test_detached_supervisor_rotates_log_and_updates_manifest(tmp_path: Path) ->
     assert "INFO rotation line 19" in combined_log
 
 
+def test_detached_supervisor_runs_child_under_pty(tmp_path: Path) -> None:
+    child_script = tmp_path / "emit_tty_state.py"
+    child_script.write_text(
+        "\n".join(
+            [
+                "import sys",
+                "print(",
+                "    f'INFO stdout_tty={sys.stdout.isatty()} stderr_tty={sys.stderr.isatty()}',",
+                "    flush=True,",
+                ")",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    log_path = tmp_path / "run.log"
+
+    returncode = run_supervisor(
+        [sys.executable, str(child_script)],
+        {},
+        str(tmp_path),
+        log_path,
+        secrets=[],
+        payload=None,
+    )
+
+    assert returncode == 0
+    assert "INFO stdout_tty=True stderr_tty=True" in log_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_detached_sidecar_scrubs_generic_secret_patterns_from_command_argv(
     tmp_path: Path,
 ) -> None:

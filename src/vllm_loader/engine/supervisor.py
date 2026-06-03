@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
+import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 from copy import deepcopy
@@ -12,7 +15,7 @@ from pathlib import Path
 
 import psutil
 
-from vllm_loader.engine.log_sink import LogSink
+from vllm_loader.engine.log_sink import LogSink, is_pty_eof
 from vllm_loader.engine.redaction import scrub_text as scrub_secret_text
 from vllm_loader.engine.sidecar import Manifest, Sidecar, command_hash, procfs_starttime_from_pid
 
@@ -42,14 +45,25 @@ def run_supervisor(
     *,
     payload: dict | None = None,
 ) -> int:
-    child = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        env={**os.environ, **env},
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    master_fd, slave_fd = os.openpty()
+    _set_winsize(slave_fd, rows=40, cols=200)
+    try:
+        try:
+            child = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                env={**os.environ, **env},
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except Exception:
+            os.close(master_fd)
+            raise
+    finally:
+        os.close(slave_fd)
     sink, durable_log_available = _open_log_sink(log_path, secrets)
     manifest_path = Path(payload["manifest_path"]) if payload is not None else None
     manifest: Manifest | None = None
@@ -63,25 +77,34 @@ def run_supervisor(
 
     def drain() -> None:
         nonlocal rotation_index
-        assert child.stdout is not None
-        fd = child.stdout.fileno()
-        while True:
-            chunk = os.read(fd, 4096)
-            if not chunk:
-                break
+        try:
+            while True:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError as exc:
+                    if is_pty_eof(exc):
+                        break
+                    raise
+                if not chunk:
+                    break
+                try:
+                    sink.feed(chunk)
+                except Exception:
+                    # The supervisor must keep draining even if persistence fails.
+                    continue
+                rotation_index = _rotate_log_if_needed(
+                    sink,
+                    log_path,
+                    manifest_path,
+                    manifest,
+                    rotate_bytes,
+                    rotation_index,
+                )
+        finally:
             try:
-                sink.feed(chunk)
-            except Exception:
-                # The supervisor must keep draining even if persistence fails.
-                continue
-            rotation_index = _rotate_log_if_needed(
-                sink,
-                log_path,
-                manifest_path,
-                manifest,
-                rotate_bytes,
-                rotation_index,
-            )
+                os.close(master_fd)
+            except OSError:
+                pass
         try:
             sink.close()
         except Exception:
@@ -92,6 +115,13 @@ def run_supervisor(
     returncode = child.wait()
     thread.join(timeout=5)
     return returncode
+
+
+def _set_winsize(fd: int, *, rows: int, cols: int) -> None:
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    except Exception:
+        pass
 
 
 def _open_log_sink(log_path: Path, secrets: list[str]) -> tuple[LogSink | _DrainOnlySink, bool]:
