@@ -25,8 +25,11 @@ from vllm_loader.engine.build_registry import (
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.model_registry import (
+    ModelHandoff,
+    ModelRegistryError,
     default_models_registry_path,
     list_models,
+    resolve_model_handoff,
 )
 from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
@@ -116,6 +119,12 @@ class LocalDetachedRunSummary:
     run_id: str
     sidecar_path: Path
     config_name: str
+
+
+@dataclass(frozen=True)
+class LocalCommandPreparation:
+    result: CommandBuildResult
+    preflight_config: ModelConfig
 
 
 class LocalAgent:
@@ -312,10 +321,11 @@ class LocalAgent:
         cfg = _config_by_name(registry, name)
         self._remember_run_config(cfg)
         try:
-            result = self._build_command_for_config(cfg)
+            preparation = self._prepare_command_for_config(cfg)
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
-        failure = check_launch_preflight(cfg, cwd=result.cwd)
+        result = preparation.result
+        failure = check_launch_preflight(preparation.preflight_config, cwd=result.cwd)
         if failure is not None:
             raise TargetCallError(
                 "preflight-failed",
@@ -329,6 +339,24 @@ class LocalAgent:
         }
 
     def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
+        return self._prepare_command_for_config(cfg).result
+
+    def _prepare_command_for_config(self, cfg: ModelConfig) -> LocalCommandPreparation:
+        resolved_cfg, model_handoff = self._resolve_model_handoff_config(cfg)
+        result = self._build_command_for_resolved_config(resolved_cfg)
+        if model_handoff is not None:
+            result = replace(
+                result,
+                metadata={
+                    **result.metadata,
+                    **model_handoff.metadata(),
+                },
+            )
+        return LocalCommandPreparation(result=result, preflight_config=resolved_cfg)
+
+    def _build_command_for_resolved_config(
+        self, cfg: ModelConfig
+    ) -> CommandBuildResult:
         handoff = self._resolve_build_handoff(cfg)
         if handoff is None:
             return build_command(cfg, select_profile_for_config(cfg))
@@ -363,6 +391,25 @@ class LocalAgent:
             or result.metadata.get("vllm_version_profile"),
         }
         return replace(result, metadata=metadata)
+
+    def _resolve_model_handoff_config(
+        self, cfg: ModelConfig
+    ) -> tuple[ModelConfig, ModelHandoff | None]:
+        try:
+            handoff = resolve_model_handoff(cfg.model_ref, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+        if handoff is None:
+            return cfg, None
+        extra_args = _extra_args_with_model_handoff(cfg.extra_args, handoff)
+        resolved_cfg = cfg.model_copy(
+            update={
+                "model": handoff.model_arg,
+                "revision": handoff.revision or cfg.revision,
+                "extra_args": extra_args,
+            }
+        )
+        return resolved_cfg, handoff
 
     def _resolve_build_handoff(self, cfg: ModelConfig) -> BuildHandoff | None:
         try:
@@ -1126,6 +1173,19 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
 
 def _manifest_has_rotated_inode(manifest: Manifest, inode: int) -> bool:
     return any(pointer.inode == inode for pointer in manifest.rotated)
+
+
+def _extra_args_with_model_handoff(
+    extra_args: list[str], handoff: ModelHandoff
+) -> list[str]:
+    resolved = list(extra_args)
+    if handoff.tokenizer and not _extra_args_include_tokenizer(resolved):
+        resolved.extend(["--tokenizer", handoff.tokenizer])
+    return resolved
+
+
+def _extra_args_include_tokenizer(extra_args: list[str]) -> bool:
+    return any(arg == "--tokenizer" or arg.startswith("--tokenizer=") for arg in extra_args)
 
 
 def _driver_version() -> str | None:

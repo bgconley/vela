@@ -705,7 +705,8 @@ async def test_subprocess_target_client_unsubscribes_when_event_stream_closes(
                 f"calls_path = {str(calls_path)!r}",
                 "def write_call(method, params):",
                 "    with open(calls_path, 'a', encoding='utf-8') as calls:",
-                "        calls.write(json.dumps({'method': method, 'params': params}, sort_keys=True) + '\\n')",
+                "        calls.write("
+                "json.dumps({'method': method, 'params': params}, sort_keys=True) + '\\n')",
                 "for line in sys.stdin:",
                 "    frame = json.loads(line)",
                 "    request_id = frame.get('id')",
@@ -725,7 +726,8 @@ async def test_subprocess_target_client_unsubscribes_when_event_stream_closes(
                 "        print(json.dumps({'id': request_id, 'result': result}), flush=True)",
                 "    elif method == 'subscribe':",
                 "        sub_id = params.get('sub_id')",
-                "        print(json.dumps({'id': request_id, 'result': {'sub_id': sub_id}}), flush=True)",
+                "        print(json.dumps("
+                "{'id': request_id, 'result': {'sub_id': sub_id}}), flush=True)",
                 "        print(json.dumps({",
                 "            'event': 'log',",
                 "            'run_id': params.get('run_ids', ['run-1'])[0],",
@@ -737,7 +739,8 @@ async def test_subprocess_target_client_unsubscribes_when_event_stream_closes(
                 "            'mono': 1.0,",
                 "        }), flush=True)",
                 "    elif method == 'unsubscribe':",
-                "        print(json.dumps({'id': request_id, 'result': {'sub_id': params.get('sub_id')}}), flush=True)",
+                "        print(json.dumps({'id': request_id, 'result': "
+                "{'sub_id': params.get('sub_id')}}), flush=True)",
                 "    else:",
                 "        print(json.dumps({'id': request_id, 'result': {}}), flush=True)",
             ]
@@ -2130,6 +2133,135 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
         {"entry_id": "", "reason": "invalid-entry"},
     ]
     json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "tokenizer": "meta-llama/Llama-3.1-8B-Instruct",
+                        "cache_state": "cached",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "pinned-model.yaml",
+        """
+        name: pinned-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01MODEL
+        env:
+          HF_TOKEN: hf_live
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch",
+            {"name": "pinned-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    argv = prepared["build"]["argv"]
+    metadata = prepared["build"]["metadata"]
+    assert argv[:3] == [
+        "vllm",
+        "serve",
+        "meta-llama/Llama-3.1-8B-Instruct",
+    ]
+    assert argv[argv.index("--revision") + 1] == "abc123"
+    assert argv[argv.index("--tokenizer") + 1] == "meta-llama/Llama-3.1-8B-Instruct"
+    assert metadata["model_ref"] == "01MODEL"
+    assert metadata["model_entry_id"] == "01MODEL"
+    assert metadata["model_display_name"] == "llama-pin"
+    assert metadata["model_source"] == "hf_repo"
+    assert metadata["model_repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
+    assert metadata["model_revision"] == "abc123"
+    assert metadata["model_token_required"] is True
+    assert metadata["model_gated"] is True
+    assert prepared["config"]["model"] == "meta-llama/Llama-3.1-8B-Instruct"
+    assert prepared["config"]["model_ref"] == "01MODEL"
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_resolves_local_model_ref_handoff(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    model_dir = tmp_path / "models" / "llama-local"
+    model_dir.mkdir(parents=True)
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01LOCAL",
+                        "display_name": "local-llama",
+                        "source": "local_path",
+                        "local_path": str(model_dir),
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "local-model.yaml",
+        """
+        name: local-model
+        model: local-llama
+        model_ref: local-llama
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch",
+            {"name": "local-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    argv = prepared["build"]["argv"]
+    metadata = prepared["build"]["metadata"]
+    assert argv[:3] == ["vllm", "serve", str(model_dir)]
+    assert "--revision" not in argv
+    assert metadata["model_ref"] == "local-llama"
+    assert metadata["model_entry_id"] == "01LOCAL"
+    assert metadata["model_display_name"] == "local-llama"
+    assert metadata["model_source"] == "local_path"
+    assert metadata["model_local_path"] == str(model_dir)
+    assert prepared["config"]["model"] == "local-llama"
+    assert prepared["config"]["model_ref"] == "local-llama"
+    json.dumps(prepared)
 
 
 @pytest.mark.asyncio
