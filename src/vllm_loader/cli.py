@@ -644,7 +644,14 @@ def agent_connect(
             if status["status"] != "running":
                 typer.echo(_format_agent_status(status), err=True)
                 raise typer.Exit(1)
-        asyncio.run(bridge_stdio_to_unix_socket(socket_path))
+        try:
+            asyncio.run(bridge_stdio_to_unix_socket(socket_path))
+        except OSError as exc:
+            status = start_agent_daemon_process(socket_path)
+            if status["status"] != "running":
+                typer.echo(_format_agent_status(status), err=True)
+                raise typer.Exit(1) from exc
+            asyncio.run(bridge_stdio_to_unix_socket(socket_path))
         return
 
     from vllm_loader.agent.stdio import serve_stdio_agent
