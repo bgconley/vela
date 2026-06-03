@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from conftest import write_yaml
 
+from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.engine.phases import ErrorKind, Phase
@@ -123,6 +124,7 @@ async def test_unix_socket_target_client_handshake_exposes_socket_agent() -> Non
 
         assert client.connected is True
         assert connected["protocol_version"] == 1
+        assert connected["controller_version"] == __version__
         assert connected["target"] == "socket-client-local"
         assert result["target"] == "socket-client-local"
     finally:
@@ -298,6 +300,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
 
     assert client.connected is True
     assert connected["protocol_version"] == 1
+    assert connected["controller_version"] == __version__
     assert connected["target"] == "local"
     assert result["protocol_version"] == 1
     assert result["target"] == "local"
@@ -537,6 +540,7 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
         await client.disconnect()
 
     assert connected["protocol_version"] == 1
+    assert connected["controller_version"] == __version__
     assert connected["target"] == "local"
     assert result["protocol_version"] == 1
     assert result["target"] == "local"

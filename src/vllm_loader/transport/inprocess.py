@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from vllm_loader.agent.local import PROTOCOL_VERSION, LocalAgent
-from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
+from vllm_loader.transport.client import handshake_params
 from vllm_loader.transport.ndjson import decode_frame, encode_frame
 
 
@@ -26,10 +26,7 @@ class InProcessTargetClient:
         try:
             self._agent_info = await self.call(
                 "handshake",
-                {
-                    "protocol_version": PROTOCOL_VERSION,
-                    "capabilities": list(REQUIRED_AGENT_CAPABILITIES),
-                },
+                handshake_params(PROTOCOL_VERSION),
             )
         except Exception:
             self._connected = False

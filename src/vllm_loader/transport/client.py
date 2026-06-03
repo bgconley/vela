@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
+from vllm_loader import __version__
+
 REQUIRED_AGENT_CAPABILITIES = (
     "list_configs",
     "preview",
@@ -21,6 +23,14 @@ REQUIRED_AGENT_CAPABILITIES = (
     "subscribe",
     "unsubscribe",
 )
+
+
+def handshake_params(protocol_version: int) -> dict[str, Any]:
+    return {
+        "protocol_version": protocol_version,
+        "controller_version": __version__,
+        "capabilities": list(REQUIRED_AGENT_CAPABILITIES),
+    }
 
 
 def subscription_event_id(event: dict[str, Any]) -> str | None:

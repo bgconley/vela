@@ -15,6 +15,7 @@ from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
 from vllm_loader.transport.client import (
     REQUIRED_AGENT_CAPABILITIES,
     event_matches_subscription,
+    handshake_params,
 )
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 from vllm_loader.transport.rpc_errors import target_call_error_from_rpc_payload
@@ -82,10 +83,7 @@ class UnixSocketTargetClient:
     async def _handshake(self) -> dict[str, Any]:
         return await self.call(
             "handshake",
-            {
-                "protocol_version": PROTOCOL_VERSION,
-                "capabilities": list(REQUIRED_AGENT_CAPABILITIES),
-            },
+            handshake_params(PROTOCOL_VERSION),
         )
 
     def _should_restart_for_missing_capability(
