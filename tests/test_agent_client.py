@@ -85,6 +85,53 @@ async def test_agent_connect_bridges_stdio_to_unix_socket_agent() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unix_socket_target_client_handshake_exposes_socket_agent() -> None:
+    from vllm_loader.agent.socket import serve_unix_socket_agent
+    from vllm_loader.transport.socket import UnixSocketTargetClient
+
+    socket_path = _short_socket_path()
+    server = await serve_unix_socket_agent(
+        LocalAgent(target_name="socket-client-local"),
+        socket_path,
+    )
+    client = UnixSocketTargetClient(socket_path, auto_start=False)
+    try:
+        connected = await client.connect()
+        result = await client.call("handshake")
+
+        assert client.connected is True
+        assert connected["protocol_version"] == 1
+        assert connected["target"] == "socket-client-local"
+        assert result["target"] == "socket-client-local"
+    finally:
+        await client.disconnect()
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_unix_socket_target_client_auto_starts_missing_socket_daemon() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vllm_loader.transport.socket import UnixSocketTargetClient
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    client = UnixSocketTargetClient(socket_path)
+    try:
+        connected = await client.connect()
+
+        assert connected["target"] == "local"
+        assert connected["daemon_pid"] > 0
+        assert identity_path.exists()
+    finally:
+        await client.disconnect()
+        stop_agent_daemon(socket_path)
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     client = InProcessTargetClient(LocalAgent(target_name="local"))
 

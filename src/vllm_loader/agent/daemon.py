@@ -151,8 +151,10 @@ async def start_agent_daemon(
     resolved_socket_path = (
         Path(socket_path) if socket_path is not None else default_agent_socket_path()
     )
+    parent_exists = resolved_socket_path.parent.exists()
     resolved_socket_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    resolved_socket_path.parent.chmod(0o700)
+    if socket_path is None or not parent_exists:
+        resolved_socket_path.parent.chmod(0o700)
     server = await serve_unix_socket_agent(agent or LocalAgent(), resolved_socket_path)
     resolved_socket_path.chmod(0o600)
     identity_path = agent_identity_path(resolved_socket_path)
