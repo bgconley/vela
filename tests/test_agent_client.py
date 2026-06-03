@@ -58,6 +58,11 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]
     assert "preview" in result["capabilities"]
+    assert result["daemon_pid"] > 0
+    assert result["daemon_start_ts"]
+    assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
+    assert result["host_info"]["hostname"]
+    assert result["host_info"]["platform"]
 
     await client.disconnect()
     assert client.connected is False
@@ -103,6 +108,11 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     assert result["protocol_version"] == 1
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]
+    assert result["daemon_pid"] > 0
+    assert result["daemon_start_ts"]
+    assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
+    assert result["host_info"]["hostname"]
+    assert result["host_info"]["platform"]
 
 
 @pytest.mark.asyncio

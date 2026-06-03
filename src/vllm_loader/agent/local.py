@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 import signal
 import time
 import uuid
@@ -107,6 +109,7 @@ class LocalAgent:
         self._event_buffers: dict[str, list[dict[str, Any]]] = {}
         self._event_buffer_size = 5000
         self._subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+        self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def handle(
         self, method: str, params: dict[str, Any] | None = None
@@ -145,6 +148,13 @@ class LocalAgent:
             "agent_version": __version__,
             "protocol_version": PROTOCOL_VERSION,
             "target": self.target_name,
+            "daemon_pid": os.getpid(),
+            "daemon_start_ts": self._start_ts,
+            "host_info": {
+                "hostname": platform.node(),
+                "platform": platform.platform(),
+                "vllm_loader_version": __version__,
+            },
             "capabilities": [
                 "handshake",
                 "list_configs",
