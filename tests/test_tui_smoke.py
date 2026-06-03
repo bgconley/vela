@@ -808,6 +808,92 @@ async def test_tui_attached_launch_uses_target_client_stream(
 
 
 @pytest.mark.asyncio
+async def test_tui_attached_launch_subscribes_before_probe(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order: list[str] = []
+
+    class LaunchAgent(RecordingConfigAgent):
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {"name": "alpha", "model": "org/alpha"},
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "agent-profile"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "probe_until_ready":
+                order.append("probe")
+                assert order == ["subscribe", "probe"]
+                return {
+                    "run_id": "run-1",
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            if method == "wait":
+                return {"run_id": "run-1", "returncode": 0, "intentional": False}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": 0,
+                "intentional": False,
+                "phase": Phase.STOPPED.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            order.append("subscribe")
+            return self._events()
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient, raising=False)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=LaunchAgent())
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+
+        assert order == ["subscribe", "probe"]
+
+
+@pytest.mark.asyncio
 async def test_tui_detached_launch_runs_through_target_client(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

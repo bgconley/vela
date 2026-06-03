@@ -1449,7 +1449,10 @@ class VllmLoaderApp(App):
         self.served_models = [str(model) for model in sidecar.get("served_model_names") or []]
         self._set_phase(Phase.SERVER_STARTING)
         self.run_worker(
-            self._target_probe_run_until_ready(self.reattached_run_id),
+            self._target_probe_run_until_ready(
+                self.reattached_run_id,
+                publish_result=False,
+            ),
             name="reattach-health",
             group="health",
             exclusive=True,
@@ -1492,8 +1495,12 @@ class VllmLoaderApp(App):
         except Exception as exc:
             self._set_error_text(f"Unable to kill {run_id}: {exc}")
 
-    async def _target_probe_run_until_ready(self, run_id: str) -> None:
+    async def _target_probe_run_until_ready(
+        self, run_id: str, *, publish_result: bool = True
+    ) -> None:
         result = await self._target_call("probe_until_ready", {"run_id": run_id})
+        if not publish_result:
+            return
         error_kind = None
         if result.get("error_kind") is not None:
             error_kind = _error_kind_from_agent_payload(result.get("error_kind"))
@@ -1714,9 +1721,12 @@ class VllmLoaderApp(App):
             return
         run_id = str(launch["run_id"])
         self.current_run_id = run_id
-        health_task = asyncio.create_task(self._probe_until_ready(cfg))
         events_task = asyncio.create_task(
             self._consume_target_run_events_until_exit(run_id)
+        )
+        await asyncio.sleep(0)
+        health_task = asyncio.create_task(
+            self._probe_until_ready(cfg, publish_result=False)
         )
         await asyncio.sleep(0)
         try:
@@ -1791,10 +1801,15 @@ class VllmLoaderApp(App):
             return
         self._handle_launch_agent_error(exc)
 
-    async def _probe_until_ready(self, cfg: ModelConfig) -> None:
+    async def _probe_until_ready(
+        self, cfg: ModelConfig, *, publish_result: bool = True
+    ) -> None:
         if self.current_run_id is None:
             return
-        await self._target_probe_run_until_ready(self.current_run_id)
+        await self._target_probe_run_until_ready(
+            self.current_run_id,
+            publish_result=publish_result,
+        )
 
     def _handle_health_event(self, event: HealthEvent) -> None:
         self._handle_health_changed(
