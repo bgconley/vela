@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,7 @@ PROTOCOL_VERSION = 1
 class TargetCallError(RuntimeError):
     code: str
     message: str
+    details: dict[str, Any] = field(default_factory=dict)
 
     def __str__(self) -> str:
         return self.message
@@ -88,11 +89,21 @@ def _config_by_name(registry: ConfigRegistry, name: str):
             if item.raw_name == name or (item.raw_name is None and item.path.stem == name)
         ]
         if invalid_matches:
+            matches = [_invalid_config_payload(item) for item in invalid_matches]
             errors = "; ".join(
                 f"{item.path.name}: {', '.join(item.errors)}" for item in invalid_matches
             )
-            raise TargetCallError("invalid-config", errors) from exc
-        raise TargetCallError("unknown-config", f"unknown config: {name}") from exc
+            raise TargetCallError(
+                "invalid-config",
+                errors,
+                {"name": name, "matches": matches},
+            ) from exc
+        available = [item.config.name for item in registry.valid]
+        raise TargetCallError(
+            "unknown-config",
+            f"unknown config: {name}",
+            {"name": name, "available": available},
+        ) from exc
 
 
 def _valid_config_payload(item: ValidConfig) -> dict[str, Any]:

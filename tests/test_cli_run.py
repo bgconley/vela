@@ -14,6 +14,7 @@ import pytest
 from conftest import write_yaml
 
 from vllm_loader import __version__
+from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
 from vllm_loader.engine import supervisor as supervisor_module
 from vllm_loader.engine.sidecar import verify_sidecar_from_system
@@ -39,6 +40,48 @@ def test_cli_root_version_option_prints_version_without_launching_tui() -> None:
     assert proc.returncode == 0
     assert proc.stdout.strip() == __version__
     assert proc.stderr == ""
+
+
+def test_cli_list_uses_local_target_client(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def fake_agent_call(method: str, params: dict[str, str]):
+        calls.append((method, params))
+        return {
+            "valid": [{"name": "agent-cfg", "model": "org/model"}],
+            "invalid": [{"path": "bad.yaml", "errors": ["broken"]}],
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    cli_module.list_configs(configs_dir=tmp_path)
+
+    stdout, stderr = capsys.readouterr()
+    assert calls == [("list_configs", {"configs_dir": str(tmp_path)})]
+    assert "agent-cfg\torg/model" in stdout
+    assert "INVALID bad.yaml\tbroken" in stdout
+    assert stderr == ""
+
+
+def test_cli_preview_uses_local_target_client(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def fake_agent_call(method: str, params: dict[str, str]):
+        calls.append((method, params))
+        return {"preview": "agent-preview", "warnings": ["heads up"]}
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    cli_module.preview("agent-cfg", configs_dir=tmp_path)
+
+    stdout, stderr = capsys.readouterr()
+    assert calls == [("preview", {"name": "agent-cfg", "configs_dir": str(tmp_path)})]
+    assert stdout == "agent-preview\n"
+    assert stderr == "WARNING: heads up\n"
 
 
 def test_cli_preview_reports_unsupported_required_flags_without_traceback(

@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from vllm_loader import __version__
+from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.phases import Phase
@@ -19,6 +20,7 @@ from vllm_loader.engine.profile import (
 )
 from vllm_loader.engine.sidecar import stop_sidecar_from_system, verify_sidecar_from_system
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
+from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.app import VllmLoaderApp
 
 app = typer.Typer(
@@ -80,11 +82,11 @@ def _default_debug_log_path() -> Path:
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
 ) -> None:
-    registry = load_registry(configs_dir)
-    for item in registry.valid:
-        typer.echo(f"{item.config.name}\t{item.config.model}")
-    for item in registry.invalid:
-        typer.echo(f"INVALID {item.path.name}\t{'; '.join(item.errors)}")
+    result = _agent_call("list_configs", _agent_params(configs_dir=configs_dir))
+    for item in result["valid"]:
+        typer.echo(f"{item['name']}\t{item['model']}")
+    for item in result["invalid"]:
+        typer.echo(f"INVALID {Path(item['path']).name}\t{'; '.join(item['errors'])}")
 
 
 @app.command("preview")
@@ -92,11 +94,12 @@ def preview(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
 ) -> None:
-    registry = load_registry(configs_dir)
-    cfg = _config_by_name_or_exit(registry, name)
-    result = _build_command_or_exit(cfg)
-    typer.echo(result.preview)
-    _echo_command_warnings(result)
+    try:
+        result = _agent_call("preview", _agent_params(name=name, configs_dir=configs_dir))
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    typer.echo(result["preview"])
+    _echo_warnings(result.get("warnings", []))
 
 
 @app.command("run")
@@ -170,7 +173,11 @@ def _build_command_or_exit(cfg):
 
 
 def _echo_command_warnings(result) -> None:
-    for warning in result.warnings:
+    _echo_warnings(result.warnings)
+
+
+def _echo_warnings(warnings) -> None:
+    for warning in warnings:
         typer.echo(f"WARNING: {warning}", err=True)
 
 
@@ -180,6 +187,40 @@ def _launch_preflight_or_exit(cfg, cwd: Path) -> None:
         return
     typer.echo(f"ERROR {failure.kind.value}: {failure.detail}", err=True)
     raise typer.Exit(2)
+
+
+def _agent_params(**values) -> dict[str, str]:
+    return {key: str(value) for key, value in values.items() if value is not None}
+
+
+def _agent_call(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    return asyncio.run(_agent_call_async(method, params))
+
+
+async def _agent_call_async(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    try:
+        return await client.call(method, params)
+    finally:
+        await client.disconnect()
+
+
+def _echo_target_error_or_exit(exc: TargetCallError, *, fallback_name: str | None = None) -> None:
+    if exc.code == "unknown-config":
+        name = str(exc.details.get("name") or fallback_name or "unknown")
+        available = ", ".join(str(item) for item in exc.details.get("available", [])) or "none"
+        typer.echo(f"ERROR: Unknown config: {name}", err=True)
+        typer.echo(f"Available configs: {available}", err=True)
+        raise typer.Exit(2) from exc
+    if exc.code == "invalid-config":
+        name = str(exc.details.get("name") or fallback_name or "unknown")
+        typer.echo(f"ERROR: Invalid config: {name}", err=True)
+        for item in exc.details.get("matches", []):
+            typer.echo(f"{Path(item['path']).name}: {'; '.join(item['errors'])}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"ERROR: {exc.message}", err=True)
+    raise typer.Exit(2) from exc
 
 
 def _config_by_name_or_exit(registry, name: str):
