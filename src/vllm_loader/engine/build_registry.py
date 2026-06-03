@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -112,6 +113,42 @@ def verify_build(reference: str, root: str | Path | None = None) -> dict[str, An
     result = _verify_build_manifest(manifest, build_dir)
     _write_json_atomic(build_dir / "build.json", manifest)
     return result
+
+
+def build_reference_aliases(reference: str, root: str | Path | None = None) -> set[str]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    manifest, _build_dir = _manifest_for_reference(builds_root, reference)
+    aliases = {reference}
+    for field in ("build_id", "label"):
+        value = manifest.get(field)
+        if isinstance(value, str) and value:
+            aliases.add(value)
+    return aliases
+
+
+def remove_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    manifest, build_dir = _manifest_for_reference(builds_root, reference)
+    build_id = str(manifest["build_id"])
+    if build_id == _active_build_id(builds_root):
+        raise BuildRegistryError(
+            "resource-in-use",
+            "build is the active default",
+            {"build": reference, "reason": "active-build", "build_id": build_id},
+        )
+    if not _is_agent_owned_build_dir(builds_root, build_dir):
+        raise BuildRegistryError(
+            "invalid-config",
+            "build path is outside the agent build registry",
+            {"build": reference, "reason": "outside-build-root", "path": str(build_dir)},
+        )
+    shutil.rmtree(build_dir)
+    return {
+        "build_id": build_id,
+        "label": str(manifest.get("label") or ""),
+        "removed": True,
+        "removed_path": str(build_dir),
+    }
 
 
 def list_builds(root: str | Path | None = None) -> dict[str, Any]:
@@ -258,6 +295,13 @@ def _active_build_id(root: Path) -> str | None:
         return None
     build_id = data.get("build_id")
     return build_id if isinstance(build_id, str) and build_id else None
+
+
+def _is_agent_owned_build_dir(root: Path, build_dir: Path) -> bool:
+    try:
+        return build_dir.resolve().is_relative_to(root.resolve())
+    except OSError:
+        return False
 
 
 def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> dict[str, Any]:

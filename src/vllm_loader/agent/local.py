@@ -19,8 +19,10 @@ from vllm_loader.config.schema import EntryPoint, ModelConfig, default_run_artif
 from vllm_loader.engine.build_registry import (
     BuildHandoff,
     BuildRegistryError,
+    build_reference_aliases,
     default_builds_root,
     list_builds,
+    remove_build,
     resolve_build_handoff,
     select_build,
     verify_build,
@@ -88,6 +90,7 @@ AGENT_CAPABILITIES = [
     "list_builds",
     "select_build",
     "verify_build",
+    "remove_build",
     "list_models",
     "pin_model",
     "verify_model",
@@ -228,6 +231,8 @@ class LocalAgent:
             return self._select_build(payload)
         if method == "verify_build":
             return self._verify_build(payload)
+        if method == "remove_build":
+            return self._remove_build(payload)
         if method == "list_models":
             return self._list_models()
         if method == "pin_model":
@@ -724,6 +729,30 @@ class LocalAgent:
             raise TargetCallError("invalid-params", "verify_build requires build")
         try:
             return verify_build(reference, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _remove_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("build")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "remove_build requires build")
+        try:
+            aliases = build_reference_aliases(reference, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+        pinned_configs = _configs_pinning_build(_configs_dir(params), aliases)
+        if pinned_configs:
+            raise TargetCallError(
+                "resource-in-use",
+                "build is pinned by one or more configs",
+                {
+                    "build": reference,
+                    "reason": "config-pin",
+                    "configs": pinned_configs,
+                },
+            )
+        try:
+            return remove_build(reference, self._builds_root)
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
@@ -1403,6 +1432,16 @@ def _configs_pinning_model(configs_dir: Path | None, aliases: set[str]) -> list[
         item.config.name
         for item in registry.valid
         if item.config.model_ref is not None and item.config.model_ref in aliases
+    ]
+    return sorted(pinned)
+
+
+def _configs_pinning_build(configs_dir: Path | None, aliases: set[str]) -> list[str]:
+    registry = load_registry(configs_dir)
+    pinned = [
+        item.config.name
+        for item in registry.valid
+        if item.config.command.build is not None and item.config.command.build in aliases
     ]
     return sorted(pinned)
 

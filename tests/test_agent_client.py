@@ -2062,6 +2062,151 @@ async def test_agent_verify_marks_build_broken_when_executable_missing(
 
 
 @pytest.mark.asyncio
+async def test_agent_removes_unpinned_build_from_agent_owned_registry(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01REMOVEME"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01REMOVEME",
+                "label": "old-build",
+                "status": "broken",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        removed = await client.call(
+            "remove_build",
+            {"build": "old-build", "configs_dir": str(config_dir)},
+        )
+        listed = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    assert removed == {
+        "build_id": "01REMOVEME",
+        "label": "old-build",
+        "removed": True,
+        "removed_path": str(build_dir),
+    }
+    assert not build_dir.exists()
+    assert listed["builds"] == []
+    json.dumps(removed)
+
+
+@pytest.mark.asyncio
+async def test_agent_refuses_to_remove_build_pinned_by_config(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01PINNEDBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01PINNEDBUILD",
+                "label": "pinned-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "uses-build.yaml",
+        """
+        name: uses-build
+        model: org/model
+        command:
+          build: pinned-build
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "remove_build",
+                {"build": "pinned-build", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "config-pin"
+    assert exc_info.value.details["configs"] == ["uses-build"]
+    assert build_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_agent_refuses_to_remove_active_default_build(tmp_path: Path) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01ACTIVEBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01ACTIVEBUILD",
+                "label": "active-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        await client.call("select_build", {"build": "active-build"})
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("remove_build", {"build": "active-build"})
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "active-build"
+    assert build_dir.exists()
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_pinned_build_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
