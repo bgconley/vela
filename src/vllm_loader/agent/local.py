@@ -221,14 +221,14 @@ class LocalAgent:
                 "status": "already-running",
             }
         if cfg.launch.mode.value == "detached":
-            launch = self.start_detached_run(prepared)
+            launch = self._start_detached_run(prepared)
             self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
             return {
                 "run_id": launch.run_id,
                 "launch_mode": "detached",
                 "status": "started",
             }
-        run = self.start_attached_run(prepared, run_id=run_id)
+        run = self._start_attached_run(prepared, run_id=run_id)
         return {
             "run_id": run.run_id,
             "launch_mode": "attached",
@@ -243,7 +243,7 @@ class LocalAgent:
         run_id = _run_id_param(params)
         interrupt_timeout = float(params.get("interrupt_timeout", 5))
         terminate_timeout = float(params.get("terminate_timeout", 5))
-        self.stop_run(
+        self._stop_run(
             run_id,
             interrupt_timeout=interrupt_timeout,
             terminate_timeout=terminate_timeout,
@@ -252,7 +252,7 @@ class LocalAgent:
 
     def _kill(self, params: dict[str, Any]) -> dict[str, Any]:
         run_id = _run_id_param(params)
-        self.kill_run(run_id)
+        self._kill_run(run_id)
         return {"run_id": run_id, "signaled": True}
 
     async def _probe_until_ready(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -285,7 +285,7 @@ class LocalAgent:
             completed_task.cancel()
         return {"run_id": run_id, **last_event}
 
-    def start_attached_run(
+    def _start_attached_run(
         self,
         prepared: dict[str, Any],
         *,
@@ -340,7 +340,7 @@ class LocalAgent:
         self._attached_runs[run.run_id] = run
         return run
 
-    def start_detached_run(self, prepared: dict[str, Any]) -> DetachedLaunch:
+    def _start_detached_run(self, prepared: dict[str, Any]) -> DetachedLaunch:
         cfg = ModelConfig.model_validate(prepared["config"])
         build = _build_result_from_payload(prepared["build"])
         secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
@@ -360,7 +360,7 @@ class LocalAgent:
                 {"command": command, "fallback": build.argv[0]},
             ) from exc
 
-    def reattach_detached_run(self, sidecar_path: Path | str) -> LocalDetachedRun:
+    def _reattach_detached_run(self, sidecar_path: Path | str) -> LocalDetachedRun:
         path = Path(sidecar_path)
         verify_sidecar_from_system(path)
         sidecar = load_sidecar(path)
@@ -377,7 +377,7 @@ class LocalAgent:
         self._detached_sidecar_paths[run.run_id] = path
         return run
 
-    def discover_detached_runs(
+    def _discover_detached_runs(
         self, runs_dirs: list[Path | str]
     ) -> list[LocalDetachedRunSummary]:
         summaries: list[LocalDetachedRunSummary] = []
@@ -402,7 +402,7 @@ class LocalAgent:
             return _detached_run_alive(detached)
         return False
 
-    def stop_run(
+    def _stop_run(
         self,
         run_id: str,
         *,
@@ -425,7 +425,7 @@ class LocalAgent:
             terminate_timeout=terminate_timeout,
         )
 
-    def kill_run(self, run_id: str) -> None:
+    def _kill_run(self, run_id: str) -> None:
         run = self._attached_runs.get(run_id)
         if run is not None:
             run.intentional_shutdown = True
@@ -435,7 +435,7 @@ class LocalAgent:
         detached.intentional_shutdown = True
         signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
 
-    async def wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
+    async def _wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
         result = await self._wait_attached_run_payload(run_id)
         return result["returncode"], bool(result["intentional"])
 
@@ -466,7 +466,7 @@ class LocalAgent:
             "intentional": intentional,
         }
 
-    async def probe_run_until_ready(
+    async def _probe_run_until_ready(
         self, run_id: str, *, emit: Callable[[HealthEvent], None]
     ) -> None:
         run_config, fsm = self._run_config_and_fsm_or_error(run_id)
@@ -485,7 +485,7 @@ class LocalAgent:
         run_id = _run_id_param(params)
         start_position = params.get("start_position")
         poll_interval = float(params.get("poll_interval", 0.25))
-        await self.tail_detached_run(
+        await self._tail_detached_run(
             run_id,
             start_position=int(start_position) if start_position is not None else None,
             poll_interval=poll_interval,
@@ -498,7 +498,7 @@ class LocalAgent:
             raise TargetCallError(
                 "invalid-params", "discover_detached requires runs_dirs list"
             )
-        summaries = self.discover_detached_runs([Path(str(item)) for item in runs_dirs])
+        summaries = self._discover_detached_runs([Path(str(item)) for item in runs_dirs])
         return {"runs": [_detached_summary_payload(summary) for summary in summaries]}
 
     def _reattach_detached(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -508,13 +508,13 @@ class LocalAgent:
             sidecar_path = self._detached_sidecar_paths.get(run_id)
             if sidecar_path is None:
                 raise TargetCallError("run-not-found", f"unknown detached run: {run_id}")
-            run = self.reattach_detached_run(sidecar_path)
+            run = self._reattach_detached_run(sidecar_path)
         return _detached_run_payload(run)
 
     async def _sample_gpus(self) -> dict[str, Any]:
         return _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
 
-    async def tail_detached_run(
+    async def _tail_detached_run(
         self,
         run_id: str,
         *,
@@ -577,7 +577,7 @@ class LocalAgent:
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()
 
-    async def subscribe_run(
+    async def subscribe(
         self,
         run_ids: list[str] | tuple[str, ...] | set[str],
         *,

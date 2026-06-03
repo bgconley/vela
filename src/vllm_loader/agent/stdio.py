@@ -113,7 +113,7 @@ async def _subscribe(
         raise TargetCallError("invalid-params", "subscribe requires run_ids list")
     resume_from = payload.get("resume_from", "live")
     task = asyncio.create_task(
-        _stream_events(agent.subscribe_run(run_ids, resume_from=resume_from), write_frame)
+        _stream_events(agent.subscribe(run_ids, resume_from=resume_from), write_frame)
     )
     subscription_tasks.add(task)
     task.add_done_callback(subscription_tasks.discard)

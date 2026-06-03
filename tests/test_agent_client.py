@@ -71,6 +71,25 @@ async def test_in_process_target_client_requires_connection() -> None:
         await client.call("handshake")
 
 
+def test_local_agent_lifecycle_boundary_is_handle_and_subscribe_only() -> None:
+    public_lifecycle_helpers = {
+        "start_attached_run",
+        "start_detached_run",
+        "stop_run",
+        "kill_run",
+        "wait_attached_run",
+        "probe_run_until_ready",
+        "reattach_detached_run",
+        "tail_detached_run",
+        "discover_detached_runs",
+        "subscribe_run",
+    }
+
+    assert public_lifecycle_helpers.isdisjoint(LocalAgent.__dict__)
+    assert "handle" in LocalAgent.__dict__
+    assert "subscribe" in LocalAgent.__dict__
+
+
 @pytest.mark.asyncio
 async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     client = _subprocess_target_client_class()(_agent_connect_command())
@@ -326,7 +345,7 @@ async def test_local_agent_starts_and_stops_attached_run_by_run_id(
     agent = LocalAgent()
     prepared = agent.handle("prepare_launch", {"name": "attached", "configs_dir": str(config_dir)})
 
-    run = agent.start_attached_run(prepared)
+    run = agent._start_attached_run(prepared)
     try:
         for _ in range(100):
             if marker.exists():
@@ -336,8 +355,8 @@ async def test_local_agent_starts_and_stops_attached_run_by_run_id(
         assert marker.read_text(encoding="utf-8") == "started"
         assert agent.is_run_alive(run.run_id) is True
 
-        agent.stop_run(run.run_id, interrupt_timeout=1, terminate_timeout=1)
-        returncode, intentional = await agent.wait_attached_run(run.run_id)
+        agent._stop_run(run.run_id, interrupt_timeout=1, terminate_timeout=1)
+        returncode, intentional = await agent._wait_attached_run(run.run_id)
 
         assert intentional is True
         assert returncode == 0
@@ -345,8 +364,8 @@ async def test_local_agent_starts_and_stops_attached_run_by_run_id(
         assert agent.is_run_alive(run.run_id) is False
     finally:
         if agent.is_run_alive(run.run_id):
-            agent.kill_run(run.run_id)
-            await agent.wait_attached_run(run.run_id)
+            agent._kill_run(run.run_id)
+            await agent._wait_attached_run(run.run_id)
 
 
 @pytest.mark.asyncio
@@ -383,18 +402,18 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
     monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
     agent = LocalAgent()
     prepared = agent.handle("prepare_launch", {"name": "health", "configs_dir": str(config_dir)})
-    run = agent.start_attached_run(prepared)
+    run = agent._start_attached_run(prepared)
     events: list[HealthEvent] = []
 
     try:
-        await agent.probe_run_until_ready(run.run_id, emit=events.append)
+        await agent._probe_run_until_ready(run.run_id, emit=events.append)
 
         assert seen == {"name": "health", "alive": True}
         assert events == [HealthEvent(ready=True, detail="ready", models=["served"])]
     finally:
         if agent.is_run_alive(run.run_id):
-            agent.kill_run(run.run_id)
-        await agent.wait_attached_run(run.run_id)
+            agent._kill_run(run.run_id)
+        await agent._wait_attached_run(run.run_id)
 
 
 @pytest.mark.asyncio
@@ -442,10 +461,10 @@ async def test_local_agent_probes_detached_run_health_by_run_id(
     monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
     agent = LocalAgent()
-    agent.reattach_detached_run(sidecar_path)
+    agent._reattach_detached_run(sidecar_path)
     events: list[HealthEvent] = []
 
-    await agent.probe_run_until_ready("run-1", emit=events.append)
+    await agent._probe_run_until_ready("run-1", emit=events.append)
 
     assert seen == {"name": "detached", "port": 8123, "alive": True}
     assert events == [HealthEvent(ready=True, detail="ready", models=["served"])]
@@ -482,8 +501,8 @@ async def test_local_agent_emits_attached_log_and_phase_events(
     prepared = agent.handle("prepare_launch", {"name": "events", "configs_dir": str(config_dir)})
     events: list[object] = []
 
-    run = agent.start_attached_run(prepared, emit_event=events.append)
-    returncode, intentional = await agent.wait_attached_run(run.run_id)
+    run = agent._start_attached_run(prepared, emit_event=events.append)
+    returncode, intentional = await agent._wait_attached_run(run.run_id)
 
     assert intentional is False
     assert returncode == 0
@@ -543,7 +562,7 @@ def test_local_agent_starts_detached_run_from_prepared_launch(
         "prepare_launch", {"name": "detached", "configs_dir": str(config_dir)}
     )
 
-    launch = agent.start_detached_run(prepared)
+    launch = agent._start_detached_run(prepared)
 
     assert launch.run_id == "run-1"
     assert launch.sidecar_path == sidecar_path
@@ -668,8 +687,8 @@ def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
     )
     agent = LocalAgent()
 
-    run = agent.reattach_detached_run(sidecar_path)
-    agent.stop_run("run-1", interrupt_timeout=2, terminate_timeout=3)
+    run = agent._reattach_detached_run(sidecar_path)
+    agent._stop_run("run-1", interrupt_timeout=2, terminate_timeout=3)
 
     assert run.run_id == "run-1"
     assert run.sidecar_path == sidecar_path
@@ -708,7 +727,7 @@ def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
     agent = LocalAgent()
 
-    runs = agent.discover_detached_runs([tmp_path / "runs"])
+    runs = agent._discover_detached_runs([tmp_path / "runs"])
 
     assert seen["runs_dirs"] == [tmp_path / "runs"]
     assert runs[0].run_id == "run-1"
@@ -827,11 +846,11 @@ async def test_local_agent_tails_detached_log_and_emits_phase_events(
     monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
     monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     agent = LocalAgent()
-    agent.reattach_detached_run(sidecar_path)
+    agent._reattach_detached_run(sidecar_path)
     alive_checks = 0
     events: list[object] = []
 
-    await agent.tail_detached_run(
+    await agent._tail_detached_run(
         "run-1",
         start_position=0,
         emit_event=events.append,
@@ -882,7 +901,7 @@ async def test_target_client_tails_detached_run_with_serialized_events(
     monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
     monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
     agent = LocalAgent()
-    agent.reattach_detached_run(sidecar_path)
+    agent._reattach_detached_run(sidecar_path)
     alive_checks = 0
     client = InProcessTargetClient(agent)
     await client.connect()

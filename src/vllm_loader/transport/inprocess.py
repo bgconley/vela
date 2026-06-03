@@ -38,4 +38,4 @@ class InProcessTargetClient:
     ) -> AsyncIterator[dict[str, Any]]:
         if not self._connected:
             raise RuntimeError("target client is not connected")
-        return self._agent.subscribe_run(run_ids, resume_from=resume_from)
+        return self._agent.subscribe(run_ids, resume_from=resume_from)
