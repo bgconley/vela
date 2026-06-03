@@ -3564,6 +3564,123 @@ async def test_build_manager_create_build_streams_job_events(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_adopts_external_venv_through_target_client(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.adopt_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": "01STABLE",
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": True,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        }
+                    ],
+                    "skipped": [],
+                }
+            if method == "adopt_build":
+                self.adopt_calls.append(dict(params))
+                return {
+                    "build_id": "01ADOPTED",
+                    "label": "external-nightly",
+                    "status": "adopted",
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build adopt should not subscribe")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        await pilot.press("a")
+        await _wait_for_condition(
+            lambda: app.screen.id == "adopt-build",
+            "adopt build screen did not open",
+        )
+        app.screen.query_one("#adopt-build-input", Input).value = (
+            "build_id=01ADOPTED label=external-nightly "
+            "venv_path=/agent/venvs/vllm-nightly "
+            "vllm_version=0.17.0.dev vllm_version_profile=current"
+        )
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: target_client.adopt_calls
+            == [
+                {
+                    "build_id": "01ADOPTED",
+                    "label": "external-nightly",
+                    "venv_path": "/agent/venvs/vllm-nightly",
+                    "vllm_version": "0.17.0.dev",
+                    "vllm_version_profile": "current",
+                }
+            ],
+            "build adopt was not requested",
+        )
+
+
+@pytest.mark.asyncio
 async def test_build_manager_verifies_build_through_target_client(
     config_dir: Path,
 ) -> None:

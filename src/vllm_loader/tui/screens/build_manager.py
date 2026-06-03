@@ -50,6 +50,7 @@ class BuildManagerScreen(ModalScreen):
         ("down", "next", "Next"),
         ("enter", "accept", "Select"),
         ("n", "new", "New"),
+        ("a", "adopt", "Adopt"),
         ("v", "verify", "Verify"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
@@ -67,7 +68,7 @@ class BuildManagerScreen(ModalScreen):
                 yield Static("", id="build-manager-list")
                 yield Static("", id="build-manager-detail")
             yield Static(
-                "Enter Select   n New   v Verify   x Remove   Esc Close",
+                "Enter Select   n New   a Adopt   v Verify   x Remove   Esc Close",
                 id="build-manager-footer",
             )
 
@@ -93,6 +94,9 @@ class BuildManagerScreen(ModalScreen):
 
     def action_new(self) -> None:
         self.dismiss({"action": "create_build"})
+
+    def action_adopt(self) -> None:
+        self.dismiss({"action": "adopt_build"})
 
     def action_verify(self) -> None:
         build = self._selected_build()

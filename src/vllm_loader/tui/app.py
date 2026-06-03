@@ -50,6 +50,7 @@ from vllm_loader.monitoring.gpu import (
 )
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.factory import target_client_for_config
+from vllm_loader.tui.screens.adopt_build import AdoptBuildScreen
 from vllm_loader.tui.screens.build_manager import BuildManagerScreen
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
@@ -884,6 +885,11 @@ class VllmLoaderApp(App):
                     CreateBuildScreen(),
                     callback=self._handle_create_build_submission,
                 )
+            elif action == "adopt_build":
+                self.push_screen(
+                    AdoptBuildScreen(),
+                    callback=self._handle_adopt_build_submission,
+                )
             elif action == "verify_build":
                 build = _optional_str(selection.get("build"))
                 if build is not None:
@@ -1003,6 +1009,31 @@ class VllmLoaderApp(App):
             error_action="create build",
             incomplete_label="Build creation",
         )
+
+    def _handle_adopt_build_submission(self, params: dict[str, Any] | None) -> None:
+        if not params:
+            return
+        self.run_worker(
+            self._adopt_build(params),
+            name="build-adopt",
+            group="build-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _adopt_build(self, params: dict[str, Any]) -> None:
+        try:
+            result = await self._target_call("adopt_build", dict(params))
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to adopt build: {exc}", style=f"bold {BAD}")
+            return
+        label = _optional_str(result.get("label")) or _optional_str(params.get("label"))
+        build_id = _optional_str(result.get("build_id")) or _optional_str(params.get("build_id"))
+        rendered = label or build_id or "build"
+        self.notify(f"Adopted build: {rendered}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
 
     def action_models(self) -> None:
         self.run_worker(
