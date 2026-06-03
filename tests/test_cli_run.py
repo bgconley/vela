@@ -577,6 +577,106 @@ def test_cli_model_refresh_prints_refreshed_catalog(
     ]
 
 
+def test_cli_model_inspect_prints_entry_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "inspect", "llama-pin", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ("inspect_model", {"model_ref": "llama-pin"}, "blackbird"),
+    ]
+    assert result.output.splitlines() == [
+        "entry_id\t01MODEL",
+        "display_name\tllama-pin",
+        "source\thf_repo",
+        "repo_id\tmeta-llama/Llama-3.1-8B-Instruct",
+        "revision\tmain",
+        "commit_sha\tabc123",
+        "cache_state\tcached",
+    ]
+
+
+def test_cli_model_adopt_uses_verified_local_pin_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    model_dir = tmp_path / "models" / "local-llama"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01LOCAL",
+                "display_name": "local-llama",
+                "source": "local_path",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "adopt",
+            str(model_dir),
+            "--entry-id",
+            "01LOCAL",
+            "--display-name",
+            "local-llama",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "display_name": "local-llama",
+                "local_path": str(model_dir),
+                "source": "local_path",
+            },
+            "blackbird",
+        )
+    ]
+    assert result.output == "adopted model\t01LOCAL\tlocal-llama\n"
+
+
 def test_cli_model_pin_passes_metadata_to_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

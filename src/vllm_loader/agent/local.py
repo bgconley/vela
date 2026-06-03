@@ -33,6 +33,7 @@ from vllm_loader.engine.model_registry import (
     ModelHandoff,
     ModelRegistryError,
     default_models_registry_path,
+    inspect_model,
     list_models,
     model_reference_aliases,
     pin_model,
@@ -95,6 +96,7 @@ AGENT_CAPABILITIES = [
     "list_models",
     "pin_model",
     "refresh_models",
+    "inspect_model",
     "verify_model",
     "remove_model",
     "create_build",
@@ -241,6 +243,8 @@ class LocalAgent:
             return self._pin_model(payload)
         if method == "refresh_models":
             return self._refresh_models()
+        if method == "inspect_model":
+            return self._inspect_model(payload)
         if method == "verify_model":
             return self._verify_model(payload)
         if method == "remove_model":
@@ -772,6 +776,15 @@ class LocalAgent:
     def _refresh_models(self) -> dict[str, Any]:
         try:
             return refresh_models(self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _inspect_model(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("model_ref")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "inspect_model requires model_ref")
+        try:
+            return inspect_model(reference, self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 

@@ -171,6 +171,17 @@ def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:
     return result
 
 
+def inspect_model(reference: str, registry_path: str | Path | None = None) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_or_raise(path, reference)
+    entry = _entry_for_reference(registry, reference)
+    return {"entry": _model_payload(entry)}
+
+
 def model_reference_aliases(
     reference: str, registry_path: str | Path | None = None
 ) -> set[str]:

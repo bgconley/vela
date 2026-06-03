@@ -2580,6 +2580,35 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01MODEL",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "display_name": "llama-pin",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "quant_format": "awq",
+            },
+        )
+        inspected = await client.call("inspect_model", {"model_ref": "llama-pin"})
+    finally:
+        await client.disconnect()
+
+    assert inspected["entry"]["entry_id"] == "01MODEL"
+    assert inspected["entry"]["display_name"] == "llama-pin"
+    assert inspected["entry"]["repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
+    assert inspected["entry"]["commit_sha"] == "abc123"
+    json.dumps(inspected)
+
+
+@pytest.mark.asyncio
 async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"

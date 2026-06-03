@@ -39,6 +39,27 @@ app.add_typer(build_app, name="build")
 app.add_typer(model_app, name="model")
 app.add_typer(targets_app, name="targets")
 
+MODEL_INSPECT_FIELDS = (
+    "entry_id",
+    "display_name",
+    "source",
+    "repo_id",
+    "revision",
+    "commit_sha",
+    "local_path",
+    "url",
+    "quant_format",
+    "tokenizer",
+    "files",
+    "size_bytes",
+    "cache_state",
+    "gated",
+    "token_required",
+    "created_at",
+    "last_used_at",
+    "notes",
+)
+
 
 @app.callback(invoke_without_command=True)
 def interactive(
@@ -394,6 +415,79 @@ def model_refresh(
         )
 
 
+@model_app.command("inspect")
+def model_inspect(
+    model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable model detail."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "inspect_model",
+            {"model_ref": model_ref},
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
+    for field in MODEL_INSPECT_FIELDS:
+        if field not in entry:
+            continue
+        value = entry.get(field)
+        if value is None or value == "":
+            continue
+        typer.echo(f"{field}\t{_format_model_inspect_value(value)}")
+
+
+@model_app.command("adopt")
+def model_adopt(
+    local_path: Annotated[Path, typer.Argument(help="Local model directory to adopt.")],
+    entry_id: Annotated[str, typer.Option("--entry-id", help="Stable model entry id.")],
+    display_name: Annotated[
+        str | None,
+        typer.Option("--display-name", help="Human-readable model name."),
+    ] = None,
+    quant_format: Annotated[
+        str | None,
+        typer.Option("--quant-format", help="Model quantization label."),
+    ] = None,
+    tokenizer: Annotated[
+        str | None,
+        typer.Option("--tokenizer", help="Tokenizer override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable adoption result."),
+    ] = False,
+) -> None:
+    params = _agent_params(
+        entry_id=entry_id,
+        display_name=display_name,
+        local_path=local_path,
+        quant_format=quant_format,
+        tokenizer=tokenizer,
+    )
+    params["source"] = "local_path"
+    try:
+        result = _agent_call("pin_model", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    entry = result.get("entry", {})
+    typer.echo(
+        f"adopted model\t{entry.get('entry_id', '')}\t{entry.get('display_name', '')}"
+    )
+
+
 @model_app.command("pin")
 def model_pin(
     entry_id: Annotated[str, typer.Argument(help="Stable model entry id.")],
@@ -626,6 +720,12 @@ def _echo_warnings(warnings) -> None:
 
 def _echo_json(payload: dict[str, Any]) -> None:
     typer.echo(json.dumps(payload, sort_keys=True))
+
+
+def _format_model_inspect_value(value: object) -> str:
+    if isinstance(value, dict | list):
+        return json.dumps(value, sort_keys=True)
+    return str(value)
 
 
 def _prepare_launch_with_client_or_exit(
