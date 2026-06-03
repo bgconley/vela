@@ -666,13 +666,11 @@ class VllmLoaderApp(App):
         if self.reattached_run_id is not None and self._agent_run_is_alive(
             self.reattached_run_id
         ):
-            self._signal_reattached_agent_run(
-                "stop",
-                lambda run_id: self._agent_stop_run(
-                    run_id,
-                    interrupt_timeout=2,
-                    terminate_timeout=2,
-                ),
+            self.run_worker(
+                self._signal_reattached_target_run("stop"),
+                name="reattach-stop",
+                group="engine-signal",
+                exclusive=True,
             )
             return
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
@@ -901,14 +899,24 @@ class VllmLoaderApp(App):
         self._write_log(f"INFO detached from {sidecar_name}; server continues running")
         self.notify("Detached from run; server continues running")
 
-    def _signal_reattached_agent_run(
-        self, action: str, signaler: Callable[[str], None]
-    ) -> None:
+    async def _signal_reattached_target_run(self, action: str) -> None:
         if self.reattached_run_id is None:
             return
         run_id = self.reattached_run_id
         try:
-            signaler(run_id)
+            if action == "stop":
+                await self._target_call(
+                    "stop",
+                    {
+                        "run_id": run_id,
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            elif action == "kill":
+                await self._target_call("kill", {"run_id": run_id})
+            else:
+                raise ValueError(f"unknown reattached run action: {action}")
         except Exception as exc:
             self._set_error_text(f"Unable to {action} {run_id}: {exc}")
             return
@@ -1011,9 +1019,11 @@ class VllmLoaderApp(App):
         if self.reattached_run_id is not None and self._agent_run_is_alive(
             self.reattached_run_id
         ):
-            self._signal_reattached_agent_run(
-                "kill",
-                lambda run_id: self._agent_kill_run(run_id),
+            self.run_worker(
+                self._signal_reattached_target_run("kill"),
+                name="reattach-kill",
+                group="engine-signal",
+                exclusive=True,
             )
             return
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
