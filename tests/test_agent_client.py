@@ -3001,6 +3001,106 @@ async def test_gpu_method_can_emit_serialized_agent_stream_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "vllm-nightly"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-adopt-1"], resume_from="live")
+    try:
+        result = await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-adopt-1",
+                "method": "adopt",
+                "build_id": "01ADOPTED",
+                "label": "external-nightly",
+                "path": str(venv_dir),
+                "vllm_version": "0.17.0.dev",
+                "vllm_version_profile": "current",
+            },
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    manifest = json.loads(
+        (builds_root / "01ADOPTED" / "build.json").read_text(encoding="utf-8")
+    )
+    assert result == {
+        "job_id": "job-build-adopt-1",
+        "kind": "create_build",
+        "status": "running",
+    }
+    assert progress["event"] == "job_progress"
+    assert progress["job_id"] == "job-build-adopt-1"
+    assert progress["text"] == "Adopting build external-nightly"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-build-adopt-1"
+    assert done["ok"] is True
+    assert done["detail"] == "build adopted"
+    assert done["build_id"] == "01ADOPTED"
+    assert manifest["status"] == "adopted"
+    assert manifest["paths"]["root"] == str(venv_dir)
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_adopt_job_reports_registry_errors(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "broken-vllm"
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "bin" / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-adopt-broken"], resume_from="live")
+    try:
+        result = await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-adopt-broken",
+                "method": "adopt-existing-venv",
+                "build_id": "01BROKEN",
+                "path": str(venv_dir),
+            },
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert result == {
+        "job_id": "job-build-adopt-broken",
+        "kind": "create_build",
+        "status": "running",
+    }
+    assert progress["event"] == "job_progress"
+    assert progress["text"] == "Adopting build 01BROKEN"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-build-adopt-broken"
+    assert done["ok"] is False
+    assert done["error_kind"] == "invalid-config"
+    assert done["reason"] == "missing-executable"
+    assert not (builds_root / "01BROKEN" / "build.json").exists()
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_download_model_job_streams_by_job_id() -> None:
     async def model_job_runner(params, emit, cancel_event) -> dict[str, object]:
         assert params["job_id"] == "job-model-1"

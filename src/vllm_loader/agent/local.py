@@ -919,14 +919,60 @@ class LocalAgent:
 
     async def _default_build_job_runner(
         self,
-        _params: dict[str, Any],
+        params: dict[str, Any],
         emit: JobProgressEmitter,
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
+        method = str(params.get("method") or "").strip().lower()
+        if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
+            adopt_params = {
+                "build_id": params.get("build_id"),
+                "label": params.get("label"),
+                "venv_path": params.get("venv_path") or params.get("path"),
+                "vllm_version": params.get("vllm_version"),
+                "vllm_version_profile": params.get("vllm_version_profile"),
+                "notes": params.get("notes"),
+            }
+            adopt_params = {
+                key: value for key, value in adopt_params.items() if value is not None
+            }
+            label = str(
+                adopt_params.get("label")
+                or adopt_params.get("build_id")
+                or adopt_params.get("venv_path")
+                or "external build"
+            )
+            emit(
+                {
+                    "kind": "committed",
+                    "text": f"Adopting build {label}",
+                    "level": "INFO",
+                    "phase": "VERIFYING",
+                }
+            )
+            try:
+                adopted = adopt_build(adopt_params, self._builds_root)
+            except BuildRegistryError as exc:
+                result = {
+                    "ok": False,
+                    "error_kind": exc.code,
+                    "detail": exc.message,
+                }
+                result.update(exc.details)
+                return result
+            return {
+                "ok": True,
+                "detail": "build adopted",
+                "build_id": adopted["build_id"],
+                "label": adopted["label"],
+                "status": adopted["status"],
+                "manifest": adopted["manifest"],
+            }
+
         emit(
             {
                 "kind": "committed",
-                "text": "Build creation is not implemented for this agent yet",
+                "text": f"Build creation method is not implemented: {method or 'unknown'}",
                 "level": "WARNING",
                 "phase": "FAILED",
             }
@@ -934,7 +980,7 @@ class LocalAgent:
         return {
             "ok": False,
             "error_kind": "feature-unavailable",
-            "detail": "create_build is not implemented for this agent yet",
+            "detail": f"create_build method is not implemented: {method or 'unknown'}",
         }
 
     async def _default_model_job_runner(
