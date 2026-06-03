@@ -54,6 +54,7 @@ from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
+from vllm_loader.tui.screens.target_manager import TargetManagerScreen
 from vllm_loader.tui.theme import ACCENT, BAD, GOOD, MUTED, TEXT, WARN
 
 LEVEL_STYLE = {
@@ -477,6 +478,8 @@ class VllmLoaderApp(App):
         ("K", "kill", "Kill"),
         ("r", "restart", "Restart"),
         ("c", "config_picker", "Configs"),
+        ("t", "targets", "Targets"),
+        ("R", "reconnect", "Reconnect"),
         ("/", "search", "Search"),
         ("f", "filter", "Filter"),
         ("p", "pause", "Pause"),
@@ -696,6 +699,12 @@ class VllmLoaderApp(App):
         yield SystemCommand(
             "Open config picker", "Choose a model config", self.action_config_picker
         )
+        yield SystemCommand(
+            "Manage targets", "View and switch controller targets", self.action_targets
+        )
+        yield SystemCommand(
+            "Reconnect agent", "Reconnect to the active target", self.action_reconnect
+        )
         yield SystemCommand("Search logs", "Search the visible log lines", self.action_search)
         yield SystemCommand(
             "Filter logs", "Filter log lines by text or severity", self.action_filter
@@ -761,6 +770,37 @@ class VllmLoaderApp(App):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen(id="help"))
+
+    def action_targets(self) -> None:
+        try:
+            registry = load_targets_file()
+        except Exception as exc:
+            self._set_error_text(f"Target registry unavailable: {exc}", style=f"bold {BAD}")
+            return
+        self.push_screen(
+            TargetManagerScreen(
+                registry,
+                active_target=self.target_name,
+                connection_state=self.target_connection_state,
+                connection_detail=self.target_connection_detail,
+            )
+        )
+
+    def action_reconnect(self) -> None:
+        self.run_worker(
+            self._reconnect_target(),
+            name="target-reconnect",
+            group="target-connection",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _reconnect_target(self) -> None:
+        try:
+            await self._target_client.disconnect()
+        except Exception:
+            pass
+        await self._ensure_target_client_connected()
 
     def action_load(self) -> None:
         if self._attached_run_is_alive():
@@ -1897,7 +1937,8 @@ class VllmLoaderApp(App):
     @staticmethod
     def _render_footer_bindings() -> str:
         return (
-            "l Load   s Stop   K Kill   r Restart   / Search   f Filter   "
+            "l Load   s Stop   K Kill   r Restart   t Targets   R Reconnect   "
+            "/ Search   f Filter   "
             "p Pause   w Wrap   g/G Top/Bottom   Tab Focus   ? Help   ^P Palette   q Quit"
         )
 

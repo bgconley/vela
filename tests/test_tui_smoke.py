@@ -359,6 +359,81 @@ async def test_header_target_segment_tracks_connection_state(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_screen_opens_from_binding(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        workdir=Path("/tank/repos/lab-tui"),
+        venv=Path("/tank/venvs/lab-tui"),
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            if name == "local":
+                return TargetConfig(name="local")
+            raise KeyError(name)
+
+    class QuietTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target manager should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=QuietTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.pause()
+
+        assert app.screen.id == "target-manager"
+        assert isinstance(app.screen, ModalScreen)
+        target_list = str(app.screen.query_one("#target-manager-list", Static).content)
+        detail = str(app.screen.query_one("#target-manager-detail", Static).content)
+        assert "> ● blackbird  ssh  bgconley@10.25.0.51" in target_list
+        assert "Target Manager" in target_list
+        assert "workdir: /tank/repos/lab-tui" in detail
+        assert "venv: /tank/venvs/lab-tui" in detail
+        assert "connection: connected" in detail
+
+
+@pytest.mark.asyncio
 async def test_tui_surfaces_target_version_mismatch_on_mount(
     config_dir: Path,
 ) -> None:
