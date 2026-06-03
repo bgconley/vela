@@ -19,10 +19,8 @@ from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
 from vllm_loader.engine import process_manager as process_manager_module
 from vllm_loader.engine import supervisor as supervisor_module
-from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import verify_sidecar_from_system
 from vllm_loader.engine.supervisor import run_supervisor
-from vllm_loader.monitoring.health import HealthEvent
 
 
 def test_debug_mode_enables_textual_debug_and_devtools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -719,7 +717,7 @@ def test_cli_run_attached_launches_through_target_client(
     assert "INFO agent log" in captured.out
 
 
-def test_cli_run_detached_launches_through_local_agent(
+def test_cli_run_detached_launches_through_target_client(
     config_dir: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -728,8 +726,6 @@ def test_cli_run_detached_launches_through_local_agent(
     executable = tmp_path / "child.py"
     executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
     executable.chmod(0o755)
-    sidecar_path = tmp_path / "runs" / "run-1.json"
-    log_path = tmp_path / "runs" / "run-1.run.log"
     write_yaml(
         config_dir / "agent-detached.yaml",
         f"""
@@ -745,9 +741,6 @@ def test_cli_run_detached_launches_through_local_agent(
     )
 
     class FakeAgent:
-        def __init__(self) -> None:
-            self.start_calls = 0
-
         def handle(self, method: str, params):
             assert method == "prepare_launch"
             return {
@@ -771,18 +764,34 @@ def test_cli_run_detached_launches_through_local_agent(
                 "preflight": None,
             }
 
-        def start_detached_run(self, prepared):
-            self.start_calls += 1
-            return DetachedLaunch(
-                run_id="run-1",
-                supervisor_pid=123,
-                sidecar_path=sidecar_path,
-                manifest_path=tmp_path / "runs" / "run-1.manifest.json",
-                log_path=log_path,
-            )
+        def start_detached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct detached CLI start")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "detached",
+                    "status": "started",
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
 
     fake_agent = FakeAgent()
     monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
     monkeypatch.setattr(
         process_manager_module,
         "start_detached",
@@ -794,10 +803,9 @@ def test_cli_run_detached_launches_through_local_agent(
     cli_module.run_config("agent-detached", configs_dir=config_dir)
 
     captured = capsys.readouterr()
-    assert fake_agent.start_calls == 1
     assert "detached run started: run-1" in captured.out
-    assert f"sidecar: {sidecar_path}" in captured.out
-    assert f"log: {log_path}" in captured.out
+    assert "sidecar:" not in captured.out
+    assert "log:" not in captured.out
 
 
 def test_cli_smoke_attached_uses_target_client(
@@ -933,7 +941,7 @@ def test_cli_smoke_attached_uses_target_client(
     assert client_instances[0].connected is False
 
 
-def test_cli_smoke_detached_uses_local_agent(
+def test_cli_smoke_detached_uses_target_client(
     config_dir: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -942,7 +950,6 @@ def test_cli_smoke_detached_uses_local_agent(
     executable = tmp_path / "child.py"
     executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
     executable.chmod(0o755)
-    sidecar_path = tmp_path / "runs" / "run-1.json"
     write_yaml(
         config_dir / "smoke-detached.yaml",
         f"""
@@ -961,9 +968,6 @@ def test_cli_smoke_detached_uses_local_agent(
     )
 
     class FakeAgent:
-        def __init__(self) -> None:
-            self.stop_calls: list[str] = []
-
         def handle(self, method: str, params):
             assert method == "prepare_launch"
             return {
@@ -988,23 +992,50 @@ def test_cli_smoke_detached_uses_local_agent(
                 "preflight": None,
             }
 
-        def start_detached_run(self, prepared):
-            return DetachedLaunch(
-                run_id="run-1",
-                supervisor_pid=123,
-                sidecar_path=sidecar_path,
-                manifest_path=tmp_path / "runs" / "run-1.manifest.json",
-                log_path=tmp_path / "runs" / "run-1.run.log",
-            )
+        def start_detached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct detached smoke start")
 
         async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
-            emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+            raise AssertionError("direct smoke probe")
 
         def stop_run(self, run_id: str, *, interrupt_timeout, terminate_timeout) -> None:
-            self.stop_calls.append(run_id)
+            raise AssertionError("direct detached smoke stop")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "detached",
+                    "status": "started",
+                }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
 
     fake_agent = FakeAgent()
     monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
     monkeypatch.setattr(
         process_manager_module,
         "start_detached",
@@ -1025,9 +1056,8 @@ def test_cli_smoke_detached_uses_local_agent(
 
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
-    assert f"detached smoke sidecar: {sidecar_path}" in captured.out
+    assert "detached smoke run: run-1" in captured.out
     assert "READY http://127.0.0.1:8124 models=served" in captured.out
-    assert fake_agent.stop_calls == ["run-1"]
 
 
 @pytest.mark.asyncio

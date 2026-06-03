@@ -11,7 +11,7 @@ from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.phases import Phase
-from vllm_loader.monitoring.health import HealthEvent, probe_host_for
+from vllm_loader.monitoring.health import probe_host_for
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.app import VllmLoaderApp
 
@@ -117,13 +117,7 @@ def run_config(
     prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        try:
-            launch = agent.start_detached_run(prepared)
-        except TargetCallError as exc:
-            _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
-        typer.echo(f"detached run started: {launch.run_id}")
-        typer.echo(f"sidecar: {launch.sidecar_path}")
-        typer.echo(f"log: {launch.log_path}")
+        asyncio.run(_run_detached_cli(agent, name, configs_dir, prepared))
         return
 
     raise typer.Exit(asyncio.run(_run_attached_cli(agent, name, configs_dir, prepared)))
@@ -263,6 +257,28 @@ async def _run_attached_cli(
         await client.disconnect()
 
 
+async def _run_detached_cli(
+    agent: LocalAgent,
+    name: str,
+    configs_dir: Path | None,
+    prepared: dict[str, Any],
+) -> None:
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    try:
+        try:
+            launch = await client.call(
+                "launch",
+                _agent_params(name=name, configs_dir=configs_dir),
+            )
+        except TargetCallError as exc:
+            _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
+            return
+        typer.echo(f"detached run started: {launch['run_id']}")
+    finally:
+        await client.disconnect()
+
+
 async def _echo_attached_event_stream_until_exit(events, wait_task) -> int:
     async for event in events:
         if event.get("event") == "log" and event.get("kind") == "committed":
@@ -281,7 +297,7 @@ async def _smoke_config_cli(
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        return await _smoke_detached_cli(agent, prepared)
+        return await _smoke_detached_cli(agent, prepared, name, configs_dir)
     return await _smoke_attached_cli(agent, prepared, name, configs_dir)
 
 
@@ -385,68 +401,42 @@ async def _smoke_attached_cli(
         await client.disconnect()
 
 
-async def _smoke_detached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
-    cfg = ModelConfig.model_validate(prepared["config"])
-    try:
-        launch = agent.start_detached_run(prepared)
-    except TargetCallError as exc:
-        _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
-        return 2
-    typer.echo(f"detached smoke sidecar: {launch.sidecar_path}")
-    health_code = await _wait_agent_until_ready_or_exit(
-        agent,
-        launch.run_id,
-        cfg,
-    )
-    try:
-        agent.stop_run(launch.run_id, interrupt_timeout=2, terminate_timeout=2)
-    except Exception as exc:
-        typer.echo(f"WARNING: unable to stop detached smoke run: {exc}", err=True)
-    return health_code
-
-
-async def _wait_agent_until_ready_or_exit(
+async def _smoke_detached_cli(
     agent: LocalAgent,
-    run_id: str,
-    cfg: ModelConfig,
-    *,
-    read_task: asyncio.Task[tuple[int | None, bool]] | None = None,
+    prepared: dict[str, Any],
+    name: str,
+    configs_dir: Path | None,
 ) -> int:
-    status = {"code": 1}
-    ready = asyncio.Event()
+    cfg = ModelConfig.model_validate(prepared["config"])
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    try:
+        try:
+            launch = await client.call(
+                "launch",
+                _agent_params(name=name, configs_dir=configs_dir),
+            )
+        except TargetCallError as exc:
+            _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
+            return 2
+        run_id = str(launch["run_id"])
+        typer.echo(f"detached smoke run: {run_id}")
+        health_code = await _wait_target_until_ready_or_exit(client, run_id, cfg)
+        try:
+            await client.call(
+                "stop",
+                {
+                    "run_id": run_id,
+                    "interrupt_timeout": 2,
+                    "terminate_timeout": 2,
+                },
+            )
+        except TargetCallError as exc:
+            typer.echo(f"WARNING: unable to stop detached smoke run: {exc}", err=True)
+        return health_code
+    finally:
+        await client.disconnect()
 
-    def emit(event: HealthEvent) -> None:
-        if event.ready:
-            models = ",".join(event.models or [])
-            suffix = f" models={models}" if models else ""
-            typer.echo(f"READY {_server_url(cfg)}{suffix}")
-            status["code"] = 0
-            ready.set()
-            return
-        if event.error_kind is not None:
-            typer.echo(f"ERROR {event.error_kind.value}: {event.detail}", err=True)
-            status["code"] = 2
-            ready.set()
-
-    health_task = asyncio.create_task(agent.probe_run_until_ready(run_id, emit=emit))
-    ready_task = asyncio.create_task(ready.wait())
-    wait_on = {health_task, ready_task}
-    if read_task is not None:
-        wait_on.add(read_task)
-    done, _pending = await asyncio.wait(wait_on, return_when=asyncio.FIRST_COMPLETED)
-    if ready.is_set():
-        health_task.cancel()
-        return status["code"]
-    if read_task is not None and read_task in done:
-        health_task.cancel()
-        ready_task.cancel()
-        returncode, _intentional = read_task.result()
-        return int(returncode or 1)
-    if health_task in done and not ready_task.done():
-        ready_task.cancel()
-        return status["code"]
-    health_task.cancel()
-    return status["code"]
 
 
 async def _wait_target_until_ready_or_exit(
