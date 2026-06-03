@@ -109,6 +109,7 @@ class ModelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    target: str | None = None
     description: str | None = None
     model: str
     served_model_name: str | None = None

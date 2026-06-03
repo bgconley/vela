@@ -60,6 +60,14 @@ def test_served_model_name_defaults_to_model_basename() -> None:
     assert cfg.served_model_name == "model-name"
 
 
+def test_model_config_accepts_optional_target_reference() -> None:
+    cfg = ModelConfig.model_validate(
+        {"name": "x", "model": "org/model-name", "target": "blackbird"}
+    )
+
+    assert cfg.target == "blackbird"
+
+
 def test_vllm_pass_through_defaults_are_unset() -> None:
     cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
 
