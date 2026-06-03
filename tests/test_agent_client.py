@@ -76,6 +76,21 @@ async def test_in_process_target_client_requires_connection() -> None:
         await client.call("handshake")
 
 
+@pytest.mark.asyncio
+async def test_in_process_target_client_handshake_rejects_newer_controller_protocol() -> None:
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.call("handshake", {"protocol_version": 2})
+
+    assert exc_info.value.code == "agent-version-mismatch"
+    assert exc_info.value.details == {
+        "agent_protocol_version": 1,
+        "controller_protocol_version": 2,
+    }
+
+
 def test_local_agent_lifecycle_boundary_is_handle_and_subscribe_only() -> None:
     public_lifecycle_helpers = {
         "start_attached_run",
@@ -113,6 +128,24 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
     assert result["host_info"]["hostname"]
     assert result["host_info"]["platform"]
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_handshake_rejects_newer_controller_protocol() -> None:
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("handshake", {"protocol_version": 2})
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "agent-version-mismatch"
+    assert exc_info.value.details == {
+        "agent_protocol_version": 1,
+        "controller_protocol_version": 2,
+    }
 
 
 @pytest.mark.asyncio

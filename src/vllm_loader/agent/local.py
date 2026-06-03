@@ -116,7 +116,7 @@ class LocalAgent:
     ) -> dict[str, Any] | Awaitable[dict[str, Any]]:
         payload = params or {}
         if method == "handshake":
-            return self._handshake()
+            return self._handshake(payload)
         if method == "list_configs":
             return self._list_configs(payload)
         if method == "preview":
@@ -143,7 +143,24 @@ class LocalAgent:
             return self._sample_gpus()
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
 
-    def _handshake(self) -> dict[str, Any]:
+    def _handshake(self, params: dict[str, Any]) -> dict[str, Any]:
+        controller_protocol_version = params.get("protocol_version")
+        if (
+            controller_protocol_version is not None
+            and int(controller_protocol_version) > PROTOCOL_VERSION
+        ):
+            raise TargetCallError(
+                "agent-version-mismatch",
+                (
+                    "controller protocol version "
+                    f"{controller_protocol_version} is newer than agent protocol "
+                    f"{PROTOCOL_VERSION}"
+                ),
+                {
+                    "agent_protocol_version": PROTOCOL_VERSION,
+                    "controller_protocol_version": int(controller_protocol_version),
+                },
+            )
         return {
             "agent_version": __version__,
             "protocol_version": PROTOCOL_VERSION,
