@@ -3400,6 +3400,115 @@ async def test_build_manager_selects_build_through_target_client(
 
 
 @pytest.mark.asyncio
+async def test_model_manager_opens_model_catalog_from_target_client(
+    config_dir: Path,
+) -> None:
+    class ModelTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/modelable.yaml",
+                            "name": "modelable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "modelable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "model_display_name": "modelable",
+                    },
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "01MODEL",
+                            "display_name": "llama-pin",
+                            "source": "hf_repo",
+                            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "quant_format": "awq",
+                            "cache_state": "cached",
+                            "gated": True,
+                            "size_bytes": 16_060_530_000,
+                            "files": {"count": 7, "weights_format": "safetensors"},
+                        },
+                        {
+                            "entry_id": "02REMOTE",
+                            "display_name": "qwen-remote",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3-32B",
+                            "revision": "main",
+                            "commit_sha": None,
+                            "quant_format": "bf16",
+                            "cache_state": "remote_only",
+                            "gated": False,
+                            "size_bytes": 0,
+                            "files": {},
+                        },
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model manager should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=ModelTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open",
+        )
+
+        model_list = str(app.screen.query_one("#model-manager-list", Static).content)
+        detail = str(app.screen.query_one("#model-manager-detail", Static).content)
+        assert "> ● llama-pin  awq  16.1 GB @abc123 🔒" in model_list
+        assert "  ○ qwen-remote  bf16  -- @main" in model_list
+        assert "repo: meta-llama/Llama-3.1-8B-Instruct" in detail
+        assert "revision: main → abc123" in detail
+        assert "files: 7 safetensors" in detail
+
+
+@pytest.mark.asyncio
 async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 

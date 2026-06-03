@@ -55,6 +55,7 @@ from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
+from vllm_loader.tui.screens.model_manager import ModelManagerScreen
 from vllm_loader.tui.screens.target_manager import TargetManagerScreen
 from vllm_loader.tui.theme import ACCENT, BAD, GOOD, MUTED, TEXT, WARN
 
@@ -507,6 +508,7 @@ class VllmLoaderApp(App):
         ("c", "config_picker", "Configs"),
         ("t", "targets", "Targets"),
         ("b", "builds", "Builds"),
+        ("m", "models", "Models"),
         ("R", "reconnect", "Reconnect"),
         ("/", "search", "Search"),
         ("f", "filter", "Filter"),
@@ -740,6 +742,9 @@ class VllmLoaderApp(App):
             "Manage vLLM builds", "View and select target-local vLLM builds", self.action_builds
         )
         yield SystemCommand(
+            "Manage models", "View target-local model catalog entries", self.action_models
+        )
+        yield SystemCommand(
             "Reconnect agent", "Reconnect to the active target", self.action_reconnect
         )
         yield SystemCommand("Search logs", "Search the visible log lines", self.action_search)
@@ -887,6 +892,23 @@ class VllmLoaderApp(App):
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+
+    def action_models(self) -> None:
+        self.run_worker(
+            self._open_model_manager(),
+            name="model-manager",
+            group="model-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _open_model_manager(self) -> None:
+        try:
+            result = await self._target_call("list_models", {})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to list models: {exc}", style=f"bold {BAD}")
+            return
+        self.push_screen(ModelManagerScreen(result))
 
     def action_reconnect(self) -> None:
         self.run_worker(
@@ -2270,8 +2292,8 @@ class VllmLoaderApp(App):
     @staticmethod
     def _render_footer_bindings() -> str:
         return (
-            "l Load   s Stop   K Kill   r Restart   t Targets   b Builds   R Reconnect   "
-            "/ Search   f Filter   "
+            "l Load   s Stop   K Kill   r Restart   t Targets   "
+            "b Builds   m Models   R Reconnect   / Search   f Filter   "
             "p Pause   w Wrap   g/G Top/Bottom   Tab Focus   ? Help   ^P Palette   q Quit"
         )
 
