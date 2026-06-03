@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 
@@ -14,3 +15,10 @@ class TargetClient(Protocol):
     async def call(
         self, method: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]: ...
+
+    def subscribe(
+        self,
+        run_ids: list[str],
+        *,
+        resume_from: object = "live",
+    ) -> AsyncIterator[dict[str, Any]]: ...

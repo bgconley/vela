@@ -19,8 +19,6 @@ from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
 from vllm_loader.engine import process_manager as process_manager_module
 from vllm_loader.engine import supervisor as supervisor_module
-from vllm_loader.engine.command_builder import CommandBuildResult
-from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import verify_sidecar_from_system
 from vllm_loader.engine.supervisor import run_supervisor
@@ -597,7 +595,7 @@ def test_cli_reports_invalid_named_config_without_traceback(config_dir: Path, co
     assert "Traceback" not in proc.stderr
 
 
-def test_cli_run_attached_launches_through_local_agent(
+def test_cli_run_attached_launches_through_target_client(
     config_dir: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -616,18 +614,9 @@ def test_cli_run_attached_launches_through_local_agent(
           executable: {executable}
         """,
     )
-    build = CommandBuildResult(
-        argv=[str(executable)],
-        env={},
-        cwd=tmp_path,
-        preview="",
-    )
+    client_instances: list[object] = []
 
     class FakeAgent:
-        def __init__(self) -> None:
-            self.start_calls = 0
-            self.wait_calls: list[str] = []
-
         def handle(self, method: str, params):
             assert method == "prepare_launch"
             return {
@@ -637,9 +626,9 @@ def test_cli_run_attached_launches_through_local_agent(
                     "command": {"entrypoint": "serve", "executable": str(executable)},
                 },
                 "build": {
-                    "argv": build.argv,
-                    "env": build.env,
-                    "cwd": str(build.cwd),
+                    "argv": [str(executable)],
+                    "env": {},
+                    "cwd": str(tmp_path),
                     "warnings": [],
                     "metadata": {},
                     "preview": "",
@@ -647,17 +636,64 @@ def test_cli_run_attached_launches_through_local_agent(
                 "preflight": None,
             }
 
-        def start_attached_run(self, prepared, *, emit):
-            self.start_calls += 1
-            emit(LogRecord("committed", "INFO agent log", "INFO"))
-            return type("Run", (), {"run_id": "run-1"})()
+        def start_attached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct attached start")
 
-        async def wait_attached_run(self, run_id: str):
-            self.wait_calls.append(run_id)
-            return 0, False
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            self.connected = False
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "wait":
+                return {"run_id": "run-1", "returncode": 0, "intentional": False}
+            raise AssertionError(f"unexpected call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "log",
+                "run_id": "run-1",
+                "kind": "committed",
+                "text": "INFO agent log",
+                "level": "INFO",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": 0,
+                "intentional": False,
+                "phase": "STOPPED",
+                "seq": 2,
+                "ts": "2026-06-03T00:00:01Z",
+                "mono": 2.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
 
     fake_agent = FakeAgent()
     monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
     monkeypatch.setattr(
         process_manager_module,
         "start_attached",
@@ -671,8 +707,15 @@ def test_cli_run_attached_launches_through_local_agent(
 
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
-    assert fake_agent.start_calls == 1
-    assert fake_agent.wait_calls == ["run-1"]
+    assert len(client_instances) == 1
+    assert client_instances[0].calls == [
+        (
+            "launch",
+            {"name": "agent-attached", "configs_dir": str(config_dir)},
+        ),
+        ("wait", {"run_id": "run-1"}),
+    ]
+    assert client_instances[0].connected is False
     assert "INFO agent log" in captured.out
 
 

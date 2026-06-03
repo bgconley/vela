@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -100,8 +102,14 @@ class LocalAgent:
         self._gpu_sampler = gpu_sampler
         self._attached_runs: dict[str, LocalAttachedRun] = {}
         self._detached_runs: dict[str, LocalDetachedRun] = {}
+        self._event_sequences: dict[str, int] = {}
+        self._event_buffers: dict[str, list[dict[str, Any]]] = {}
+        self._event_buffer_size = 5000
+        self._subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
 
-    def handle(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def handle(
+        self, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | Awaitable[dict[str, Any]]:
         payload = params or {}
         if method == "handshake":
             return self._handshake()
@@ -111,6 +119,12 @@ class LocalAgent:
             return self._preview(payload)
         if method == "prepare_launch":
             return self._prepare_launch(payload)
+        if method == "launch":
+            return self._launch(payload)
+        if method == "wait":
+            return self._wait(payload)
+        if method == "stop":
+            return self._stop(payload)
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
 
     def _handshake(self) -> dict[str, Any]:
@@ -123,6 +137,10 @@ class LocalAgent:
                 "list_configs",
                 "preview",
                 "prepare_launch",
+                "launch",
+                "wait",
+                "stop",
+                "subscribe",
             ],
         }
 
@@ -172,16 +190,60 @@ class LocalAgent:
             "preflight": None,
         }
 
+    def _launch(self, params: dict[str, Any]) -> dict[str, Any]:
+        prepared = self._prepare_launch(params)
+        cfg = ModelConfig.model_validate(prepared["config"])
+        requested_run_id = params.get("run_id")
+        run_id = str(requested_run_id) if requested_run_id is not None else None
+        if run_id is not None and run_id in self._attached_runs:
+            return {
+                "run_id": run_id,
+                "launch_mode": "attached",
+                "status": "already-running",
+            }
+        if cfg.launch.mode.value == "detached":
+            launch = self.start_detached_run(prepared)
+            return {
+                "run_id": launch.run_id,
+                "launch_mode": "detached",
+                "status": "started",
+            }
+        run = self.start_attached_run(prepared, run_id=run_id)
+        return {
+            "run_id": run.run_id,
+            "launch_mode": "attached",
+            "status": "started",
+        }
+
+    async def _wait(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        return await self._wait_attached_run_payload(run_id)
+
+    def _stop(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        interrupt_timeout = float(params.get("interrupt_timeout", 5))
+        terminate_timeout = float(params.get("terminate_timeout", 5))
+        self.stop_run(
+            run_id,
+            interrupt_timeout=interrupt_timeout,
+            terminate_timeout=terminate_timeout,
+        )
+        return {"run_id": run_id, "signaled": True}
+
     def start_attached_run(
         self,
         prepared: dict[str, Any],
         *,
+        run_id: str | None = None,
         emit: Callable[[LogRecord], None] | None = None,
         emit_event: Callable[[AgentEvent], None] | None = None,
     ) -> LocalAttachedRun:
         cfg = ModelConfig.model_validate(prepared["config"])
         build = _build_result_from_payload(prepared["build"])
-        run_id = uuid.uuid4().hex
+        run_id = run_id or uuid.uuid4().hex
+        existing = self._attached_runs.get(run_id)
+        if existing is not None:
+            return existing
         fsm = PhaseFSM(select_profile_for_config(cfg))
         run_dir = cfg.run_artifacts_dir
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -191,8 +253,13 @@ class LocalAgent:
             if emit is not None:
                 emit(record)
             if emit_event is not None:
-                for event in _events_from_log_record(run_id, fsm, record):
+                events = _events_from_log_record(run_id, fsm, record)
+                for event in events:
                     emit_event(event)
+            else:
+                events = _events_from_log_record(run_id, fsm, record)
+            for event in events:
+                self._publish_event(event)
 
         try:
             process = start_attached(
@@ -312,11 +379,35 @@ class LocalAgent:
         signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
 
     async def wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
+        result = await self._wait_attached_run_payload(run_id)
+        return result["returncode"], bool(result["intentional"])
+
+    async def _wait_attached_run_payload(self, run_id: str) -> dict[str, Any]:
         run = self._attached_run_or_error(run_id)
         returncode = await run.process.read_loop()
         intentional = run.intentional_shutdown
+        previous_phase = run.fsm.phase
+        run.fsm.process_exited(returncode, intentional=intentional)
+        phase_event = _phase_event_from_transition(run_id, run.fsm, previous_phase)
+        if phase_event is not None:
+            self._publish_event(phase_event)
+        self._publish_event(
+            AgentEvent(
+                "exited",
+                run_id,
+                {
+                    "returncode": returncode,
+                    "intentional": intentional,
+                    "phase": run.fsm.phase.value,
+                },
+            )
+        )
         self._attached_runs.pop(run_id, None)
-        return returncode, intentional
+        return {
+            "run_id": run_id,
+            "returncode": returncode,
+            "intentional": intentional,
+        }
 
     async def probe_run_until_ready(
         self, run_id: str, *, emit: Callable[[HealthEvent], None]
@@ -379,6 +470,29 @@ class LocalAgent:
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()
 
+    async def subscribe_run(
+        self,
+        run_ids: list[str] | tuple[str, ...] | set[str],
+        *,
+        resume_from: object = "live",
+    ) -> AsyncIterator[dict[str, Any]]:
+        selected_run_ids = {str(run_id) for run_id in run_ids}
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        for run_id in selected_run_ids:
+            self._subscribers.setdefault(run_id, []).append(queue)
+        try:
+            for event in self._replay_events(selected_run_ids, resume_from):
+                yield event
+            while True:
+                yield await queue.get()
+        finally:
+            for run_id in selected_run_ids:
+                queues = self._subscribers.get(run_id, [])
+                if queue in queues:
+                    queues.remove(queue)
+                if not queues:
+                    self._subscribers.pop(run_id, None)
+
     def _attached_run_or_error(self, run_id: str) -> LocalAttachedRun:
         run = self._attached_runs.get(run_id)
         if run is None:
@@ -390,6 +504,45 @@ class LocalAgent:
         if run is None:
             raise TargetCallError("run-not-found", f"unknown run: {run_id}")
         return run
+
+    def _publish_event(self, event: AgentEvent) -> dict[str, Any]:
+        wire_event = self._wire_event(event)
+        buffer = self._event_buffers.setdefault(event.run_id, [])
+        buffer.append(wire_event)
+        del buffer[:- self._event_buffer_size]
+        for queue in list(self._subscribers.get(event.run_id, [])):
+            queue.put_nowait(wire_event)
+        return wire_event
+
+    def _wire_event(self, event: AgentEvent) -> dict[str, Any]:
+        seq = self._event_sequences.get(event.run_id, 0) + 1
+        self._event_sequences[event.run_id] = seq
+        return {
+            "event": event.kind,
+            "run_id": event.run_id,
+            "seq": seq,
+            "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "mono": time.monotonic(),
+            **event.payload,
+        }
+
+    def _replay_events(
+        self, run_ids: set[str], resume_from: object
+    ) -> list[dict[str, Any]]:
+        if resume_from == "live":
+            return []
+        min_seq = 0
+        if isinstance(resume_from, dict):
+            try:
+                min_seq = int(resume_from.get("seq", 0))
+            except (TypeError, ValueError):
+                min_seq = 0
+        events: list[dict[str, Any]] = []
+        for run_id in run_ids:
+            for event in self._event_buffers.get(run_id, []):
+                if event["seq"] > min_seq:
+                    events.append(event)
+        return sorted(events, key=lambda item: (str(item["run_id"]), int(item["seq"])))
 
 
 def _events_from_log_record(
@@ -468,6 +621,13 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _run_id_param(params: dict[str, Any]) -> str:
+    value = params.get("run_id")
+    if not isinstance(value, str) or not value.strip():
+        raise TargetCallError("invalid-params", "run_id is required")
+    return value
 
 
 def _config_by_name(registry: ConfigRegistry, name: str):

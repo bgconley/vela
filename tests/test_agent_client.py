@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -588,3 +589,113 @@ def test_local_agent_samples_gpus_with_injected_sampler() -> None:
 
     assert calls == 1
     assert result.samples[0].name == "A100"
+
+
+@pytest.mark.asyncio
+async def test_target_client_launches_attached_run_with_serialized_events(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "print('INFO Starting to load model', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "wire.yaml",
+        f"""
+        name: wire
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    launch = await client.call(
+        "launch",
+        {"name": "wire", "configs_dir": str(config_dir), "run_id": "run-wire-1"},
+    )
+
+    assert launch == {
+        "run_id": "run-wire-1",
+        "launch_mode": "attached",
+        "status": "started",
+    }
+    json.dumps(launch)
+
+    events = client.subscribe(["run-wire-1"], resume_from="live")
+    wait_task = asyncio.create_task(client.call("wait", {"run_id": "run-wire-1"}))
+    event = await asyncio.wait_for(events.__anext__(), timeout=2)
+    wait_result = await wait_task
+    await events.aclose()
+
+    assert event["event"] == "log"
+    assert event["run_id"] == "run-wire-1"
+    assert event["text"] == "INFO Starting to load model"
+    assert isinstance(event["seq"], int)
+    assert isinstance(event["ts"], str)
+    assert isinstance(event["mono"], float)
+    json.dumps(event)
+    assert wait_result == {
+        "run_id": "run-wire-1",
+        "returncode": 0,
+        "intentional": False,
+    }
+    json.dumps(wait_result)
+
+
+@pytest.mark.asyncio
+async def test_target_client_replays_buffered_run_events_from_sequence(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "print('INFO Starting to load model', flush=True)",
+                "print('INFO Uvicorn running on http://127.0.0.1:8000', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "replay.yaml",
+        f"""
+        name: replay
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    await client.call(
+        "launch",
+        {"name": "replay", "configs_dir": str(config_dir), "run_id": "run-replay-1"},
+    )
+    await client.call("wait", {"run_id": "run-replay-1"})
+
+    events = client.subscribe(["run-replay-1"], resume_from={"seq": 1})
+    replayed = await asyncio.wait_for(events.__anext__(), timeout=2)
+    await events.aclose()
+
+    assert replayed["event"] == "phase"
+    assert replayed["run_id"] == "run-replay-1"
+    assert replayed["seq"] > 1
+    json.dumps(replayed)

@@ -126,7 +126,7 @@ def run_config(
         typer.echo(f"log: {launch.log_path}")
         return
 
-    raise typer.Exit(asyncio.run(_run_attached_cli(agent, prepared)))
+    raise typer.Exit(asyncio.run(_run_attached_cli(agent, name, configs_dir, prepared)))
 
 
 @app.command("smoke")
@@ -231,22 +231,46 @@ def _fallback_command_from_prepared(prepared: dict[str, Any]) -> str:
         return "vllm"
 
 
-async def _run_attached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+async def _run_attached_cli(
+    agent: LocalAgent,
+    name: str,
+    configs_dir: Path | None,
+    prepared: dict[str, Any],
+) -> int:
+    client = InProcessTargetClient(agent)
+    await client.connect()
     try:
-        run = agent.start_attached_run(
-            prepared,
-            emit=lambda record: typer.echo(record.text) if record.kind == "committed" else None,
-        )
-    except TargetCallError as exc:
-        _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
-        return 2
-    try:
-        returncode, _intentional = await agent.wait_attached_run(run.run_id)
-        return int(returncode or 0)
-    except KeyboardInterrupt:
-        agent.stop_run(run.run_id)
-        returncode, _intentional = await agent.wait_attached_run(run.run_id)
-        return int(returncode or 0)
+        try:
+            launch = await client.call(
+                "launch",
+                _agent_params(name=name, configs_dir=configs_dir),
+            )
+        except TargetCallError as exc:
+            _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
+            return 2
+        run_id = str(launch["run_id"])
+        wait_task = asyncio.create_task(client.call("wait", {"run_id": run_id}))
+        events = client.subscribe([run_id], resume_from="live")
+        try:
+            return await _echo_attached_event_stream_until_exit(events, wait_task)
+        except KeyboardInterrupt:
+            await client.call("stop", {"run_id": run_id})
+            result = await wait_task
+            return int(result.get("returncode") or 0)
+        finally:
+            await events.aclose()
+    finally:
+        await client.disconnect()
+
+
+async def _echo_attached_event_stream_until_exit(events, wait_task) -> int:
+    async for event in events:
+        if event.get("event") == "log" and event.get("kind") == "committed":
+            typer.echo(str(event.get("text", "")))
+        if event.get("event") == "exited":
+            break
+    result = await wait_task
+    return int(result.get("returncode") or 0)
 
 
 async def _smoke_config_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
