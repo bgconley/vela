@@ -2290,7 +2290,7 @@ class VllmLoaderApp(App):
     async def _sample_gpu_panel_once(self) -> None:
         try:
             result = _gpu_poll_result_from_agent_payload(
-                await self._target_call("sample_gpus")
+                await self._target_call("gpu")
             )
         except Exception as exc:
             self.post_message(GpuStatsUnavailable(f"GPU stats unavailable: {exc}"))

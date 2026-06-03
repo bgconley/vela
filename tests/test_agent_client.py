@@ -72,13 +72,13 @@ def test_target_client_requires_lifecycle_capabilities() -> None:
         "wait",
         "stop",
         "kill",
+        "gpu",
         "health",
         "status",
         "tail_detached",
         "discover_runs",
         "discover_runs_no_paths",
         "reattach",
-        "sample_gpus",
         "subscribe",
         "unsubscribe",
     }
@@ -303,6 +303,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]
     assert "preview" in result["capabilities"]
+    assert "gpu" in result["capabilities"]
     assert "health" in result["capabilities"]
     assert "status" in result["capabilities"]
     assert "discover_runs" in result["capabilities"]
@@ -518,6 +519,7 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     assert result["protocol_version"] == 1
     assert result["target"] == "local"
     assert "status" in result["capabilities"]
+    assert "gpu" in result["capabilities"]
     assert "list_configs" in result["capabilities"]
     assert "unsubscribe" in result["capabilities"]
     assert result["daemon_pid"] > 0
@@ -1746,6 +1748,51 @@ def test_local_agent_samples_gpus_with_injected_sampler() -> None:
 
     assert calls == 1
     assert result.samples[0].name == "A100"
+
+
+@pytest.mark.asyncio
+async def test_target_client_samples_gpus_with_spec_named_gpu_method() -> None:
+    def sampler() -> GpuPollResult:
+        return GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=1024,
+                    memory_total_mb=81920,
+                    utilization_percent=25,
+                    temperature_c=42,
+                    power_w=110,
+                )
+            ]
+        )
+
+    client = InProcessTargetClient(LocalAgent(gpu_sampler=sampler))
+    await client.connect()
+    try:
+        result = await client.call("gpu")
+    finally:
+        await client.disconnect()
+
+    assert result == {
+        "samples": [
+            {
+                "visible_index": 0,
+                "uuid": "GPU-a",
+                "name": "A100",
+                "memory_used_mb": 1024,
+                "memory_total_mb": 81920,
+                "utilization_percent": 25,
+                "temperature_c": 42,
+                "power_w": 110,
+                "mig_instance_id": None,
+            }
+        ],
+        "note": "",
+        "unavailable": False,
+    }
+    json.dumps(result)
 
 
 @pytest.mark.asyncio

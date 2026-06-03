@@ -264,7 +264,7 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
                 }
             if method == "preview":
                 return {"preview": "cwd=/target\nvllm serve org/remote", "warnings": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -348,7 +348,7 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
         async def call(self, method: str, _params):
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -404,7 +404,7 @@ async def test_tui_keepalive_timeout_reconnects_to_target(
         async def call(self, method: str, _params):
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -484,7 +484,7 @@ async def test_tui_reconnect_detects_agent_restart_and_rediscovers_runs(
             self.calls.append((method, params))
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -569,7 +569,7 @@ async def test_tui_default_local_target_uses_target_client_factory(
                 }
             if method == "preview":
                 return {"preview": "cwd=/factory\nvllm serve org/factory", "warnings": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -651,7 +651,7 @@ async def test_tui_target_name_uses_selected_registry_target(
                 }
             if method == "preview":
                 return {"preview": "cwd=/remote\nvllm serve org/factory-remote", "warnings": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -1833,7 +1833,7 @@ async def test_tui_resumes_run_event_subscription_from_last_sequence(
         async def call(self, method: str, _params):
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -1929,7 +1929,7 @@ async def test_tui_drops_event_resume_sequence_after_agent_restart(
         async def call(self, method: str, _params):
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -2003,7 +2003,7 @@ async def test_tui_uses_log_offset_resume_after_agent_restart(
         async def call(self, method: str, _params):
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -2215,7 +2215,7 @@ async def test_tui_gpu_sampling_runs_through_target_client(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {
                     "samples": [
                         {
@@ -2251,7 +2251,7 @@ async def test_tui_gpu_sampling_runs_through_target_client(
         await app._sample_gpu_panel_once()
         await pilot.pause()
 
-        assert any(call[0] == "sample_gpus" for call in client_instances[0].calls)
+        assert any(call[0] == "gpu" for call in client_instances[0].calls)
         assert "A100" in app.gpu_panel_text
 
 
@@ -2425,7 +2425,7 @@ async def test_kill_confirm_names_active_target(config_dir: Path) -> None:
         async def call(self, method: str, _params):
             if method == "list_configs":
                 return {"valid": [], "invalid": []}
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
@@ -3841,7 +3841,7 @@ async def test_reattach_health_snapshot_updates_phase_when_stream_misses_ready(
         async def call(self, method: str, params):
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "sample_gpus":
+            if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "", "unavailable": False}
             if method == "reattach":
                 return _target_reattach_payload(served_model_names=["fake-model"])
@@ -5132,7 +5132,7 @@ def _non_discovery_target_calls(app: VllmLoaderApp):
     return [
         call
         for call in app._target_client.calls
-        if call[0] not in {"discover_runs", "sample_gpus", *_TARGET_CONFIG_METHODS}
+        if call[0] not in {"discover_runs", "gpu", "sample_gpus", *_TARGET_CONFIG_METHODS}
     ]
 
 

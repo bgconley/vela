@@ -54,6 +54,7 @@ AGENT_CAPABILITIES = [
     "wait",
     "stop",
     "kill",
+    "gpu",
     "status",
     "health",
     "probe_until_ready",
@@ -154,7 +155,7 @@ class LocalAgent:
             return self._discover_detached(payload)
         if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)
-        if method == "sample_gpus":
+        if method in {"gpu", "sample_gpus"}:
             return self._sample_gpus()
         if method == "unsubscribe":
             return self._unsubscribe(payload)
