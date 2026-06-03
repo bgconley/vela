@@ -1104,6 +1104,7 @@ class VllmLoaderApp(App):
             detail=message.detail,
             models=message.models,
             error_kind=message.error_kind,
+            reachable_url=message.reachable_url,
             feed_phase=message.feed_phase,
         )
 
@@ -1646,6 +1647,7 @@ class VllmLoaderApp(App):
                 detail=str(result.get("detail", "")),
                 models=[str(model) for model in result.get("models") or []],
                 error_kind=error_kind,
+                reachable_url=_optional_str(result.get("reachable_url")),
             )
         )
 
@@ -1997,11 +1999,16 @@ class VllmLoaderApp(App):
         detail: str,
         models: list[str] | None = None,
         error_kind: ErrorKind | None = None,
+        reachable_url: str | None = None,
         feed_phase: bool = True,
     ) -> None:
         self.health_detail = detail
         if ready:
-            self._handle_server_ready(models or [], feed_phase=feed_phase)
+            self._handle_server_ready(
+                models or [],
+                reachable_url=reachable_url,
+                feed_phase=feed_phase,
+            )
             return
         if not feed_phase:
             return

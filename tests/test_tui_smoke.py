@@ -1501,6 +1501,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
                     "detail": "ready from target client",
                     "models": ["served"],
                     "error_kind": None,
+                    "reachable_url": "http://10.25.0.51:18123",
                 }
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1524,6 +1525,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
         ]
         assert app.phase is Phase.READY
         assert app.served_models == ["served"]
+        assert app.ready_url == "http://10.25.0.51:18123"
 
 
 @pytest.mark.asyncio

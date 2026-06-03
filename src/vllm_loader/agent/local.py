@@ -299,7 +299,7 @@ class LocalAgent:
 
         def capture(event: HealthEvent) -> None:
             last_event.clear()
-            last_event.update(_health_payload(event))
+            last_event.update(_health_payload(event, run_config))
             self._publish_health_events(run_id, run_config, fsm, event)
             if event.ready or event.error_kind is not None:
                 completed.set()
@@ -724,7 +724,7 @@ class LocalAgent:
     def _publish_health_events(
         self, run_id: str, cfg: ModelConfig, fsm: PhaseFSM, event: HealthEvent
     ) -> None:
-        self._publish_event(AgentEvent("health", run_id, _health_payload(event)))
+        self._publish_event(AgentEvent("health", run_id, _health_payload(event, cfg)))
         previous_phase = fsm.phase
         if event.ready:
             models = event.models or []
@@ -946,13 +946,16 @@ def _run_id_param(params: dict[str, Any]) -> str:
     return value
 
 
-def _health_payload(event: HealthEvent) -> dict[str, Any]:
-    return {
+def _health_payload(event: HealthEvent, cfg: ModelConfig | None = None) -> dict[str, Any]:
+    payload = {
         "ready": event.ready,
         "detail": event.detail,
         "models": list(event.models or []),
         "error_kind": event.error_kind.value if event.error_kind is not None else None,
     }
+    if event.ready and cfg is not None:
+        payload["reachable_url"] = _reachable_url(cfg)
+    return payload
 
 
 def _gpu_poll_payload(result: GpuPollResult) -> dict[str, Any]:

@@ -1319,6 +1319,7 @@ def test_cli_smoke_attached_uses_target_client(
                     "detail": "ready",
                     "models": ["served"],
                     "error_kind": None,
+                    "reachable_url": "http://10.25.0.51:18123",
                 }
             if method == "stop":
                 return {"run_id": "run-1", "signaled": True}
@@ -1360,7 +1361,7 @@ def test_cli_smoke_attached_uses_target_client(
 
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
-    assert "READY http://127.0.0.1:8123 models=served" in captured.out
+    assert "READY http://10.25.0.51:18123 models=served" in captured.out
     assert len(client_instances) == 1
     assert client_instances[0].calls[0] == (
         "prepare_launch",

@@ -52,6 +52,7 @@ class HealthChanged(LoaderMessage):
     detail: str
     models: list[str] | None = None
     error_kind: ErrorKind | None = None
+    reachable_url: str | None = None
     feed_phase: bool = True
 
 

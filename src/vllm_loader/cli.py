@@ -654,7 +654,8 @@ async def _wait_target_until_ready_or_exit(
         if probe.get("ready"):
             models = ",".join(probe.get("models") or [])
             suffix = f" models={models}" if models else ""
-            typer.echo(f"READY {_server_url(cfg)}{suffix}")
+            url = str(probe.get("reachable_url") or _server_url(cfg))
+            typer.echo(f"READY {url}{suffix}")
             return 0
         error_kind = probe.get("error_kind")
         if error_kind is not None:
