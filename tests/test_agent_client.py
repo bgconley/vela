@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,31 @@ from vllm_loader.engine.sidecar import Manifest, Sidecar
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
+
+
+def _subprocess_target_client_class():
+    try:
+        from vllm_loader.transport.subprocess import SubprocessTargetClient
+    except ModuleNotFoundError as exc:
+        pytest.fail(f"SubprocessTargetClient missing: {exc}")
+    return SubprocessTargetClient
+
+
+def _agent_connect_command() -> list[str]:
+    return [sys.executable, "-m", "vllm_loader.cli", "agent", "connect"]
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+async def _next_event(events, *, event_name: str) -> dict:
+    while True:
+        event = await anext(events)
+        if event.get("event") == event_name:
+            return event
 
 
 @pytest.mark.asyncio
@@ -42,6 +69,111 @@ async def test_in_process_target_client_requires_connection() -> None:
 
     with pytest.raises(RuntimeError, match="not connected"):
         await client.call("handshake")
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_handshake_exposes_agent() -> None:
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    try:
+        result = await client.call("handshake")
+    finally:
+        await client.disconnect()
+
+    assert result["protocol_version"] == 1
+    assert result["target"] == "local"
+    assert "list_configs" in result["capabilities"]
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_lists_configs_from_agent(
+    config_dir: Path,
+) -> None:
+    write_yaml(config_dir / "remoteish.yaml", "name: remoteish\nmodel: org/model")
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    try:
+        result = await client.call("list_configs", {"configs_dir": str(config_dir)})
+    finally:
+        await client.disconnect()
+
+    assert result["valid"][0]["name"] == "remoteish"
+    assert result["valid"][0]["path"].endswith("remoteish.yaml")
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_reconstructs_target_call_errors(
+    config_dir: Path,
+) -> None:
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("preview", {"name": "missing", "configs_dir": str(config_dir)})
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "unknown-config"
+    assert exc_info.value.details["name"] == "missing"
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_demuxes_run_events(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import sys",
+                "import time",
+                "print('INFO Starting to load model', flush=True)",
+                "time.sleep(0.05)",
+                "print('INFO Uvicorn running on http://127.0.0.1:8000', flush=True)",
+                "sys.exit(0)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "rpc-events.yaml",
+        f"""
+        name: rpc-events
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        server:
+          port: {_free_port()}
+        """,
+    )
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    events = client.subscribe(["rpc-run"], resume_from="live")
+    try:
+        event_task = asyncio.create_task(_next_event(events, event_name="log"))
+        launch = await client.call(
+            "launch",
+            {"run_id": "rpc-run", "name": "rpc-events", "configs_dir": str(config_dir)},
+        )
+        wait_task = asyncio.create_task(client.call("wait", {"run_id": "rpc-run"}))
+        event = await asyncio.wait_for(event_task, timeout=5)
+        wait_result = await wait_task
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert launch["run_id"] == "rpc-run"
+    assert event["run_id"] == "rpc-run"
+    assert event["event"] == "log"
+    assert event["text"] == "INFO Starting to load model"
+    assert wait_result["returncode"] == 0
 
 
 @pytest.mark.asyncio

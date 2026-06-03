@@ -18,6 +18,8 @@ from vllm_loader.tui.app import VllmLoaderApp
 app = typer.Typer(
     no_args_is_help=False, invoke_without_command=True, help="Launch and monitor vLLM servers."
 )
+agent_app = typer.Typer(help="Run or connect to the local vLLM Loader agent.")
+app.add_typer(agent_app, name="agent")
 
 
 @app.callback(invoke_without_command=True)
@@ -491,6 +493,13 @@ def _server_url(cfg) -> str:
 @app.command("version")
 def version() -> None:
     typer.echo(__version__)
+
+
+@agent_app.command("connect")
+def agent_connect() -> None:
+    from vllm_loader.agent.stdio import serve_stdio_agent
+
+    asyncio.run(serve_stdio_agent(LocalAgent()))
 
 
 def main() -> None:
