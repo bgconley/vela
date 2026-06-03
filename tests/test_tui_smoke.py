@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import socket
 import threading
@@ -34,6 +35,7 @@ from vllm_loader.messages import (
 )
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
+from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui import app as tui_app_module
 from vllm_loader.tui.app import VllmLoaderApp
 from vllm_loader.tui.screens.confirm import ConfirmScreen
@@ -207,8 +209,10 @@ async def test_tui_loads_registry_and_preview_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("config load should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=HandleRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(HandleRefusingAgent()),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -269,13 +273,6 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("injected target setup should not subscribe")
 
-    monkeypatch.setattr(
-        tui_app_module,
-        "LocalAgent",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("TUI constructed a LocalAgent")
-        ),
-    )
     target_client = InjectedTargetClient()
     app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
 
@@ -591,21 +588,6 @@ async def test_tui_default_local_target_uses_target_client_factory(
         return client
 
     monkeypatch.setattr(tui_app_module, "target_client_for_config", fake_target_client_for_config)
-    monkeypatch.setattr(
-        tui_app_module,
-        "LocalAgent",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("TUI constructed a LocalAgent")
-        ),
-    )
-    monkeypatch.setattr(
-        tui_app_module,
-        "InProcessTargetClient",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("TUI constructed an InProcessTargetClient")
-        ),
-    )
-
     app = VllmLoaderApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
@@ -689,21 +671,6 @@ async def test_tui_target_name_uses_selected_registry_target(
         raising=False,
     )
     monkeypatch.setattr(tui_app_module, "target_client_for_config", fake_target_client_for_config)
-    monkeypatch.setattr(
-        tui_app_module,
-        "LocalAgent",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("TUI constructed a LocalAgent")
-        ),
-    )
-    monkeypatch.setattr(
-        tui_app_module,
-        "InProcessTargetClient",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("TUI constructed an InProcessTargetClient")
-        ),
-    )
-
     app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
 
     async with app.run_test() as pilot:
@@ -752,8 +719,10 @@ async def test_tui_select_config_refreshes_preview_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("preview refresh should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=HandleRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(HandleRefusingAgent()),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -812,8 +781,10 @@ async def test_tui_launch_preparation_runs_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("prepare should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=HandleRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(HandleRefusingAgent()),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -912,8 +883,10 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
         raise AssertionError("TUI should use agent profile metadata")
 
     agent = AgentProfileLaunchAgent()
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
     monkeypatch.setattr(
         tui_app_module,
         "select_profile_for_config",
@@ -1036,9 +1009,11 @@ async def test_tui_attached_launch_uses_target_client_stream(
             assert resume_from == "live"
             return self._events()
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient, raising=False)
     agent = AgentProfileLaunchAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1136,8 +1111,10 @@ async def test_tui_attached_launch_subscribes_before_probe(
             order.append("subscribe")
             return self._events()
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient, raising=False)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=LaunchAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(LaunchAgent()),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1271,9 +1248,11 @@ async def test_tui_detached_launch_runs_through_target_client(
             assert resume_from == "live"
             return self._events()
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = DetachedLaunchAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1332,6 +1311,7 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
                         "served_model_names": ["served"],
                         "launch_mode": "detached",
                         "vllm_version_profile": "current",
+                        "reachable_url": "http://127.0.0.1:8000",
                     },
                     "fsm": {"vllm_version_profile": "current"},
                 }
@@ -1364,9 +1344,11 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
             assert resume_from == "live"
             return self._events()
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = DiscoveryAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test():
         command = await _wait_for_command(app, "Reattach detached run: detached")
@@ -1445,9 +1427,11 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("stop should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = StopRefusingAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1508,9 +1492,11 @@ async def test_tui_attached_health_probe_runs_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("direct probe should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = ProbeRefusingAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1565,9 +1551,11 @@ async def test_tui_detached_health_probe_runs_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("reattached probe should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = ProbeRefusingAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2002,10 +1990,9 @@ async def test_tui_gpu_sampling_runs_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("GPU sampling should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     app = VllmLoaderApp(
         configs_dir=config_dir,
-        agent=GpuRefusingAgent(),
+        target_client=FakeTargetClient(GpuRefusingAgent()),
         gpu_interval_seconds=60,
     )
 
@@ -2155,8 +2142,10 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("kill should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=KillRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(KillRefusingAgent()),
+    )
 
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
@@ -2671,7 +2660,6 @@ async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None
     )
     app = VllmLoaderApp(
         configs_dir=config_dir,
-        gpu_sampler=lambda: GpuPollResult([]),
         gpu_interval_seconds=60,
     )
 
@@ -2786,7 +2774,7 @@ async def test_gpu_panel_refreshes_periodically(config_dir: Path) -> None:
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
-        agent=LocalAgent(gpu_sampler=sampler),
+        target_client=InProcessTargetClient(LocalAgent(gpu_sampler=sampler)),
         gpu_interval_seconds=0.05,
     )
 
@@ -2810,7 +2798,7 @@ async def test_gpu_sampler_runs_off_event_loop_thread(config_dir: Path) -> None:
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
-        agent=LocalAgent(gpu_sampler=sampler),
+        target_client=InProcessTargetClient(LocalAgent(gpu_sampler=sampler)),
         gpu_interval_seconds=0.01,
     )
 
@@ -2832,7 +2820,7 @@ async def test_gpu_sampler_error_renders_unavailable_detail(config_dir: Path) ->
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
-        agent=LocalAgent(gpu_sampler=sampler),
+        target_client=InProcessTargetClient(LocalAgent(gpu_sampler=sampler)),
         gpu_interval_seconds=60,
     )
 
@@ -3377,9 +3365,11 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
     def cancel_group(_app: VllmLoaderApp, group: str) -> None:
         cancelled_groups.append(group)
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = StopRefusingAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3446,8 +3436,10 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
     def cancel_group(_app: VllmLoaderApp, group: str) -> None:
         cancelled_groups.append(group)
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=KillRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(KillRefusingAgent()),
+    )
 
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
@@ -3476,9 +3468,7 @@ async def test_target_reattach_error_shows_error_without_crashing(
     monkeypatch.setattr(
         tui_app_module,
         "target_client_for_config",
-        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
-            local_agent_factory()
-        ),
+        lambda _target, **_kwargs: fake_target_client(),
     )
     app = VllmLoaderApp(configs_dir=config_dir)
 
@@ -3497,6 +3487,15 @@ def test_tui_does_not_expose_path_based_detached_reattach() -> None:
 
 def test_tui_does_not_compute_target_runs_dirs() -> None:
     assert "_runs_dirs" not in VllmLoaderApp.__dict__
+
+
+def test_tui_constructor_only_accepts_target_client_boundary() -> None:
+    params = inspect.signature(VllmLoaderApp).parameters
+
+    assert "target_client" in params
+    assert "target_name" in params
+    assert "agent" not in params
+    assert "gpu_sampler" not in params
 
 
 def test_tui_does_not_store_attached_process_handle(config_dir: Path) -> None:
@@ -3521,9 +3520,7 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
     monkeypatch.setattr(
         tui_app_module,
         "target_client_for_config",
-        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
-            local_agent_factory()
-        ),
+        lambda _target, **_kwargs: fake_target_client(),
     )
     worker_calls: list[dict[str, object]] = []
 
@@ -3555,15 +3552,14 @@ async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
             host="0.0.0.0",
             port=8123,
             exposure="lan",
+            reachable_url="http://10.25.0.51:8123",
             served_model_names=["sidecar-model"],
         )
     )
     monkeypatch.setattr(
         tui_app_module,
         "target_client_for_config",
-        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
-            local_agent_factory()
-        ),
+        lambda _target, **_kwargs: fake_target_client(),
     )
 
     def capture_worker(coro, **_kwargs):
@@ -3577,9 +3573,9 @@ async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
 
         await app._reattach_target_detached_run("run-1")
 
-        assert app.ready_url == "http://127.0.0.1:8123"
+        assert app.ready_url == "http://10.25.0.51:8123"
         assert app.served_models == ["sidecar-model"]
-        assert app._server_url_for_copy() == "http://127.0.0.1:8123"
+        assert app._server_url_for_copy() == "http://10.25.0.51:8123"
         assert app.phase is Phase.SERVER_STARTING
 
 
@@ -3611,9 +3607,7 @@ async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
     monkeypatch.setattr(
         tui_app_module,
         "target_client_for_config",
-        lambda _target, *, local_agent_factory, **_kwargs: fake_target_client(
-            local_agent_factory()
-        ),
+        lambda _target, **_kwargs: fake_target_client(),
     )
 
     def capture_worker(coro, **_kwargs):
@@ -3841,9 +3835,11 @@ async def test_tui_detached_tail_consumes_agent_events(
             assert resume_from == "live"
             return self._events()
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = TailAgent()
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -4127,8 +4123,10 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("restart stop should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=RestartRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(RestartRefusingAgent()),
+    )
     load_calls: list[str | None] = []
 
     async with app.run_test() as pilot:
@@ -4198,11 +4196,13 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("reattached restart stop should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = RestartRefusingAgent()
     load_calls: list[str | None] = []
 
-    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(agent),
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -4277,8 +4277,10 @@ async def test_restart_after_target_detached_reattach(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("target-reattached restart stop should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=RestartRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(RestartRefusingAgent()),
+    )
     load_calls: list[str | None] = []
 
     async with app.run_test() as pilot:
@@ -4472,8 +4474,10 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("quit stop should not subscribe")
 
-    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    app = VllmLoaderApp(configs_dir=config_dir, agent=QuitStopRefusingAgent())
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(QuitStopRefusingAgent()),
+    )
     exit_calls: list[bool] = []
 
     async with app.run_test() as pilot:
@@ -4792,8 +4796,8 @@ def _non_discovery_target_calls(app: VllmLoaderApp):
 
 def _fake_reattach_target_client(payload: dict | None = None, error: Exception | None = None):
     class FakeTargetClient:
-        def __init__(self, agent) -> None:
-            self.agent = agent
+        def __init__(self, agent=None) -> None:
+            self.agent = agent or LocalAgent()
             self.connected = False
             self.calls: list[tuple[str, dict[str, object]]] = []
 
@@ -4828,6 +4832,7 @@ def _target_reattach_payload(
     host: str = "127.0.0.1",
     port: int = 8000,
     exposure: str = "local",
+    reachable_url: str | None = None,
     served_model_names: list[str] | None = None,
     config_extra: dict | None = None,
 ) -> dict:
@@ -4839,18 +4844,21 @@ def _target_reattach_payload(
     }
     if config_extra:
         config.update(config_extra)
+    sidecar = {
+        "config_name": config_name,
+        "host": host,
+        "port": port,
+        "exposure": exposure,
+        "served_model_names": served_model_names or [model],
+        "launch_mode": "detached",
+        "vllm_version_profile": "current",
+    }
+    if reachable_url is not None:
+        sidecar["reachable_url"] = reachable_url
     return {
         "run_id": run_id,
         "config": config,
-        "sidecar": {
-            "config_name": config_name,
-            "host": host,
-            "port": port,
-            "exposure": exposure,
-            "served_model_names": served_model_names or [model],
-            "launch_mode": "detached",
-            "vllm_version_profile": "current",
-        },
+        "sidecar": sidecar,
         "fsm": {"vllm_version_profile": "current"},
     }
 

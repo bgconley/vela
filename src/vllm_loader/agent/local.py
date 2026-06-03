@@ -1065,6 +1065,7 @@ def _detached_run_payload(run: LocalDetachedRun) -> dict[str, Any]:
             "served_model_names": list(sidecar.served_model_names),
             "launch_mode": sidecar.launch_mode,
             "vllm_version_profile": sidecar.vllm_version_profile,
+            "reachable_url": _reachable_url(run.config),
         },
         "fsm": {
             "vllm_version_profile": sidecar.vllm_version_profile,

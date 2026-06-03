@@ -1456,6 +1456,7 @@ async def test_target_client_discovers_and_reattaches_detached_runs_by_run_id(
         "served_model_names": ["served"],
         "launch_mode": "detached",
         "vllm_version_profile": "current",
+        "reachable_url": "http://127.0.0.1:8000",
     }
     assert reattached["fsm"] == {"vllm_version_profile": "current"}
     json.dumps(reattached)

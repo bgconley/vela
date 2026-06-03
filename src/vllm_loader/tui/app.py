@@ -20,9 +20,9 @@ from textual.screen import Screen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
-from vllm_loader.agent.local import AgentEvent, LocalAgent, TargetCallError
+from vllm_loader.agent.local import AgentEvent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
-from vllm_loader.config.schema import ModelConfig, ServerConfig
+from vllm_loader.config.schema import ModelConfig
 from vllm_loader.config.targets import TargetConfig, load_targets_file
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
@@ -46,11 +46,9 @@ from vllm_loader.messages import (
 from vllm_loader.monitoring.gpu import (
     GpuPollResult,
     GpuSample,
-    sample_gpus,
 )
-from vllm_loader.monitoring.health import HealthEvent, probe_host_for
+from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.factory import target_client_for_config
-from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.help import HelpScreen
@@ -470,12 +468,10 @@ class VllmLoaderApp(App):
         *,
         configs_dir: str | Path | None = None,
         clock: Callable[[], float] = time.monotonic,
-        gpu_sampler: Callable[[], GpuPollResult] = sample_gpus,
         gpu_interval_seconds: float = 2.0,
         max_log_lines: int = DEFAULT_MAX_LOG_LINES,
         log_batch_interval_seconds: float = DEFAULT_LOG_BATCH_INTERVAL_SECONDS,
         debug_log_path: str | Path | None = None,
-        agent: Any | None = None,
         target_client: Any | None = None,
         target_name: str = "local",
         target_ping_interval_seconds: float | None = 30.0,
@@ -485,21 +481,12 @@ class VllmLoaderApp(App):
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
         self.target_name = target_name
         if target_client is None:
-            if agent is not None:
-                target_client = InProcessTargetClient(agent)
-            else:
-                target_config = (
-                    TargetConfig(name="local")
-                    if target_name == "local"
-                    else load_targets_file().by_name(target_name)
-                )
-                target_client = target_client_for_config(
-                    target_config,
-                    local_agent_factory=lambda **kwargs: LocalAgent(
-                        gpu_sampler=gpu_sampler,
-                        **kwargs,
-                    ),
-                )
+            target_config = (
+                TargetConfig(name="local")
+                if target_name == "local"
+                else load_targets_file().by_name(target_name)
+            )
+            target_client = target_client_for_config(target_config)
         self._target_client = target_client
         self.target_connection_state = "disconnected"
         self.target_connection_detail = ""
@@ -511,7 +498,6 @@ class VllmLoaderApp(App):
         self._target_ping_interval_seconds = target_ping_interval_seconds
         self._target_ping_timeout_seconds = target_ping_timeout_seconds
         self._clock = clock
-        self._gpu_sampler = gpu_sampler
         self._gpu_interval_seconds = gpu_interval_seconds
         self._max_log_lines = max(1, max_log_lines)
         self._log_batch_interval_seconds = max(0.0, log_batch_interval_seconds)
@@ -2124,16 +2110,14 @@ class VllmLoaderApp(App):
         return STATUS_ICONS[phase]
 
     def _server_url(self, cfg: ModelConfig) -> str:
-        return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
+        return f"http://{cfg.server.host}:{cfg.server.port}"
 
     @staticmethod
     def _server_url_from_sidecar_payload(sidecar: dict[str, Any]) -> str:
-        server = ServerConfig(
-            host=str(sidecar.get("host", "127.0.0.1")),
-            port=int(sidecar.get("port", 8000)),
-            exposure=str(sidecar.get("exposure", "local")),
-        )
-        return f"http://{probe_host_for(server)}:{server.port}"
+        reachable_url = _optional_str(sidecar.get("reachable_url"))
+        if reachable_url is not None:
+            return reachable_url
+        return f"http://{sidecar.get('host', '127.0.0.1')}:{int(sidecar.get('port', 8000))}"
 
     def _render_phase_timeline(self) -> Text:
         rows = self._phase_timeline_rows()
