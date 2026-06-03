@@ -10,7 +10,7 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.config.targets import load_targets_file
+from vllm_loader.config.targets import TargetsRegistry, load_targets_file
 from vllm_loader.engine.phases import Phase
 from vllm_loader.monitoring.health import probe_host_for
 from vllm_loader.transport.client import TargetClient
@@ -21,7 +21,9 @@ app = typer.Typer(
     no_args_is_help=False, invoke_without_command=True, help="Launch and monitor vLLM servers."
 )
 agent_app = typer.Typer(help="Run or connect to the local vLLM Loader agent.")
+targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
+app.add_typer(targets_app, name="targets")
 
 
 @app.callback(invoke_without_command=True)
@@ -72,6 +74,13 @@ def _enable_textual_debug_features() -> None:
 def _default_debug_log_path() -> Path:
     state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
     return state_home / "vllm-loader" / "debug.jsonl"
+
+
+@targets_app.command("list")
+def targets_list() -> None:
+    registry = _load_targets_or_exit()
+    for target in registry.targets:
+        typer.echo(f"{target.name}\t{target.transport.value}\t{target.host or '-'}")
 
 
 @app.command("list")
@@ -184,12 +193,16 @@ def _agent_params(**values) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if value is not None}
 
 
-def _target_client_for_name_or_exit(target_name: str) -> TargetClient:
+def _load_targets_or_exit() -> TargetsRegistry:
     try:
-        registry = load_targets_file()
+        return load_targets_file()
     except ValueError as exc:
         typer.echo(f"ERROR: Unable to load targets: {exc}", err=True)
         raise typer.Exit(2) from exc
+
+
+def _target_client_for_name_or_exit(target_name: str) -> TargetClient:
+    registry = _load_targets_or_exit()
     try:
         target = registry.by_name(target_name)
     except KeyError as exc:

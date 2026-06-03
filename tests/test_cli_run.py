@@ -163,6 +163,34 @@ def test_cli_preview_target_option_uses_selected_target_from_registry(
     ]
 
 
+def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "local\tlocal\t-",
+        "blackbird\tssh\tbgconley@10.25.0.51",
+    ]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
