@@ -3147,6 +3147,100 @@ async def test_agent_download_model_job_streams_by_job_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_download_model_job_verifies_cached_model_entry(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-cached"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+        result = await client.call(
+            "download_model",
+            {"job_id": "job-model-cached", "model_ref": "01MODEL"},
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert result == {
+        "job_id": "job-model-cached",
+        "kind": "download_model",
+        "status": "running",
+    }
+    assert progress["event"] == "job_progress"
+    assert progress["text"] == "Resolving model"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-model-cached"
+    assert done["ok"] is True
+    assert done["detail"] == "model cached"
+    assert done["entry_id"] == "01MODEL"
+    assert done["cache_state"] == "cached"
+    assert done["entry"]["repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_download_model_job_reports_uncached_remote_entry(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-remote"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            },
+        )
+        result = await client.call(
+            "download_model",
+            {"job_id": "job-model-remote", "model_ref": "01REMOTE"},
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert result == {
+        "job_id": "job-model-remote",
+        "kind": "download_model",
+        "status": "running",
+    }
+    assert progress["event"] == "job_progress"
+    assert progress["text"] == "Resolving model"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-model-remote"
+    assert done["ok"] is False
+    assert done["error_kind"] == "feature-unavailable"
+    assert done["entry_id"] == "01REMOTE"
+    assert done["cache_state"] == "remote_only"
+    assert "not implemented" in done["detail"]
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_cancel_job_emits_cancelled_job_done() -> None:
     started = asyncio.Event()
 

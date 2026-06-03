@@ -985,23 +985,64 @@ class LocalAgent:
 
     async def _default_model_job_runner(
         self,
-        _params: dict[str, Any],
+        params: dict[str, Any],
         emit: JobProgressEmitter,
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
+        model_ref = params.get("model_ref") or params.get("model")
+        if not isinstance(model_ref, str) or not model_ref.strip():
+            return {
+                "ok": False,
+                "error_kind": "invalid-params",
+                "detail": "download_model requires model_ref",
+            }
+
         emit(
             {
                 "kind": "committed",
-                "text": "Model download is not implemented for this agent yet",
-                "level": "WARNING",
-                "phase": "FAILED",
+                "text": "Resolving model",
+                "level": "INFO",
+                "phase": "RESOLVING",
             }
         )
-        return {
+        try:
+            verified = verify_model(model_ref, self._models_registry_path)
+        except ModelRegistryError as exc:
+            result = {
+                "ok": False,
+                "error_kind": exc.code,
+                "detail": exc.message,
+            }
+            result.update(exc.details)
+            return result
+
+        if verified.get("ok"):
+            return {
+                "ok": True,
+                "detail": "model cached",
+                "entry_id": verified.get("entry_id"),
+                "cache_state": verified.get("cache_state"),
+                "entry": verified.get("entry"),
+            }
+
+        entry = verified.get("entry") if isinstance(verified.get("entry"), dict) else {}
+        source = str(entry.get("source") or "")
+        error_kind = "invalid-config" if source == "local_path" else "feature-unavailable"
+        detail = str(verified.get("detail") or "model is not cached")
+        if error_kind == "feature-unavailable":
+            detail = "remote model download is not implemented for this agent yet"
+        result = {
             "ok": False,
-            "error_kind": "feature-unavailable",
-            "detail": "download_model is not implemented for this agent yet",
+            "error_kind": error_kind,
+            "detail": detail,
+            "entry_id": verified.get("entry_id"),
+            "cache_state": verified.get("cache_state"),
+            "entry": entry,
         }
+        reason = verified.get("reason")
+        if reason is not None:
+            result["reason"] = reason
+        return result
 
     def _unsubscribe(self, params: dict[str, Any]) -> dict[str, Any]:
         sub_id = params.get("sub_id")
