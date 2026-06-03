@@ -57,6 +57,7 @@ from vllm_loader.tui.screens.create_build import CreateBuildScreen
 from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
 from vllm_loader.tui.screens.model_manager import ModelManagerScreen
+from vllm_loader.tui.screens.pin_model import PinModelScreen
 from vllm_loader.tui.screens.target_manager import TargetManagerScreen
 from vllm_loader.tui.theme import ACCENT, BAD, GOOD, MUTED, TEXT, WARN
 
@@ -1027,6 +1028,12 @@ class VllmLoaderApp(App):
         if not isinstance(selection, dict):
             return
         action = selection.get("action")
+        if action == "pin_model":
+            self.push_screen(
+                PinModelScreen(initial=str(selection.get("initial") or "")),
+                callback=self._handle_pin_model_submission,
+            )
+            return
         model_ref = _optional_str(selection.get("model_ref"))
         if model_ref is None:
             return
@@ -1057,6 +1064,32 @@ class VllmLoaderApp(App):
             error_action="download model",
             incomplete_label="Model download",
         )
+
+    def _handle_pin_model_submission(self, params: dict[str, Any] | None) -> None:
+        if not params:
+            return
+        self.run_worker(
+            self._pin_model(params),
+            name="model-pin",
+            group="model-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _pin_model(self, params: dict[str, Any]) -> None:
+        try:
+            result = await self._target_call("pin_model", params)
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to pin model: {exc}", style=f"bold {BAD}")
+            return
+        entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
+        label = _optional_str(entry.get("display_name"))
+        entry_id = _optional_str(entry.get("entry_id"))
+        rendered = label or entry_id or _optional_str(params.get("entry_id")) or "model"
+        self.notify(f"Pinned model: {rendered}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
 
     async def _verify_model(self, model_ref: str) -> None:
         try:

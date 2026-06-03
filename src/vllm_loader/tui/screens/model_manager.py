@@ -49,6 +49,7 @@ class ModelManagerScreen(ModalScreen):
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
         ("d", "download", "Download"),
+        ("p", "pin", "Pin"),
         ("v", "verify", "Verify"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Close"),
@@ -66,7 +67,7 @@ class ModelManagerScreen(ModalScreen):
                 yield Static("", id="model-manager-list")
                 yield Static("", id="model-manager-detail")
             yield Static(
-                "d Download   v Verify   x Remove   Esc Close",
+                "d Download   p Pin   v Verify   x Remove   Esc Close",
                 id="model-manager-footer",
             )
 
@@ -99,6 +100,11 @@ class ModelManagerScreen(ModalScreen):
             self.dismiss(None)
             return
         self.dismiss(_model_action_payload("verify_model", model))
+
+    def action_pin(self) -> None:
+        model = self._selected_model()
+        initial = _initial_pin_text(model) if model is not None else ""
+        self.dismiss({"action": "pin_model", "initial": initial})
 
     def action_remove(self) -> None:
         model = self._selected_model()
@@ -164,6 +170,22 @@ def _model_action_payload(action: str, model: dict[str, Any]) -> dict[str, Any]:
         "model_ref": _model_reference(model),
         "label": _model_label(model),
     }
+
+
+def _initial_pin_text(model: dict[str, Any]) -> str:
+    fields = [
+        ("entry_id", model.get("entry_id")),
+        ("repo_id", model.get("repo_id")),
+        ("display_name", model.get("display_name")),
+        ("revision", model.get("revision")),
+        ("commit_sha", model.get("commit_sha")),
+        ("quant_format", model.get("quant_format")),
+    ]
+    return " ".join(
+        f"{key}={value}"
+        for key, value in fields
+        if isinstance(value, str) and value.strip()
+    )
 
 
 def _quant_label(model: dict[str, Any]) -> str:
