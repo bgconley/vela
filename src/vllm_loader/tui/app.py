@@ -507,6 +507,7 @@ class VllmLoaderApp(App):
         self._target_has_connected_once = False
         self._target_daemon_start_ts: str | None = None
         self._target_last_event_seq_by_run: dict[str, int] = {}
+        self._target_last_log_cursor_by_run: dict[str, dict[str, int]] = {}
         self._target_ping_interval_seconds = target_ping_interval_seconds
         self._target_ping_timeout_seconds = target_ping_timeout_seconds
         self._clock = clock
@@ -1642,7 +1643,11 @@ class VllmLoaderApp(App):
     async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
         await self._ensure_target_client_connected()
         last_seq = self._target_last_event_seq_by_run.get(run_id)
-        resume_from: object = "live" if last_seq is None else {"seq": last_seq}
+        resume_from: object = (
+            {"seq": last_seq}
+            if last_seq is not None
+            else self._target_last_log_cursor_by_run.get(run_id, "live")
+        )
         events = self._target_client.subscribe([run_id], resume_from=resume_from)
         terminal_phase: Phase | None = None
         try:
@@ -1655,6 +1660,13 @@ class VllmLoaderApp(App):
                         seq,
                         self._target_last_event_seq_by_run.get(run_id, 0),
                     )
+                log_inode = event.get("log_inode")
+                byte_offset = event.get("byte_offset")
+                if isinstance(log_inode, int) and isinstance(byte_offset, int):
+                    self._target_last_log_cursor_by_run[run_id] = {
+                        "log_inode": log_inode,
+                        "byte_offset": byte_offset,
+                    }
                 if event.get("event") == "exited":
                     phase_value = event.get("phase")
                     if phase_value is not None:

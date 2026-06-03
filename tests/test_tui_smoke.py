@@ -1735,6 +1735,107 @@ async def test_tui_drops_event_resume_sequence_after_agent_restart(
 
 
 @pytest.mark.asyncio
+async def test_tui_uses_log_offset_resume_after_agent_restart(
+    config_dir: Path,
+) -> None:
+    class RestartingOffsetTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.connect_calls = 0
+            self.resume_from_values: list[object] = []
+
+        async def connect(self):
+            self.connect_calls += 1
+            self.connected = True
+            return {
+                "agent_version": "test",
+                "protocol_version": 1,
+                "target": "local",
+                "daemon_start_ts": (
+                    "2026-06-03T00:00:00Z"
+                    if self.connect_calls == 1
+                    else "2026-06-03T00:01:00Z"
+                ),
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def ping(self):
+            return {
+                "pong": True,
+                "target": "local",
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        async def _events(self):
+            if len(self.resume_from_values) == 1:
+                yield {
+                    "event": "log",
+                    "run_id": "run-1",
+                    "kind": "committed",
+                    "text": "first daemon",
+                    "level": "INFO",
+                    "seq": 5,
+                    "log_inode": 77,
+                    "byte_offset": 32,
+                    "ts": "2026-06-03T00:00:00Z",
+                    "mono": 1.0,
+                }
+                yield {
+                    "event": "exited",
+                    "run_id": "run-1",
+                    "returncode": 0,
+                    "intentional": False,
+                    "phase": Phase.STOPPED.value,
+                    "seq": 6,
+                    "ts": "2026-06-03T00:00:01Z",
+                    "mono": 2.0,
+                }
+                return
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": 0,
+                "intentional": False,
+                "phase": Phase.STOPPED.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:02Z",
+                "mono": 3.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            self.resume_from_values.append(resume_from)
+            return self._events()
+
+    target_client = RestartingOffsetTargetClient()
+    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert await app._consume_target_run_events_until_exit("run-1") is Phase.STOPPED
+        await app._mark_target_disconnected("test disconnect")
+        assert await app._consume_target_run_events_until_exit("run-1") is Phase.STOPPED
+
+        assert target_client.resume_from_values == [
+            "live",
+            {"log_inode": 77, "byte_offset": 32},
+        ]
+
+
+@pytest.mark.asyncio
 async def test_wire_phase_timing_uses_agent_monotonic_clock(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir, clock=lambda: 1_000.0)
     async with app.run_test() as pilot:
