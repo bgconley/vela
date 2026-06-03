@@ -12,7 +12,11 @@ from vllm_loader.config.loader import load_registry
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.phases import Phase
 from vllm_loader.engine.preflight import check_launch_preflight
-from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
+from vllm_loader.engine.profile import (
+    VllmProfileError,
+    detect_vllm_version_for_config,
+    select_profile_for_config,
+)
 from vllm_loader.engine.sidecar import stop_sidecar_from_system, verify_sidecar_from_system
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
 from vllm_loader.tui.app import VllmLoaderApp
@@ -119,7 +123,8 @@ def run_config(
                 cfg,
                 result,
                 secrets=[cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")],
-                vllm_version_profile=cfg.vllm.version_profile,
+                vllm_version=detect_vllm_version_for_config(cfg),
+                vllm_version_profile=result.metadata.get("vllm_version_profile"),
             )
         except FileNotFoundError as exc:
             _echo_command_not_found(exc, result.argv[0])
@@ -323,7 +328,8 @@ async def _smoke_detached_cli(cfg, result) -> int:
             cfg,
             result,
             secrets=[cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")],
-            vllm_version_profile=cfg.vllm.version_profile,
+            vllm_version=detect_vllm_version_for_config(cfg),
+            vllm_version_profile=result.metadata.get("vllm_version_profile"),
         )
     except FileNotFoundError as exc:
         _echo_command_not_found(exc, result.argv[0])

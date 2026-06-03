@@ -117,6 +117,22 @@ def select_profile_for_config(cfg: ModelConfig) -> VllmProfile:
     return select_profile(cfg.vllm.version_profile, executable=executable)
 
 
+def detect_vllm_version_for_config(cfg: ModelConfig) -> str | None:
+    executable = _detectable_vllm_executable_for_config(cfg)
+    if executable is None:
+        return None
+    return detect_vllm_version(executable)
+
+
+def _detectable_vllm_executable_for_config(cfg: ModelConfig) -> str | None:
+    if cfg.command.entrypoint is not EntryPoint.SERVE:
+        return None
+    executable = cfg.command.executable or "vllm"
+    if cfg.command.executable and not _looks_like_vllm_executable(executable):
+        return None
+    return executable
+
+
 def _looks_like_vllm_executable(executable: str) -> bool:
     name = Path(executable).name.lower()
     return name in {"vllm", "vllm.exe"} or name.startswith("vllm-") or name.endswith("-vllm")

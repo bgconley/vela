@@ -98,6 +98,43 @@ def test_identity_accepts_python_interpreter_alias_when_script_args_match(
     assert verify_sidecar_identity(sidecar, child, supervisor)
 
 
+def test_identity_accepts_python_alias_when_recorded_secret_args_are_redacted(
+    tmp_path: Path,
+) -> None:
+    script = str(tmp_path / "fake_vllm_child.py")
+    original = ["python3", script, "serve", "fake/model", "--api-key-copy", "literal-api-key"]
+    sidecar = make_sidecar(tmp_path)
+    sidecar.command_argv = [
+        "python3",
+        script,
+        "serve",
+        "fake/model",
+        "--api-key-copy",
+        "••••",
+    ]
+    sidecar.command_hash = command_hash(original)
+    child = ProcessIdentity(
+        pid=100,
+        create_time=123.0,
+        pgid=100,
+        executable="/opt/homebrew/Cellar/python@3.11/3.11.14/bin/python3.11",
+        cmdline=[
+            "/System/Library/Frameworks/Python.framework/Versions/3.11/Resources/"
+            "Python.app/Contents/MacOS/Python",
+            script,
+            "serve",
+            "fake/model",
+            "--api-key-copy",
+            "literal-api-key",
+        ],
+    )
+    supervisor = ProcessIdentity(
+        pid=90, create_time=122.0, pgid=90, executable="/bin/python", cmdline=["python"]
+    )
+
+    assert verify_sidecar_identity(sidecar, child, supervisor)
+
+
 def test_identity_accepts_python_script_cmdline_when_interpreter_is_omitted(
     tmp_path: Path,
 ) -> None:

@@ -33,6 +33,7 @@ from vllm_loader.engine.process_manager import AttachedProcess, start_attached, 
 from vllm_loader.engine.profile import (
     VllmProfileError,
     bundled_profile,
+    detect_vllm_version_for_config,
     select_profile,
     select_profile_for_config,
 )
@@ -1313,7 +1314,8 @@ class VllmLoaderApp(App):
                         cfg,
                         build,
                         secrets=secrets,
-                        vllm_version_profile=cfg.vllm.version_profile,
+                        vllm_version=detect_vllm_version_for_config(cfg),
+                        vllm_version_profile=build.metadata.get("vllm_version_profile"),
                     )
                 )
             except FileNotFoundError as exc:

@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import psutil
+
+from vllm_loader.engine.redaction import MASK
 
 
 class TrackedProcessMismatch(RuntimeError):
@@ -235,9 +238,25 @@ def command_hash(argv: list[str]) -> str:
 
 
 def _command_lines_equivalent(live: list[str], recorded: list[str]) -> bool:
-    if live == recorded:
-        return True
-    return _python_script_tail(live) == _python_script_tail(recorded)
+    return _argv_equivalent(live, recorded) or _argv_equivalent(
+        _python_script_tail(live), _python_script_tail(recorded)
+    )
+
+
+def _argv_equivalent(live: list[str], recorded: list[str]) -> bool:
+    if len(live) != len(recorded):
+        return False
+    return all(
+        _arg_equivalent(live_arg, recorded_arg)
+        for live_arg, recorded_arg in zip(live, recorded, strict=True)
+    )
+
+
+def _arg_equivalent(live: str, recorded: str) -> bool:
+    if MASK not in recorded:
+        return live == recorded
+    pattern = ".*".join(re.escape(part) for part in recorded.split(MASK))
+    return re.fullmatch(pattern, live) is not None
 
 
 def _python_script_tail(argv: list[str]) -> list[str]:

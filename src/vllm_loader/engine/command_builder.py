@@ -75,7 +75,15 @@ def build_command(
 
     warnings.extend(_network_warnings(cfg))
     preview = render_preview(argv, env, cwd)
-    return CommandBuildResult(argv=argv, env=env, cwd=cwd, warnings=warnings, preview=preview)
+    metadata = {"vllm_version_profile": cfg.vllm.version_profile or profile.version}
+    return CommandBuildResult(
+        argv=argv,
+        env=env,
+        cwd=cwd,
+        warnings=warnings,
+        metadata=metadata,
+        preview=preview,
+    )
 
 
 def _base_argv(cfg: ModelConfig) -> list[str]:

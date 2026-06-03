@@ -622,6 +622,84 @@ async def test_cli_run_detached_starts_supervisor_and_writes_scrubbed_artifacts(
         await _cleanup_port(port)
 
 
+@pytest.mark.asyncio
+async def test_cli_run_detached_records_detected_vllm_version(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    port = _free_port()
+    runs_dir = tmp_path / "runs"
+    fake_child = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    versioned_vllm = tmp_path / "vllm-versioned"
+    versioned_vllm.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import os",
+                "import sys",
+                "",
+                "if sys.argv[1:] == ['--version']:",
+                "    print('vllm version 0.11.2')",
+                "    raise SystemExit(0)",
+                "if sys.argv[1:] in (['serve', '--help'], ['serve', '--help=all']):",
+                "    print('usage: vllm serve [OPTIONS] MODEL')",
+                "    print('  --served-model-name TEXT')",
+                "    print('  --host TEXT')",
+                "    print('  --port INTEGER')",
+                "    print('  --disable-log-requests')",
+                "    raise SystemExit(0)",
+                "if sys.argv[1:2] == ['serve']:",
+                (
+                    "    os.execv(sys.executable, [sys.executable, "
+                    f"{str(fake_child)!r}, *sys.argv[1:]])"
+                ),
+                "raise SystemExit(2)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    versioned_vllm.chmod(0o755)
+    write_yaml(
+        config_dir / "detected-version.yaml",
+        f"""
+        name: detected-version
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {versioned_vllm}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+        """,
+    )
+
+    proc = await asyncio.create_subprocess_exec(
+        "vllm-loader",
+        "run",
+        "detected-version",
+        "--configs-dir",
+        str(config_dir),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    output = (await asyncio.wait_for(proc.stdout.read(), timeout=5)).decode()
+    await asyncio.wait_for(proc.wait(), timeout=5)
+
+    try:
+        assert proc.returncode == 0, output
+        sidecar_paths = [
+            path for path in runs_dir.glob("*.json") if not path.name.endswith(".manifest.json")
+        ]
+        assert len(sidecar_paths) == 1
+        sidecar = json.loads(sidecar_paths[0].read_text(encoding="utf-8"))
+        assert sidecar["vllm_version"] == "0.11.2"
+        assert sidecar["vllm_version_profile"] == "0.11"
+    finally:
+        await _cleanup_port(port)
+
+
 def test_detached_supervisor_rotates_log_and_updates_manifest(tmp_path: Path) -> None:
     child_script = tmp_path / "emit_many_lines.py"
     child_script.write_text(
