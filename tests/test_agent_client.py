@@ -1971,6 +1971,97 @@ async def test_agent_selects_build_default_from_agent_owned_registry(
 
 
 @pytest.mark.asyncio
+async def test_agent_verifies_ready_build_from_agent_owned_registry(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01BUILDREADY"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01BUILDREADY",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        verified = await client.call("verify_build", {"build": "nightly-cu130"})
+    finally:
+        await client.disconnect()
+
+    assert verified["build_id"] == "01BUILDREADY"
+    assert verified["ok"] is True
+    assert verified["status"] == "ready"
+    assert verified["detail"] == "build verified"
+    assert verified["manifest"]["status"] == "ready"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_marks_build_broken_when_executable_missing(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01BROKENBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    python_bin = bin_dir / "python"
+    python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01BROKENBUILD",
+                "label": "broken-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        verified = await client.call("verify_build", {"build": "broken-build"})
+        listed = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert verified["build_id"] == "01BROKENBUILD"
+    assert verified["ok"] is False
+    assert verified["status"] == "broken"
+    assert verified["reason"] == "missing-executable"
+    assert verified["manifest"]["status"] == "broken"
+    assert manifest["status"] == "broken"
+    assert manifest["verify"]["reason"] == "missing-executable"
+    assert listed["builds"][0]["status"] == "broken"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_pinned_build_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:

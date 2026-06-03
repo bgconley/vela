@@ -106,6 +106,14 @@ def select_build(
     }
 
 
+def verify_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    manifest, build_dir = _manifest_for_reference(builds_root, reference)
+    result = _verify_build_manifest(manifest, build_dir)
+    _write_json_atomic(build_dir / "build.json", manifest)
+    return result
+
+
 def list_builds(root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
     default_build_id = _active_build_id(builds_root)
@@ -193,6 +201,51 @@ def _load_manifest_or_raise(path: Path, reference: str) -> dict[str, Any]:
 def _resolve_build_path(root: Path, value: object) -> Path:
     path = Path(str(value)).expanduser()
     return path if path.is_absolute() else root / path
+
+
+def _verify_build_manifest(manifest: dict[str, Any], build_dir: Path) -> dict[str, Any]:
+    paths = _dict_or_empty(manifest.get("paths"))
+    root_path = Path(str(paths.get("root") or build_dir)).expanduser()
+    executable = _resolve_build_path(root_path, paths.get("executable") or "bin/vllm")
+    python = _resolve_build_path(root_path, paths.get("python") or "bin/python")
+    reason = _missing_build_path_reason(executable, python)
+    now = _utc_now()
+    verify_payload: dict[str, Any] = {
+        "checked_at": now,
+        "executable": str(executable),
+        "python": str(python),
+    }
+    if reason is None:
+        verify_payload.update({"ok": True, "reason": None})
+        manifest["verify"] = verify_payload
+        if str(manifest.get("status") or "") == "broken":
+            manifest["status"] = "ready"
+        return {
+            "build_id": str(manifest["build_id"]),
+            "ok": True,
+            "status": str(manifest.get("status") or "ready"),
+            "detail": "build verified",
+            "manifest": _build_payload(manifest, None),
+        }
+    verify_payload.update({"ok": False, "reason": reason})
+    manifest["status"] = "broken"
+    manifest["verify"] = verify_payload
+    return {
+        "build_id": str(manifest["build_id"]),
+        "ok": False,
+        "status": "broken",
+        "reason": reason,
+        "detail": f"build verification failed: {reason}",
+        "manifest": _build_payload(manifest, None),
+    }
+
+
+def _missing_build_path_reason(executable: Path, python: Path) -> str | None:
+    if not executable.exists():
+        return "missing-executable"
+    if not python.exists():
+        return "missing-python"
+    return None
 
 
 def _active_build_id(root: Path) -> str | None:
