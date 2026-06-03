@@ -16,10 +16,9 @@ from vllm_loader.engine.phases import Phase
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.profile import (
     VllmProfileError,
-    detect_vllm_version_for_config,
     select_profile_for_config,
 )
-from vllm_loader.engine.sidecar import stop_sidecar_from_system, verify_sidecar_from_system
+from vllm_loader.engine.sidecar import verify_sidecar_from_system
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.app import VllmLoaderApp
@@ -143,11 +142,9 @@ def smoke_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
 ) -> None:
-    registry = load_registry(configs_dir)
-    cfg = _config_by_name_or_exit(registry, name)
-    result = _build_command_or_exit(cfg)
-    _launch_preflight_or_exit(cfg, result.cwd)
-    raise typer.Exit(asyncio.run(_smoke_config_cli(cfg, result)))
+    agent = LocalAgent()
+    prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
+    raise typer.Exit(asyncio.run(_smoke_config_cli(agent, prepared)))
 
 
 @app.command("smoke-tui")
@@ -306,10 +303,11 @@ async def _run_attached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
         return int(returncode or 0)
 
 
-async def _smoke_config_cli(cfg, result) -> int:
+async def _smoke_config_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+    cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        return await _smoke_detached_cli(cfg, result)
-    return await _smoke_attached_cli(cfg, result)
+        return await _smoke_detached_cli(agent, prepared)
+    return await _smoke_attached_cli(agent, prepared)
 
 
 async def _smoke_tui_config_cli(name: str, configs_dir: Path | None) -> int:
@@ -367,52 +365,48 @@ async def _wait_for_tui_stopped(tui: VllmLoaderApp, *, timeout: float) -> bool:
     return False
 
 
-async def _smoke_attached_cli(cfg, result) -> int:
-    from vllm_loader.engine.process_manager import start_attached
-
-    run_dir = cfg.run_artifacts_dir
-    run_dir.mkdir(parents=True, exist_ok=True)
+async def _smoke_attached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+    cfg = ModelConfig.model_validate(prepared["config"])
     try:
-        proc = start_attached(
-            result,
-            log_path=run_dir / f"{cfg.name}.smoke.log",
-            secrets=[cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")],
+        run = agent.start_attached_run(
+            prepared,
             emit=lambda record: typer.echo(record.text) if record.kind == "committed" else None,
         )
-    except FileNotFoundError as exc:
-        _echo_command_not_found(exc, result.argv[0])
+    except TargetCallError as exc:
+        _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
         return 2
-    read_task = asyncio.create_task(proc.read_loop())
-    health_code = await _wait_until_ready_or_exit(cfg, read_task)
-    if proc.proc.poll() is None:
-        proc.stop(interrupt_timeout=2, terminate_timeout=2)
+    read_task = asyncio.create_task(agent.wait_attached_run(run.run_id))
+    health_code = await _wait_agent_until_ready_or_exit(
+        agent,
+        run.run_id,
+        cfg,
+        read_task=read_task,
+    )
+    if health_code == 0:
+        try:
+            agent.stop_run(run.run_id, interrupt_timeout=2, terminate_timeout=2)
+        except TargetCallError as exc:
+            typer.echo(f"WARNING: unable to stop smoke run: {exc}", err=True)
     if not read_task.done():
         await read_task
     return health_code
 
 
-async def _smoke_detached_cli(cfg, result) -> int:
-    from vllm_loader.engine.process_manager import start_detached
-
+async def _smoke_detached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+    cfg = ModelConfig.model_validate(prepared["config"])
     try:
-        launch = start_detached(
-            cfg,
-            result,
-            secrets=[cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")],
-            vllm_version=detect_vllm_version_for_config(cfg),
-            vllm_version_profile=result.metadata.get("vllm_version_profile"),
-        )
-    except FileNotFoundError as exc:
-        _echo_command_not_found(exc, result.argv[0])
+        launch = agent.start_detached_run(prepared)
+    except TargetCallError as exc:
+        _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
         return 2
     typer.echo(f"detached smoke sidecar: {launch.sidecar_path}")
-    health_code = await _wait_until_ready_or_exit(
+    health_code = await _wait_agent_until_ready_or_exit(
+        agent,
+        launch.run_id,
         cfg,
-        None,
-        is_alive=lambda: _sidecar_is_alive(launch.sidecar_path),
     )
     try:
-        stop_sidecar_from_system(launch.sidecar_path, interrupt_timeout=2, terminate_timeout=2)
+        agent.stop_run(launch.run_id, interrupt_timeout=2, terminate_timeout=2)
     except Exception as exc:
         typer.echo(f"WARNING: unable to stop detached smoke run: {exc}", err=True)
     return health_code
@@ -456,6 +450,50 @@ async def _wait_until_ready_or_exit(
         health_task.cancel()
         ready_task.cancel()
         return int(read_task.result() or 1)
+    if health_task in done and not ready_task.done():
+        ready_task.cancel()
+        return status["code"]
+    health_task.cancel()
+    return status["code"]
+
+
+async def _wait_agent_until_ready_or_exit(
+    agent: LocalAgent,
+    run_id: str,
+    cfg: ModelConfig,
+    *,
+    read_task: asyncio.Task[tuple[int | None, bool]] | None = None,
+) -> int:
+    status = {"code": 1}
+    ready = asyncio.Event()
+
+    def emit(event: HealthEvent) -> None:
+        if event.ready:
+            models = ",".join(event.models or [])
+            suffix = f" models={models}" if models else ""
+            typer.echo(f"READY {_server_url(cfg)}{suffix}")
+            status["code"] = 0
+            ready.set()
+            return
+        if event.error_kind is not None:
+            typer.echo(f"ERROR {event.error_kind.value}: {event.detail}", err=True)
+            status["code"] = 2
+            ready.set()
+
+    health_task = asyncio.create_task(agent.probe_run_until_ready(run_id, emit=emit))
+    ready_task = asyncio.create_task(ready.wait())
+    wait_on = {health_task, ready_task}
+    if read_task is not None:
+        wait_on.add(read_task)
+    done, _pending = await asyncio.wait(wait_on, return_when=asyncio.FIRST_COMPLETED)
+    if ready.is_set():
+        health_task.cancel()
+        return status["code"]
+    if read_task is not None and read_task in done:
+        health_task.cancel()
+        ready_task.cancel()
+        returncode, _intentional = read_task.result()
+        return int(returncode or 1)
     if health_task in done and not ready_task.done():
         ready_task.cancel()
         return status["code"]

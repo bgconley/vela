@@ -24,6 +24,7 @@ from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import verify_sidecar_from_system
 from vllm_loader.engine.supervisor import run_supervisor
+from vllm_loader.monitoring.health import HealthEvent
 
 
 def test_debug_mode_enables_textual_debug_and_devtools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -678,6 +679,187 @@ def test_cli_run_detached_launches_through_local_agent(
     assert "detached run started: run-1" in captured.out
     assert f"sidecar: {sidecar_path}" in captured.out
     assert f"log: {log_path}" in captured.out
+
+
+def test_cli_smoke_attached_uses_local_agent(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "smoke-attached.yaml",
+        f"""
+        name: smoke-attached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        server:
+          host: 127.0.0.1
+          port: 8123
+        """,
+    )
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.stop_calls: list[str] = []
+
+        def handle(self, method: str, params):
+            assert method == "prepare_launch"
+            return {
+                "config": {
+                    "name": "smoke-attached",
+                    "model": "fake/model",
+                    "command": {"entrypoint": "serve", "executable": str(executable)},
+                    "server": {"host": "127.0.0.1", "port": 8123},
+                },
+                "build": {
+                    "argv": [str(executable)],
+                    "env": {},
+                    "cwd": str(tmp_path),
+                    "warnings": [],
+                    "metadata": {},
+                    "preview": "",
+                },
+                "preflight": None,
+            }
+
+        def start_attached_run(self, prepared, *, emit):
+            return type("Run", (), {"run_id": "run-1"})()
+
+        async def wait_attached_run(self, run_id: str):
+            return 0, False
+
+        async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
+            emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+        def stop_run(self, run_id: str, *, interrupt_timeout, terminate_timeout) -> None:
+            self.stop_calls.append(run_id)
+
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(
+        process_manager_module,
+        "start_attached",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct attached smoke start")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "probe_loop",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct smoke probe")
+        ),
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.smoke_config("smoke-attached", configs_dir=config_dir)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 0
+    assert "READY http://127.0.0.1:8123 models=served" in captured.out
+    assert fake_agent.stop_calls == ["run-1"]
+
+
+def test_cli_smoke_detached_uses_local_agent(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    sidecar_path = tmp_path / "runs" / "run-1.json"
+    write_yaml(
+        config_dir / "smoke-detached.yaml",
+        f"""
+        name: smoke-detached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        server:
+          host: 127.0.0.1
+          port: 8124
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.stop_calls: list[str] = []
+
+        def handle(self, method: str, params):
+            assert method == "prepare_launch"
+            return {
+                "config": {
+                    "name": "smoke-detached",
+                    "model": "fake/model",
+                    "command": {"entrypoint": "serve", "executable": str(executable)},
+                    "server": {"host": "127.0.0.1", "port": 8124},
+                    "launch": {
+                        "mode": "detached",
+                        "runs_dir": str(tmp_path / "runs"),
+                    },
+                },
+                "build": {
+                    "argv": [str(executable)],
+                    "env": {},
+                    "cwd": str(tmp_path),
+                    "warnings": [],
+                    "metadata": {},
+                    "preview": "",
+                },
+                "preflight": None,
+            }
+
+        def start_detached_run(self, prepared):
+            return DetachedLaunch(
+                run_id="run-1",
+                supervisor_pid=123,
+                sidecar_path=sidecar_path,
+                manifest_path=tmp_path / "runs" / "run-1.manifest.json",
+                log_path=tmp_path / "runs" / "run-1.run.log",
+            )
+
+        async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
+            emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+        def stop_run(self, run_id: str, *, interrupt_timeout, terminate_timeout) -> None:
+            self.stop_calls.append(run_id)
+
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(
+        process_manager_module,
+        "start_detached",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct detached smoke start")
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "probe_loop",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct smoke probe")
+        ),
+    )
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.smoke_config("smoke-detached", configs_dir=config_dir)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 0
+    assert f"detached smoke sidecar: {sidecar_path}" in captured.out
+    assert "READY http://127.0.0.1:8124 models=served" in captured.out
+    assert fake_agent.stop_calls == ["run-1"]
 
 
 @pytest.mark.asyncio
