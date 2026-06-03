@@ -593,6 +593,7 @@ class VllmLoaderApp(App):
         self.visible_log_lines: list[str] = []
         self.search_matches: list[str] = []
         self._pending_log_writes: list[tuple[str, str | None]] = []
+        self._pending_build_remove: dict[str, str] | None = None
         self._log_flush_scheduled = False
         self.last_copied_url: str | None = None
         self.reattached_run_id: str | None = None
@@ -875,11 +876,24 @@ class VllmLoaderApp(App):
         if not selection:
             return
         if isinstance(selection, dict):
-            if selection.get("action") == "create_build":
+            action = selection.get("action")
+            if action == "create_build":
                 self.push_screen(
                     CreateBuildScreen(),
                     callback=self._handle_create_build_submission,
                 )
+            elif action == "verify_build":
+                build = _optional_str(selection.get("build"))
+                if build is not None:
+                    self.run_worker(
+                        self._verify_build(build),
+                        name="build-verify",
+                        group="build-manager",
+                        exclusive=True,
+                        exit_on_error=False,
+                    )
+            elif action == "remove_build":
+                self._confirm_remove_build(selection)
             return
         build = _optional_str(selection)
         if not build:
@@ -900,6 +914,69 @@ class VllmLoaderApp(App):
             return
         label = _optional_str(result.get("label")) or build
         self.notify(f"Selected build: {label}")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
+
+    async def _verify_build(self, build: str) -> None:
+        try:
+            result = await self._target_call("verify_build", {"build": build})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to verify build: {exc}", style=f"bold {BAD}")
+            return
+        label = _optional_str(result.get("label")) or build
+        status = _optional_str(result.get("status")) or "verified"
+        self.notify(f"Verified build: {label} ({status})")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
+
+    def _confirm_remove_build(self, selection: dict[str, Any]) -> None:
+        build = _optional_str(selection.get("build"))
+        if build is None:
+            return
+        label = _optional_str(selection.get("label")) or build
+        paths = selection.get("paths") if isinstance(selection.get("paths"), dict) else {}
+        executable = _optional_str(paths.get("executable"))
+        message = f"Remove build {label}?\n\nThis deletes target-local build artifacts."
+        if executable:
+            message += f"\nExecutable: {executable}"
+        self._pending_build_remove = {"build": build, "label": label}
+        self.push_screen(
+            ConfirmScreen(
+                message,
+                title="Remove build",
+                confirm_label="Remove",
+                confirm_action="confirm_remove_build",
+            )
+        )
+
+    def confirm_remove_build(self) -> None:
+        if self.screen.id == "confirm":
+            self.pop_screen()
+        pending = self._pending_build_remove
+        self._pending_build_remove = None
+        if pending is None:
+            return
+        self.run_worker(
+            self._remove_build(pending["build"], pending["label"]),
+            name="build-remove",
+            group="build-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _remove_build(self, build: str, label: str) -> None:
+        try:
+            result = await self._target_call(
+                "remove_build",
+                {"build": build, "configs_dir": str(self.configs_dir)},
+            )
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to remove build: {exc}", style=f"bold {BAD}")
+            return
+        removed_label = _optional_str(result.get("label")) or label
+        self.notify(f"Removed build: {removed_label}")
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()

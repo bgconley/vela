@@ -74,7 +74,13 @@ class ConfirmScreen(ModalScreen):
             title_style = f"bold {ACCENT}"
         text = Text(f"{self.title}\n\n", style=title_style)
         text.append(self.message, style=TEXT)
-        confirm_key = "Enter/K " if self.confirm_label.lower() == "kill" else "Enter/s "
+        label = self.confirm_label.lower()
+        if label == "kill":
+            confirm_key = "Enter/K "
+        elif label == "stop":
+            confirm_key = "Enter/s "
+        else:
+            confirm_key = "Enter "
         text.append(f"\n\n{confirm_key}", style=MUTED)
         text.append(self.confirm_label, style=f"bold {BAD}")
         text.append("    Esc/c ", style=MUTED)

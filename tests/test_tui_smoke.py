@@ -3564,6 +3564,221 @@ async def test_build_manager_create_build_streams_job_events(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_verifies_build_through_target_client(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.verify_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": "01STABLE",
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": True,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        }
+                    ],
+                    "skipped": [],
+                }
+            if method == "verify_build":
+                self.verify_calls.append(dict(params))
+                return {
+                    "build_id": "01STABLE",
+                    "label": "stable-cu124",
+                    "status": "ready",
+                    "ok": True,
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build verify should not subscribe")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        await pilot.press("v")
+
+        await _wait_for_condition(
+            lambda: target_client.verify_calls == [{"build": "stable-cu124"}],
+            "build verify was not requested",
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_manager_remove_confirms_and_calls_target_client(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.remove_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": "01STABLE",
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": True,
+                            "paths": {"executable": "/agent/builds/01STABLE/bin/vllm"},
+                        },
+                        {
+                            "build_id": "01OLD",
+                            "label": "old-cu124",
+                            "status": "ready",
+                            "default": False,
+                            "paths": {"executable": "/agent/builds/01OLD/bin/vllm"},
+                        },
+                    ],
+                    "skipped": [],
+                }
+            if method == "remove_build":
+                self.remove_calls.append(dict(params))
+                return {
+                    "build_id": "01OLD",
+                    "label": "old-cu124",
+                    "removed": True,
+                    "removed_path": "/agent/builds/01OLD",
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build remove should not subscribe")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        await pilot.press("down")
+        await pilot.press("x")
+        await _wait_for_condition(
+            lambda: app.screen.id == "confirm",
+            "build remove confirm did not open",
+        )
+        confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
+        assert "Remove build old-cu124?" in confirm_text
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: bool(target_client.remove_calls),
+            "build remove was not requested",
+        )
+        assert target_client.remove_calls == [
+            {"build": "old-cu124", "configs_dir": str(config_dir)}
+        ]
+
+
+@pytest.mark.asyncio
 async def test_model_manager_opens_model_catalog_from_target_client(
     config_dir: Path,
 ) -> None:

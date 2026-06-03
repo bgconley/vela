@@ -50,6 +50,8 @@ class BuildManagerScreen(ModalScreen):
         ("down", "next", "Next"),
         ("enter", "accept", "Select"),
         ("n", "new", "New"),
+        ("v", "verify", "Verify"),
+        ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -64,7 +66,10 @@ class BuildManagerScreen(ModalScreen):
             with Horizontal():
                 yield Static("", id="build-manager-list")
                 yield Static("", id="build-manager-detail")
-            yield Static("Enter Select   n New   Esc Close", id="build-manager-footer")
+            yield Static(
+                "Enter Select   n New   v Verify   x Remove   Esc Close",
+                id="build-manager-footer",
+            )
 
     def on_mount(self) -> None:
         self._refresh()
@@ -88,6 +93,20 @@ class BuildManagerScreen(ModalScreen):
 
     def action_new(self) -> None:
         self.dismiss({"action": "create_build"})
+
+    def action_verify(self) -> None:
+        build = self._selected_build()
+        if build is None:
+            self.dismiss(None)
+            return
+        self.dismiss(_build_action_payload("verify_build", build))
+
+    def action_remove(self) -> None:
+        build = self._selected_build()
+        if build is None:
+            self.dismiss(None)
+            return
+        self.dismiss(_build_action_payload("remove_build", build))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -146,6 +165,15 @@ def _build_reference(build: dict[str, Any]) -> str:
 
 def _build_label(build: dict[str, Any]) -> str:
     return str(build.get("label") or build.get("build_id") or "unnamed-build")
+
+
+def _build_action_payload(action: str, build: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": action,
+        "build": _build_reference(build),
+        "label": _build_label(build),
+        "paths": _dict_or_empty(build.get("paths")),
+    }
 
 
 def _build_status_dot(status: str) -> str:
