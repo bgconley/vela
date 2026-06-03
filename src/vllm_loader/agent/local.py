@@ -7,15 +7,21 @@ import platform
 import signal
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from vllm_loader import __version__
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
-from vllm_loader.config.schema import ModelConfig, default_run_artifacts_dir
-from vllm_loader.engine.build_registry import default_builds_root, list_builds
+from vllm_loader.config.schema import EntryPoint, ModelConfig, default_run_artifacts_dir
+from vllm_loader.engine.build_registry import (
+    BuildHandoff,
+    BuildRegistryError,
+    default_builds_root,
+    list_builds,
+    resolve_build_handoff,
+)
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.model_registry import (
@@ -288,7 +294,7 @@ class LocalAgent:
         self._remember_registry_runs_dirs(registry)
         cfg = _config_by_name(registry, name)
         try:
-            result = build_command(cfg, select_profile_for_config(cfg))
+            result = self._build_command_for_config(cfg)
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
         return {
@@ -306,7 +312,7 @@ class LocalAgent:
         cfg = _config_by_name(registry, name)
         self._remember_run_config(cfg)
         try:
-            result = build_command(cfg, select_profile_for_config(cfg))
+            result = self._build_command_for_config(cfg)
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
         failure = check_launch_preflight(cfg, cwd=result.cwd)
@@ -321,6 +327,48 @@ class LocalAgent:
             "build": _build_payload(result),
             "preflight": None,
         }
+
+    def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
+        handoff = self._resolve_build_handoff(cfg)
+        if handoff is None:
+            return build_command(cfg, select_profile_for_config(cfg))
+        executable = (
+            handoff.python
+            if cfg.command.entrypoint is EntryPoint.MODULE
+            else handoff.executable
+        )
+        resolved_command = cfg.command.model_copy(
+            update={"executable": str(executable), "build": None}
+        )
+        resolved_vllm = cfg.vllm
+        if handoff.vllm_version_profile:
+            resolved_vllm = cfg.vllm.model_copy(
+                update={"version_profile": handoff.vllm_version_profile}
+            )
+        resolved_cfg = cfg.model_copy(
+            update={"command": resolved_command, "vllm": resolved_vllm}
+        )
+        profile = select_profile(
+            handoff.vllm_version_profile or cfg.vllm.version_profile,
+            executable=str(handoff.executable),
+        )
+        result = build_command(resolved_cfg, profile)
+        metadata = {
+            **result.metadata,
+            "build_id": handoff.build_id,
+            "build_label": handoff.label,
+            "env_overlay": dict(handoff.env_overlay),
+            "vllm_version": handoff.vllm_version,
+            "vllm_version_profile": handoff.vllm_version_profile
+            or result.metadata.get("vllm_version_profile"),
+        }
+        return replace(result, metadata=metadata)
+
+    def _resolve_build_handoff(self, cfg: ModelConfig) -> BuildHandoff | None:
+        try:
+            return resolve_build_handoff(cfg.command.build, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
     def _launch(self, params: dict[str, Any]) -> dict[str, Any]:
         prepared = self._prepare_launch(params)
@@ -413,7 +461,10 @@ class LocalAgent:
                 cfg,
                 build,
                 secrets=secrets,
-                vllm_version=detect_vllm_version_for_config(cfg),
+                vllm_version=(
+                    _metadata_str(build.metadata.get("vllm_version"))
+                    or detect_vllm_version_for_config(cfg)
+                ),
                 vllm_version_profile=build.metadata.get("vllm_version_profile"),
                 **launch_kwargs,
             )
@@ -1120,6 +1171,12 @@ def _gpu_sample_payload(sample: GpuSample) -> dict[str, Any]:
         "power_w": sample.power_w,
         "mig_instance_id": sample.mig_instance_id,
     }
+
+
+def _metadata_str(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _reachable_url(cfg: ModelConfig) -> str:

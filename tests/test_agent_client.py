@@ -1917,6 +1917,137 @@ async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_resolves_pinned_build_handoff(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01BUILDREADY"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01BUILDREADY",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "resolved": {
+                    "vllm": "0.17.0.dev",
+                    "vllm_version_profile": "current",
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                    "activate": "activate",
+                    "run_script": "run.sh",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "built.yaml",
+        """
+        name: built
+        model: org/model
+        command:
+          build: nightly-cu130
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch", {"name": "built", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    build = prepared["build"]
+    assert build["argv"][:3] == [str(vllm_bin), "serve", "org/model"]
+    assert build["metadata"]["build_id"] == "01BUILDREADY"
+    assert build["metadata"]["build_label"] == "nightly-cu130"
+    assert build["metadata"]["vllm_version"] == "0.17.0.dev"
+    assert build["metadata"]["vllm_version_profile"] == "current"
+    assert build["metadata"]["env_overlay"] == {
+        "VIRTUAL_ENV": str(build_dir / "venv"),
+        "PATH_PREPEND": str(build_dir / "venv" / "bin"),
+    }
+    assert prepared["config"]["command"]["build"] == "nightly-cu130"
+    assert prepared["config"]["command"]["executable"] is None
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_resolves_build_python_for_module_entrypoint(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01MODULEBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    python_bin = bin_dir / "python"
+    python_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "vllm").chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01MODULEBUILD",
+                "label": "module-build",
+                "status": "adopted",
+                "resolved": {"vllm_version_profile": "current"},
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "module.yaml",
+        """
+        name: module
+        model: org/model
+        command:
+          entrypoint: module
+          build: 01MODULEBUILD
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch", {"name": "module", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    assert prepared["build"]["argv"][:5] == [
+        str(python_bin),
+        "-m",
+        "vllm.entrypoints.openai.api_server",
+        "--model",
+        "org/model",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)

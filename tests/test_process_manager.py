@@ -65,6 +65,28 @@ async def test_attached_fake_child_streams_logs_progress_and_stops(tmp_path: Pat
     assert "Uvicorn running" in durable
 
 
+def test_spawn_env_applies_build_env_overlay(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", "/system/bin")
+    build = CommandBuildResult(
+        argv=["vllm", "serve", "org/model"],
+        env={"PATH": "/config/bin", "KEEP": "1"},
+        cwd=Path.cwd(),
+        metadata={
+            "env_overlay": {
+                "VIRTUAL_ENV": "/build/venv",
+                "PATH_PREPEND": "/build/venv/bin",
+            }
+        },
+    )
+
+    env = process_manager_module._spawn_env_for_build(build)
+
+    assert env["KEEP"] == "1"
+    assert env["VIRTUAL_ENV"] == "/build/venv"
+    assert env["PATH"] == "/build/venv/bin:/config/bin"
+    assert "PATH_PREPEND" not in env
+
+
 @pytest.mark.asyncio
 async def test_attached_reader_keeps_draining_when_log_sink_feed_fails(
     tmp_path: Path,

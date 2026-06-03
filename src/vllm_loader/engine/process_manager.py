@@ -13,7 +13,7 @@ import sys
 import termios
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -85,7 +85,7 @@ def start_attached(
 ) -> AttachedProcess:
     master_fd, slave_fd = os.openpty()
     _set_winsize(slave_fd, rows=40, cols=200)
-    env = {**os.environ, **build.env}
+    env = _spawn_env_for_build(build)
     try:
         try:
             proc = subprocess.Popen(
@@ -119,7 +119,7 @@ def start_detached(
     wait_timeout: float = 5.0,
     log_rotate_bytes: int | None = None,
 ) -> DetachedLaunch:
-    _require_executable(build.argv[0], cwd=build.cwd, env={**os.environ, **build.env})
+    _require_executable(build.argv[0], cwd=build.cwd, env=_spawn_env_for_build(build))
     secret_values = [secret for secret in secrets if secret]
     run_id = run_id or uuid.uuid4().hex
     run_dir = cfg.run_artifacts_dir
@@ -132,7 +132,10 @@ def start_detached(
     payload_path = run_dir / f"{run_id}.supervisor-payload.json"
     payload = {
         "argv": build.argv,
-        "env": build.env,
+        "env": _spawn_env_for_build(
+            build,
+            base_env={"PATH": os.environ.get("PATH", "")},
+        ),
         "cwd": str(build.cwd),
         "log_path": str(log_path),
         "manifest_path": str(manifest_path),
@@ -200,6 +203,26 @@ def _set_winsize(fd: int, *, rows: int, cols: int) -> None:
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     except Exception:
         pass
+
+
+def _spawn_env_for_build(
+    build: CommandBuildResult, *, base_env: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    env = {**dict(base_env or os.environ), **build.env}
+    overlay = build.metadata.get("env_overlay")
+    if not isinstance(overlay, dict):
+        return env
+    virtual_env = overlay.get("VIRTUAL_ENV")
+    if virtual_env:
+        env["VIRTUAL_ENV"] = str(virtual_env)
+    path_prepend = overlay.get("PATH_PREPEND")
+    if path_prepend:
+        existing_path = env.get("PATH", "")
+        env["PATH"] = (
+            f"{path_prepend}:{existing_path}" if existing_path else str(path_prepend)
+        )
+    env.pop("PATH_PREPEND", None)
+    return env
 
 
 def _require_executable(executable: str, *, cwd: Path, env: dict[str, str]) -> None:
