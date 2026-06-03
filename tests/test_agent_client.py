@@ -50,10 +50,12 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
 
     assert client.connected is False
 
-    await client.connect()
+    connected = await client.connect()
     result = await client.call("handshake")
 
     assert client.connected is True
+    assert connected["protocol_version"] == 1
+    assert connected["target"] == "local"
     assert result["protocol_version"] == 1
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]
@@ -126,12 +128,14 @@ def test_local_agent_lifecycle_boundary_is_handle_and_subscribe_only() -> None:
 async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     client = _subprocess_target_client_class()(_agent_connect_command())
 
-    await client.connect()
+    connected = await client.connect()
     try:
         result = await client.call("handshake")
     finally:
         await client.disconnect()
 
+    assert connected["protocol_version"] == 1
+    assert connected["target"] == "local"
     assert result["protocol_version"] == 1
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]

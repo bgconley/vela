@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from vllm_loader.agent.local import TargetCallError
+from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 
 
@@ -30,14 +30,15 @@ class SubprocessTargetClient:
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._write_lock = asyncio.Lock()
+        self._agent_info: dict[str, Any] | None = None
 
     @property
     def connected(self) -> bool:
         return self._connected
 
-    async def connect(self) -> None:
+    async def connect(self) -> dict[str, Any]:
         if self._connected:
-            return
+            return self._agent_info or {}
         env = os.environ.copy()
         if self._env is not None:
             env.update(self._env)
@@ -60,6 +61,15 @@ class SubprocessTargetClient:
         self._connected = True
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._drain_stderr())
+        try:
+            self._agent_info = await self.call(
+                "handshake",
+                {"protocol_version": PROTOCOL_VERSION},
+            )
+        except Exception:
+            await self.disconnect()
+            raise
+        return self._agent_info
 
     async def disconnect(self) -> None:
         process = self._process
@@ -91,6 +101,7 @@ class SubprocessTargetClient:
         self._process = None
         self._reader_task = None
         self._stderr_task = None
+        self._agent_info = None
 
     async def call(
         self, method: str, params: dict[str, Any] | None = None

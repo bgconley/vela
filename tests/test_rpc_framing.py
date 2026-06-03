@@ -49,12 +49,8 @@ async def test_subprocess_target_client_reports_command_startup_failure() -> Non
 async def test_subprocess_target_client_reports_bridge_exit_before_response() -> None:
     client = SubprocessTargetClient(["python", "-c", ""])
 
-    await client.connect()
-    try:
-        with pytest.raises(TargetCallError) as exc_info:
-            await client.call("handshake")
-    finally:
-        await client.disconnect()
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.connect()
 
     assert exc_info.value.code == "agent-unreachable"
     assert "target agent process exited" in exc_info.value.message
