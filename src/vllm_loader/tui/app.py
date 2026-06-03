@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from rich.text import Text
 from textual import events
@@ -19,7 +20,8 @@ from textual.screen import Screen
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
-from vllm_loader.config.loader import ConfigRegistry, load_registry
+from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
@@ -139,6 +141,29 @@ STATUS_ICONS = {
 def _looks_secret_env_key(key: str) -> bool:
     upper = key.upper()
     return "TOKEN" in upper or "KEY" in upper or "SECRET" in upper or "AUTH" in upper
+
+
+def _config_registry_from_agent_payload(payload: dict[str, Any]) -> ConfigRegistry:
+    return ConfigRegistry(
+        valid=[
+            ValidConfig(
+                path=Path(item["path"]),
+                config=ModelConfig.model_validate(item["config"]),
+                warnings=list(item.get("warnings", [])),
+            )
+            for item in payload.get("valid", [])
+        ],
+        invalid=[
+            InvalidConfig(
+                path=Path(item["path"]),
+                errors=list(item.get("errors", [])),
+                raw_name=item.get("raw_name"),
+            )
+            for item in payload.get("invalid", [])
+        ],
+    )
+
+
 OPTIONAL_MONITOR_GROUP_LABELS = {
     "gpu": "gpu",
     "gpu-initial": "gpu",
@@ -330,9 +355,11 @@ class VllmLoaderApp(App):
         max_log_lines: int = DEFAULT_MAX_LOG_LINES,
         log_batch_interval_seconds: float = DEFAULT_LOG_BATCH_INTERVAL_SECONDS,
         debug_log_path: str | Path | None = None,
+        agent: Any | None = None,
     ) -> None:
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
+        self._agent = agent or LocalAgent()
         self._clock = clock
         self._gpu_sampler = gpu_sampler
         self._gpu_interval_seconds = gpu_interval_seconds
@@ -421,7 +448,7 @@ class VllmLoaderApp(App):
             yield Static(self._render_footer_bindings(), id="footer-bindings")
 
     def on_mount(self) -> None:
-        self.registry = load_registry(self.configs_dir)
+        self.registry = self._load_registry_from_agent()
         if self.current_config is None and self.registry.valid:
             self.current_config = self.registry.valid[0].config
             self._refresh_selected_config_preview()
@@ -1192,12 +1219,29 @@ class VllmLoaderApp(App):
         if self.current_config is None:
             self.selected_config_preview = ""
             return
-        profile = select_profile_for_config(self.current_config)
         try:
-            build = build_command(self.current_config, profile)
-            self.selected_config_preview = build.preview
-        except VllmProfileError as exc:
+            result = self._agent_handle(
+                "preview",
+                self._agent_params(name=self.current_config.name, configs_dir=self.configs_dir),
+            )
+            self.selected_config_preview = str(result["preview"])
+        except TargetCallError as exc:
             self.selected_config_preview = f"Preview unavailable: {exc}"
+
+    def _load_registry_from_agent(self) -> ConfigRegistry:
+        result = self._agent_handle(
+            "list_configs",
+            self._agent_params(configs_dir=self.configs_dir),
+        )
+        return _config_registry_from_agent_payload(result)
+
+    def _agent_params(self, **values) -> dict[str, str]:
+        return {key: str(value) for key, value in values.items() if value is not None}
+
+    def _agent_handle(
+        self, method: str, params: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        return self._agent.handle(method, params)
 
     def _refresh_dashboard_shell(self) -> None:
         self._refresh_chrome()

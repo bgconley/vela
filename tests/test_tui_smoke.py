@@ -38,6 +38,44 @@ from vllm_loader.tui.app import VllmLoaderApp
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 
 
+class RecordingConfigAgent:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, str] | None]] = []
+
+    def handle(self, method: str, params: dict[str, str] | None = None):
+        self.calls.append((method, params))
+        if method == "list_configs":
+            return {
+                "valid": [
+                    {
+                        "path": "/agent/configs/alpha.yaml",
+                        "name": "alpha",
+                        "model": "org/alpha",
+                        "target": None,
+                        "warnings": [],
+                        "config": {"name": "alpha", "model": "org/alpha"},
+                    },
+                    {
+                        "path": "/agent/configs/beta.yaml",
+                        "name": "beta",
+                        "model": "org/beta",
+                        "target": "blackbird",
+                        "warnings": [],
+                        "config": {
+                            "name": "beta",
+                            "target": "blackbird",
+                            "model": "org/beta",
+                        },
+                    },
+                ],
+                "invalid": [],
+            }
+        if method == "preview":
+            name = str((params or {}).get("name"))
+            return {"preview": f"cwd=/agent\nvllm serve org/{name}", "warnings": []}
+        raise AssertionError(f"unexpected method: {method}")
+
+
 @pytest.mark.asyncio
 async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
@@ -49,6 +87,40 @@ async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
         await pilot.pause()
         assert "good" in app.config_summary
         assert "bad.yaml" in app.config_summary
+
+
+@pytest.mark.asyncio
+async def test_tui_loads_registry_and_preview_through_agent(config_dir: Path) -> None:
+    agent = RecordingConfigAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert app.current_config is not None
+        assert app.current_config.name == "alpha"
+        assert "alpha" in app.config_summary
+        assert "vllm serve org/alpha" in app.selected_config_preview
+        assert agent.calls[:2] == [
+            ("list_configs", {"configs_dir": str(config_dir)}),
+            ("preview", {"name": "alpha", "configs_dir": str(config_dir)}),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_tui_select_config_refreshes_preview_through_agent(config_dir: Path) -> None:
+    agent = RecordingConfigAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("beta")
+
+        assert app.current_config is not None
+        assert app.current_config.name == "beta"
+        assert app.current_config.target == "blackbird"
+        assert "vllm serve org/beta" in app.selected_config_preview
+        assert agent.calls[-1] == ("preview", {"name": "beta", "configs_dir": str(config_dir)})
 
 
 @pytest.mark.asyncio

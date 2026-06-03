@@ -113,6 +113,7 @@ def _valid_config_payload(item: ValidConfig) -> dict[str, Any]:
         "model": item.config.model,
         "target": item.config.target,
         "warnings": list(item.warnings),
+        "config": item.config.model_dump(mode="json"),
     }
 
 
