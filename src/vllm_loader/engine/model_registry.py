@@ -122,6 +122,22 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
     return {"entry": _model_payload(entry)}
 
 
+def verify_model(reference: str, registry_path: str | Path | None = None) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_for_write(path)
+    entry = _entry_for_reference(registry, reference)
+    if entry.get("source") == "local_path":
+        result = _verify_local_model_entry(entry)
+    else:
+        result = _verify_metadata_model_entry(entry)
+    _write_registry_atomic(path, registry)
+    return result
+
+
 def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()
@@ -383,31 +399,83 @@ def _local_path_entry_from_params(
 
 def _verified_local_model_path(value: str) -> Path:
     path = Path(value).expanduser()
-    if not path.exists() or not path.is_dir():
+    status = _local_model_status(path)
+    if not status["ok"]:
         raise ModelRegistryError(
             "invalid-config",
-            f"local model path not found: {path}",
-            {"reason": "missing-local-path", "local_path": str(path)},
-        )
-    if not (path / "config.json").exists():
-        raise ModelRegistryError(
-            "invalid-config",
-            f"local model path is missing config.json: {path}",
-            {"reason": "missing-config", "local_path": str(path)},
-        )
-    if not _local_weight_files(path):
-        raise ModelRegistryError(
-            "invalid-config",
-            f"local model path is missing model weights: {path}",
-            {"reason": "missing-weights", "local_path": str(path)},
-        )
-    if not _local_tokenizer_files(path):
-        raise ModelRegistryError(
-            "invalid-config",
-            f"local model path is missing tokenizer files: {path}",
-            {"reason": "missing-tokenizer", "local_path": str(path)},
+            str(status["detail"]),
+            {"reason": str(status["reason"]), "local_path": str(path)},
         )
     return path
+
+
+def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    entry_id = str(entry.get("entry_id") or "")
+    local_path = Path(str(entry.get("local_path") or "")).expanduser()
+    status = _local_model_status(local_path)
+    entry["cache_state"] = status["cache_state"]
+    if status["ok"]:
+        entry["files"] = _local_model_files_payload(local_path)
+    payload = {
+        "entry_id": entry_id,
+        "ok": bool(status["ok"]),
+        "cache_state": str(status["cache_state"]),
+        "detail": str(status["detail"]),
+        "entry": _model_payload(entry),
+    }
+    if not status["ok"]:
+        payload["reason"] = str(status["reason"])
+    return payload
+
+
+def _verify_metadata_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    entry_id = str(entry.get("entry_id") or "")
+    cache_state = str(entry.get("cache_state") or "remote_only")
+    ok = cache_state == "cached"
+    return {
+        "entry_id": entry_id,
+        "ok": ok,
+        "cache_state": cache_state,
+        "detail": "model metadata is cached" if ok else f"model is {cache_state}",
+        "entry": _model_payload(entry),
+    }
+
+
+def _local_model_status(path: Path) -> dict[str, object]:
+    if not path.exists() or not path.is_dir():
+        return {
+            "ok": False,
+            "reason": "missing-local-path",
+            "cache_state": "missing",
+            "detail": f"local model path not found: {path}",
+        }
+    if not (path / "config.json").exists():
+        return {
+            "ok": False,
+            "reason": "missing-config",
+            "cache_state": "partial",
+            "detail": f"local model path is missing config.json: {path}",
+        }
+    if not _local_weight_files(path):
+        return {
+            "ok": False,
+            "reason": "missing-weights",
+            "cache_state": "partial",
+            "detail": f"local model path is missing model weights: {path}",
+        }
+    if not _local_tokenizer_files(path):
+        return {
+            "ok": False,
+            "reason": "missing-tokenizer",
+            "cache_state": "partial",
+            "detail": f"local model path is missing tokenizer files: {path}",
+        }
+    return {
+        "ok": True,
+        "reason": None,
+        "cache_state": "cached",
+        "detail": "local model verified",
+    }
 
 
 def _local_model_files_payload(path: Path) -> dict[str, Any]:

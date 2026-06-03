@@ -33,6 +33,7 @@ from vllm_loader.engine.model_registry import (
     list_models,
     pin_model,
     resolve_model_handoff,
+    verify_model,
 )
 from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
@@ -85,6 +86,7 @@ AGENT_CAPABILITIES = [
     "select_build",
     "list_models",
     "pin_model",
+    "verify_model",
     "create_build",
     "download_model",
     "cancel_job",
@@ -223,6 +225,8 @@ class LocalAgent:
             return self._list_models()
         if method == "pin_model":
             return self._pin_model(payload)
+        if method == "verify_model":
+            return self._verify_model(payload)
         if method == "create_build":
             return self._create_build(payload)
         if method == "download_model":
@@ -711,6 +715,15 @@ class LocalAgent:
     def _pin_model(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
             return pin_model(params, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _verify_model(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("model_ref")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "verify_model requires model_ref")
+        try:
+            return verify_model(reference, self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 

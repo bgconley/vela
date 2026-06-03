@@ -2308,6 +2308,74 @@ async def test_agent_rejects_invalid_local_model_adoption(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        verified = await client.call("verify_model", {"model_ref": "01LOCAL"})
+    finally:
+        await client.disconnect()
+
+    assert verified["entry_id"] == "01LOCAL"
+    assert verified["ok"] is True
+    assert verified["cache_state"] == "cached"
+    assert verified["detail"] == "local model verified"
+    assert verified["entry"]["cache_state"] == "cached"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    weights_path = model_dir / "model.safetensors"
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    weights_path.write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        weights_path.unlink()
+        verified = await client.call("verify_model", {"model_ref": "01LOCAL"})
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert verified["entry_id"] == "01LOCAL"
+    assert verified["ok"] is False
+    assert verified["cache_state"] == "partial"
+    assert verified["reason"] == "missing-weights"
+    assert verified["entry"]["cache_state"] == "partial"
+    assert listed["models"][0]["cache_state"] == "partial"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
