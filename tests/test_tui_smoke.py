@@ -3201,6 +3201,81 @@ async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
 
 
 @pytest.mark.asyncio
+async def test_header_uses_agent_preview_metadata_for_build_model_scope(
+    config_dir: Path,
+) -> None:
+    class PreviewMetadataTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/composed.yaml",
+                            "name": "composed",
+                            "model": "meta-llama/Llama-3.1-8B-Instruct",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "composed",
+                                "target": "blackbird",
+                                "model": "meta-llama/Llama-3.1-8B-Instruct",
+                                "model_ref": "llama-pin",
+                                "revision": "abc123",
+                                "command": {"build": "nightly-cu130"},
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve meta-llama/Llama-3.1-8B-Instruct",
+                    "warnings": [],
+                    "metadata": {
+                        "build_id": "01BUILD",
+                        "build_label": "nightly-cu130",
+                        "vllm_version": "0.17.0.dev",
+                        "model_ref": "llama-pin",
+                        "model_display_name": "llama-pin",
+                        "model_cache_state": "cached",
+                        "model_revision": "abc123",
+                    },
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("header preview metadata should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=PreviewMetadataTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.pause()
+
+        segment = _static_text(app, "#active-model")
+        assert "▣ 📌nightly-cu130 ●" in segment
+        assert "M 📌llama-pin ● abc123" in segment
+
+
+@pytest.mark.asyncio
 async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 

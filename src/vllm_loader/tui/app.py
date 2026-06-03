@@ -575,6 +575,7 @@ class VllmLoaderApp(App):
         self.registry = ConfigRegistry()
         self.config_summary = ""
         self.selected_config_preview = ""
+        self.selected_config_metadata: dict[str, Any] = {}
         self.paused = False
         self.wrap = False
         self.filter_text = ""
@@ -887,6 +888,7 @@ class VllmLoaderApp(App):
         self.registry = ConfigRegistry()
         self.current_config = None
         self.selected_config_preview = ""
+        self.selected_config_metadata = {}
         self.current_run_id = None
         self.reattached_run_id = None
         self.fsm = PhaseFSM(bundled_profile("current"))
@@ -1591,6 +1593,7 @@ class VllmLoaderApp(App):
     async def _refresh_selected_config_preview(self) -> None:
         if self.current_config is None:
             self.selected_config_preview = ""
+            self.selected_config_metadata = {}
             return
         try:
             result = await self._target_call(
@@ -1598,13 +1601,17 @@ class VllmLoaderApp(App):
                 self._agent_params(name=self.current_config.name, configs_dir=self.configs_dir),
             )
             self.selected_config_preview = str(result["preview"])
+            metadata = result.get("metadata")
+            self.selected_config_metadata = dict(metadata) if isinstance(metadata, dict) else {}
         except TargetCallError as exc:
             self.selected_config_preview = f"Preview unavailable: {exc}"
+            self.selected_config_metadata = {}
         self.config_summary = self._render_config_summary_plain()
         try:
             self.query_one("#configs", Static).update(self._render_config_summary())
             self.query_one("#configs-title", Static).update(self._render_configs_title())
             self._refresh_sidebar_overlay()
+            self._refresh_chrome()
         except WIDGET_MISSING_EXCEPTIONS:
             return
 
@@ -2059,7 +2066,72 @@ class VllmLoaderApp(App):
     def _render_active_model(self) -> str:
         if self.current_config is None:
             return "no config selected"
-        return self.current_config.name
+        if self.target_connection_state != "connected":
+            return "▣ —  M —"
+        return f"{self._render_active_build_segment()}  {self._render_active_model_segment()}"
+
+    def _render_active_build_segment(self) -> str:
+        assert self.current_config is not None
+        metadata = self.selected_config_metadata
+        label = (
+            _optional_str(metadata.get("build_label"))
+            or _optional_str(self.current_config.command.build)
+            or _optional_str(metadata.get("vllm_version"))
+            or "PATH"
+        )
+        marker = "📌" if self.current_config.command.build is not None else ""
+        return f"▣ {marker}{label} {self._build_status_dot(metadata)}"
+
+    @staticmethod
+    def _build_status_dot(metadata: dict[str, Any]) -> str:
+        status = (_optional_str(metadata.get("build_status")) or "").lower()
+        if status in {"broken", "missing", "unresolved"}:
+            return "✕"
+        if status in {"drift", "creating", "partial"}:
+            return "▲"
+        if (
+            metadata.get("build_id") is not None
+            or metadata.get("build_label") is not None
+            or metadata.get("vllm_version") is not None
+        ):
+            return "●"
+        return "○"
+
+    def _render_active_model_segment(self) -> str:
+        assert self.current_config is not None
+        metadata = self.selected_config_metadata
+        label = (
+            _optional_str(metadata.get("model_display_name"))
+            or _optional_str(metadata.get("model_ref"))
+            or _optional_str(self.current_config.model_ref)
+            or self.current_config.name
+        )
+        revision = _optional_str(metadata.get("model_revision")) or _optional_str(
+            self.current_config.revision
+        )
+        pinned = (
+            self.current_config.model_ref is not None
+            or self.current_config.revision is not None
+        )
+        marker = "📌" if pinned else ""
+        suffix = f" {revision}" if revision else ""
+        return f"M {marker}{label} {self._model_status_dot(metadata)}{suffix}"
+
+    @staticmethod
+    def _model_status_dot(metadata: dict[str, Any]) -> str:
+        gated = metadata.get("model_gated")
+        if gated is True or (isinstance(gated, str) and gated.lower() == "true"):
+            return "🔒"
+        cache_state = (_optional_str(metadata.get("model_cache_state")) or "").lower()
+        if cache_state in {"cached", "ready", "local"}:
+            return "●"
+        if cache_state in {"partial", "drift"}:
+            return "▲"
+        if cache_state in {"downloading", "in-progress", "creating"}:
+            return "◐"
+        if cache_state in {"missing", "unresolved"}:
+            return "✕"
+        return "○"
 
     def _render_chrome_url(self) -> str:
         if self.ready_url:
