@@ -289,6 +289,76 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
 
 
 @pytest.mark.asyncio
+async def test_header_target_segment_tracks_connection_state(
+    config_dir: Path,
+) -> None:
+    class QuietTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("header target segment should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=QuietTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.pause()
+
+        expected_dots = {
+            "connected": "●",
+            "connecting": "◐",
+            "reconnecting": "◐",
+            "disconnected": "○",
+            "unreachable": "✕",
+            "version-mismatch": "▲",
+        }
+        for state, dot in expected_dots.items():
+            app.target_connection_state = state
+            app._refresh_chrome()
+            await pilot.pause()
+
+            segment = _static_text(app, "#target-segment")
+            assert "⊕ blackbird" in segment
+            assert dot in segment
+
+        app.target_connection_state = "connected"
+        app._refresh_chrome()
+
+        await pilot.resize_terminal(99, 45)
+        await pilot.pause()
+        assert _static_text(app, "#target-segment") == "⊕bbrd●"
+
+        await pilot.resize_terminal(59, 45)
+        await pilot.pause()
+        assert _static_text(app, "#target-segment") == "⊕●"
+
+        await pilot.resize_terminal(144, 45)
+        await pilot.pause()
+        assert _static_text(app, "#target-segment") == "⊕ blackbird ●"
+
+
+@pytest.mark.asyncio
 async def test_tui_surfaces_target_version_mismatch_on_mount(
     config_dir: Path,
 ) -> None:
@@ -369,8 +439,12 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
     )
 
     async with app.run_test() as pilot:
-        await _wait_for_target_connection_state(app, "disconnected")
-        await pilot.pause()
+        await _wait_for_condition(
+            lambda: target_client.disconnect_calls >= 1
+            and app.target_connection_state == "disconnected"
+            and "ping timeout" in app.target_connection_detail,
+            "target was not marked disconnected after ping timeout",
+        )
 
         assert target_client.disconnect_calls >= 1
         assert "ping timeout" in app.target_connection_detail

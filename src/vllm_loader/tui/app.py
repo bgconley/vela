@@ -353,6 +353,11 @@ class VllmLoaderApp(App):
         text-style: bold;
         content-align: left middle;
     }
+    #target-segment {
+        width: 18;
+        color: #8ba4ae;
+        content-align: left middle;
+    }
     #active-model {
         width: 32;
         color: #e8f1f2;
@@ -575,6 +580,7 @@ class VllmLoaderApp(App):
         with Vertical(id="terminal-shell"):
             with Horizontal(id="top-chrome"):
                 yield Static("vLLM Loader", id="app-title")
+                yield Static(self._render_target_segment(), id="target-segment")
                 yield Static("", id="active-model")
                 yield Static(
                     self._render_status_badge(Phase.IDLE),
@@ -1471,6 +1477,7 @@ class VllmLoaderApp(App):
             self.target_connection_state = (
                 "reconnecting" if self._target_has_connected_once else "connecting"
             )
+            self._refresh_chrome()
             try:
                 agent_info = await self._target_client.connect()
             except TargetCallError as exc:
@@ -1479,6 +1486,7 @@ class VllmLoaderApp(App):
             except Exception as exc:
                 self.target_connection_state = "unreachable"
                 self.target_connection_detail = str(exc)
+                self._refresh_chrome()
                 raise
             if isinstance(agent_info, dict):
                 daemon_start_ts = agent_info.get("daemon_start_ts")
@@ -1503,6 +1511,7 @@ class VllmLoaderApp(App):
         self.target_connection_detail = (
             "agent restarted; rediscovering detached runs" if agent_restarted else ""
         )
+        self._refresh_chrome()
         if agent_restarted:
             await self._refresh_detached_runs()
 
@@ -1514,6 +1523,7 @@ class VllmLoaderApp(App):
         else:
             self.target_connection_state = "disconnected"
         self.target_connection_detail = str(exc)
+        self._refresh_chrome()
 
     async def _target_call(
         self, method: str, params: dict[str, Any] | None = None
@@ -1544,10 +1554,12 @@ class VllmLoaderApp(App):
         else:
             self.target_connection_state = "connected"
             self.target_connection_detail = ""
+            self._refresh_chrome()
 
     async def _mark_target_disconnected(self, detail: str) -> None:
         self.target_connection_state = "disconnected"
         self.target_connection_detail = detail
+        self._refresh_chrome()
         try:
             await self._target_client.disconnect()
         except Exception:
@@ -1741,6 +1753,9 @@ class VllmLoaderApp(App):
 
     def _refresh_chrome(self) -> None:
         try:
+            self.query_one("#target-segment", Static).update(
+                self._render_target_segment()
+            )
             self.query_one("#active-model", Static).update(self._render_active_model())
             self.query_one("#server-url", Static).update(self._render_chrome_url())
             self.query_one("#chrome-clock", Static).update(
@@ -1748,6 +1763,60 @@ class VllmLoaderApp(App):
             )
         except WIDGET_MISSING_EXCEPTIONS:
             return
+
+    def _render_target_segment(self) -> Text:
+        dot = self._target_connection_dot(self.target_connection_state)
+        dot_style = self._target_connection_style(self.target_connection_state)
+        name = self.target_name or "local"
+
+        text = Text()
+        if self.responsive_mode == "compact":
+            text.append("⊕", style=MUTED)
+            text.append(dot, style=dot_style)
+            return text
+        if self.responsive_mode == "narrow":
+            text.append("⊕", style=MUTED)
+            text.append(self._compact_target_name(name), style=f"bold {TEXT}")
+            text.append(dot, style=dot_style)
+            return text
+
+        text.append("⊕ ", style=MUTED)
+        text.append(name, style=f"bold {TEXT}")
+        text.append(f" {dot}", style=dot_style)
+        return text
+
+    @staticmethod
+    def _compact_target_name(name: str) -> str:
+        alnum = "".join(char for char in name.lower() if char.isalnum())
+        if not alnum:
+            return "?"
+        consonants = "".join(char for char in alnum if char not in "aeiou")
+        compact = consonants or alnum
+        if len(compact) <= 4:
+            return compact
+        return compact[0] + compact[-3:]
+
+    @staticmethod
+    def _target_connection_dot(state: str) -> str:
+        return {
+            "connected": "●",
+            "connecting": "◐",
+            "reconnecting": "◐",
+            "disconnected": "○",
+            "version-mismatch": "▲",
+            "unreachable": "✕",
+        }.get(state, "○")
+
+    @staticmethod
+    def _target_connection_style(state: str) -> str:
+        return {
+            "connected": GOOD,
+            "connecting": WARN,
+            "reconnecting": WARN,
+            "disconnected": MUTED,
+            "version-mismatch": WARN,
+            "unreachable": BAD,
+        }.get(state, MUTED)
 
     def _render_active_model(self) -> str:
         if self.current_config is None:
@@ -1862,6 +1931,7 @@ class VllmLoaderApp(App):
                 width=width,
                 mode=self.responsive_mode,
             )
+            self._refresh_chrome()
 
     async def _run_selected_config(self) -> None:
         cfg = self.current_config
