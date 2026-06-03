@@ -67,6 +67,8 @@ def inspect_agent_daemon(socket_path: str | Path | None = None) -> dict[str, Any
         return {"status": "stale", "reason": "identity is not an object", **base}
     if str(identity.get("socket_path")) != str(resolved_socket_path):
         return {"status": "stale", "reason": "identity socket_path mismatch", **base}
+    if not resolved_socket_path.exists():
+        return {"status": "stale", "reason": "socket missing", **base, **identity}
     if not _identity_matches_live_process(identity):
         return {"status": "stale", "reason": "identity process mismatch", **base, **identity}
     return {"status": "running", **base, **identity}

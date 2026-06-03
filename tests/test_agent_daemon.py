@@ -171,6 +171,34 @@ async def test_agent_status_reports_missing_daemon_identity() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_status_rejects_live_identity_when_socket_is_missing() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    daemon = await start_agent_daemon(LocalAgent(), socket_path=socket_path)
+    try:
+        daemon.close()
+        await daemon.wait_closed()
+        socket_path.unlink(missing_ok=True)
+
+        result = await _run_command(_agent_status_json_command(socket_path))
+        status = json.loads(result["stdout"])
+
+        assert result["returncode"] == 1
+        assert status["status"] == "stale"
+        assert status["reason"] == "socket missing"
+        assert status["pid"] == os.getpid()
+    finally:
+        daemon.close()
+        await daemon.wait_closed()
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
 async def test_agent_start_spawns_detached_socket_daemon() -> None:
     from vllm_loader.agent.daemon import agent_identity_path
 
