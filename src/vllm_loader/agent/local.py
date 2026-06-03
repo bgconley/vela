@@ -31,7 +31,9 @@ from vllm_loader.engine.model_registry import (
     ModelRegistryError,
     default_models_registry_path,
     list_models,
+    model_reference_aliases,
     pin_model,
+    remove_model,
     resolve_model_handoff,
     verify_model,
 )
@@ -87,6 +89,7 @@ AGENT_CAPABILITIES = [
     "list_models",
     "pin_model",
     "verify_model",
+    "remove_model",
     "create_build",
     "download_model",
     "cancel_job",
@@ -227,6 +230,8 @@ class LocalAgent:
             return self._pin_model(payload)
         if method == "verify_model":
             return self._verify_model(payload)
+        if method == "remove_model":
+            return self._remove_model(payload)
         if method == "create_build":
             return self._create_build(payload)
         if method == "download_model":
@@ -724,6 +729,30 @@ class LocalAgent:
             raise TargetCallError("invalid-params", "verify_model requires model_ref")
         try:
             return verify_model(reference, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _remove_model(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("model_ref")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "remove_model requires model_ref")
+        try:
+            aliases = model_reference_aliases(reference, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+        pinned_configs = _configs_pinning_model(_configs_dir(params), aliases)
+        if pinned_configs:
+            raise TargetCallError(
+                "resource-in-use",
+                "model is pinned by one or more configs",
+                {
+                    "model_ref": reference,
+                    "reason": "config-pin",
+                    "configs": pinned_configs,
+                },
+            )
+        try:
+            return remove_model(reference, self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
@@ -1353,6 +1382,16 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _configs_pinning_model(configs_dir: Path | None, aliases: set[str]) -> list[str]:
+    registry = load_registry(configs_dir)
+    pinned = [
+        item.config.name
+        for item in registry.valid
+        if item.config.model_ref is not None and item.config.model_ref in aliases
+    ]
+    return sorted(pinned)
 
 
 def _manifest_has_rotated_inode(manifest: Manifest, inode: int) -> bool:

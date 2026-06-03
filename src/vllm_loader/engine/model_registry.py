@@ -138,6 +138,57 @@ def verify_model(reference: str, registry_path: str | Path | None = None) -> dic
     return result
 
 
+def model_reference_aliases(
+    reference: str, registry_path: str | Path | None = None
+) -> set[str]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_or_raise(path, reference)
+    entry = _entry_for_reference(registry, reference)
+    aliases = {reference}
+    for field in ("entry_id", "display_name"):
+        value = entry.get(field)
+        if isinstance(value, str) and value:
+            aliases.add(value)
+    return aliases
+
+
+def remove_model(reference: str, registry_path: str | Path | None = None) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_for_write(path)
+    entries = registry.get("entries") or []
+    if not isinstance(entries, list):
+        raise ModelRegistryError(
+            "model-not-found",
+            f"model registry has no valid entries for {reference}",
+            {"model_ref": reference, "reason": "invalid-entries"},
+        )
+    entry = _entry_for_reference(registry, reference)
+    removed_id = entry.get("entry_id")
+    registry["entries"] = [
+        item
+        for item in entries
+        if not isinstance(item, dict) or item.get("entry_id") != removed_id
+    ]
+    registry["schema_version"] = 1
+    registry["default_cache"] = str(registry.get("default_cache") or "hf")
+    registry.setdefault("app_download_dir", None)
+    _write_registry_atomic(path, registry)
+    return {
+        "entry_id": str(removed_id),
+        "source": str(entry.get("source") or ""),
+        "removed_weights": False,
+        "entry": _model_payload(entry),
+    }
+
+
 def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()

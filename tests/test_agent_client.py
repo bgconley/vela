@@ -2376,6 +2376,90 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_agent_removes_unpinned_local_model_metadata(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    weights_path = model_dir / "model.safetensors"
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    weights_path.write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "display_name": "local-llama",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        removed = await client.call(
+            "remove_model",
+            {"model_ref": "01LOCAL", "configs_dir": str(config_dir)},
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert removed["entry_id"] == "01LOCAL"
+    assert removed["source"] == "local_path"
+    assert removed["removed_weights"] is False
+    assert removed["entry"]["local_path"] == str(model_dir)
+    assert listed["models"] == []
+    assert registry["entries"] == []
+    assert weights_path.exists()
+    json.dumps(removed)
+
+
+@pytest.mark.asyncio
+async def test_agent_refuses_to_remove_model_pinned_by_config(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(
+        config_dir / "uses-pinned.yaml",
+        """
+        name: uses-pinned
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01PINNED
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01PINNED",
+                "display_name": "llama-pinned",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            },
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "remove_model",
+                {"model_ref": "01PINNED", "configs_dir": str(config_dir)},
+            )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "config-pin"
+    assert exc_info.value.details["configs"] == ["uses-pinned"]
+    assert listed["models"][0]["entry_id"] == "01PINNED"
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
