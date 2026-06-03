@@ -573,17 +573,27 @@ class LocalAgent:
         with path.open("r", encoding="utf-8", errors="replace") as file:
             file.seek(position)
             chunk = file.read()
-            position = file.tell()
+            next_position = file.tell()
         if not chunk:
             return position, pending
         pending += chunk
         *lines, pending = pending.split("\n")
+        log_inode = path.stat().st_ino
+        line_position = position
         for line in lines:
             if line:
-                record = LogRecord("committed", line, level=level_for_line(line))
+                byte_offset = line_position + len(line.encode("utf-8")) + 1
+                record = LogRecord(
+                    "committed",
+                    line,
+                    level=level_for_line(line),
+                    log_inode=log_inode,
+                    byte_offset=byte_offset,
+                )
                 for event in _events_from_log_record(run.run_id, run.fsm, record):
                     self._publish_event(event)
-        return position, pending
+            line_position += len((line + "\n").encode("utf-8"))
+        return next_position, pending
 
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()
@@ -651,6 +661,8 @@ class LocalAgent:
     ) -> list[dict[str, Any]]:
         if resume_from == "live":
             return []
+        if _is_log_offset_resume(resume_from):
+            return self._replay_durable_log_events(run_ids, resume_from)
         min_seq = 0
         if isinstance(resume_from, dict):
             try:
@@ -663,6 +675,51 @@ class LocalAgent:
                 if event["seq"] > min_seq:
                     events.append(event)
         return sorted(events, key=lambda item: (str(item["run_id"]), int(item["seq"])))
+
+    def _replay_durable_log_events(
+        self, run_ids: set[str], resume_from: object
+    ) -> list[dict[str, Any]]:
+        assert isinstance(resume_from, dict)
+        expected_inode = int(resume_from["log_inode"])
+        start_position = max(0, int(resume_from["byte_offset"]))
+        events: list[dict[str, Any]] = []
+        for run_id in run_ids:
+            run = self._detached_run_or_error(run_id)
+            active_log = run.manifest.active_log
+            if active_log.inode != expected_inode:
+                raise TargetCallError(
+                    "identity-verification-failed",
+                    "active log inode does not match resume cursor",
+                    {
+                        "run_id": run_id,
+                        "expected_log_inode": expected_inode,
+                        "active_log_inode": active_log.inode,
+                    },
+                )
+            path = Path(active_log.path)
+            if not path.exists():
+                continue
+            position = min(start_position, path.stat().st_size)
+            with path.open("rb") as file:
+                file.seek(position)
+                while True:
+                    raw_line = file.readline()
+                    if not raw_line:
+                        break
+                    byte_offset = file.tell()
+                    text = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                    if not text:
+                        continue
+                    record = LogRecord(
+                        "committed",
+                        text,
+                        level=level_for_line(text),
+                        log_inode=active_log.inode,
+                        byte_offset=byte_offset,
+                    )
+                    for event in _events_from_log_record(run.run_id, run.fsm, record):
+                        events.append(self._wire_event(event))
+        return events
 
     def _publish_health_events(
         self, run_id: str, cfg: ModelConfig, fsm: PhaseFSM, event: HealthEvent
@@ -700,19 +757,25 @@ class LocalAgent:
 def _events_from_log_record(
     run_id: str, fsm: PhaseFSM, record: LogRecord
 ) -> list[AgentEvent]:
+    log_pointer = _log_pointer_payload(record)
     if record.kind != "committed":
         return [
             AgentEvent(
                 "progress",
                 run_id,
-                {"text": record.text},
+                {"text": record.text, **log_pointer},
             )
         ]
     events = [
         AgentEvent(
             "log",
             run_id,
-            {"kind": record.kind, "text": record.text, "level": record.level},
+            {
+                "kind": record.kind,
+                "text": record.text,
+                "level": record.level,
+                **log_pointer,
+            },
         )
     ]
     previous_phase = fsm.phase
@@ -721,6 +784,23 @@ def _events_from_log_record(
     if phase_event is not None:
         events.append(phase_event)
     return events
+
+
+def _is_log_offset_resume(resume_from: object) -> bool:
+    return (
+        isinstance(resume_from, dict)
+        and "log_inode" in resume_from
+        and "byte_offset" in resume_from
+    )
+
+
+def _log_pointer_payload(record: LogRecord) -> dict[str, int]:
+    payload: dict[str, int] = {}
+    if record.log_inode is not None:
+        payload["log_inode"] = record.log_inode
+    if record.byte_offset is not None:
+        payload["byte_offset"] = record.byte_offset
+    return payload
 
 
 def _phase_event_from_transition(
@@ -819,7 +899,15 @@ def _log_record_from_event_spool_line(line: str) -> LogRecord | None:
     if not isinstance(text, str):
         return None
     level = payload.get("level")
-    return LogRecord(kind, text, level=str(level) if level is not None else None)
+    log_inode = payload.get("log_inode")
+    byte_offset = payload.get("byte_offset")
+    return LogRecord(
+        kind,
+        text,
+        level=str(level) if level is not None else None,
+        log_inode=log_inode if isinstance(log_inode, int) else None,
+        byte_offset=byte_offset if isinstance(byte_offset, int) else None,
+    )
 
 
 def _config_from_detached_sidecar(sidecar: Sidecar) -> ModelConfig:

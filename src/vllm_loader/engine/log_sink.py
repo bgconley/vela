@@ -19,6 +19,8 @@ class LogRecord:
     kind: RecordKind
     text: str
     level: str | None = None
+    log_inode: int | None = None
+    byte_offset: int | None = None
 
 
 ANSI_CONTROL_RE = re.compile(
@@ -125,7 +127,16 @@ class LogSink:
         text = self.scrub(segment)
         self._file.write((text + "\n").encode("utf-8", errors="replace"))
         self._file.flush()
-        self._emit(LogRecord("committed", text, level=level_for_line(text)))
+        stat = os.fstat(self._file.fileno())
+        self._emit(
+            LogRecord(
+                "committed",
+                text,
+                level=level_for_line(text),
+                log_inode=stat.st_ino,
+                byte_offset=self._file.tell(),
+            )
+        )
 
     def scrub(self, text: str) -> str:
         scrubbed = strip_ansi_controls(text)

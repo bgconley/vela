@@ -53,6 +53,10 @@ class _EventSpool:
         if self._file is None:
             return
         payload = {"kind": record.kind, "text": record.text, "level": record.level}
+        if record.log_inode is not None:
+            payload["log_inode"] = record.log_inode
+        if record.byte_offset is not None:
+            payload["byte_offset"] = record.byte_offset
         try:
             self._file.write(json.dumps(payload, separators=(",", ":")) + "\n")
             self._file.flush()

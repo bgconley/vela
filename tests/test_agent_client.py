@@ -1560,6 +1560,9 @@ async def test_target_client_launches_attached_run_with_serialized_events(
     assert isinstance(event["seq"], int)
     assert isinstance(event["ts"], str)
     assert isinstance(event["mono"], float)
+    assert isinstance(event["log_inode"], int)
+    assert isinstance(event["byte_offset"], int)
+    assert event["byte_offset"] > 0
     json.dumps(event)
     assert wait_result == {
         "run_id": "run-wire-1",
@@ -1613,6 +1616,66 @@ async def test_target_client_replays_buffered_run_events_from_sequence(
     assert replayed["event"] == "phase"
     assert replayed["run_id"] == "run-replay-1"
     assert replayed["seq"] > 1
+    json.dumps(replayed)
+
+
+@pytest.mark.asyncio
+async def test_target_client_replays_durable_log_events_from_offset(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "print('INFO first line', flush=True)",
+                "print('INFO second line', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "offset-replay.yaml",
+        f"""
+        name: offset-replay
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    await client.call(
+        "launch",
+        {
+            "name": "offset-replay",
+            "configs_dir": str(config_dir),
+            "run_id": "run-offset-replay-1",
+        },
+    )
+    await client.call("wait", {"run_id": "run-offset-replay-1"})
+
+    log_path = tmp_path / "runs" / "run-offset-replay-1.run.log"
+    first_line_offset = len(b"INFO first line\n")
+    events = client.subscribe(
+        ["run-offset-replay-1"],
+        resume_from={
+            "log_inode": log_path.stat().st_ino,
+            "byte_offset": first_line_offset,
+        },
+    )
+    replayed = await asyncio.wait_for(events.__anext__(), timeout=2)
+    await events.aclose()
+
+    assert replayed["event"] == "log"
+    assert replayed["run_id"] == "run-offset-replay-1"
+    assert replayed["text"] == "INFO second line"
+    assert replayed["byte_offset"] == len(b"INFO first line\nINFO second line\n")
     json.dumps(replayed)
 
 
