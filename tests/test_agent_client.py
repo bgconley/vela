@@ -184,6 +184,32 @@ async def test_unix_socket_target_client_auto_starts_missing_socket_daemon() -> 
 
 
 @pytest.mark.asyncio
+async def test_unix_socket_target_client_auto_starts_refused_stale_socket() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vllm_loader.agent.socket import serve_unix_socket_agent
+    from vllm_loader.transport.socket import UnixSocketTargetClient
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    server = await serve_unix_socket_agent(LocalAgent(), socket_path)
+    server.close()
+    await server.wait_closed()
+    assert socket_path.exists()
+    client = UnixSocketTargetClient(socket_path)
+    try:
+        connected = await client.connect()
+
+        assert connected["target"] == "local"
+        assert connected["daemon_pid"] > 0
+        assert identity_path.exists()
+    finally:
+        await client.disconnect()
+        stop_agent_daemon(socket_path)
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     client = InProcessTargetClient(LocalAgent(target_name="local"))
 

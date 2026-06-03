@@ -32,24 +32,20 @@ class UnixSocketTargetClient:
     async def connect(self) -> dict[str, Any]:
         if self._connected:
             return self._agent_info or {}
+        started_agent = False
         if self._auto_start and not self._socket_path.exists():
-            status = start_agent_daemon_process(self._socket_path)
-            if status["status"] != "running":
-                raise TargetCallError(
-                    "agent-unreachable",
-                    "unable to start local target agent daemon",
-                    status,
-                )
+            self._start_agent_or_raise()
+            started_agent = True
         try:
-            self._reader, self._writer = await asyncio.open_unix_connection(
-                str(self._socket_path)
-            )
+            await self._open_socket()
         except OSError as exc:
-            raise TargetCallError(
-                "agent-unreachable",
-                f"Unable to connect to target agent socket: {self._socket_path}",
-                {"socket_path": str(self._socket_path)},
-            ) from exc
+            if not self._auto_start or started_agent:
+                raise _agent_socket_unreachable_error(self._socket_path) from exc
+            self._start_agent_or_raise()
+            try:
+                await self._open_socket()
+            except OSError as retry_exc:
+                raise _agent_socket_unreachable_error(self._socket_path) from retry_exc
         self._connected = True
         self._reader_task = asyncio.create_task(self._read_socket())
         try:
@@ -61,6 +57,20 @@ class UnixSocketTargetClient:
             await self.disconnect()
             raise
         return self._agent_info
+
+    def _start_agent_or_raise(self) -> None:
+        status = start_agent_daemon_process(self._socket_path)
+        if status["status"] != "running":
+            raise TargetCallError(
+                "agent-unreachable",
+                "unable to start local target agent daemon",
+                status,
+            )
+
+    async def _open_socket(self) -> None:
+        self._reader, self._writer = await asyncio.open_unix_connection(
+            str(self._socket_path)
+        )
 
     async def disconnect(self) -> None:
         self._connected = False
@@ -175,3 +185,11 @@ def _target_call_error_from_payload(payload: dict[str, Any]) -> TargetCallError:
 
 def _agent_unreachable_error(message: str) -> TargetCallError:
     return TargetCallError("agent-unreachable", message)
+
+
+def _agent_socket_unreachable_error(socket_path: Path) -> TargetCallError:
+    return TargetCallError(
+        "agent-unreachable",
+        f"Unable to connect to target agent socket: {socket_path}",
+        {"socket_path": str(socket_path)},
+    )
