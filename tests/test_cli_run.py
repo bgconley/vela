@@ -11,12 +11,17 @@ from pathlib import Path
 
 import httpx
 import pytest
+import typer
 from conftest import write_yaml
 
 from vllm_loader import __version__
 from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
+from vllm_loader.engine import process_manager as process_manager_module
 from vllm_loader.engine import supervisor as supervisor_module
+from vllm_loader.engine.command_builder import CommandBuildResult
+from vllm_loader.engine.log_sink import LogRecord
+from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import verify_sidecar_from_system
 from vllm_loader.engine.supervisor import run_supervisor
 
@@ -513,6 +518,166 @@ def test_cli_reports_invalid_named_config_without_traceback(config_dir: Path, co
     assert "server.port" in proc.stderr
     assert "Unknown config" not in proc.stderr
     assert "Traceback" not in proc.stderr
+
+
+def test_cli_run_attached_launches_through_local_agent(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "agent-attached.yaml",
+        f"""
+        name: agent-attached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        """,
+    )
+    build = CommandBuildResult(
+        argv=[str(executable)],
+        env={},
+        cwd=tmp_path,
+        preview="",
+    )
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.start_calls = 0
+            self.wait_calls: list[str] = []
+
+        def handle(self, method: str, params):
+            assert method == "prepare_launch"
+            return {
+                "config": {
+                    "name": "agent-attached",
+                    "model": "fake/model",
+                    "command": {"entrypoint": "serve", "executable": str(executable)},
+                },
+                "build": {
+                    "argv": build.argv,
+                    "env": build.env,
+                    "cwd": str(build.cwd),
+                    "warnings": [],
+                    "metadata": {},
+                    "preview": "",
+                },
+                "preflight": None,
+            }
+
+        def start_attached_run(self, prepared, *, emit):
+            self.start_calls += 1
+            emit(LogRecord("committed", "INFO agent log", "INFO"))
+            return type("Run", (), {"run_id": "run-1"})()
+
+        async def wait_attached_run(self, run_id: str):
+            self.wait_calls.append(run_id)
+            return 0, False
+
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(
+        process_manager_module,
+        "start_attached",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct attached start")
+        ),
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.run_config("agent-attached", configs_dir=config_dir)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 0
+    assert fake_agent.start_calls == 1
+    assert fake_agent.wait_calls == ["run-1"]
+    assert "INFO agent log" in captured.out
+
+
+def test_cli_run_detached_launches_through_local_agent(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    sidecar_path = tmp_path / "runs" / "run-1.json"
+    log_path = tmp_path / "runs" / "run-1.run.log"
+    write_yaml(
+        config_dir / "agent-detached.yaml",
+        f"""
+        name: agent-detached
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.start_calls = 0
+
+        def handle(self, method: str, params):
+            assert method == "prepare_launch"
+            return {
+                "config": {
+                    "name": "agent-detached",
+                    "model": "fake/model",
+                    "command": {"entrypoint": "serve", "executable": str(executable)},
+                    "launch": {
+                        "mode": "detached",
+                        "runs_dir": str(tmp_path / "runs"),
+                    },
+                },
+                "build": {
+                    "argv": [str(executable)],
+                    "env": {},
+                    "cwd": str(tmp_path),
+                    "warnings": [],
+                    "metadata": {},
+                    "preview": "",
+                },
+                "preflight": None,
+            }
+
+        def start_detached_run(self, prepared):
+            self.start_calls += 1
+            return DetachedLaunch(
+                run_id="run-1",
+                supervisor_pid=123,
+                sidecar_path=sidecar_path,
+                manifest_path=tmp_path / "runs" / "run-1.manifest.json",
+                log_path=log_path,
+            )
+
+    fake_agent = FakeAgent()
+    monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(
+        process_manager_module,
+        "start_detached",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct detached start")
+        ),
+    )
+
+    cli_module.run_config("agent-detached", configs_dir=config_dir)
+
+    captured = capsys.readouterr()
+    assert fake_agent.start_calls == 1
+    assert "detached run started: run-1" in captured.out
+    assert f"sidecar: {sidecar_path}" in captured.out
+    assert f"log: {log_path}" in captured.out
 
 
 @pytest.mark.asyncio

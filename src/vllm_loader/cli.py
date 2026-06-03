@@ -10,6 +10,7 @@ import typer
 from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.loader import load_registry
+from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.phases import Phase
 from vllm_loader.engine.preflight import check_launch_preflight
@@ -110,34 +111,31 @@ def run_config(
         bool, typer.Option("--preview", help="Print command instead of launching.")
     ] = False,
 ) -> None:
-    registry = load_registry(configs_dir)
-    cfg = _config_by_name_or_exit(registry, name)
-    result = _build_command_or_exit(cfg)
+    agent = LocalAgent()
     if preview_only:
-        typer.echo(result.preview)
-        _echo_command_warnings(result)
-        return
-    _launch_preflight_or_exit(cfg, result.cwd)
-    if cfg.launch.mode.value == "detached":
-        from vllm_loader.engine.process_manager import start_detached
-
         try:
-            launch = start_detached(
-                cfg,
-                result,
-                secrets=[cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")],
-                vllm_version=detect_vllm_version_for_config(cfg),
-                vllm_version_profile=result.metadata.get("vllm_version_profile"),
+            result = agent.handle(
+                "preview",
+                _agent_params(name=name, configs_dir=configs_dir),
             )
-        except FileNotFoundError as exc:
-            _echo_command_not_found(exc, result.argv[0])
-            raise typer.Exit(2) from exc
+        except TargetCallError as exc:
+            _echo_target_error_or_exit(exc, fallback_name=name)
+        typer.echo(result["preview"])
+        _echo_warnings(result.get("warnings", []))
+        return
+    prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
+    cfg = ModelConfig.model_validate(prepared["config"])
+    if cfg.launch.mode.value == "detached":
+        try:
+            launch = agent.start_detached_run(prepared)
+        except TargetCallError as exc:
+            _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
         typer.echo(f"detached run started: {launch.run_id}")
         typer.echo(f"sidecar: {launch.sidecar_path}")
         typer.echo(f"log: {launch.log_path}")
         return
 
-    raise typer.Exit(asyncio.run(_run_attached_cli(cfg, result)))
+    raise typer.Exit(asyncio.run(_run_attached_cli(agent, prepared)))
 
 
 @app.command("smoke")
@@ -181,6 +179,18 @@ def _echo_warnings(warnings) -> None:
         typer.echo(f"WARNING: {warning}", err=True)
 
 
+def _prepare_launch_with_agent_or_exit(
+    agent: LocalAgent, name: str, configs_dir: Path | None
+) -> dict[str, Any]:
+    try:
+        return agent.handle(
+            "prepare_launch",
+            _agent_params(name=name, configs_dir=configs_dir),
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+
+
 def _launch_preflight_or_exit(cfg, cwd: Path) -> None:
     failure = check_launch_preflight(cfg, cwd=cwd)
     if failure is None:
@@ -219,6 +229,11 @@ def _echo_target_error_or_exit(exc: TargetCallError, *, fallback_name: str | Non
         for item in exc.details.get("matches", []):
             typer.echo(f"{Path(item['path']).name}: {'; '.join(item['errors'])}", err=True)
         raise typer.Exit(2) from exc
+    if exc.code == "preflight-failed":
+        kind = str(exc.details.get("kind") or "PREFLIGHT_FAILED")
+        detail = str(exc.details.get("detail") or exc.message)
+        typer.echo(f"ERROR {kind}: {detail}", err=True)
+        raise typer.Exit(2) from exc
     typer.echo(f"ERROR: {exc.message}", err=True)
     raise typer.Exit(2) from exc
 
@@ -245,6 +260,10 @@ def _config_by_name_or_exit(registry, name: str):
 
 def _echo_command_not_found(exc: FileNotFoundError, fallback_command: str) -> None:
     command = str(exc.filename or fallback_command)
+    _echo_command_not_found_text(command)
+
+
+def _echo_command_not_found_text(command: str) -> None:
     typer.echo(
         (
             f"ERROR: Command not found: {command}. "
@@ -254,26 +273,37 @@ def _echo_command_not_found(exc: FileNotFoundError, fallback_command: str) -> No
     )
 
 
-async def _run_attached_cli(cfg, result) -> int:
-    from vllm_loader.engine.process_manager import start_attached
+def _echo_agent_start_error_or_exit(exc: TargetCallError, fallback_command: str) -> None:
+    if exc.code == "command-not-found":
+        command = str(exc.details.get("command") or fallback_command)
+        _echo_command_not_found_text(command)
+        raise typer.Exit(2) from exc
+    _echo_target_error_or_exit(exc)
 
-    run_dir = cfg.run_artifacts_dir
-    run_dir.mkdir(parents=True, exist_ok=True)
+
+def _fallback_command_from_prepared(prepared: dict[str, Any]) -> str:
     try:
-        proc = start_attached(
-            result,
-            log_path=run_dir / f"{cfg.name}.run.log",
-            secrets=[cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")],
+        return str(prepared["build"]["argv"][0])
+    except (KeyError, IndexError, TypeError):
+        return "vllm"
+
+
+async def _run_attached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+    try:
+        run = agent.start_attached_run(
+            prepared,
             emit=lambda record: typer.echo(record.text) if record.kind == "committed" else None,
         )
-    except FileNotFoundError as exc:
-        _echo_command_not_found(exc, result.argv[0])
+    except TargetCallError as exc:
+        _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
         return 2
     try:
-        return int(await proc.read_loop() or 0)
+        returncode, _intentional = await agent.wait_attached_run(run.run_id)
+        return int(returncode or 0)
     except KeyboardInterrupt:
-        proc.stop()
-        return int(await proc.read_loop() or 0)
+        agent.stop_run(run.run_id)
+        returncode, _intentional = await agent.wait_attached_run(run.run_id)
+        return int(returncode or 0)
 
 
 async def _smoke_config_cli(cfg, result) -> int:
