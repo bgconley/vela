@@ -88,6 +88,22 @@ async def test_prompt_and_picker_screens_render_as_modal_panels(config_dir: Path
 
 
 @pytest.mark.asyncio
+async def test_config_picker_marks_invalid_configs_with_warning_glyph(
+    config_dir: Path,
+) -> None:
+    write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
+    write_yaml(config_dir / "bad.yaml", "name: bad")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        await pilot.pause()
+
+        assert "⚠ bad.yaml:" in app.screen.summary
+        assert "! bad.yaml:" not in app.screen.summary
+
+
+@pytest.mark.asyncio
 async def test_confirm_screen_is_modal_panel_with_destructive_color(
     config_dir: Path,
 ) -> None:
