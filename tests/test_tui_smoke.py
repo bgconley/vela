@@ -2151,6 +2151,7 @@ async def test_non_local_bind_warning_is_visible_in_tui(config_dir: Path) -> Non
         async with app.run_test() as pilot:
             await pilot.press("l")
             await _wait_for_phase(app, Phase.READY)
+            assert app.ready_url == f"http://127.0.0.1:{port}"
             assert any("reachable beyond localhost" in line for line in app.warning_lines)
             assert "`--api-key` does not protect all endpoints" in app.error_text
             await pilot.press("s")

@@ -62,7 +62,7 @@ from vllm_loader.monitoring.gpu import (
     GpuSample,
     sample_gpus,
 )
-from vllm_loader.monitoring.health import HealthEvent, probe_loop
+from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.help import HelpScreen
@@ -1659,7 +1659,7 @@ class VllmLoaderApp(App):
         return STATUS_ICONS[phase]
 
     def _server_url(self, cfg: ModelConfig) -> str:
-        return f"http://{cfg.server.host}:{cfg.server.port}"
+        return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
 
     def _render_phase_timeline(self) -> Text:
         rows = self._phase_timeline_rows()
