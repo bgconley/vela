@@ -455,11 +455,14 @@ class VllmLoaderApp(App):
         log_batch_interval_seconds: float = DEFAULT_LOG_BATCH_INTERVAL_SECONDS,
         debug_log_path: str | Path | None = None,
         agent: Any | None = None,
+        target_client: Any | None = None,
     ) -> None:
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
-        self._agent = agent or LocalAgent(gpu_sampler=gpu_sampler)
-        self._target_client = InProcessTargetClient(self._agent)
+        if target_client is None:
+            local_agent = agent or LocalAgent(gpu_sampler=gpu_sampler)
+            target_client = InProcessTargetClient(local_agent)
+        self._target_client = target_client
         self._clock = clock
         self._gpu_sampler = gpu_sampler
         self._gpu_interval_seconds = gpu_interval_seconds

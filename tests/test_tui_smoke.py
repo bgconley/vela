@@ -223,6 +223,74 @@ async def test_tui_loads_registry_and_preview_through_target_client(
 
 
 @pytest.mark.asyncio
+async def test_tui_accepts_injected_target_client_without_local_agent(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class InjectedTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str] | None]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/target/configs/remote.yaml",
+                            "name": "remote",
+                            "model": "org/remote",
+                            "target": "remote",
+                            "warnings": [],
+                            "config": {
+                                "name": "remote",
+                                "target": "remote",
+                                "model": "org/remote",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/target\nvllm serve org/remote", "warnings": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("injected target setup should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI constructed a LocalAgent")
+        ),
+    )
+    target_client = InjectedTargetClient()
+    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert app.current_config is not None
+        assert app.current_config.name == "remote"
+        assert app.current_config.target == "remote"
+        assert target_client.calls[:2] == [
+            ("list_configs", {"configs_dir": str(config_dir)}),
+            ("preview", {"name": "remote", "configs_dir": str(config_dir)}),
+        ]
+
+
+@pytest.mark.asyncio
 async def test_tui_select_config_refreshes_preview_through_target_client(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
