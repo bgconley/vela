@@ -81,6 +81,19 @@ def _agent_stop_json_command(socket_path: Path) -> list[str]:
     ]
 
 
+def _agent_restart_json_command(socket_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "vllm_loader.cli",
+        "agent",
+        "restart",
+        "--socket",
+        str(socket_path),
+        "--json",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
     from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
@@ -177,6 +190,39 @@ async def test_agent_start_spawns_detached_socket_daemon() -> None:
         connected = await client.connect()
 
         assert connected["daemon_pid"] == started["pid"]
+    finally:
+        await client.disconnect()
+        await _run_command(_agent_stop_json_command(socket_path))
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_agent_restart_replaces_socket_daemon() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    client = SubprocessTargetClient(_agent_connect_socket_command(socket_path))
+    try:
+        start_result = await _run_command(_agent_start_json_command(socket_path))
+        started = json.loads(start_result["stdout"])
+
+        restart_result = await _run_command(_agent_restart_json_command(socket_path))
+        restarted = json.loads(restart_result["stdout"])
+
+        assert start_result["returncode"] == 0
+        assert restart_result["returncode"] == 0
+        assert restarted["status"] == "running"
+        assert restarted["previous_pid"] == started["pid"]
+        assert restarted["pid"] != started["pid"]
+        assert restarted["socket_path"] == str(socket_path)
+
+        connected = await client.connect()
+
+        assert connected["daemon_pid"] == restarted["pid"]
     finally:
         await client.disconnect()
         await _run_command(_agent_stop_json_command(socket_path))

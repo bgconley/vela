@@ -143,6 +143,28 @@ def stop_agent_daemon(
     return {**status, "status": "stopping"}
 
 
+def restart_agent_daemon_process(
+    socket_path: str | Path | None = None,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    previous = inspect_agent_daemon(socket_path)
+    previous_pid = previous.get("pid") if previous["status"] == "running" else None
+    if previous["status"] == "running":
+        stopped = stop_agent_daemon(socket_path, timeout=timeout)
+        if stopped["status"] != "stopped":
+            return {
+                **stopped,
+                "status": "restart-failed",
+                "reason": "daemon did not stop",
+                "previous_pid": previous_pid,
+            }
+    started = start_agent_daemon_process(socket_path, timeout=timeout)
+    if previous_pid is not None:
+        started = {**started, "previous_pid": previous_pid}
+    return started
+
+
 async def start_agent_daemon(
     agent: LocalAgent | None = None,
     *,
