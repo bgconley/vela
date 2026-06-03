@@ -425,7 +425,6 @@ async def test_tui_attached_launch_uses_target_client_stream(
             ("probe_until_ready", {"run_id": "run-1"}),
             ("wait", {"run_id": "run-1"}),
         ]
-        assert app.current_process is None
         assert app.current_run_id is None
         assert app.log_lines[-1] == "INFO Starting to load model"
         assert app.phase is Phase.ERROR
@@ -693,17 +692,6 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
 async def test_tui_stop_attached_run_signals_target_client_by_run_id(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class RunningProcess:
-        def __init__(self) -> None:
-            self.proc = self
-            self.stopped = False
-
-        def poll(self) -> None:
-            return None
-
-        def stop(self, *args, **kwargs) -> None:
-            self.stopped = True
-
     class StopRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
             raise AssertionError(f"direct attached TUI liveness check: {run_id}")
@@ -738,8 +726,6 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        fake_process = RunningProcess()
-        app.current_process = fake_process
         app.current_run_id = "run-1"
 
         app.action_stop()
@@ -757,8 +743,6 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
             ],
             "target client stop was not requested",
         )
-
-        assert fake_process.stopped is False
 
 
 @pytest.mark.asyncio
@@ -1021,65 +1005,9 @@ async def test_confirm_screen_is_modal_panel_with_destructive_color(
 
 
 @pytest.mark.asyncio
-async def test_kill_while_attached_running_prompts_before_signal(
-    config_dir: Path,
-) -> None:
-    class RunningProcess:
-        def __init__(self) -> None:
-            self.proc = self
-            self.killed = False
-
-        def poll(self) -> None:
-            return None
-
-        def kill(self) -> None:
-            self.killed = True
-
-    fake_process = RunningProcess()
-    app = VllmLoaderApp(configs_dir=config_dir)
-
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        app.current_process = fake_process
-
-        await pilot.press("K")
-        await pilot.pause()
-
-        assert app.screen.id == "confirm"
-        message = app.screen.query_one("#confirm-message", Static)
-        assert isinstance(message.content, Text)
-        assert "Kill" in message.content.plain
-        assert not fake_process.killed
-
-        await pilot.press("escape")
-        await pilot.pause()
-
-        assert app.screen.id != "confirm"
-        assert not fake_process.killed
-
-        await pilot.press("K")
-        await pilot.press("enter")
-        await pilot.pause()
-
-        assert fake_process.killed
-        assert app.screen.id != "confirm"
-
-
-@pytest.mark.asyncio
 async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class RunningProcess:
-        def __init__(self) -> None:
-            self.proc = self
-            self.killed = False
-
-        def poll(self) -> None:
-            return None
-
-        def kill(self) -> None:
-            self.killed = True
-
     class KillRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
             raise AssertionError(f"direct attached TUI liveness check: {run_id}")
@@ -1109,12 +1037,10 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
             raise AssertionError("kill should not subscribe")
 
     monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
-    fake_process = RunningProcess()
     app = VllmLoaderApp(configs_dir=config_dir, agent=KillRefusingAgent())
 
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
-        app.current_process = fake_process
         app.current_run_id = "run-1"
 
         await pilot.press("K")
@@ -1124,7 +1050,6 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
             "target client kill was not requested",
         )
 
-        assert fake_process.killed is False
         assert app.screen.id != "confirm"
 
 
@@ -2450,6 +2375,12 @@ def test_tui_does_not_expose_path_based_detached_reattach() -> None:
     assert "reattach_detached_run" not in VllmLoaderApp.__dict__
 
 
+def test_tui_does_not_store_attached_process_handle(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    assert "current_process" not in app.__dict__
+
+
 @pytest.mark.asyncio
 async def test_reattach_health_worker_is_non_crashing_monitor(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -2731,12 +2662,10 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
             await pilot.press("l")
             await _wait_for_log(app, "Uvicorn running")
             await _wait_for_phase(app, Phase.READY)
-            launched_process = app.current_process
             launched_sidecar_path = app.reattached_sidecar_path
             launched_run_id = app.reattached_run_id
             await pilot.press("s")
             await _wait_for_port_down(port)
-            assert launched_process is None
             assert launched_run_id is not None
             assert launched_sidecar_path is None
             sidecar_paths = [
@@ -3068,58 +2997,6 @@ async def test_copy_server_url_uses_textual_clipboard(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_restart_waits_for_attached_process_exit_before_loading(
-    config_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    write_yaml(
-        config_dir / "restart.yaml",
-        """
-        name: restart
-        model: org/model
-        """,
-    )
-
-    class SlowStoppingProcess:
-        def __init__(self) -> None:
-            self.proc = self
-            self.pid = 12345
-            self.stopped = False
-            self.running = True
-
-        def poll(self) -> int | None:
-            return None if self.running else 0
-
-        def stop(self, *args, **kwargs) -> None:
-            self.stopped = True
-
-    app = VllmLoaderApp(configs_dir=config_dir)
-    fake_process = SlowStoppingProcess()
-    load_calls: list[int | None] = []
-    notifications: list[str] = []
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.current_config = app.registry.by_name("restart")
-        app.current_process = fake_process
-        monkeypatch.setattr(app, "action_load", lambda: load_calls.append(fake_process.poll()))
-        monkeypatch.setattr(
-            app,
-            "notify",
-            lambda message, *args, **kwargs: notifications.append(message),
-        )
-
-        app.action_restart()
-        await pilot.pause()
-
-        assert fake_process.stopped
-        assert load_calls == []
-        assert "A process is already running" not in notifications
-
-        fake_process.running = False
-        await _wait_for_condition(lambda: load_calls == [0], "restart did not load after exit")
-
-
-@pytest.mark.asyncio
 async def test_restart_attached_run_signals_target_client_by_run_id(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3422,7 +3299,6 @@ async def test_restart_stops_running_attached_server_and_starts_same_config(
 
             assert app.current_config is not None
             assert app.current_config.name == "fake"
-            assert app.current_process is None
             assert app.current_run_id is not None
             await pilot.press("s")
             await _wait_for_stopped(app)
@@ -3505,42 +3381,6 @@ async def test_quit_while_attached_running_prompts_stop_or_cancel(config_dir: Pa
         await _wait_for_condition(lambda: app.is_running is False, "quit did not exit")
         assert not app._attached_run_is_alive()
         assert app.is_running is False
-
-
-@pytest.mark.asyncio
-async def test_quit_confirm_stop_waits_for_attached_process_exit(
-    config_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class SlowStoppingProcess:
-        def __init__(self) -> None:
-            self.proc = self
-            self.pid = 12345
-            self.stopped = False
-            self.running = True
-
-        def poll(self) -> int | None:
-            return None if self.running else 0
-
-        def stop(self, *args, **kwargs) -> None:
-            self.stopped = True
-
-    app = VllmLoaderApp(configs_dir=config_dir)
-    fake_process = SlowStoppingProcess()
-    exit_calls: list[bool] = []
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.current_process = fake_process
-        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
-
-        app.confirm_stop_running()
-        await pilot.pause()
-
-        assert fake_process.stopped
-        assert exit_calls == []
-
-        fake_process.running = False
-        await _wait_for_condition(lambda: exit_calls == [True], "quit did not exit after stop")
 
 
 @pytest.mark.asyncio
@@ -3983,13 +3823,7 @@ async def _wait_for_gpu_calls(calls: list[int], count: int) -> None:
 async def _wait_for_stopped(app: VllmLoaderApp) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
-        if app.current_process and app.current_process.proc.poll() is not None:
-            return
-        if (
-            app.current_process is None
-            and app.current_run_id is None
-            and app.phase is Phase.STOPPED
-        ):
+        if app.current_run_id is None and app.phase is Phase.STOPPED:
             return
         await asyncio.sleep(0.05)
     raise AssertionError("fake child did not stop")

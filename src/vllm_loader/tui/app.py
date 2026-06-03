@@ -25,7 +25,6 @@ from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_art
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
-from vllm_loader.engine.process_manager import AttachedProcess
 from vllm_loader.engine.profile import (
     VllmProfileError,
     bundled_profile,
@@ -47,7 +46,7 @@ from vllm_loader.monitoring.gpu import (
     GpuSample,
     sample_gpus,
 )
-from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
+from vllm_loader.monitoring.health import HealthEvent, probe_host_for
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
@@ -447,7 +446,6 @@ class VllmLoaderApp(App):
         self.search_text = ""
         self.fsm = PhaseFSM(bundled_profile("current"))
         self.current_config: ModelConfig | None = None
-        self.current_process: AttachedProcess | None = None
         self.current_run_id: str | None = None
         self.log_lines: list[str] = []
         self.log_records: list[tuple[str, str | None]] = []
@@ -689,10 +687,6 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.current_process and self.current_process.proc.poll() is None:
-            self._mark_current_process_shutdown_intent()
-            self.current_process.stop(interrupt_timeout=2, terminate_timeout=2)
-            return
         if self.reattached_sidecar_path is not None:
             self._set_path_only_reattach_signal_error("stop")
             return
@@ -732,17 +726,6 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.current_process and self.current_process.proc.poll() is None:
-            process = self.current_process
-            self._mark_current_process_shutdown_intent()
-            process.stop(interrupt_timeout=2, terminate_timeout=2)
-            self.run_worker(
-                self._load_after_process_exit(process),
-                name="restart",
-                group="restart",
-                exclusive=True,
-            )
-            return
         if self.reattached_run_id is not None:
             self.run_worker(
                 self._restart_reattached_target_run(),
@@ -760,11 +743,6 @@ class VllmLoaderApp(App):
             )
             return
         self.action_stop()
-        self.action_load()
-
-    async def _load_after_process_exit(self, process: AttachedProcess) -> None:
-        while process.proc.poll() is None:
-            await asyncio.sleep(0.05)
         self.action_load()
 
     async def _restart_attached_run(self, run_id: str) -> None:
@@ -789,7 +767,6 @@ class VllmLoaderApp(App):
         self.workers.cancel_group(self, "health")
         self.reattached_sidecar_path = None
         self.reattached_run_id = None
-        self.current_process = None
         self.current_run_id = None
         self._set_phase(Phase.STOPPED)
         self.action_load()
@@ -890,7 +867,6 @@ class VllmLoaderApp(App):
         )
         self.reattached_sidecar_path = None
         self.reattached_run_id = None
-        self.current_process = None
         self.current_run_id = None
         self._write_log(f"INFO detached from {sidecar_name}; server continues running")
         self.notify("Detached from run; server continues running")
@@ -972,22 +948,6 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.current_process and self.current_process.proc.poll() is None:
-            process = self.current_process
-            self._mark_current_process_shutdown_intent()
-            process.stop(interrupt_timeout=2, terminate_timeout=2)
-            self.run_worker(
-                self._exit_after_process_exit(process),
-                name="quit-stop",
-                group="quit",
-                exclusive=True,
-            )
-            return
-        self.exit()
-
-    async def _exit_after_process_exit(self, process: AttachedProcess) -> None:
-        while process.proc.poll() is None:
-            await asyncio.sleep(0.05)
         self.exit()
 
     async def _exit_after_target_run_exit(self, run_id: str) -> None:
@@ -1018,10 +978,6 @@ class VllmLoaderApp(App):
                 group="engine-signal",
                 exclusive=True,
             )
-            return
-        if self.current_process and self.current_process.proc.poll() is None:
-            self._mark_current_process_shutdown_intent()
-            self.current_process.kill()
             return
         if self.reattached_sidecar_path is not None:
             self._set_path_only_reattach_signal_error("kill")
@@ -1469,7 +1425,6 @@ class VllmLoaderApp(App):
             return
         self.reattached_sidecar_path = None
         self.reattached_run_id = str(result["run_id"])
-        self.current_process = None
         self.current_run_id = None
         self.fsm = _phase_fsm_from_agent_metadata(
             dict(result.get("fsm") or {})
@@ -1574,9 +1529,7 @@ class VllmLoaderApp(App):
         return terminal_phase
 
     def _attached_run_is_alive(self) -> bool:
-        if self.current_run_id is not None:
-            return True
-        return bool(self.current_process and self.current_process.proc.poll() is None)
+        return self.current_run_id is not None
 
     def _refresh_dashboard_shell(self) -> None:
         self._refresh_chrome()
@@ -1745,7 +1698,6 @@ class VllmLoaderApp(App):
             return
         run_id = str(launch["run_id"])
         self.current_run_id = run_id
-        self.current_process = None
         health_task = asyncio.create_task(self._probe_until_ready(cfg))
         events_task = asyncio.create_task(
             self._consume_target_run_events_until_exit(run_id)
@@ -1761,7 +1713,6 @@ class VllmLoaderApp(App):
         if self.current_run_id != run_id:
             return
         self.current_run_id = None
-        self.current_process = None
         returncode = wait_result.get("returncode")
         intentional = bool(wait_result.get("intentional"))
         if terminal_phase in {Phase.ERROR, Phase.STOPPED}:
@@ -1779,22 +1730,6 @@ class VllmLoaderApp(App):
         if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
             self._set_error_banner(self.fsm.error_kind)
         self._set_phase(self.fsm.phase)
-
-    def _mark_current_process_shutdown_intent(self) -> None:
-        if self.current_process is None:
-            return
-        pid = getattr(self.current_process.proc, "pid", None)
-        if isinstance(pid, int):
-            self._intentional_shutdown_pids.add(pid)
-
-    def _consume_intentional_shutdown(self, process: AttachedProcess) -> bool:
-        pid = getattr(process.proc, "pid", None)
-        if not isinstance(pid, int):
-            return False
-        if pid not in self._intentional_shutdown_pids:
-            return False
-        self._intentional_shutdown_pids.remove(pid)
-        return True
 
     def _handle_command_not_found(
         self, exc: FileNotFoundError, fallback_command: str
@@ -1841,16 +1776,9 @@ class VllmLoaderApp(App):
         self._handle_launch_agent_error(exc)
 
     async def _probe_until_ready(self, cfg: ModelConfig) -> None:
-        if self.current_run_id is not None:
-            await self._target_probe_run_until_ready(self.current_run_id)
+        if self.current_run_id is None:
             return
-        await probe_loop(
-            cfg,
-            emit=self._post_health_message,
-            is_process_alive=lambda: bool(
-                self.current_process and self.current_process.proc.poll() is None
-            ),
-        )
+        await self._target_probe_run_until_ready(self.current_run_id)
 
     def _handle_health_event(self, event: HealthEvent) -> None:
         self._handle_health_changed(

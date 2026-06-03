@@ -330,9 +330,8 @@ async def _smoke_tui_config_cli(name: str, configs_dir: Path | None) -> int:
                 return 2
             return 0
     finally:
-        if tui.current_process and tui.current_process.proc.poll() is None:
-            tui._mark_current_process_shutdown_intent()
-            tui.current_process.stop(interrupt_timeout=2, terminate_timeout=2)
+        if tui.current_run_id is not None or tui.reattached_run_id is not None:
+            tui.action_stop()
             await _wait_for_tui_stopped(tui, timeout=10)
 
 
@@ -350,7 +349,7 @@ async def _wait_for_tui_phase(tui: VllmLoaderApp, phase: Phase, *, timeout: floa
 async def _wait_for_tui_stopped(tui: VllmLoaderApp, *, timeout: float) -> bool:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
-        if tui.current_process is None or tui.current_process.proc.poll() is not None:
+        if tui.current_run_id is None and tui.reattached_run_id is None:
             return True
         await asyncio.sleep(0.05)
     return False

@@ -19,8 +19,10 @@ from vllm_loader import cli as cli_module
 from vllm_loader.cli import _enable_textual_debug_features
 from vllm_loader.engine import process_manager as process_manager_module
 from vllm_loader.engine import supervisor as supervisor_module
+from vllm_loader.engine.phases import Phase
 from vllm_loader.engine.sidecar import verify_sidecar_from_system
 from vllm_loader.engine.supervisor import run_supervisor
+from vllm_loader.tui.app import VllmLoaderApp
 
 
 def test_debug_mode_enables_textual_debug_and_devtools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -448,6 +450,22 @@ async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -
         await _wait_for_health(port, expected=False)
     finally:
         await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_tui_stopped_waits_for_target_run_id(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+
+        assert await cli_module._wait_for_tui_stopped(app, timeout=0.05) is False
+
+        app.current_run_id = None
+        app._set_phase(Phase.STOPPED)
+
+        assert await cli_module._wait_for_tui_stopped(app, timeout=0.2) is True
 
 
 def test_cli_smoke_tui_prepares_through_local_agent(
