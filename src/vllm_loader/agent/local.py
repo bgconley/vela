@@ -129,6 +129,8 @@ class LocalAgent:
             return self._kill(payload)
         if method == "probe_until_ready":
             return self._probe_until_ready(payload)
+        if method == "tail_detached":
+            return self._tail_detached(payload)
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
 
     def _handshake(self) -> dict[str, Any]:
@@ -146,6 +148,7 @@ class LocalAgent:
                 "stop",
                 "kill",
                 "probe_until_ready",
+                "tail_detached",
                 "subscribe",
             ],
         }
@@ -465,11 +468,22 @@ class LocalAgent:
             is_process_alive=lambda: self.is_run_alive(run_id),
         )
 
+    async def _tail_detached(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        start_position = params.get("start_position")
+        poll_interval = float(params.get("poll_interval", 0.25))
+        await self.tail_detached_run(
+            run_id,
+            start_position=int(start_position) if start_position is not None else None,
+            poll_interval=poll_interval,
+        )
+        return {"run_id": run_id, "status": "ended"}
+
     async def tail_detached_run(
         self,
         run_id: str,
         *,
-        emit_event: Callable[[AgentEvent], None],
+        emit_event: Callable[[AgentEvent], None] | None = None,
         start_position: int | None = None,
         poll_interval: float = 0.25,
     ) -> None:
@@ -502,13 +516,28 @@ class LocalAgent:
                             for event in _events_from_log_record(
                                 run_id, run.fsm, record
                             ):
-                                emit_event(event)
+                                self._publish_event(event)
+                                if emit_event is not None:
+                                    emit_event(event)
             await asyncio.sleep(poll_interval)
         previous_phase = run.fsm.phase
         run.fsm.process_exited(None, intentional=run.intentional_shutdown)
         event = _phase_event_from_transition(run_id, run.fsm, previous_phase)
         if event is not None:
-            emit_event(event)
+            self._publish_event(event)
+            if emit_event is not None:
+                emit_event(event)
+        self._publish_event(
+            AgentEvent(
+                "exited",
+                run_id,
+                {
+                    "returncode": None,
+                    "intentional": run.intentional_shutdown,
+                    "phase": run.fsm.phase.value,
+                },
+            )
+        )
 
     def sample_gpus(self) -> GpuPollResult:
         return self._gpu_sampler()

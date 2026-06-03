@@ -562,6 +562,68 @@ async def test_local_agent_tails_detached_log_and_emits_phase_events(
     assert phase_events[0].payload["phase"] == Phase.LOADING_WEIGHTS.value
 
 
+@pytest.mark.asyncio
+async def test_target_client_tails_detached_run_with_serialized_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "run-1.run.log"
+    log_path.write_text("INFO Starting to load model\n", encoding="utf-8")
+    manifest_path = tmp_path / "run-1.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "run-1.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        config_snapshot={"name": "detached", "model": "fake/model"},
+    )
+    alive_checks = 0
+
+    def fake_verify(_path: Path) -> bool:
+        nonlocal alive_checks
+        alive_checks += 1
+        return alive_checks < 2
+
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", fake_verify)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    agent = LocalAgent()
+    agent.reattach_detached_run(sidecar_path)
+    alive_checks = 0
+    client = InProcessTargetClient(agent)
+    await client.connect()
+
+    tail_result = await client.call(
+        "tail_detached",
+        {"run_id": "run-1", "start_position": 0, "poll_interval": 0},
+    )
+    events = client.subscribe(["run-1"], resume_from="start")
+    replayed = [await asyncio.wait_for(events.__anext__(), timeout=2) for _ in range(4)]
+    await events.aclose()
+
+    assert tail_result == {"run_id": "run-1", "status": "ended"}
+    log_event = next(event for event in replayed if event["event"] == "log")
+    phase_event = next(event for event in replayed if event["event"] == "phase")
+    exited_event = next(event for event in replayed if event["event"] == "exited")
+    assert log_event["text"] == "INFO Starting to load model"
+    assert phase_event["phase"] == Phase.LOADING_WEIGHTS.value
+    assert exited_event["run_id"] == "run-1"
+    json.dumps(log_event)
+    json.dumps(exited_event)
+
+
 def test_local_agent_samples_gpus_with_injected_sampler() -> None:
     calls = 0
 

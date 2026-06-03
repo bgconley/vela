@@ -1547,6 +1547,23 @@ class VllmLoaderApp(App):
             )
         )
 
+    async def _target_tail_detached_run(
+        self, run_id: str, *, start_position: int | None = None
+    ) -> None:
+        params: dict[str, Any] = {"run_id": run_id}
+        if start_position is not None:
+            params["start_position"] = start_position
+        events_task = asyncio.create_task(
+            self._consume_target_run_events_until_exit(run_id)
+        )
+        await asyncio.sleep(0)
+        try:
+            await self._target_call("tail_detached", params)
+            await events_task
+        finally:
+            if not events_task.done():
+                events_task.cancel()
+
     async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
         await self._ensure_target_client_connected()
         events = self._target_client.subscribe([run_id], resume_from="live")
@@ -1900,7 +1917,7 @@ class VllmLoaderApp(App):
             self.reattached_sidecar_path == sidecar_path
             and self.reattached_run_id is not None
         ):
-            await self._agent_tail_detached_run(
+            await self._target_tail_detached_run(
                 self.reattached_run_id,
                 start_position=start_position,
             )

@@ -2718,42 +2718,73 @@ async def test_detached_tail_starts_from_loaded_log_position(
 
 @pytest.mark.asyncio
 async def test_tui_detached_tail_consumes_agent_events(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sidecar_path = tmp_path / "sidecar.json"
     log_path = tmp_path / "run.log"
 
     class TailAgent(RecordingConfigAgent):
-        def __init__(self) -> None:
-            super().__init__()
-            self.tail_calls: list[tuple[str, int | None]] = []
-
         def is_run_alive(self, run_id: str) -> bool:
             return False
 
-        async def tail_detached_run(
-            self, run_id: str, *, start_position, emit_event, poll_interval=0.25
-        ) -> None:
-            self.tail_calls.append((run_id, start_position))
-            emit_event(
-                SimpleNamespace(
-                    kind="log",
-                    run_id=run_id,
-                    payload={
-                        "kind": "committed",
-                        "text": "INFO Starting to load model",
-                        "level": "INFO",
-                    },
-                )
-            )
-            emit_event(
-                SimpleNamespace(
-                    kind="phase",
-                    run_id=run_id,
-                    payload={"phase": Phase.LOADING_WEIGHTS.value},
-                )
-            )
+        async def tail_detached_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct reattached TUI tail")
 
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "tail_detached":
+                return {"run_id": params["run_id"], "status": "ended"}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "log",
+                "run_id": "run-1",
+                "kind": "committed",
+                "text": "INFO Starting to load model",
+                "level": "INFO",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+            yield {
+                "event": "phase",
+                "run_id": "run-1",
+                "phase": Phase.LOADING_WEIGHTS.value,
+                "prev_phase": Phase.IDLE.value,
+                "seq": 2,
+                "ts": "2026-06-03T00:00:01Z",
+                "mono": 2.0,
+            }
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": None,
+                "intentional": False,
+                "phase": Phase.ERROR.value,
+                "seq": 3,
+                "ts": "2026-06-03T00:00:02Z",
+                "mono": 3.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = TailAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
@@ -2765,9 +2796,11 @@ async def test_tui_detached_tail_consumes_agent_events(
         await app._tail_detached_log(log_path, sidecar_path, start_position=123)
         await pilot.pause()
 
-        assert agent.tail_calls == [("run-1", 123)]
+        assert app._target_client.calls == [
+            ("tail_detached", {"run_id": "run-1", "start_position": 123})
+        ]
         assert app.log_lines[-1] == "INFO Starting to load model"
-        assert app.phase is Phase.LOADING_WEIGHTS
+        assert app.phase is Phase.ERROR
 
 
 @pytest.mark.asyncio
