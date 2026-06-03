@@ -75,6 +75,7 @@ class LocalDetachedRun:
     sidecar_path: Path
     sidecar: Sidecar
     manifest: Manifest
+    config: ModelConfig
 
 
 @dataclass(frozen=True)
@@ -243,6 +244,7 @@ class LocalAgent:
             sidecar_path=path,
             sidecar=sidecar,
             manifest=manifest,
+            config=_config_from_detached_sidecar(sidecar),
         )
         self._detached_runs[run.run_id] = run
         return run
@@ -312,9 +314,12 @@ class LocalAgent:
     async def probe_run_until_ready(
         self, run_id: str, *, emit: Callable[[HealthEvent], None]
     ) -> None:
-        run = self._attached_run_or_error(run_id)
+        attached = self._attached_runs.get(run_id)
+        run_config = (
+            attached.config if attached is not None else self._detached_run_or_error(run_id).config
+        )
         await probe_loop(
-            run.config,
+            run_config,
             emit=emit,
             is_process_alive=lambda: self.is_run_alive(run_id),
         )
@@ -373,6 +378,28 @@ def _detached_run_alive(run: LocalDetachedRun) -> bool:
         return verify_sidecar_from_system(run.sidecar_path)
     except Exception:
         return False
+
+
+def _config_from_detached_sidecar(sidecar: Sidecar) -> ModelConfig:
+    if sidecar.config_snapshot:
+        return ModelConfig.model_validate(sidecar.config_snapshot)
+    return ModelConfig.model_validate(
+        {
+            "name": sidecar.config_name,
+            "model": sidecar.served_model_names[0]
+            if sidecar.served_model_names
+            else sidecar.config_name,
+            "server": {
+                "host": sidecar.host,
+                "port": sidecar.port,
+                "exposure": sidecar.exposure,
+            },
+            "served_model_name": sidecar.served_model_names[0]
+            if sidecar.served_model_names
+            else None,
+            "launch": {"mode": sidecar.launch_mode},
+        }
+    )
 
 
 def _configs_dir(params: dict[str, Any]) -> Path | None:

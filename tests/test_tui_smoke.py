@@ -357,6 +357,28 @@ async def test_tui_attached_health_probe_runs_through_agent(config_dir: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_tui_detached_health_probe_runs_through_agent(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    sidecar_path = tmp_path / "detached.json"
+    agent = HealthProbeRecordingAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.current_config is not None
+        app.reattached_sidecar_path = sidecar_path
+        app.reattached_run_id = "run-1"
+
+        await app._probe_detached_until_ready(app.current_config, sidecar_path)
+        await pilot.pause()
+
+        assert agent.probe_calls == ["run-1"]
+        assert app.phase is Phase.READY
+        assert app.served_models == ["served"]
+
+
+@pytest.mark.asyncio
 async def test_tui_consumes_attached_run_events_from_agent(config_dir: Path) -> None:
     class EventEmittingAgent(RecordingConfigAgent):
         def start_attached_run(self, prepared, *, emit_event):

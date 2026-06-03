@@ -1697,6 +1697,12 @@ class VllmLoaderApp(App):
         )
 
     async def _probe_detached_until_ready(self, cfg: ModelConfig, sidecar_path: Path) -> None:
+        if (
+            self.reattached_sidecar_path == sidecar_path
+            and self.reattached_run_id is not None
+        ):
+            await self._agent_probe_run_until_ready(self.reattached_run_id)
+            return
         await probe_loop(
             cfg,
             emit=self._post_health_message,

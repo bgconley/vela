@@ -265,6 +265,60 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
 
 
 @pytest.mark.asyncio
+async def test_local_agent_probes_detached_run_health_by_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log_path = tmp_path / "run-1.run.log"
+    log_path.write_text("", encoding="utf-8")
+    manifest_path = tmp_path / "run-1.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "run-1.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8123,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        config_snapshot={
+            "name": "detached",
+            "model": "fake/model",
+            "server": {"host": "127.0.0.1", "port": 8123},
+            "launch": {"mode": "detached", "health": {"interval_seconds": 0.05}},
+        },
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        seen["name"] = cfg.name
+        seen["port"] = cfg.server.port
+        seen["alive"] = is_process_alive()
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    agent = LocalAgent()
+    agent.reattach_detached_run(sidecar_path)
+    events: list[HealthEvent] = []
+
+    await agent.probe_run_until_ready("run-1", emit=events.append)
+
+    assert seen == {"name": "detached", "port": 8123, "alive": True}
+    assert events == [HealthEvent(ready=True, detail="ready", models=["served"])]
+
+
+@pytest.mark.asyncio
 async def test_local_agent_emits_attached_log_and_phase_events(
     config_dir: Path, tmp_path: Path
 ) -> None:
