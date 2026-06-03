@@ -254,6 +254,14 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
                     "launch_mode": "attached",
                     "status": "started",
                 }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": "run-1",
+                    "ready": True,
+                    "detail": "ready from target client",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
             if method == "wait":
                 return {"run_id": "run-1", "returncode": 0, "intentional": False}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -353,6 +361,14 @@ async def test_tui_attached_launch_uses_target_client_stream(
                     "launch_mode": "attached",
                     "status": "started",
                 }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": "run-1",
+                    "ready": True,
+                    "detail": "ready from target client",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
             if method == "wait":
                 return {"run_id": "run-1", "returncode": 0, "intentional": False}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -404,6 +420,7 @@ async def test_tui_attached_launch_uses_target_client_stream(
 
         assert client_instances[0].calls == [
             ("launch", {"name": "alpha", "configs_dir": str(config_dir)}),
+            ("probe_until_ready", {"run_id": "run-1"}),
             ("wait", {"run_id": "run-1"}),
         ]
         assert app.current_process is None
@@ -590,8 +607,42 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
 
 
 @pytest.mark.asyncio
-async def test_tui_attached_health_probe_runs_through_agent(config_dir: Path) -> None:
-    agent = HealthProbeRecordingAgent()
+async def test_tui_attached_health_probe_runs_through_target_client(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class ProbeRefusingAgent(StopRecordingAgent):
+        async def probe_run_until_ready(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct attached TUI probe")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "probe_until_ready":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready from target client",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("direct probe should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    agent = ProbeRefusingAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
     async with app.run_test() as pilot:
@@ -602,7 +653,9 @@ async def test_tui_attached_health_probe_runs_through_agent(config_dir: Path) ->
         await app._probe_until_ready(app.current_config)
         await pilot.pause()
 
-        assert agent.probe_calls == ["run-1"]
+        assert app._target_client.calls == [
+            ("probe_until_ready", {"run_id": "run-1"})
+        ]
         assert app.phase is Phase.READY
         assert app.served_models == ["served"]
 

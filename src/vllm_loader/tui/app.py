@@ -1523,6 +1523,20 @@ class VllmLoaderApp(App):
         except Exception as exc:
             self._set_error_text(f"Unable to kill {run_id}: {exc}")
 
+    async def _target_probe_run_until_ready(self, run_id: str) -> None:
+        result = await self._target_call("probe_until_ready", {"run_id": run_id})
+        error_kind = None
+        if result.get("error_kind") is not None:
+            error_kind = _error_kind_from_agent_payload(result.get("error_kind"))
+        self.post_message(
+            HealthChanged(
+                ready=bool(result.get("ready")),
+                detail=str(result.get("detail", "")),
+                models=[str(model) for model in result.get("models") or []],
+                error_kind=error_kind,
+            )
+        )
+
     async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
         await self._ensure_target_client_connected()
         events = self._target_client.subscribe([run_id], resume_from="live")
@@ -1846,7 +1860,7 @@ class VllmLoaderApp(App):
 
     async def _probe_until_ready(self, cfg: ModelConfig) -> None:
         if self.current_run_id is not None:
-            await self._agent_probe_run_until_ready(self.current_run_id)
+            await self._target_probe_run_until_ready(self.current_run_id)
             return
         await probe_loop(
             cfg,
