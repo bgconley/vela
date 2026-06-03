@@ -191,6 +191,68 @@ def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatc
     ]
 
 
+def test_cli_targets_test_handshakes_with_selected_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+    requested_target_names: list[str] = []
+    requested_targets: list[TargetConfig] = []
+    client_events: list[str] = []
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            requested_target_names.append(name)
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            client_events.append("connect")
+
+        async def disconnect(self) -> None:
+            client_events.append("disconnect")
+
+        async def call(self, method: str, params):
+            client_events.append(f"call:{method}")
+            assert params is None
+            if method == "handshake":
+                return {
+                    "target": "blackbird",
+                    "agent_version": "1.2.3",
+                    "protocol_version": 7,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+    def fake_target_client_for_config(target):
+        requested_targets.append(target)
+        return FakeTargetClient()
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(cli_module, "target_client_for_config", fake_target_client_for_config)
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "test", "blackbird"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "blackbird\tok\tagent=1.2.3\tprotocol=7\n"
+    assert requested_target_names == ["blackbird"]
+    assert requested_targets == [blackbird]
+    assert client_events == ["connect", "call:handshake", "disconnect"]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

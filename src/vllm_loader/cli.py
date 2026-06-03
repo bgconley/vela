@@ -83,6 +83,21 @@ def targets_list() -> None:
         typer.echo(f"{target.name}\t{target.transport.value}\t{target.host or '-'}")
 
 
+@targets_app.command("test")
+def targets_test(
+    name: Annotated[str, typer.Argument(help="Target name to test.")] = "local",
+) -> None:
+    try:
+        handshake = _target_call(_target_client_for_name_or_exit(name), "handshake")
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    typer.echo(
+        f"{name}\tok\t"
+        f"agent={handshake.get('agent_version', 'unknown')}\t"
+        f"protocol={handshake.get('protocol_version', 'unknown')}"
+    )
+
+
 @app.command("list")
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
