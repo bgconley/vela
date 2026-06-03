@@ -1911,6 +1911,7 @@ async def test_target_client_probe_until_ready_emits_serialized_health_events(
         "models": ["served"],
         "error_kind": None,
         "reachable_url": "http://127.0.0.1:8128",
+        "phase": Phase.READY.value,
     }
     health_event = next(event for event in replayed if event["event"] == "health")
     ready_event = next(event for event in replayed if event["event"] == "ready")

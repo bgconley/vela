@@ -1632,8 +1632,18 @@ class VllmLoaderApp(App):
                 models=[str(model) for model in result.get("models") or []],
                 error_kind=error_kind,
                 reachable_url=_optional_str(result.get("reachable_url")),
+                feed_phase=False,
             )
         )
+        phase_value = result.get("phase")
+        if phase_value is not None:
+            self.post_message(
+                PhaseChanged(
+                    Phase(str(phase_value)),
+                    error_kind=error_kind,
+                    error_excerpt=_optional_str(result.get("error_excerpt")),
+                )
+            )
 
     async def _target_tail_detached_run(
         self, run_id: str, *, start_position: int | None = None

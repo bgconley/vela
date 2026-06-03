@@ -1580,6 +1580,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
                     "models": ["served"],
                     "error_kind": None,
                     "reachable_url": "http://10.25.0.51:18123",
+                    "phase": Phase.READY.value,
                 }
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1590,6 +1591,13 @@ async def test_tui_attached_health_probe_runs_through_target_client(
     app = VllmLoaderApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
+    )
+    monkeypatch.setattr(
+        tui_app_module.PhaseFSM,
+        "health_ready",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI should apply the agent health phase")
+        ),
     )
 
     async with app.run_test() as pilot:
@@ -1639,6 +1647,7 @@ async def test_tui_detached_health_probe_runs_through_target_client(
                     "detail": "ready from target client",
                     "models": ["served"],
                     "error_kind": None,
+                    "phase": Phase.READY.value,
                 }
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1649,6 +1658,13 @@ async def test_tui_detached_health_probe_runs_through_target_client(
     app = VllmLoaderApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
+    )
+    monkeypatch.setattr(
+        tui_app_module.PhaseFSM,
+        "health_ready",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI should apply the agent health phase")
+        ),
     )
 
     async with app.run_test() as pilot:

@@ -318,6 +318,9 @@ class LocalAgent:
             last_event.clear()
             last_event.update(_health_payload(event, run_config))
             self._publish_health_events(run_id, run_config, fsm, event)
+            last_event["phase"] = fsm.phase.value
+            if fsm.error_excerpt is not None:
+                last_event["error_excerpt"] = fsm.error_excerpt
             if event.ready or event.error_kind is not None:
                 completed.set()
 
