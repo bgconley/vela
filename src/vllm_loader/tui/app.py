@@ -536,6 +536,11 @@ class VllmLoaderApp(App):
         self._target_last_log_cursor_by_run: dict[str, dict[str, int]] = {}
         self._target_ping_interval_seconds = target_ping_interval_seconds
         self._target_ping_timeout_seconds = target_ping_timeout_seconds
+        self._target_reconnect_backoff_initial_seconds = 0.1
+        self._target_reconnect_backoff_cap_seconds = 10.0
+        self._target_reconnect_backoff_seconds = (
+            self._target_reconnect_backoff_initial_seconds
+        )
         self._clock = clock
         self._gpu_interval_seconds = gpu_interval_seconds
         self._max_log_lines = max(1, max_log_lines)
@@ -1592,8 +1597,26 @@ class VllmLoaderApp(App):
         if interval is None or interval <= 0 or not callable(ping):
             return
         while True:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(self._target_keepalive_delay_seconds())
             await self._target_keepalive_once()
+            self._update_target_reconnect_backoff()
+
+    def _target_keepalive_delay_seconds(self) -> float:
+        if self.target_connection_state == "connected":
+            interval = self._target_ping_interval_seconds
+            return float(interval) if interval is not None else 0.0
+        return self._target_reconnect_backoff_seconds
+
+    def _update_target_reconnect_backoff(self) -> None:
+        if self.target_connection_state == "connected":
+            self._target_reconnect_backoff_seconds = (
+                self._target_reconnect_backoff_initial_seconds
+            )
+            return
+        self._target_reconnect_backoff_seconds = min(
+            self._target_reconnect_backoff_seconds * 2,
+            self._target_reconnect_backoff_cap_seconds,
+        )
 
     async def _target_keepalive_once(self) -> None:
         try:

@@ -555,6 +555,33 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
         assert "ping timeout" in app.target_connection_detail
 
 
+def test_target_keepalive_uses_exponential_reconnect_backoff(
+    config_dir: Path,
+) -> None:
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_ping_interval_seconds=30,
+    )
+
+    app.target_connection_state = "connected"
+    assert app._target_keepalive_delay_seconds() == 30
+
+    app.target_connection_state = "unreachable"
+    assert app._target_keepalive_delay_seconds() == 0.1
+
+    app._update_target_reconnect_backoff()
+    assert app._target_keepalive_delay_seconds() == 0.2
+
+    app._target_reconnect_backoff_seconds = 8.0
+    app._update_target_reconnect_backoff()
+    assert app._target_keepalive_delay_seconds() == 10.0
+
+    app.target_connection_state = "connected"
+    app._update_target_reconnect_backoff()
+    assert app._target_keepalive_delay_seconds() == 30
+    assert app._target_reconnect_backoff_seconds == 0.1
+
+
 @pytest.mark.asyncio
 async def test_tui_keepalive_timeout_reconnects_to_target(
     config_dir: Path,
