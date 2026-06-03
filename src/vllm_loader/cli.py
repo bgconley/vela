@@ -9,17 +9,9 @@ import typer
 
 from vllm_loader import __version__
 from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.config.loader import load_registry
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.phases import Phase
-from vllm_loader.engine.preflight import check_launch_preflight
-from vllm_loader.engine.profile import (
-    VllmProfileError,
-    select_profile_for_config,
-)
-from vllm_loader.engine.sidecar import verify_sidecar_from_system
-from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
+from vllm_loader.monitoring.health import HealthEvent, probe_host_for
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui.app import VllmLoaderApp
 
@@ -152,23 +144,10 @@ def smoke_tui_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
 ) -> None:
-    registry = load_registry(configs_dir)
-    cfg = _config_by_name_or_exit(registry, name)
-    result = _build_command_or_exit(cfg)
-    _launch_preflight_or_exit(cfg, result.cwd)
+    agent = LocalAgent()
+    prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
+    cfg = ModelConfig.model_validate(prepared["config"])
     raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir)))
-
-
-def _build_command_or_exit(cfg):
-    try:
-        return build_command(cfg, select_profile_for_config(cfg))
-    except VllmProfileError as exc:
-        typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(2) from exc
-
-
-def _echo_command_warnings(result) -> None:
-    _echo_warnings(result.warnings)
 
 
 def _echo_warnings(warnings) -> None:
@@ -186,14 +165,6 @@ def _prepare_launch_with_agent_or_exit(
         )
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, fallback_name=name)
-
-
-def _launch_preflight_or_exit(cfg, cwd: Path) -> None:
-    failure = check_launch_preflight(cfg, cwd=cwd)
-    if failure is None:
-        return
-    typer.echo(f"ERROR {failure.kind.value}: {failure.detail}", err=True)
-    raise typer.Exit(2)
 
 
 def _agent_params(**values) -> dict[str, str]:
@@ -233,31 +204,6 @@ def _echo_target_error_or_exit(exc: TargetCallError, *, fallback_name: str | Non
         raise typer.Exit(2) from exc
     typer.echo(f"ERROR: {exc.message}", err=True)
     raise typer.Exit(2) from exc
-
-
-def _config_by_name_or_exit(registry, name: str):
-    try:
-        return registry.by_name(name)
-    except KeyError as exc:
-        invalid_matches = [
-            item
-            for item in registry.invalid
-            if item.raw_name == name or (item.raw_name is None and item.path.stem == name)
-        ]
-        if invalid_matches:
-            typer.echo(f"ERROR: Invalid config: {name}", err=True)
-            for item in invalid_matches:
-                typer.echo(f"{item.path.name}: {'; '.join(item.errors)}", err=True)
-            raise typer.Exit(2) from exc
-        available = ", ".join(item.config.name for item in registry.valid) or "none"
-        typer.echo(f"ERROR: Unknown config: {name}", err=True)
-        typer.echo(f"Available configs: {available}", err=True)
-        raise typer.Exit(2) from exc
-
-
-def _echo_command_not_found(exc: FileNotFoundError, fallback_command: str) -> None:
-    command = str(exc.filename or fallback_command)
-    _echo_command_not_found_text(command)
 
 
 def _echo_command_not_found_text(command: str) -> None:
@@ -412,51 +358,6 @@ async def _smoke_detached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> in
     return health_code
 
 
-async def _wait_until_ready_or_exit(
-    cfg,
-    read_task: asyncio.Task[int | None] | None,
-    *,
-    is_alive=None,
-) -> int:
-    status = {"code": 1}
-    ready = asyncio.Event()
-
-    def emit(event: HealthEvent) -> None:
-        if event.ready:
-            models = ",".join(event.models or [])
-            suffix = f" models={models}" if models else ""
-            typer.echo(f"READY {_server_url(cfg)}{suffix}")
-            status["code"] = 0
-            ready.set()
-            return
-        if event.error_kind is not None:
-            typer.echo(f"ERROR {event.error_kind.value}: {event.detail}", err=True)
-            status["code"] = 2
-            ready.set()
-
-    health_task = asyncio.create_task(
-        probe_loop(
-            cfg,
-            emit=emit,
-            is_process_alive=is_alive or (lambda: bool(read_task and not read_task.done())),
-        )
-    )
-    ready_task = asyncio.create_task(ready.wait())
-    wait_on = {health_task, ready_task}
-    if read_task is not None:
-        wait_on.add(read_task)
-    done, _pending = await asyncio.wait(wait_on, return_when=asyncio.FIRST_COMPLETED)
-    if read_task is not None and read_task in done and not ready_task.done():
-        health_task.cancel()
-        ready_task.cancel()
-        return int(read_task.result() or 1)
-    if health_task in done and not ready_task.done():
-        ready_task.cancel()
-        return status["code"]
-    health_task.cancel()
-    return status["code"]
-
-
 async def _wait_agent_until_ready_or_exit(
     agent: LocalAgent,
     run_id: str,
@@ -503,13 +404,6 @@ async def _wait_agent_until_ready_or_exit(
 
 def _server_url(cfg) -> str:
     return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
-
-
-def _sidecar_is_alive(sidecar_path: Path) -> bool:
-    try:
-        return bool(verify_sidecar_from_system(sidecar_path))
-    except Exception:
-        return False
 
 
 @app.command("version")

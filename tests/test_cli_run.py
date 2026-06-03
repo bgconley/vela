@@ -454,6 +454,82 @@ async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -
         await _cleanup_port(port)
 
 
+def test_cli_smoke_tui_prepares_through_local_agent(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "agent-tui.yaml",
+        f"""
+        name: agent-tui
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        server:
+          host: 127.0.0.1
+          port: 8125
+        """,
+    )
+    calls: list[tuple[str, dict[str, str]]] = []
+    smoke_calls: list[tuple[str, Path | None]] = []
+
+    class FakeAgent:
+        def handle(self, method: str, params):
+            calls.append((method, params))
+            return {
+                "config": {
+                    "name": "agent-tui",
+                    "model": "fake/model",
+                    "command": {"entrypoint": "serve", "executable": str(executable)},
+                    "server": {"host": "127.0.0.1", "port": 8125},
+                },
+                "build": {
+                    "argv": [str(executable)],
+                    "env": {},
+                    "cwd": str(tmp_path),
+                    "warnings": [],
+                    "metadata": {},
+                    "preview": "",
+                },
+                "preflight": None,
+            }
+
+    async def fake_smoke_tui(name: str, configs_dir: Path | None) -> int:
+        smoke_calls.append((name, configs_dir))
+        return 0
+
+    monkeypatch.setattr(cli_module, "LocalAgent", FakeAgent)
+    monkeypatch.setattr(cli_module, "_smoke_tui_config_cli", fake_smoke_tui)
+    monkeypatch.setattr(
+        cli_module,
+        "build_command",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct smoke-tui build")
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "check_launch_preflight",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct smoke-tui preflight")
+        ),
+        raising=False,
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.smoke_tui_config("agent-tui", configs_dir=config_dir)
+
+    assert exc_info.value.exit_code == 0
+    assert calls == [("prepare_launch", {"name": "agent-tui", "configs_dir": str(config_dir)})]
+    assert smoke_calls == [("agent-tui", config_dir)]
+
+
 @pytest.mark.parametrize("command", ["preview", "run"])
 def test_cli_reports_unknown_config_name_without_traceback(config_dir: Path, command: str) -> None:
     write_yaml(
@@ -755,6 +831,7 @@ def test_cli_smoke_attached_uses_local_agent(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("direct smoke probe")
         ),
+        raising=False,
     )
 
     with pytest.raises(typer.Exit) as exc_info:
@@ -851,6 +928,7 @@ def test_cli_smoke_detached_uses_local_agent(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("direct smoke probe")
         ),
+        raising=False,
     )
     with pytest.raises(typer.Exit) as exc_info:
         cli_module.smoke_config("smoke-detached", configs_dir=config_dir)
