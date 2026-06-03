@@ -728,9 +728,8 @@ class VllmLoaderApp(App):
     def action_restart(self) -> None:
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
             run_id = self.current_run_id
-            self._agent_stop_run(run_id, interrupt_timeout=2, terminate_timeout=2)
             self.run_worker(
-                self._load_after_run_exit(run_id),
+                self._restart_attached_run(run_id),
                 name="restart",
                 group="restart",
                 exclusive=True,
@@ -765,6 +764,16 @@ class VllmLoaderApp(App):
 
     async def _load_after_run_exit(self, run_id: str) -> None:
         while self._agent_run_is_alive(run_id):
+            await asyncio.sleep(0.05)
+        self.action_load()
+
+    async def _restart_attached_run(self, run_id: str) -> None:
+        await self._target_stop_run(
+            run_id,
+            interrupt_timeout=2,
+            terminate_timeout=2,
+        )
+        while self.current_run_id == run_id:
             await asyncio.sleep(0.05)
         self.action_load()
 

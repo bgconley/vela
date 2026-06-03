@@ -2924,6 +2924,71 @@ async def test_restart_waits_for_attached_process_exit_before_loading(
 
 
 @pytest.mark.asyncio
+async def test_restart_attached_run_signals_target_client_by_run_id(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class RestartRefusingAgent(RecordingConfigAgent):
+        def is_run_alive(self, run_id: str) -> bool:
+            return run_id == "run-1"
+
+        def stop_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct attached TUI restart stop")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("restart stop should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    app = VllmLoaderApp(configs_dir=config_dir, agent=RestartRefusingAgent())
+    load_calls: list[str | None] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+        monkeypatch.setattr(app, "action_load", lambda: load_calls.append(app.current_run_id))
+
+        app.action_restart()
+        await _wait_for_condition(
+            lambda: app._target_client.calls
+            == [
+                (
+                    "stop",
+                    {
+                        "run_id": "run-1",
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            ],
+            "target client restart stop was not requested",
+        )
+
+        assert load_calls == []
+        app.current_run_id = None
+        await _wait_for_condition(
+            lambda: load_calls == [None],
+            "restart did not load after target run exit",
+        )
+
+
+@pytest.mark.asyncio
 async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
