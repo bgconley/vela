@@ -187,6 +187,31 @@ async def test_agent_start_spawns_detached_socket_daemon() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_connect_auto_starts_missing_socket_daemon() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    client = SubprocessTargetClient(_agent_connect_socket_command(socket_path))
+    try:
+        connected = await client.connect()
+        status_result = await _run_command(_agent_status_json_command(socket_path))
+        status = json.loads(status_result["stdout"])
+
+        assert connected["target"] == "local"
+        assert connected["daemon_pid"] == status["pid"]
+        assert status["status"] == "running"
+        assert identity_path.exists()
+    finally:
+        await client.disconnect()
+        await _run_command(_agent_stop_json_command(socket_path))
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
 async def test_agent_stop_terminates_foreground_socket_daemon() -> None:
     from vllm_loader.agent.daemon import agent_identity_path
 

@@ -636,8 +636,14 @@ def agent_connect(
     ] = None,
 ) -> None:
     if socket_path is not None:
+        from vllm_loader.agent.daemon import start_agent_daemon_process
         from vllm_loader.agent.socket import bridge_stdio_to_unix_socket
 
+        if not socket_path.exists():
+            status = start_agent_daemon_process(socket_path)
+            if status["status"] != "running":
+                typer.echo(_format_agent_status(status), err=True)
+                raise typer.Exit(1)
         asyncio.run(bridge_stdio_to_unix_socket(socket_path))
         return
 
