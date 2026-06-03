@@ -566,7 +566,6 @@ async def test_tui_detached_launch_runs_through_target_client(
             ("reattach_detached", {"run_id": "run-1"}),
         ]
         assert app.reattached_run_id == "run-1"
-        assert app.reattached_sidecar_path is None
 
 
 @pytest.mark.asyncio
@@ -660,7 +659,6 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
             {"runs_dirs": [str(path) for path in app._runs_dirs()]},
         )
         assert app.reattached_run_id == "run-1"
-        assert app.reattached_sidecar_path is None
         assert app.ready_url == "http://127.0.0.1:8000"
 
         notifications: list[str] = []
@@ -685,7 +683,6 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
         app.action_detach()
 
         assert app.reattached_run_id is None
-        assert app.reattached_sidecar_path is None
 
 
 @pytest.mark.asyncio
@@ -2121,7 +2118,6 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
             reattach.callback()
             await _wait_for_phase(app, Phase.READY)
             assert app.reattached_run_id == launch.run_id
-            assert app.reattached_sidecar_path is None
             assert any("Uvicorn running" in line for line in app.log_lines)
     finally:
         await _cleanup_port(port)
@@ -2183,7 +2179,7 @@ async def test_load_while_reattached_refuses_second_managed_run(
             lambda message, *args, **kwargs: notifications.append(message),
         )
         monkeypatch.setattr(app, "run_worker", capture_worker)
-        app.reattached_sidecar_path = tmp_path / "detached.json"
+        app.reattached_run_id = "run-1"
         app.action_load()
 
         assert worker_calls == []
@@ -2191,37 +2187,9 @@ async def test_load_while_reattached_refuses_second_managed_run(
 
 
 @pytest.mark.asyncio
-async def test_stop_after_path_only_reattach_requires_target_run_id(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sidecar_path = tmp_path / "detached.json"
-
-    def stop_sidecar(path: Path, **_kwargs: object) -> None:
-        raise AssertionError(f"controller tried to signal local sidecar path: {path}")
-
-    monkeypatch.setattr(
-        tui_app_module, "stop_sidecar_from_system", stop_sidecar, raising=False
-    )
-    app = VllmLoaderApp(configs_dir=config_dir)
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.reattached_sidecar_path = sidecar_path
-        app._set_phase(Phase.READY)
-
-        app.action_stop()
-
-        assert app.reattached_sidecar_path == sidecar_path
-        assert app.phase is Phase.READY
-        assert "target run id" in app.error_text
-
-
-@pytest.mark.asyncio
 async def test_stop_after_agent_reattach_signals_target_client_run_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "detached.json"
-
     class StopRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
             raise AssertionError(f"direct reattached TUI liveness check: {run_id}")
@@ -2262,7 +2230,6 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
     async with app.run_test() as pilot:
         await pilot.pause()
         monkeypatch.setattr(app.workers, "cancel_group", cancel_group)
-        app.reattached_sidecar_path = sidecar_path
         app.reattached_run_id = "run-1"
 
         app.action_stop()
@@ -2282,7 +2249,6 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
         )
 
         assert cancelled_groups[-2:] == ["tail", "health"]
-        assert app.reattached_sidecar_path is None
         assert app.reattached_run_id is None
         assert app.phase is Phase.STOPPED
 
@@ -2291,8 +2257,6 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
 async def test_kill_after_agent_reattach_signals_target_client_run_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "detached.json"
-
     class KillRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
             raise AssertionError(f"direct reattached TUI liveness check: {run_id}")
@@ -2332,7 +2296,6 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
         monkeypatch.setattr(app.workers, "cancel_group", cancel_group)
-        app.reattached_sidecar_path = sidecar_path
         app.reattached_run_id = "run-1"
 
         await pilot.press("K")
@@ -2343,7 +2306,6 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
         )
 
         assert cancelled_groups[-2:] == ["tail", "health"]
-        assert app.reattached_sidecar_path is None
         assert app.reattached_run_id is None
         assert app.phase is Phase.STOPPED
 
@@ -2366,7 +2328,6 @@ async def test_target_reattach_error_shows_error_without_crashing(
 
         await app._reattach_target_detached_run("run-1")
 
-        assert app.reattached_sidecar_path is None
         assert "Unable to reattach" in app.error_text
         assert "run-1" in app.error_text
 
@@ -2379,6 +2340,12 @@ def test_tui_does_not_store_attached_process_handle(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 
     assert "current_process" not in app.__dict__
+
+
+def test_tui_does_not_store_reattached_sidecar_path(config_dir: Path) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    assert "reattached_sidecar_path" not in app.__dict__
 
 
 @pytest.mark.asyncio
@@ -2537,48 +2504,6 @@ async def test_stop_after_detached_reattach_signals_verified_run(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("action_name", "helper_name"),
-    [
-        ("action_stop", "stop_sidecar_from_system"),
-        ("action_kill", "signal_sidecar_from_system"),
-    ],
-)
-async def test_path_only_detached_destructive_signal_requires_target_run_id(
-    config_dir: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    action_name: str,
-    helper_name: str,
-) -> None:
-    sidecar_path = tmp_path / "stale.json"
-    sidecar_path.write_text("{}", encoding="utf-8")
-
-    def refuse_signal(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("controller tried to signal local sidecar path")
-
-    monkeypatch.setattr(tui_app_module, helper_name, refuse_signal, raising=False)
-    app = VllmLoaderApp(configs_dir=config_dir)
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.reattached_sidecar_path = sidecar_path
-        app._set_phase(Phase.READY)
-
-        getattr(app, action_name)()
-        if action_name == "action_kill":
-            await pilot.pause()
-            assert app.screen.id == "confirm"
-            assert app.reattached_sidecar_path == sidecar_path
-            await pilot.press("enter")
-            await pilot.pause()
-
-        assert app.reattached_sidecar_path == sidecar_path
-        assert app.phase is Phase.READY
-        assert "target run id" in app.error_text
-
-
-@pytest.mark.asyncio
 async def test_detach_after_reattach_leaves_detached_server_running(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -2619,7 +2544,6 @@ async def test_detach_after_reattach_leaves_detached_server_running(
 
             app.action_detach()
 
-            assert app.reattached_sidecar_path is None
             await _wait_for_port_up(port)
             await pilot.press("s")
             await pilot.pause(0.2)
@@ -2662,12 +2586,10 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
             await pilot.press("l")
             await _wait_for_log(app, "Uvicorn running")
             await _wait_for_phase(app, Phase.READY)
-            launched_sidecar_path = app.reattached_sidecar_path
             launched_run_id = app.reattached_run_id
             await pilot.press("s")
             await _wait_for_port_down(port)
             assert launched_run_id is not None
-            assert launched_sidecar_path is None
             sidecar_paths = [
                 path
                 for path in runs_dir.glob("*.json")
@@ -3062,53 +2984,9 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
 
 
 @pytest.mark.asyncio
-async def test_restart_after_path_only_reattach_requires_target_run_id(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sidecar_path = tmp_path / "detached.json"
-    write_yaml(
-        config_dir / "restart-detached.yaml",
-        """
-        name: restart-detached
-        model: org/model
-        """,
-    )
-    load_calls: list[Path | None] = []
-
-    def stop_sidecar(path: Path, **_kwargs: object) -> None:
-        raise AssertionError(f"controller tried to signal local sidecar path: {path}")
-
-    app = VllmLoaderApp(configs_dir=config_dir)
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.current_config = load_registry(config_dir).by_name("restart-detached")
-        app.reattached_sidecar_path = sidecar_path
-        app._set_phase(Phase.READY)
-        monkeypatch.setattr(
-            tui_app_module, "stop_sidecar_from_system", stop_sidecar, raising=False
-        )
-        monkeypatch.setattr(
-            app,
-            "action_load",
-            lambda: load_calls.append(app.reattached_sidecar_path),
-        )
-
-        app.action_restart()
-        await _wait_for_condition(
-            lambda: "target run id" in app.error_text,
-            "path-only restart did not require target run id",
-        )
-        assert app.reattached_sidecar_path == sidecar_path
-        assert app.phase is Phase.READY
-        assert load_calls == []
-
-
-@pytest.mark.asyncio
 async def test_restart_after_agent_detached_reattach_signals_run_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sidecar_path = tmp_path / "detached.json"
     write_yaml(
         config_dir / "restart-detached.yaml",
         """
@@ -3143,20 +3021,19 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
 
     monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = RestartRefusingAgent()
-    load_calls: list[Path | None] = []
+    load_calls: list[str | None] = []
 
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         app.current_config = load_registry(config_dir).by_name("restart-detached")
-        app.reattached_sidecar_path = sidecar_path
         app.reattached_run_id = "run-1"
         app._set_phase(Phase.READY)
         monkeypatch.setattr(
             app,
             "action_load",
-            lambda: load_calls.append(app.reattached_sidecar_path),
+            lambda: load_calls.append(app.reattached_run_id),
         )
 
         app.action_restart()
@@ -3179,12 +3056,11 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
             lambda: load_calls == [None],
             "restart did not load after target stop",
         )
-        assert app.reattached_sidecar_path is None
         assert app.reattached_run_id is None
 
 
 @pytest.mark.asyncio
-async def test_restart_after_target_detached_reattach_without_sidecar_path(
+async def test_restart_after_target_detached_reattach(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_yaml(
@@ -3228,7 +3104,6 @@ async def test_restart_after_target_detached_reattach_without_sidecar_path(
         await pilot.pause()
         app.current_config = load_registry(config_dir).by_name("restart-target-detached")
         app.reattached_run_id = "run-1"
-        app.reattached_sidecar_path = None
         app._set_phase(Phase.READY)
         monkeypatch.setattr(app, "action_load", lambda: load_calls.append(app.reattached_run_id))
 
@@ -3253,7 +3128,6 @@ async def test_restart_after_target_detached_reattach_without_sidecar_path(
             "restart did not load after target-only stop",
         )
         assert app.reattached_run_id is None
-        assert app.reattached_sidecar_path is None
 
 
 @pytest.mark.asyncio

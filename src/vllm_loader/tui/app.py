@@ -454,7 +454,6 @@ class VllmLoaderApp(App):
         self._pending_log_writes: list[tuple[str, str | None]] = []
         self._log_flush_scheduled = False
         self.last_copied_url: str | None = None
-        self.reattached_sidecar_path: Path | None = None
         self.reattached_run_id: str | None = None
         self.detached_run_summaries: list[dict[str, str]] = []
         self.status_text = "○ IDLE"
@@ -687,9 +686,6 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.reattached_sidecar_path is not None:
-            self._set_path_only_reattach_signal_error("stop")
-            return
         self._set_phase(Phase.STOPPED)
         self._write_log("INFO stop requested")
 
@@ -734,14 +730,6 @@ class VllmLoaderApp(App):
                 exclusive=True,
             )
             return
-        if self.reattached_sidecar_path is not None:
-            self.run_worker(
-                self._restart_reattached_sidecar(self.reattached_sidecar_path),
-                name="restart",
-                group="restart",
-                exclusive=True,
-            )
-            return
         self.action_stop()
         self.action_load()
 
@@ -765,19 +753,10 @@ class VllmLoaderApp(App):
         )
         self.workers.cancel_group(self, "tail")
         self.workers.cancel_group(self, "health")
-        self.reattached_sidecar_path = None
         self.reattached_run_id = None
         self.current_run_id = None
         self._set_phase(Phase.STOPPED)
         self.action_load()
-
-    async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
-        if self.reattached_run_id is not None:
-            await self._restart_reattached_target_run()
-            return
-        self._set_error_text(
-            f"Unable to restart {sidecar_path.name}: target run id required"
-        )
 
     def action_config_picker(self) -> None:
         self.push_screen(ConfigPickerScreen(self.registry))
@@ -860,19 +839,14 @@ class VllmLoaderApp(App):
             return
         self.workers.cancel_group(self, "tail")
         self.workers.cancel_group(self, "health")
-        sidecar_name = (
-            self.reattached_sidecar_path.name
-            if self.reattached_sidecar_path is not None
-            else str(self.reattached_run_id)
-        )
-        self.reattached_sidecar_path = None
+        sidecar_name = str(self.reattached_run_id)
         self.reattached_run_id = None
         self.current_run_id = None
         self._write_log(f"INFO detached from {sidecar_name}; server continues running")
         self.notify("Detached from run; server continues running")
 
     def _has_reattached_run(self) -> bool:
-        return self.reattached_run_id is not None or self.reattached_sidecar_path is not None
+        return self.reattached_run_id is not None
 
     async def _signal_reattached_target_run(self, action: str) -> None:
         if self.reattached_run_id is None:
@@ -897,19 +871,8 @@ class VllmLoaderApp(App):
             return
         self.workers.cancel_group(self, "tail")
         self.workers.cancel_group(self, "health")
-        self.reattached_sidecar_path = None
         self.reattached_run_id = None
         self._set_phase(Phase.STOPPED)
-
-    def _set_path_only_reattach_signal_error(self, action: str) -> None:
-        sidecar_name = (
-            self.reattached_sidecar_path.name
-            if self.reattached_sidecar_path is not None
-            else "detached run"
-        )
-        self._set_error_text(
-            f"Unable to {action} {sidecar_name}: target run id required"
-        )
 
     def _server_url_for_copy(self) -> str | None:
         if self.ready_url:
@@ -978,9 +941,6 @@ class VllmLoaderApp(App):
                 group="engine-signal",
                 exclusive=True,
             )
-            return
-        if self.reattached_sidecar_path is not None:
-            self._set_path_only_reattach_signal_error("kill")
             return
         self._set_error_text("Kill requested")
 
@@ -1423,7 +1383,6 @@ class VllmLoaderApp(App):
         except Exception as exc:
             self._set_error_text(f"Unable to reattach {run_id}: {exc}")
             return
-        self.reattached_sidecar_path = None
         self.reattached_run_id = str(result["run_id"])
         self.current_run_id = None
         self.fsm = _phase_fsm_from_agent_metadata(
