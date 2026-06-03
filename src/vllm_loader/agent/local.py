@@ -22,6 +22,7 @@ from vllm_loader.engine.build_registry import (
     default_builds_root,
     list_builds,
     resolve_build_handoff,
+    select_build,
 )
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
@@ -80,6 +81,7 @@ AGENT_CAPABILITIES = [
     "reattach",
     "reattach_detached",
     "list_builds",
+    "select_build",
     "list_models",
     "create_build",
     "download_model",
@@ -213,6 +215,8 @@ class LocalAgent:
             return self._reattach_detached(payload)
         if method == "list_builds":
             return self._list_builds()
+        if method == "select_build":
+            return self._select_build(payload)
         if method == "list_models":
             return self._list_models()
         if method == "create_build":
@@ -687,6 +691,15 @@ class LocalAgent:
 
     def _list_builds(self) -> dict[str, Any]:
         return list_builds(self._builds_root)
+
+    def _select_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("build")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "select_build requires build")
+        try:
+            return select_build(reference, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
     def _list_models(self) -> dict[str, Any]:
         return list_models(self._models_registry_path)

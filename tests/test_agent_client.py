@@ -1920,6 +1920,57 @@ async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_agent_selects_build_default_from_agent_owned_registry(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01BUILDREADY"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01BUILDREADY",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        selected = await client.call("select_build", {"build": "nightly-cu130"})
+        result = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    active = json.loads((builds_root / "active.json").read_text(encoding="utf-8"))
+    assert selected == {
+        "build_id": "01BUILDREADY",
+        "label": "nightly-cu130",
+        "active": True,
+    }
+    assert active["schema_version"] == 1
+    assert active["build_id"] == "01BUILDREADY"
+    assert active["label"] == "nightly-cu130"
+    assert isinstance(active["updated_at"], str)
+    assert result["default_build_id"] == "01BUILDREADY"
+    assert result["builds"][0]["default"] is True
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_pinned_build_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:

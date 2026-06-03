@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,9 @@ def default_builds_root() -> Path:
     return root / "vllm-loader" / "builds"
 
 
-def resolve_build_handoff(reference: str | None, root: str | Path | None = None) -> BuildHandoff | None:
+def resolve_build_handoff(
+    reference: str | None, root: str | Path | None = None
+) -> BuildHandoff | None:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
     selected = reference or _active_build_id(builds_root)
     if selected is None:
@@ -73,6 +76,34 @@ def resolve_build_handoff(reference: str | None, root: str | Path | None = None)
         vllm_version=_optional_str(resolved.get("vllm")),
         vllm_version_profile=_optional_str(resolved.get("vllm_version_profile")),
     )
+
+
+def select_build(
+    reference: str,
+    root: str | Path | None = None,
+    *,
+    updated_at: str | None = None,
+) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    handoff = resolve_build_handoff(reference, builds_root)
+    if handoff is None:
+        raise BuildRegistryError(
+            "build-not-found",
+            f"unknown build: {reference}",
+            {"build": reference},
+        )
+    payload = {
+        "schema_version": 1,
+        "build_id": handoff.build_id,
+        "label": handoff.label,
+        "updated_at": updated_at or _utc_now(),
+    }
+    _write_json_atomic(builds_root / "active.json", payload)
+    return {
+        "build_id": handoff.build_id,
+        "label": handoff.label,
+        "active": True,
+    }
 
 
 def list_builds(root: str | Path | None = None) -> dict[str, Any]:
@@ -194,6 +225,20 @@ def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> di
 
 def _dict_or_empty(value: object) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _optional_str(value: object) -> str | None:
