@@ -266,6 +266,61 @@ async def test_in_process_target_client_ping_method_uses_ping_rpc() -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_process_target_client_rejects_non_serializable_call_params() -> None:
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        with pytest.raises(TypeError, match="JSON serializable"):
+            await client.call("ping", {"path": Path("/tmp/agent-local")})
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_in_process_target_client_rejects_non_serializable_call_results() -> None:
+    class PathReturningAgent(LocalAgent):
+        def handle(self, method: str, params: dict | None = None):
+            if method == "leak_path":
+                return {"path": Path("/tmp/agent-local")}
+            return super().handle(method, params)
+
+    client = InProcessTargetClient(PathReturningAgent())
+
+    await client.connect()
+    try:
+        with pytest.raises(TypeError, match="JSON serializable"):
+            await client.call("leak_path")
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_in_process_target_client_rejects_non_serializable_events() -> None:
+    class PathEventAgent(LocalAgent):
+        def subscribe(self, run_ids, *, resume_from: object = "live"):
+            async def events():
+                yield {
+                    "event": "log",
+                    "run_id": str(next(iter(run_ids))),
+                    "path": Path("/tmp/agent-local"),
+                }
+
+            return events()
+
+    client = InProcessTargetClient(PathEventAgent())
+
+    await client.connect()
+    events = client.subscribe(["run-1"], resume_from="live")
+    try:
+        with pytest.raises(TypeError, match="JSON serializable"):
+            await anext(events)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_subprocess_target_client_ping_returns_agent_timestamps() -> None:
     client = _subprocess_target_client_class()(_agent_connect_command())
 

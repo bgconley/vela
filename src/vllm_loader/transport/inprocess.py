@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from vllm_loader.agent.local import PROTOCOL_VERSION, LocalAgent
+from vllm_loader.transport.ndjson import decode_frame, encode_frame
 
 
 class InProcessTargetClient:
@@ -39,10 +40,14 @@ class InProcessTargetClient:
     async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._connected:
             raise RuntimeError("target client is not connected")
-        result = self._agent.handle(method, params)
+        request = _wire_round_trip({"params": params or {}})
+        wire_params = request.get("params")
+        result = self._agent.handle(method, wire_params if isinstance(wire_params, dict) else {})
         if inspect.isawaitable(result):
-            return await result
-        return result
+            result = await result
+        response = _wire_round_trip({"result": result})
+        wire_result = response.get("result")
+        return wire_result if isinstance(wire_result, dict) else {}
 
     async def ping(self) -> dict[str, Any]:
         return await self.call("ping")
@@ -55,4 +60,27 @@ class InProcessTargetClient:
     ) -> AsyncIterator[dict[str, Any]]:
         if not self._connected:
             raise RuntimeError("target client is not connected")
-        return self._agent.subscribe(run_ids, resume_from=resume_from)
+        request = _wire_round_trip(
+            {"run_ids": list(run_ids), "resume_from": resume_from}
+        )
+        wire_run_ids = request.get("run_ids")
+        wire_resume_from = request.get("resume_from", "live")
+        source = self._agent.subscribe(
+            wire_run_ids if isinstance(wire_run_ids, list) else [],
+            resume_from=wire_resume_from,
+        )
+
+        async def events() -> AsyncIterator[dict[str, Any]]:
+            try:
+                async for event in source:
+                    yield _wire_round_trip(event)
+            finally:
+                aclose = getattr(source, "aclose", None)
+                if callable(aclose):
+                    await aclose()
+
+        return events()
+
+
+def _wire_round_trip(frame: dict[str, Any]) -> dict[str, Any]:
+    return decode_frame(encode_frame(frame))
