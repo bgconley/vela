@@ -105,7 +105,9 @@ class ConfigPickerScreen(ModalScreen):
             lines.append("")
             lines.append("Invalid configs")
             for item in self.registry.invalid:
-                lines.append(f"⚠ {item.path.name}: {item.errors[0]}")
+                first_error, *remaining_errors = item.errors or ["invalid config"]
+                lines.append(f"⚠ {item.path.name}: {first_error}")
+                lines.extend(f"  {error}" for error in remaining_errors)
         preview = self._selected_preview()
         if preview:
             lines.extend(["", "Resolved command", preview])

@@ -104,6 +104,36 @@ async def test_config_picker_marks_invalid_configs_with_warning_glyph(
 
 
 @pytest.mark.asyncio
+async def test_invalid_config_surfaces_all_field_errors(config_dir: Path) -> None:
+    write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
+    write_yaml(
+        config_dir / "bad.yaml",
+        """
+        name: bad
+        model: org/model
+        engine:
+          dtype: nope
+        server:
+          host: 0.0.0.0
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        dashboard_configs = _static_text(app, "#configs")
+
+        assert "engine.dtype:" in dashboard_configs
+        assert "server:" in dashboard_configs
+
+        await pilot.press("c")
+        await pilot.pause()
+
+        assert "engine.dtype:" in app.screen.summary
+        assert "server:" in app.screen.summary
+
+
+@pytest.mark.asyncio
 async def test_confirm_screen_is_modal_panel_with_destructive_color(
     config_dir: Path,
 ) -> None:

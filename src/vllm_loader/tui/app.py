@@ -1075,11 +1075,14 @@ class VllmLoaderApp(App):
                     f"Server: {self._server_url(self.current_config)}",
                 ]
             )
-            if self.selected_config_preview:
-                lines.append("Full preview: press c")
+        if self.selected_config_preview:
+            lines.append("Full preview: press c")
             lines.append("")
         lines.extend(f"✓ {item.config.name}" for item in self.registry.valid)
-        lines.extend(f"⚠ {item.path.name}: {item.errors[0]}" for item in self.registry.invalid)
+        for item in self.registry.invalid:
+            first_error, *remaining_errors = item.errors or ["invalid config"]
+            lines.append(f"⚠ {item.path.name}: {first_error}")
+            lines.extend(f"  {error}" for error in remaining_errors)
         return "\n".join(lines) if lines else "No configs found"
 
     def _render_config_summary(self) -> Text:
@@ -1110,9 +1113,15 @@ class VllmLoaderApp(App):
                 text.append("\n")
         if self.registry.invalid:
             for item in self.registry.invalid:
-                text.append("! ", style=f"bold {WARN}")
+                first_error, *remaining_errors = item.errors or ["invalid config"]
+                text.append("⚠ ", style=f"bold {WARN}")
                 text.append(item.path.name, style=f"bold {WARN}")
-                text.append(f": {item.errors[0]}", style=MUTED)
+                text.append(f": {first_error}", style=MUTED)
+                text.append("\n")
+                for error in remaining_errors:
+                    text.append("  ", style=MUTED)
+                    text.append(error, style=MUTED)
+                    text.append("\n")
                 text.append("\n")
         if not text.plain:
             text.append("No configs found", style=MUTED)
