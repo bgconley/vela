@@ -136,7 +136,7 @@ def smoke_config(
 ) -> None:
     agent = LocalAgent()
     prepared = _prepare_launch_with_agent_or_exit(agent, name, configs_dir)
-    raise typer.Exit(asyncio.run(_smoke_config_cli(agent, prepared)))
+    raise typer.Exit(asyncio.run(_smoke_config_cli(agent, prepared, name, configs_dir)))
 
 
 @app.command("smoke-tui")
@@ -273,11 +273,16 @@ async def _echo_attached_event_stream_until_exit(events, wait_task) -> int:
     return int(result.get("returncode") or 0)
 
 
-async def _smoke_config_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+async def _smoke_config_cli(
+    agent: LocalAgent,
+    prepared: dict[str, Any],
+    name: str,
+    configs_dir: Path | None,
+) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
         return await _smoke_detached_cli(agent, prepared)
-    return await _smoke_attached_cli(agent, prepared)
+    return await _smoke_attached_cli(agent, prepared, name, configs_dir)
 
 
 async def _smoke_tui_config_cli(name: str, configs_dir: Path | None) -> int:
@@ -335,31 +340,49 @@ async def _wait_for_tui_stopped(tui: VllmLoaderApp, *, timeout: float) -> bool:
     return False
 
 
-async def _smoke_attached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
+async def _smoke_attached_cli(
+    agent: LocalAgent,
+    prepared: dict[str, Any],
+    name: str,
+    configs_dir: Path | None,
+) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
+    client = InProcessTargetClient(agent)
+    await client.connect()
     try:
-        run = agent.start_attached_run(
-            prepared,
-            emit=lambda record: typer.echo(record.text) if record.kind == "committed" else None,
-        )
-    except TargetCallError as exc:
-        _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
-        return 2
-    read_task = asyncio.create_task(agent.wait_attached_run(run.run_id))
-    health_code = await _wait_agent_until_ready_or_exit(
-        agent,
-        run.run_id,
-        cfg,
-        read_task=read_task,
-    )
-    if health_code == 0:
         try:
-            agent.stop_run(run.run_id, interrupt_timeout=2, terminate_timeout=2)
+            launch = await client.call(
+                "launch",
+                _agent_params(name=name, configs_dir=configs_dir),
+            )
         except TargetCallError as exc:
-            typer.echo(f"WARNING: unable to stop smoke run: {exc}", err=True)
-    if not read_task.done():
-        await read_task
-    return health_code
+            _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
+            return 2
+        run_id = str(launch["run_id"])
+        read_task = asyncio.create_task(client.call("wait", {"run_id": run_id}))
+        health_code = await _wait_target_until_ready_or_exit(
+            client,
+            run_id,
+            cfg,
+            read_task=read_task,
+        )
+        if health_code == 0:
+            try:
+                await client.call(
+                    "stop",
+                    {
+                        "run_id": run_id,
+                        "interrupt_timeout": 2,
+                        "terminate_timeout": 2,
+                    },
+                )
+            except TargetCallError as exc:
+                typer.echo(f"WARNING: unable to stop smoke run: {exc}", err=True)
+        if not read_task.done():
+            await read_task
+        return health_code
+    finally:
+        await client.disconnect()
 
 
 async def _smoke_detached_cli(agent: LocalAgent, prepared: dict[str, Any]) -> int:
@@ -424,6 +447,38 @@ async def _wait_agent_until_ready_or_exit(
         return status["code"]
     health_task.cancel()
     return status["code"]
+
+
+async def _wait_target_until_ready_or_exit(
+    client: InProcessTargetClient,
+    run_id: str,
+    cfg: ModelConfig,
+    *,
+    read_task: asyncio.Task[dict[str, Any]] | None = None,
+) -> int:
+    probe_task = asyncio.create_task(client.call("probe_until_ready", {"run_id": run_id}))
+    wait_on = {probe_task}
+    if read_task is not None:
+        wait_on.add(read_task)
+    done, _pending = await asyncio.wait(wait_on, return_when=asyncio.FIRST_COMPLETED)
+    if probe_task in done:
+        probe = probe_task.result()
+        if probe.get("ready"):
+            models = ",".join(probe.get("models") or [])
+            suffix = f" models={models}" if models else ""
+            typer.echo(f"READY {_server_url(cfg)}{suffix}")
+            return 0
+        error_kind = probe.get("error_kind")
+        if error_kind is not None:
+            typer.echo(f"ERROR {error_kind}: {probe.get('detail', '')}", err=True)
+            return 2
+        return 1
+    if read_task is not None and read_task in done:
+        probe_task.cancel()
+        result = read_task.result()
+        return int(result.get("returncode") or 1)
+    probe_task.cancel()
+    return 1
 
 
 def _server_url(cfg) -> str:

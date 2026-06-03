@@ -800,7 +800,7 @@ def test_cli_run_detached_launches_through_local_agent(
     assert f"log: {log_path}" in captured.out
 
 
-def test_cli_smoke_attached_uses_local_agent(
+def test_cli_smoke_attached_uses_target_client(
     config_dir: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -823,10 +823,9 @@ def test_cli_smoke_attached_uses_local_agent(
         """,
     )
 
-    class FakeAgent:
-        def __init__(self) -> None:
-            self.stop_calls: list[str] = []
+    client_instances: list[object] = []
 
+    class FakeAgent:
         def handle(self, method: str, params):
             assert method == "prepare_launch"
             return {
@@ -847,20 +846,50 @@ def test_cli_smoke_attached_uses_local_agent(
                 "preflight": None,
             }
 
-        def start_attached_run(self, prepared, *, emit):
-            return type("Run", (), {"run_id": "run-1"})()
+        def start_attached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct attached smoke start")
 
-        async def wait_attached_run(self, run_id: str):
-            return 0, False
+        async def probe_run_until_ready(self, *_args, **_kwargs):
+            raise AssertionError("direct smoke probe")
 
-        async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
-            emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.connected = False
+            client_instances.append(self)
 
-        def stop_run(self, run_id: str, *, interrupt_timeout, terminate_timeout) -> None:
-            self.stop_calls.append(run_id)
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": "run-1",
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            if method == "stop":
+                return {"run_id": "run-1", "signaled": True}
+            if method == "wait":
+                return {"run_id": "run-1", "returncode": 0, "intentional": True}
+            raise AssertionError(f"unexpected call: {method}")
 
     fake_agent = FakeAgent()
     monkeypatch.setattr(cli_module, "LocalAgent", lambda: fake_agent)
+    monkeypatch.setattr(cli_module, "InProcessTargetClient", FakeTargetClient)
     monkeypatch.setattr(
         process_manager_module,
         "start_attached",
@@ -883,7 +912,25 @@ def test_cli_smoke_attached_uses_local_agent(
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
     assert "READY http://127.0.0.1:8123 models=served" in captured.out
-    assert fake_agent.stop_calls == ["run-1"]
+    assert len(client_instances) == 1
+    assert client_instances[0].calls[0] == (
+        "launch",
+        {"name": "smoke-attached", "configs_dir": str(config_dir)},
+    )
+    assert (
+        "probe_until_ready",
+        {"run_id": "run-1"},
+    ) in client_instances[0].calls
+    assert (
+        "stop",
+        {"run_id": "run-1", "interrupt_timeout": 2, "terminate_timeout": 2},
+    ) in client_instances[0].calls
+    assert (
+        "wait",
+        {"run_id": "run-1"},
+    ) in client_instances[0].calls
+    assert len(client_instances[0].calls) == 4
+    assert client_instances[0].connected is False
 
 
 def test_cli_smoke_detached_uses_local_agent(

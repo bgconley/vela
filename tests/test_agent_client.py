@@ -699,3 +699,71 @@ async def test_target_client_replays_buffered_run_events_from_sequence(
     assert replayed["run_id"] == "run-replay-1"
     assert replayed["seq"] > 1
     json.dumps(replayed)
+
+
+@pytest.mark.asyncio
+async def test_target_client_probe_until_ready_emits_serialized_health_events(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "#!/usr/bin/env python3\nimport time\nwhile True:\n    time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "probe-wire.yaml",
+        f"""
+        name: probe-wire
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        server:
+          host: 127.0.0.1
+          port: 8128
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        seen["name"] = cfg.name
+        seen["alive"] = is_process_alive()
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    await client.call(
+        "launch",
+        {
+            "name": "probe-wire",
+            "configs_dir": str(config_dir),
+            "run_id": "run-probe-1",
+        },
+    )
+    probe = await client.call("probe_until_ready", {"run_id": "run-probe-1"})
+    events = client.subscribe(["run-probe-1"], resume_from="start")
+    replayed = [await asyncio.wait_for(events.__anext__(), timeout=2) for _ in range(3)]
+    await events.aclose()
+    await client.call("stop", {"run_id": "run-probe-1", "interrupt_timeout": 1})
+    await client.call("wait", {"run_id": "run-probe-1"})
+
+    assert seen == {"name": "probe-wire", "alive": True}
+    assert probe == {
+        "run_id": "run-probe-1",
+        "ready": True,
+        "detail": "ready",
+        "models": ["served"],
+        "error_kind": None,
+    }
+    health_event = next(event for event in replayed if event["event"] == "health")
+    ready_event = next(event for event in replayed if event["event"] == "ready")
+    assert health_event["ready"] is True
+    assert health_event["models"] == ["served"]
+    assert ready_event["reachable_url"] == "http://127.0.0.1:8128"
+    json.dumps(health_event)
+    json.dumps(ready_event)
