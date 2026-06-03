@@ -39,6 +39,21 @@ def test_duplicate_names_are_detected(config_dir: Path) -> None:
     assert all("duplicate config name" in item.errors[0].lower() for item in registry.invalid)
 
 
+def test_duplicate_names_report_each_file_once(config_dir: Path) -> None:
+    write_yaml(config_dir / "one.yaml", "name: same\nmodel: repo/one")
+    write_yaml(config_dir / "two.yaml", "name: same\nmodel: repo/two")
+    write_yaml(config_dir / "three.yaml", "name: same\nmodel: repo/three")
+
+    registry = load_registry(config_dir)
+
+    assert registry.valid == []
+    assert sorted(item.path.name for item in registry.invalid) == [
+        "one.yaml",
+        "three.yaml",
+        "two.yaml",
+    ]
+
+
 def test_served_model_name_defaults_to_model_basename() -> None:
     cfg = ModelConfig.model_validate({"name": "x", "model": "org/model-name"})
 

@@ -61,6 +61,7 @@ def load_registry(configs_dir: str | Path | None = None) -> ConfigRegistry:
 
     seen: dict[str, ValidConfig] = {}
     duplicate_names: set[str] = set()
+    duplicate_originals_reported: set[str] = set()
     valid_candidates: list[ValidConfig] = []
 
     for path in sorted(root.glob("*.y*ml")):
@@ -69,11 +70,13 @@ def load_registry(configs_dir: str | Path | None = None) -> ConfigRegistry:
             name = loaded.config.name
             if name in seen:
                 duplicate_names.add(name)
-                registry.invalid.append(
-                    InvalidConfig(
-                        seen[name].path, [f"duplicate config name: {name}"], raw_name=name
+                if name not in duplicate_originals_reported:
+                    registry.invalid.append(
+                        InvalidConfig(
+                            seen[name].path, [f"duplicate config name: {name}"], raw_name=name
+                        )
                     )
-                )
+                    duplicate_originals_reported.add(name)
                 registry.invalid.append(
                     InvalidConfig(loaded.path, [f"duplicate config name: {name}"], raw_name=name)
                 )
