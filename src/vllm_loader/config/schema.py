@@ -32,6 +32,13 @@ class CommandConfig(BaseModel):
 
     entrypoint: EntryPoint = EntryPoint.SERVE
     executable: str | None = None
+    build: str | None = None
+
+    @model_validator(mode="after")
+    def executable_and_build_are_mutually_exclusive(self) -> CommandConfig:
+        if self.executable and self.build:
+            raise ValueError("command.build cannot be set with command.executable")
+        return self
 
 
 class EngineConfig(BaseModel):
@@ -112,6 +119,8 @@ class ModelConfig(BaseModel):
     target: str | None = None
     description: str | None = None
     model: str
+    revision: str | None = None
+    model_ref: str | None = None
     served_model_name: str | None = None
     command: CommandConfig = Field(default_factory=CommandConfig)
     engine: EngineConfig = Field(default_factory=EngineConfig)
@@ -140,6 +149,12 @@ class ModelConfig(BaseModel):
             self.served_model_name = model_basename(self.model)
         return self
 
+    @model_validator(mode="after")
+    def model_ref_must_not_shadow_local_path(self) -> ModelConfig:
+        if self.model_ref and _looks_like_explicit_local_model_path(self.model):
+            raise ValueError("model_ref cannot be set with an explicit local model path")
+        return self
+
     @property
     def run_artifacts_dir(self) -> Path:
         if self.launch.runs_dir is not None:
@@ -158,3 +173,7 @@ def model_basename(model: str) -> str:
     if "/" in model:
         return model.rstrip("/").split("/")[-1]
     return Path(model).name
+
+
+def _looks_like_explicit_local_model_path(model: str) -> bool:
+    return model.startswith(("/", "./", "../", "~"))

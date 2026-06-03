@@ -63,6 +63,7 @@ class VllmProfileError(RuntimeError):
 
 COMMON_FLAGS = {
     "served_model_name": "--served-model-name",
+    "revision": "--revision",
     "host": "--host",
     "port": "--port",
     "tensor_parallel_size": "--tensor-parallel-size",

@@ -43,7 +43,7 @@ ERROR_NAME_BY_CODE = {
 def rpc_error_payload(code: str, message: str, details: dict[str, Any] | None) -> dict:
     data = dict(details or {})
     wire_code = ERROR_CODE_BY_NAME.get(code, ERROR_CODE_BY_NAME["internal-error"])
-    if code not in ERROR_CODE_BY_NAME:
+    if code not in ERROR_CODE_BY_NAME or ERROR_NAME_BY_CODE.get(wire_code) != code:
         data.setdefault("target_error_code", code)
     return {
         "code": wire_code,
@@ -68,11 +68,13 @@ def _payload_data(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _target_error_code(value: object, data: dict[str, Any]) -> str:
     if isinstance(value, int):
+        fallback = data.get("target_error_code")
+        if fallback:
+            return str(fallback)
         mapped = ERROR_NAME_BY_CODE.get(value)
         if mapped is not None:
             return mapped
-        fallback = data.get("target_error_code")
-        return str(fallback) if fallback else str(value)
+        return str(value)
     if isinstance(value, str) and value:
         return value
     return "target-error"

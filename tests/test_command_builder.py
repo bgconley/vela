@@ -60,6 +60,14 @@ def test_exact_argv_env_for_serve_entrypoint() -> None:
     assert "hf_live" not in result.preview
 
 
+def test_revision_pin_is_emitted_for_standalone_model_handoff() -> None:
+    model_cfg = cfg({"revision": "abc123"})
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert result.argv[:5] == ["vllm", "serve", "org/model", "--revision", "abc123"]
+
+
 def test_exact_argv_env_for_module_entrypoint() -> None:
     model_cfg = cfg({"command": {"entrypoint": "module"}})
 

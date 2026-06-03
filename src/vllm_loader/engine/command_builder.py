@@ -45,6 +45,8 @@ def build_command(
     warnings = list(profile.soft_validate(cfg))
     argv = _base_argv(cfg)
 
+    if cfg.revision is not None:
+        _append_value(argv, profile, "revision", cfg.revision)
     _append_value(argv, profile, "served_model_name", cfg.served_model_name)
     _append_value(argv, profile, "host", cfg.server.host)
     _append_value(argv, profile, "port", cfg.server.port)

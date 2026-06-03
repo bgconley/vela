@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from conftest import write_yaml
 
 from vllm_loader.config.loader import discover_config_dirs, load_registry
@@ -66,6 +67,40 @@ def test_model_config_accepts_optional_target_reference() -> None:
     )
 
     assert cfg.target == "blackbird"
+
+
+def test_model_config_accepts_build_and_model_pins() -> None:
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "x",
+            "model": "org/model-name",
+            "revision": "abc123",
+            "model_ref": "01MODEL",
+            "command": {"build": "01BUILD"},
+        }
+    )
+
+    assert cfg.revision == "abc123"
+    assert cfg.model_ref == "01MODEL"
+    assert cfg.command.build == "01BUILD"
+
+
+def test_command_build_and_executable_are_mutually_exclusive() -> None:
+    with pytest.raises(ValueError, match="command.build"):
+        ModelConfig.model_validate(
+            {
+                "name": "x",
+                "model": "org/model-name",
+                "command": {"executable": "/opt/vllm/bin/vllm", "build": "01BUILD"},
+            }
+        )
+
+
+def test_model_ref_and_explicit_local_model_path_are_mutually_exclusive() -> None:
+    with pytest.raises(ValueError, match="model_ref"):
+        ModelConfig.model_validate(
+            {"name": "x", "model": "/models/llama", "model_ref": "01MODEL"}
+        )
 
 
 def test_vllm_pass_through_defaults_are_unset() -> None:

@@ -12,6 +12,7 @@ from vllm_loader.transport.subprocess import SubprocessTargetClient
 from vllm_loader.transport.subprocess import (
     _target_call_error_from_payload as subprocess_error_from_payload,
 )
+from vllm_loader.transport.rpc_errors import rpc_error_payload
 
 
 def test_ndjson_frame_round_trips_json_object() -> None:
@@ -126,3 +127,21 @@ def test_transport_clients_decode_json_rpc_error_data_to_target_call_error() -> 
         assert error.code == "preflight-failed"
         assert error.message == "preflight failed"
         assert error.details == {"kind": "MODEL_NOT_FOUND"}
+
+
+def test_ambiguous_json_rpc_error_codes_preserve_symbolic_target_error_code() -> None:
+    payload = rpc_error_payload(
+        "invalid-config",
+        "bad.yaml: model: Field required",
+        {"name": "bad"},
+    )
+
+    assert payload["code"] == -32004
+    assert payload["data"]["target_error_code"] == "invalid-config"
+    for error_from_payload in (
+        subprocess_error_from_payload,
+        socket_error_from_payload,
+    ):
+        error = error_from_payload(payload)
+        assert error.code == "invalid-config"
+        assert error.details["name"] == "bad"
