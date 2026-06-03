@@ -103,6 +103,16 @@ class StopRecordingAgent(RecordingConfigAgent):
         self.stop_calls.append((run_id, interrupt_timeout, terminate_timeout))
 
 
+class HealthProbeRecordingAgent(StopRecordingAgent):
+    def __init__(self) -> None:
+        super().__init__()
+        self.probe_calls: list[str] = []
+
+    async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
+        self.probe_calls.append(run_id)
+        emit(HealthEvent(ready=True, detail="ready from agent", models=["served"]))
+
+
 @pytest.mark.asyncio
 async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
@@ -194,6 +204,24 @@ async def test_tui_stop_attached_run_signals_agent_by_run_id(config_dir: Path) -
 
         assert agent.stop_calls == [("run-1", 2, 2)]
         assert fake_process.stopped is False
+
+
+@pytest.mark.asyncio
+async def test_tui_attached_health_probe_runs_through_agent(config_dir: Path) -> None:
+    agent = HealthProbeRecordingAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.current_config is not None
+        app.current_run_id = "run-1"
+
+        await app._probe_until_ready(app.current_config)
+        await pilot.pause()
+
+        assert agent.probe_calls == ["run-1"]
+        assert app.phase is Phase.READY
+        assert app.served_models == ["served"]
 
 
 @pytest.mark.asyncio

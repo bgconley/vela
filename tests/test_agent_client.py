@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 from conftest import write_yaml
 
+from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
 
 
@@ -208,3 +210,51 @@ async def test_local_agent_starts_and_stops_attached_run_by_run_id(
         if agent.is_run_alive(run.run_id):
             agent.kill_run(run.run_id)
             await agent.wait_attached_run(run.run_id)
+
+
+@pytest.mark.asyncio
+async def test_local_agent_probes_attached_run_health_by_run_id(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "#!/usr/bin/env python3\nimport time\nwhile True:\n    time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "health.yaml",
+        f"""
+        name: health
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        server:
+          port: 8129
+        """,
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        seen["name"] = cfg.name
+        seen["alive"] = is_process_alive()
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    agent = LocalAgent()
+    prepared = agent.handle("prepare_launch", {"name": "health", "configs_dir": str(config_dir)})
+    run = agent.start_attached_run(prepared)
+    events: list[HealthEvent] = []
+
+    try:
+        await agent.probe_run_until_ready(run.run_id, emit=events.append)
+
+        assert seen == {"name": "health", "alive": True}
+        assert events == [HealthEvent(ready=True, detail="ready", models=["served"])]
+    finally:
+        if agent.is_run_alive(run.run_id):
+            agent.kill_run(run.run_id)
+        await agent.wait_attached_run(run.run_id)

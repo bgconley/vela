@@ -14,6 +14,7 @@ from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.process_manager import AttachedProcess, start_attached
 from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
+from vllm_loader.monitoring.health import HealthEvent, probe_loop
 
 PROTOCOL_VERSION = 1
 
@@ -178,6 +179,16 @@ class LocalAgent:
         intentional = run.intentional_shutdown
         self._attached_runs.pop(run_id, None)
         return returncode, intentional
+
+    async def probe_run_until_ready(
+        self, run_id: str, *, emit: Callable[[HealthEvent], None]
+    ) -> None:
+        run = self._attached_run_or_error(run_id)
+        await probe_loop(
+            run.config,
+            emit=emit,
+            is_process_alive=lambda: self.is_run_alive(run_id),
+        )
 
     def _attached_run_or_error(self, run_id: str) -> LocalAttachedRun:
         run = self._attached_runs.get(run_id)

@@ -1308,6 +1308,9 @@ class VllmLoaderApp(App):
     async def _agent_wait_attached_run(self, run_id: str) -> tuple[int | None, bool]:
         return await self._agent.wait_attached_run(run_id)
 
+    async def _agent_probe_run_until_ready(self, run_id: str) -> None:
+        await self._agent.probe_run_until_ready(run_id, emit=self._post_health_message)
+
     def _agent_run_is_alive(self, run_id: str) -> bool:
         return bool(self._agent.is_run_alive(run_id))
 
@@ -1582,6 +1585,9 @@ class VllmLoaderApp(App):
         self._handle_launch_agent_error(exc)
 
     async def _probe_until_ready(self, cfg: ModelConfig) -> None:
+        if self.current_run_id is not None:
+            await self._agent_probe_run_until_ready(self.current_run_id)
+            return
         await probe_loop(
             cfg,
             emit=self._post_health_message,
