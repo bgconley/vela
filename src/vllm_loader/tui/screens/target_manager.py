@@ -78,10 +78,14 @@ class TargetManagerScreen(ModalScreen):
             self._refresh()
 
     def action_accept(self) -> None:
-        self.app.pop_screen()
+        target = self._selected_target()
+        if target is None:
+            self.dismiss(None)
+            return
+        self.dismiss(target.name)
 
     def action_cancel(self) -> None:
-        self.app.pop_screen()
+        self.dismiss(None)
 
     def action_reconnect(self) -> None:
         self.app.action_reconnect()

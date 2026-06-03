@@ -814,7 +814,29 @@ class VllmLoaderApp(App):
                 active_target=self.target_name,
                 connection_state=self.target_connection_state,
                 connection_detail=self.target_connection_detail,
+            ),
+            callback=self._handle_target_manager_selection,
+        )
+
+    def _handle_target_manager_selection(self, target_name: str | None) -> None:
+        if not target_name or target_name == self.target_name:
+            return
+        if self._attached_run_is_alive() or self._has_reattached_run():
+            self._set_error_text(
+                "Stop or detach the active run before switching targets",
+                style=f"bold {WARN}",
             )
+            self.notify(
+                "Stop or detach the active run before switching targets",
+                severity="warning",
+            )
+            return
+        self.run_worker(
+            self._switch_target(target_name),
+            name="target-switch",
+            group="target-switch",
+            exclusive=True,
+            exit_on_error=False,
         )
 
     def action_reconnect(self) -> None:
@@ -832,6 +854,64 @@ class VllmLoaderApp(App):
         except Exception:
             pass
         await self._ensure_target_client_connected()
+
+    async def _switch_target(self, target_name: str) -> None:
+        try:
+            target_config = load_targets_file().by_name(target_name)
+            target_client = target_client_for_config(target_config)
+        except Exception as exc:
+            self._set_error_text(f"Target switch failed: {exc}", style=f"bold {BAD}")
+            return
+
+        try:
+            await self._target_client.disconnect()
+        except Exception as exc:
+            self._debug_event(
+                "target.disconnect_failed",
+                target=self.target_name,
+                error=str(exc),
+            )
+
+        self.target_name = target_config.name
+        self._target_config = target_config
+        self._target_client = target_client
+        self.target_connection_state = "disconnected"
+        self.target_connection_detail = ""
+        self.target_agent_restarted = False
+        self._target_has_connected_once = False
+        self._target_daemon_start_ts = None
+        self._target_last_event_seq_by_run.clear()
+        self._target_last_log_cursor_by_run.clear()
+        self._target_reconnect_backoff_seconds = self._target_reconnect_backoff_initial_seconds
+        self.detached_run_summaries = []
+        self.registry = ConfigRegistry()
+        self.current_config = None
+        self.selected_config_preview = ""
+        self.current_run_id = None
+        self.reattached_run_id = None
+        self.fsm = PhaseFSM(bundled_profile("current"))
+        self.phase = Phase.IDLE
+        self._reset_run_state()
+        self._set_phase(Phase.IDLE)
+
+        self.registry = await self._load_registry_from_agent()
+        if self.registry.valid:
+            self.current_config = self.registry.valid[0].config
+            await self._refresh_selected_config_preview()
+        else:
+            self.config_summary = self._render_config_summary_plain()
+        await self._refresh_detached_runs()
+        self._refresh_target_backed_views()
+
+    def _refresh_target_backed_views(self) -> None:
+        self.config_summary = self._render_config_summary_plain()
+        try:
+            self.query_one("#configs-title", Static).update(self._render_configs_title())
+            self.query_one("#configs", Static).update(self._render_config_summary())
+        except WIDGET_MISSING_EXCEPTIONS:
+            pass
+        self._refresh_sidebar_overlay()
+        self._refresh_dashboard_shell()
 
     def action_load(self) -> None:
         if self._attached_run_is_alive():

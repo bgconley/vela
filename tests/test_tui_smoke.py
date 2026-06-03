@@ -468,6 +468,125 @@ async def test_target_manager_screen_opens_from_binding(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_selection_switches_target_and_refreshes_configs(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+            self.disconnect_calls = 0
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+            self.disconnect_calls += 1
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                name = (
+                    "remote-selected"
+                    if self.target.name == "blackbird"
+                    else "local-selected"
+                )
+                return {
+                    "valid": [
+                        {
+                            "path": f"/{self.target.name}/configs/{name}.yaml",
+                            "name": name,
+                            "model": f"org/{name}",
+                            "target": self.target.name,
+                            "warnings": [],
+                            "config": {
+                                "name": name,
+                                "target": self.target.name,
+                                "model": f"org/{name}",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": f"cwd=/{self.target.name}\nvllm serve {params['name']}",
+                    "warnings": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target selection should not subscribe")
+
+    target_clients: list[FactoryTargetClient] = []
+    requested_targets: list[str] = []
+
+    def fake_target_client_for_config(target, **_kwargs):
+        requested_targets.append(target.name)
+        client = FactoryTargetClient(target)
+        target_clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        fake_target_client_for_config,
+    )
+
+    app = VllmLoaderApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        assert app.current_config is not None
+        assert app.current_config.name == "local-selected"
+
+        await pilot.press("t")
+        await pilot.press("down")
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.target_name == "blackbird"
+            and app.current_config is not None
+            and app.current_config.name == "remote-selected",
+            "target manager did not switch to blackbird",
+        )
+        await pilot.pause()
+
+        assert requested_targets == ["local", "blackbird"]
+        assert target_clients[0].disconnect_calls == 1
+        assert _static_text(app, "#target-segment") == "⊕ blackbird ●"
+        assert "remote-selected" in _static_text(app, "#active-model")
+
+
+@pytest.mark.asyncio
 async def test_tui_surfaces_target_version_mismatch_on_mount(
     config_dir: Path,
 ) -> None:
