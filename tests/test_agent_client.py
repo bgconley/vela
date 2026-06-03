@@ -215,7 +215,12 @@ async def test_unix_socket_target_client_restarts_daemon_missing_required_capabi
     from vllm_loader.agent.socket import serve_unix_socket_agent
     from vllm_loader.transport.socket import UnixSocketTargetClient
 
-    required_capabilities = ("health", "discover_runs", "reattach")
+    required_capabilities = (
+        "health",
+        "discover_runs",
+        "discover_runs_no_paths",
+        "reattach",
+    )
 
     class LegacyCapabilityAgent(LocalAgent):
         def handle(self, method: str, params: dict | None = None):
@@ -278,6 +283,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "preview" in result["capabilities"]
     assert "health" in result["capabilities"]
     assert "discover_runs" in result["capabilities"]
+    assert "discover_runs_no_paths" in result["capabilities"]
     assert "reattach" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
@@ -1331,6 +1337,18 @@ async def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
 async def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    runs_dir = tmp_path / "runs"
+    write_yaml(
+        config_dir / "detached.yaml",
+        f"""
+        name: detached
+        model: fake/model
+        launch:
+          runs_dir: {runs_dir}
+        """,
+    )
     sidecar_path = tmp_path / "run-1.json"
     sidecar = Sidecar(
         run_id="run-1",
@@ -1361,13 +1379,12 @@ async def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     await client.connect()
 
     try:
-        discovered = await client.call(
-            "discover_detached", {"runs_dirs": [str(tmp_path / "runs")]}
-        )
+        await client.call("list_configs", {"configs_dir": str(config_dir)})
+        discovered = await client.call("discover_runs")
     finally:
         await client.disconnect()
 
-    assert seen["runs_dirs"] == [tmp_path / "runs"]
+    assert runs_dir in seen["runs_dirs"]
     assert discovered == {"runs": [{"run_id": "run-1", "config_name": "detached"}]}
 
 

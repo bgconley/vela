@@ -1538,10 +1538,7 @@ class VllmLoaderApp(App):
 
     async def _refresh_detached_runs(self) -> None:
         try:
-            result = await self._target_call(
-                "discover_detached",
-                {"runs_dirs": [str(path) for path in self._runs_dirs()]},
-            )
+            result = await self._target_call("discover_runs", {})
         except Exception as exc:
             self.detached_run_summaries = []
             self._debug_event("detached.discovery_failed", error=str(exc))
@@ -1564,7 +1561,7 @@ class VllmLoaderApp(App):
 
     async def _reattach_target_detached_run(self, run_id: str) -> None:
         try:
-            result = await self._target_call("reattach_detached", {"run_id": run_id})
+            result = await self._target_call("reattach", {"run_id": run_id})
         except Exception as exc:
             self._set_error_text(f"Unable to reattach {run_id}: {exc}")
             return

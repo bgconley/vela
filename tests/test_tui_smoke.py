@@ -200,7 +200,7 @@ async def test_tui_loads_registry_and_preview_through_target_client(
                 }
             if method == "preview":
                 return {"preview": "cwd=/agent\nvllm serve org/alpha", "warnings": []}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -262,7 +262,7 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
                 return {"preview": "cwd=/target\nvllm serve org/remote", "warnings": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -353,7 +353,7 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -409,7 +409,7 @@ async def test_tui_keepalive_timeout_reconnects_to_target(
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -489,7 +489,7 @@ async def test_tui_reconnect_detects_agent_restart_and_rediscovers_runs(
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -518,7 +518,7 @@ async def test_tui_reconnect_detects_agent_restart_and_rediscovers_runs(
     async with app.run_test() as pilot:
         await asyncio.wait_for(reconnect_started.wait(), timeout=5)
         initial_discover_calls = [
-            call for call in target_client.calls if call[0] == "discover_detached"
+            call for call in target_client.calls if call[0] == "discover_runs"
         ]
         allow_reconnect.set()
         await _wait_for_target_connection_state(app, "connected")
@@ -528,7 +528,7 @@ async def test_tui_reconnect_detects_agent_restart_and_rediscovers_runs(
         )
         await _wait_for_condition(
             lambda: len(
-                [call for call in target_client.calls if call[0] == "discover_detached"]
+                [call for call in target_client.calls if call[0] == "discover_runs"]
             )
             > len(initial_discover_calls),
             "detached runs were not rediscovered after agent restart",
@@ -574,7 +574,7 @@ async def test_tui_default_local_target_uses_target_client_factory(
                 return {"preview": "cwd=/factory\nvllm serve org/factory", "warnings": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -671,7 +671,7 @@ async def test_tui_target_name_uses_selected_registry_target(
                 return {"preview": "cwd=/remote\nvllm serve org/factory-remote", "warnings": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -745,7 +745,7 @@ async def test_tui_select_config_refreshes_preview_through_target_client(
             if method == "preview":
                 name = str(params["name"])
                 return {"preview": f"cwd=/agent\nvllm serve org/{name}", "warnings": []}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -805,7 +805,7 @@ async def test_tui_launch_preparation_runs_through_target_client(
                     "agent-side missing model",
                     {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"},
                 )
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1212,7 +1212,7 @@ async def test_tui_detached_launch_runs_through_target_client(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             if method == "launch":
                 return {
@@ -1220,7 +1220,7 @@ async def test_tui_detached_launch_runs_through_target_client(
                     "launch_mode": "detached",
                     "status": "started",
                 }
-            if method == "reattach_detached":
+            if method == "reattach":
                 return {
                     "run_id": params["run_id"],
                     "config": {
@@ -1285,7 +1285,7 @@ async def test_tui_detached_launch_runs_through_target_client(
         assert calls[0][1]["configs_dir"] == str(config_dir)
         assert isinstance(calls[0][1]["run_id"], str)
         assert calls[0][1]["run_id"]
-        assert calls[1] == ("reattach_detached", {"run_id": "run-1"})
+        assert calls[1] == ("reattach", {"run_id": "run-1"})
         assert app.reattached_run_id == "run-1"
 
 
@@ -1313,9 +1313,9 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": [{"run_id": "run-1", "config_name": "detached"}]}
-            if method == "reattach_detached":
+            if method == "reattach":
                 return {
                     "run_id": params["run_id"],
                     "config": {
@@ -1372,17 +1372,17 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
         command = await _wait_for_command(app, "Reattach detached run: detached")
         command.callback()
         await _wait_for_condition(
-            lambda: ("reattach_detached", {"run_id": "run-1"})
+            lambda: ("reattach", {"run_id": "run-1"})
             in app._target_client.calls,
             "target client reattach was not requested",
         )
 
         discovery_calls = [
-            call for call in app._target_client.calls if call[0] == "discover_detached"
+            call for call in app._target_client.calls if call[0] == "discover_runs"
         ]
         assert discovery_calls[0] == (
-            "discover_detached",
-            {"runs_dirs": [str(path) for path in app._runs_dirs()]},
+            "discover_runs",
+            {},
         )
         assert app.reattached_run_id == "run-1"
         assert app.ready_url == "http://127.0.0.1:8000"
@@ -1638,7 +1638,7 @@ async def test_tui_resumes_run_event_subscription_from_last_sequence(
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1734,7 +1734,7 @@ async def test_tui_drops_event_resume_sequence_after_agent_restart(
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1808,7 +1808,7 @@ async def test_tui_uses_log_offset_resume_after_agent_restart(
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -1995,7 +1995,7 @@ async def test_tui_gpu_sampling_runs_through_target_client(
                     "note": "",
                     "unavailable": False,
                 }
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -2188,7 +2188,7 @@ async def test_kill_confirm_names_active_target(config_dir: Path) -> None:
                 return {"valid": [], "invalid": []}
             if method == "sample_gpus":
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
-            if method == "discover_detached":
+            if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
@@ -4805,7 +4805,7 @@ def _non_discovery_target_calls(app: VllmLoaderApp):
     return [
         call
         for call in app._target_client.calls
-        if call[0] not in {"discover_detached", "sample_gpus", *_TARGET_CONFIG_METHODS}
+        if call[0] not in {"discover_runs", "sample_gpus", *_TARGET_CONFIG_METHODS}
     ]
 
 
@@ -4826,7 +4826,7 @@ def _fake_reattach_target_client(payload: dict | None = None, error: Exception |
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "reattach_detached":
+            if method == "reattach":
                 if error is not None:
                     raise error
                 assert payload is not None

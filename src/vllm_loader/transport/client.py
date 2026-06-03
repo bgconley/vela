@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
-REQUIRED_AGENT_CAPABILITIES = ("health", "discover_runs", "reattach")
+REQUIRED_AGENT_CAPABILITIES = (
+    "health",
+    "discover_runs",
+    "discover_runs_no_paths",
+    "reattach",
+)
 
 
 class TargetClient(Protocol):

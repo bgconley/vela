@@ -14,7 +14,7 @@ from typing import Any
 
 from vllm_loader import __version__
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
-from vllm_loader.config.schema import ModelConfig
+from vllm_loader.config.schema import ModelConfig, default_run_artifacts_dir
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import PhaseFSM
@@ -58,6 +58,7 @@ AGENT_CAPABILITIES = [
     "probe_until_ready",
     "tail_detached",
     "discover_runs",
+    "discover_runs_no_paths",
     "discover_detached",
     "reattach",
     "reattach_detached",
@@ -112,6 +113,7 @@ class LocalAgent:
         self._gpu_sampler = gpu_sampler
         self._detached_runs: dict[str, LocalDetachedRun] = {}
         self._detached_sidecar_paths: dict[str, Path] = {}
+        self._known_runs_dirs: set[Path] = {default_run_artifacts_dir()}
         self._event_sequences: dict[str, int] = {}
         self._event_buffers: dict[str, list[dict[str, Any]]] = {}
         self._event_buffer_size = 5000
@@ -205,8 +207,16 @@ class LocalAgent:
             "capabilities": list(AGENT_CAPABILITIES),
         }
 
+    def _remember_registry_runs_dirs(self, registry: ConfigRegistry) -> None:
+        for item in registry.valid:
+            self._remember_run_config(item.config)
+
+    def _remember_run_config(self, cfg: ModelConfig) -> None:
+        self._known_runs_dirs.add(cfg.run_artifacts_dir)
+
     def _list_configs(self, params: dict[str, Any]) -> dict[str, Any]:
         registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
         return {
             "valid": [_valid_config_payload(item) for item in registry.valid],
             "invalid": [_invalid_config_payload(item) for item in registry.invalid],
@@ -217,6 +227,7 @@ class LocalAgent:
         if not isinstance(name, str) or not name.strip():
             raise TargetCallError("invalid-params", "preview requires config name")
         registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
         cfg = _config_by_name(registry, name)
         try:
             result = build_command(cfg, select_profile_for_config(cfg))
@@ -233,7 +244,9 @@ class LocalAgent:
         if not isinstance(name, str) or not name.strip():
             raise TargetCallError("invalid-params", "prepare_launch requires config name")
         registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
         cfg = _config_by_name(registry, name)
+        self._remember_run_config(cfg)
         try:
             result = build_command(cfg, select_profile_for_config(cfg))
         except VllmProfileError as exc:
@@ -254,6 +267,7 @@ class LocalAgent:
     def _launch(self, params: dict[str, Any]) -> dict[str, Any]:
         prepared = self._prepare_launch(params)
         cfg = ModelConfig.model_validate(prepared["config"])
+        self._remember_run_config(cfg)
         requested_run_id = params.get("run_id")
         run_id = str(requested_run_id) if requested_run_id is not None else None
         requested_launch_mode = cfg.launch.mode.value
@@ -441,13 +455,11 @@ class LocalAgent:
 
     def _discover_detached(self, params: dict[str, Any]) -> dict[str, Any]:
         runs_dirs = params.get("runs_dirs")
-        if not isinstance(runs_dirs, list):
-            raise TargetCallError(
-                "invalid-params", "discover_detached requires runs_dirs list"
-            )
-        summaries = self._discover_detached_sidecars(
-            [Path(str(item)) for item in runs_dirs]
-        )
+        if isinstance(runs_dirs, list):
+            dirs = [Path(str(item)) for item in runs_dirs]
+        else:
+            dirs = sorted(self._known_runs_dirs)
+        summaries = self._discover_detached_sidecars(dirs)
         return {"runs": [_detached_summary_payload(summary) for summary in summaries]}
 
     def _reattach_detached(self, params: dict[str, Any]) -> dict[str, Any]:
