@@ -879,7 +879,7 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
                     "launch_mode": "attached",
                     "status": "started",
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": "run-1",
                     "ready": True,
@@ -988,7 +988,7 @@ async def test_tui_attached_launch_uses_target_client_stream(
                     "launch_mode": "attached",
                     "status": "started",
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": "run-1",
                     "ready": True,
@@ -1052,7 +1052,7 @@ async def test_tui_attached_launch_uses_target_client_stream(
         assert isinstance(calls[0][1]["run_id"], str)
         assert calls[0][1]["run_id"]
         assert calls[1:] == [
-            ("probe_until_ready", {"run_id": "run-1"}),
+            ("health", {"run_id": "run-1"}),
             ("wait", {"run_id": "run-1"}),
         ]
         assert app.current_run_id is None
@@ -1104,7 +1104,7 @@ async def test_tui_attached_launch_subscribes_before_probe(
                     "launch_mode": "attached",
                     "status": "started",
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 order.append("probe")
                 assert order == ["subscribe", "probe"]
                 return {
@@ -1242,7 +1242,7 @@ async def test_tui_detached_launch_runs_through_target_client(
                     },
                     "fsm": {"vllm_version_profile": "current"},
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": params["run_id"],
                     "ready": True,
@@ -1335,7 +1335,7 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
                     },
                     "fsm": {"vllm_version_profile": "current"},
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": params["run_id"],
                     "ready": True,
@@ -1494,7 +1494,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": params["run_id"],
                     "ready": True,
@@ -1521,7 +1521,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
         await pilot.pause()
 
         assert _non_discovery_target_calls(app) == [
-            ("probe_until_ready", {"run_id": "run-1"})
+            ("health", {"run_id": "run-1"})
         ]
         assert app.phase is Phase.READY
         assert app.served_models == ["served"]
@@ -1552,7 +1552,7 @@ async def test_tui_detached_health_probe_runs_through_target_client(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": params["run_id"],
                     "ready": True,
@@ -1577,7 +1577,7 @@ async def test_tui_detached_health_probe_runs_through_target_client(
         await pilot.pause()
 
         assert _non_discovery_target_calls(app) == [
-            ("probe_until_ready", {"run_id": "run-1"})
+            ("health", {"run_id": "run-1"})
         ]
         assert app.phase is Phase.READY
         assert app.served_models == ["served"]

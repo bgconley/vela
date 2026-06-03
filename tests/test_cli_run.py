@@ -1312,7 +1312,7 @@ def test_cli_smoke_attached_uses_target_client(
                     "launch_mode": "attached",
                     "status": "started",
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": "run-1",
                     "ready": True,
@@ -1374,7 +1374,7 @@ def test_cli_smoke_attached_uses_target_client(
     assert isinstance(launch_call[1]["run_id"], str)
     assert launch_call[1]["run_id"]
     assert (
-        "probe_until_ready",
+        "health",
         {"run_id": "run-1"},
     ) in client_instances[0].calls
     assert (
@@ -1473,7 +1473,7 @@ def test_cli_smoke_detached_uses_target_client(
                     "launch_mode": "detached",
                     "status": "started",
                 }
-            if method == "probe_until_ready":
+            if method == "health":
                 return {
                     "run_id": params["run_id"],
                     "ready": True,

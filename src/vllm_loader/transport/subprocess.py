@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
+from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 
 
@@ -64,7 +65,10 @@ class SubprocessTargetClient:
         try:
             self._agent_info = await self.call(
                 "handshake",
-                {"protocol_version": PROTOCOL_VERSION},
+                {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "capabilities": list(REQUIRED_AGENT_CAPABILITIES),
+                },
             )
         except Exception:
             await self.disconnect()

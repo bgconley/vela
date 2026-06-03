@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
+REQUIRED_AGENT_CAPABILITIES = ("health", "discover_runs", "reattach")
+
 
 class TargetClient(Protocol):
     @property

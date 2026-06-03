@@ -210,6 +210,57 @@ async def test_unix_socket_target_client_auto_starts_refused_stale_socket() -> N
 
 
 @pytest.mark.asyncio
+async def test_unix_socket_target_client_restarts_daemon_missing_required_capability() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vllm_loader.agent.socket import serve_unix_socket_agent
+    from vllm_loader.transport.socket import UnixSocketTargetClient
+
+    required_capabilities = ("health", "discover_runs", "reattach")
+
+    class LegacyCapabilityAgent(LocalAgent):
+        def handle(self, method: str, params: dict | None = None):
+            if method == "handshake":
+                missing = [
+                    str(capability)
+                    for capability in (params or {}).get("capabilities", [])
+                    if str(capability) in required_capabilities
+                ]
+                if missing:
+                    raise TargetCallError(
+                        "feature-unavailable",
+                        "target agent does not support requested capabilities",
+                        {"missing_capabilities": missing},
+                    )
+                result = super().handle(method, params)
+                result["capabilities"] = [
+                    capability
+                    for capability in result.get("capabilities", [])
+                    if capability not in required_capabilities
+                ]
+                return result
+            return super().handle(method, params)
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    legacy_server = await serve_unix_socket_agent(LegacyCapabilityAgent(), socket_path)
+    client = UnixSocketTargetClient(socket_path)
+    try:
+        connected = await client.connect()
+
+        assert connected["target"] == "local"
+        assert connected["daemon_pid"] > 0
+        assert identity_path.exists()
+        assert set(required_capabilities).issubset(connected["capabilities"])
+    finally:
+        await client.disconnect()
+        legacy_server.close()
+        await legacy_server.wait_closed()
+        stop_agent_daemon(socket_path)
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     client = InProcessTargetClient(LocalAgent(target_name="local"))
 

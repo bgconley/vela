@@ -5,8 +5,12 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from vllm_loader.agent.daemon import start_agent_daemon_process
+from vllm_loader.agent.daemon import (
+    restart_agent_daemon_process,
+    start_agent_daemon_process,
+)
 from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
+from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 
 
@@ -49,14 +53,44 @@ class UnixSocketTargetClient:
         self._connected = True
         self._reader_task = asyncio.create_task(self._read_socket())
         try:
-            self._agent_info = await self.call(
-                "handshake",
-                {"protocol_version": PROTOCOL_VERSION},
-            )
+            self._agent_info = await self._handshake()
+        except TargetCallError as exc:
+            if not self._should_restart_for_missing_capability(exc, started_agent):
+                await self.disconnect()
+                raise
+            await self.disconnect()
+            self._restart_agent_or_raise()
+            await self._open_socket()
+            self._connected = True
+            self._reader_task = asyncio.create_task(self._read_socket())
+            try:
+                self._agent_info = await self._handshake()
+            except Exception:
+                await self.disconnect()
+                raise
         except Exception:
             await self.disconnect()
             raise
         return self._agent_info
+
+    async def _handshake(self) -> dict[str, Any]:
+        return await self.call(
+            "handshake",
+            {
+                "protocol_version": PROTOCOL_VERSION,
+                "capabilities": list(REQUIRED_AGENT_CAPABILITIES),
+            },
+        )
+
+    def _should_restart_for_missing_capability(
+        self, exc: TargetCallError, started_agent: bool
+    ) -> bool:
+        if not self._auto_start or started_agent or exc.code != "feature-unavailable":
+            return False
+        missing = exc.details.get("missing_capabilities")
+        if not isinstance(missing, list):
+            return False
+        return any(str(capability) in REQUIRED_AGENT_CAPABILITIES for capability in missing)
 
     def _start_agent_or_raise(self) -> None:
         status = start_agent_daemon_process(self._socket_path)
@@ -64,6 +98,15 @@ class UnixSocketTargetClient:
             raise TargetCallError(
                 "agent-unreachable",
                 "unable to start local target agent daemon",
+                status,
+            )
+
+    def _restart_agent_or_raise(self) -> None:
+        status = restart_agent_daemon_process(self._socket_path)
+        if status["status"] != "running":
+            raise TargetCallError(
+                "agent-unreachable",
+                "unable to restart local target agent daemon",
                 status,
             )
 
