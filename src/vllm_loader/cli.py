@@ -682,7 +682,33 @@ def agent_status(
         raise typer.Exit(1)
 
 
+@agent_app.command("stop")
+def agent_stop(
+    socket_path: Annotated[
+        Path | None,
+        typer.Option("--socket", help="Unix socket path for the agent daemon."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable daemon stop result."),
+    ] = False,
+) -> None:
+    import json
+
+    from vllm_loader.agent.daemon import stop_agent_daemon
+
+    result = stop_agent_daemon(socket_path)
+    if json_output:
+        typer.echo(json.dumps(result, sort_keys=True))
+    else:
+        typer.echo(_format_agent_status(result))
+    if result["status"] != "stopped":
+        raise typer.Exit(1)
+
+
 def _format_agent_status(status: dict[str, Any]) -> str:
+    if status["status"] == "stopped":
+        return f"stopped pid={status.get('pid')} socket={status.get('socket_path')}"
     if status["status"] == "running":
         return f"running pid={status.get('pid')} socket={status.get('socket_path')}"
     return f"{status['status']} socket={status.get('socket_path')}"

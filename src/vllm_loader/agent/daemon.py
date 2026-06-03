@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import signal
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +68,28 @@ def inspect_agent_daemon(socket_path: str | Path | None = None) -> dict[str, Any
     if not _identity_matches_live_process(identity):
         return {"status": "stale", "reason": "identity process mismatch", **base, **identity}
     return {"status": "running", **base, **identity}
+
+
+def stop_agent_daemon(
+    socket_path: str | Path | None = None,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    status = inspect_agent_daemon(socket_path)
+    if status["status"] != "running":
+        return status
+    pid = int(status["pid"])
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return {**status, "status": "stopped"}
+    deadline = time.monotonic() + timeout
+    identity_path = Path(str(status["identity_path"]))
+    while time.monotonic() < deadline:
+        if not identity_path.exists() or not _identity_matches_live_process(status):
+            return {**status, "status": "stopped"}
+        time.sleep(0.05)
+    return {**status, "status": "stopping"}
 
 
 async def start_agent_daemon(
@@ -143,6 +166,8 @@ def _identity_matches_live_process(identity: dict[str, Any]) -> bool:
         return False
     try:
         process = psutil.Process(pid)
+        if process.status() == psutil.STATUS_ZOMBIE:
+            return False
         live_create_time = process.create_time()
     except (psutil.Error, OSError):
         return False

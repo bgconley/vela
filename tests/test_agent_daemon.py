@@ -55,6 +55,19 @@ def _agent_status_json_command(socket_path: Path) -> list[str]:
     ]
 
 
+def _agent_stop_json_command(socket_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "vllm_loader.cli",
+        "agent",
+        "stop",
+        "--socket",
+        str(socket_path),
+        "--json",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
     from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
@@ -129,6 +142,38 @@ async def test_agent_status_reports_missing_daemon_identity() -> None:
     assert status["status"] == "not-running"
     assert status["socket_path"] == str(socket_path)
     assert status["identity_path"] == str(socket_path.with_name("agent.json"))
+
+
+@pytest.mark.asyncio
+async def test_agent_stop_terminates_foreground_socket_daemon() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    process = await asyncio.create_subprocess_exec(
+        *_agent_run_socket_command(socket_path),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        await _wait_for_identity_file(identity_path, process)
+
+        result = await _run_command(_agent_stop_json_command(socket_path))
+        stopped = json.loads(result["stdout"])
+
+        assert result["returncode"] == 0
+        assert stopped["status"] == "stopped"
+        assert stopped["pid"] == process.pid
+        assert stopped["socket_path"] == str(socket_path)
+        await asyncio.wait_for(process.wait(), timeout=2)
+        assert not socket_path.exists()
+        assert not identity_path.exists()
+    finally:
+        await _terminate_process(process)
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
 
 
 @pytest.mark.asyncio
