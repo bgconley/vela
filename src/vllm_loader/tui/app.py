@@ -725,12 +725,20 @@ class VllmLoaderApp(App):
 
     async def _restart_reattached_sidecar(self, sidecar_path: Path) -> None:
         try:
-            await asyncio.to_thread(
-                stop_sidecar_from_system,
-                sidecar_path,
-                interrupt_timeout=2,
-                terminate_timeout=2,
-            )
+            if self.reattached_run_id is not None:
+                await asyncio.to_thread(
+                    self._agent_stop_run,
+                    self.reattached_run_id,
+                    interrupt_timeout=2,
+                    terminate_timeout=2,
+                )
+            else:
+                await asyncio.to_thread(
+                    stop_sidecar_from_system,
+                    sidecar_path,
+                    interrupt_timeout=2,
+                    terminate_timeout=2,
+                )
         except Exception as exc:
             self._set_error_text(f"Unable to restart {sidecar_path.name}: {exc}")
             return

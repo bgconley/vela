@@ -2487,7 +2487,7 @@ async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        app.current_config = app.registry.by_name("restart-detached")
+        app.current_config = load_registry(config_dir).by_name("restart-detached")
         app.reattached_sidecar_path = sidecar_path
         app._set_phase(Phase.READY)
         monkeypatch.setattr(tui_app_module, "stop_sidecar_from_system", stop_sidecar)
@@ -2502,6 +2502,57 @@ async def test_restart_waits_for_reattached_sidecar_exit_before_loading(
         await _wait_for_condition(
             lambda: stopped_paths == [sidecar_path],
             "sidecar stop was not requested",
+        )
+
+        assert app.reattached_sidecar_path == sidecar_path
+        assert load_calls == []
+
+        sidecar_alive = False
+        await _wait_for_condition(
+            lambda: load_calls == [None],
+            "restart did not load after sidecar exit",
+        )
+
+
+@pytest.mark.asyncio
+async def test_restart_after_agent_detached_reattach_signals_run_id(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "detached.json"
+    write_yaml(
+        config_dir / "restart-detached.yaml",
+        """
+        name: restart-detached
+        model: org/model
+        """,
+    )
+    agent = StopRecordingAgent()
+    load_calls: list[Path | None] = []
+    sidecar_alive = True
+
+    def alive(path: Path) -> bool:
+        assert path == sidecar_path
+        return sidecar_alive
+
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = load_registry(config_dir).by_name("restart-detached")
+        app.reattached_sidecar_path = sidecar_path
+        app.reattached_run_id = "run-1"
+        app._set_phase(Phase.READY)
+        monkeypatch.setattr(app, "_sidecar_is_alive", alive)
+        monkeypatch.setattr(
+            app,
+            "action_load",
+            lambda: load_calls.append(app.reattached_sidecar_path),
+        )
+
+        app.action_restart()
+        await _wait_for_condition(
+            lambda: agent.stop_calls == [("run-1", 2, 2)],
+            "agent stop was not requested",
         )
 
         assert app.reattached_sidecar_path == sidecar_path
