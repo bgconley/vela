@@ -255,6 +255,7 @@ def _message_from_wire_event(
             detail=str(payload.get("detail", "")),
             models=[str(model) for model in payload.get("models") or []],
             error_kind=error_kind,
+            reachable_url=_optional_str(payload.get("reachable_url")),
             feed_phase=False,
         )
     if kind == "ready":
