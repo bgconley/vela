@@ -999,7 +999,12 @@ class VllmLoaderApp(App):
             )
             return
         if self.current_run_id is not None and self._agent_run_is_alive(self.current_run_id):
-            self._agent_kill_run(self.current_run_id)
+            self.run_worker(
+                self._target_kill_run(self.current_run_id),
+                name="kill",
+                group="engine-signal",
+                exclusive=True,
+            )
             return
         if self.current_process and self.current_process.proc.poll() is None:
             self._mark_current_process_shutdown_intent()
@@ -1493,6 +1498,12 @@ class VllmLoaderApp(App):
             )
         except Exception as exc:
             self._set_error_text(f"Unable to stop {run_id}: {exc}")
+
+    async def _target_kill_run(self, run_id: str) -> None:
+        try:
+            await self._target_call("kill", {"run_id": run_id})
+        except Exception as exc:
+            self._set_error_text(f"Unable to kill {run_id}: {exc}")
 
     async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
         await self._ensure_target_client_connected()

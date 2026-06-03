@@ -125,6 +125,8 @@ class LocalAgent:
             return self._wait(payload)
         if method == "stop":
             return self._stop(payload)
+        if method == "kill":
+            return self._kill(payload)
         if method == "probe_until_ready":
             return self._probe_until_ready(payload)
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
@@ -142,6 +144,7 @@ class LocalAgent:
                 "launch",
                 "wait",
                 "stop",
+                "kill",
                 "probe_until_ready",
                 "subscribe",
             ],
@@ -231,6 +234,11 @@ class LocalAgent:
             interrupt_timeout=interrupt_timeout,
             terminate_timeout=terminate_timeout,
         )
+        return {"run_id": run_id, "signaled": True}
+
+    def _kill(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        self.kill_run(run_id)
         return {"run_id": run_id, "signaled": True}
 
     async def _probe_until_ready(self, params: dict[str, Any]) -> dict[str, Any]:

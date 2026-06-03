@@ -829,6 +829,69 @@ async def test_kill_while_attached_running_prompts_before_signal(
 
 
 @pytest.mark.asyncio
+async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class RunningProcess:
+        def __init__(self) -> None:
+            self.proc = self
+            self.killed = False
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed = True
+
+    class KillRefusingAgent(RecordingConfigAgent):
+        def is_run_alive(self, run_id: str) -> bool:
+            return run_id == "run-1"
+
+        def kill_run(self, *_args, **_kwargs) -> None:
+            raise AssertionError("direct attached TUI kill")
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "kill":
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("kill should not subscribe")
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
+    fake_process = RunningProcess()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=KillRefusingAgent())
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        app.current_process = fake_process
+        app.current_run_id = "run-1"
+
+        await pilot.press("K")
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: app._target_client.calls == [("kill", {"run_id": "run-1"})],
+            "target client kill was not requested",
+        )
+
+        assert fake_process.killed is False
+        assert app.screen.id != "confirm"
+
+
+@pytest.mark.asyncio
 async def test_config_picker_displays_valid_invalid_and_selects_config(config_dir: Path) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")

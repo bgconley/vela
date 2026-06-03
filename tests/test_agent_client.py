@@ -702,6 +702,49 @@ async def test_target_client_replays_buffered_run_events_from_sequence(
 
 
 @pytest.mark.asyncio
+async def test_target_client_kills_attached_run_by_run_id(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "#!/usr/bin/env python3\nimport time\nwhile True:\n    time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "kill-wire.yaml",
+        f"""
+        name: kill-wire
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    await client.call(
+        "launch",
+        {
+            "name": "kill-wire",
+            "configs_dir": str(config_dir),
+            "run_id": "run-kill-1",
+        },
+    )
+    kill = await client.call("kill", {"run_id": "run-kill-1"})
+    wait_result = await client.call("wait", {"run_id": "run-kill-1"})
+
+    assert kill == {"run_id": "run-kill-1", "signaled": True}
+    json.dumps(kill)
+    assert wait_result["run_id"] == "run-kill-1"
+    assert wait_result["intentional"] is True
+    json.dumps(wait_result)
+
+
+@pytest.mark.asyncio
 async def test_target_client_probe_until_ready_emits_serialized_health_events(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
