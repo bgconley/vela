@@ -4,10 +4,20 @@ from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 REQUIRED_AGENT_CAPABILITIES = (
+    "list_configs",
+    "preview",
+    "prepare_launch",
+    "launch",
+    "wait",
+    "stop",
+    "kill",
     "health",
+    "tail_detached",
     "discover_runs",
     "discover_runs_no_paths",
     "reattach",
+    "sample_gpus",
+    "subscribe",
 )
 
 

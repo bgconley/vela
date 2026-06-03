@@ -18,6 +18,7 @@ from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import Manifest, Sidecar
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
+from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
 from vllm_loader.transport.inprocess import InProcessTargetClient
 
 
@@ -60,6 +61,25 @@ async def _next_event(events, *, event_name: str) -> dict:
         event = await anext(events)
         if event.get("event") == event_name:
             return event
+
+
+def test_target_client_requires_lifecycle_capabilities() -> None:
+    assert set(REQUIRED_AGENT_CAPABILITIES) >= {
+        "list_configs",
+        "preview",
+        "prepare_launch",
+        "launch",
+        "wait",
+        "stop",
+        "kill",
+        "health",
+        "tail_detached",
+        "discover_runs",
+        "discover_runs_no_paths",
+        "reattach",
+        "sample_gpus",
+        "subscribe",
+    }
 
 
 @pytest.mark.asyncio
