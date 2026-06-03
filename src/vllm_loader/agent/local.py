@@ -157,7 +157,7 @@ class LocalAgent:
         if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)
         if method in {"gpu", "sample_gpus"}:
-            return self._sample_gpus()
+            return self._sample_gpus(payload)
         if method == "unsubscribe":
             return self._unsubscribe(payload)
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
@@ -526,8 +526,16 @@ class LocalAgent:
             run = self._load_verified_detached_run(sidecar_path)
         return _detached_run_payload(run)
 
-    async def _sample_gpus(self) -> dict[str, Any]:
-        return _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+    async def _sample_gpus(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        params = params or {}
+        payload = _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+        if params.get("emit_event"):
+            sub_id = params.get("sub_id")
+            event_payload = dict(payload)
+            if isinstance(sub_id, str) and sub_id:
+                event_payload["sub_id"] = sub_id
+            self._publish_event(AgentEvent("gpu", "__agent__", event_payload))
+        return payload
 
     def _unsubscribe(self, params: dict[str, Any]) -> dict[str, Any]:
         sub_id = params.get("sub_id")

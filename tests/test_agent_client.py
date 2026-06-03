@@ -1820,6 +1820,44 @@ async def test_target_client_samples_gpus_with_spec_named_gpu_method() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gpu_method_can_emit_serialized_agent_stream_event() -> None:
+    def sampler() -> GpuPollResult:
+        return GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=1024,
+                    memory_total_mb=81920,
+                    utilization_percent=25,
+                    temperature_c=42,
+                    power_w=110,
+                )
+            ]
+        )
+
+    client = InProcessTargetClient(LocalAgent(gpu_sampler=sampler))
+    await client.connect()
+    events = client.subscribe(["__agent__"], resume_from="live")
+    try:
+        result = await client.call(
+            "gpu", {"emit_event": True, "sub_id": "gpu-panel"}
+        )
+        event = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert result["samples"][0]["name"] == "A100"
+    assert event["event"] == "gpu"
+    assert event["run_id"] == "__agent__"
+    assert event["sub_id"] == "gpu-panel"
+    assert event["samples"][0]["name"] == "A100"
+    json.dumps(event)
+
+
+@pytest.mark.asyncio
 async def test_target_client_launches_attached_run_with_serialized_events(
     config_dir: Path, tmp_path: Path
 ) -> None:

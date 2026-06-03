@@ -3265,6 +3265,35 @@ async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None
         await pilot.pause()
         assert app.gpu_panel_text == "GPU stats unavailable: no nvml"
 
+        app._post_wire_event_message(
+            {
+                "event": "gpu",
+                "run_id": "__agent__",
+                "sub_id": "gpu-panel",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00+00:00",
+                "mono": 1.0,
+                "samples": [
+                    {
+                        "visible_index": 0,
+                        "uuid": "GPU-a",
+                        "name": "A100",
+                        "memory_used_mb": 1024,
+                        "memory_total_mb": 81920,
+                        "utilization_percent": 25,
+                        "temperature_c": 42,
+                        "power_w": 110,
+                        "mig_instance_id": None,
+                    }
+                ],
+                "note": "",
+                "unavailable": False,
+            }
+        )
+        await pilot.pause()
+        assert "A100" in app.gpu_panel_text
+        assert "1024/81920MB" in app.gpu_panel_text
+
         app.post_message(ProcessExited(0))
         await pilot.pause()
         assert app.phase is Phase.STOPPED

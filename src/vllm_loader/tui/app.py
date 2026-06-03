@@ -237,6 +237,8 @@ def _message_from_wire_event(
     | PhaseChanged
     | HealthChanged
     | ServerReady
+    | GpuStatsUpdated
+    | GpuStatsUnavailable
     | None
 ):
     kind = str(event.get("event", ""))
@@ -266,6 +268,13 @@ def _message_from_wire_event(
             reachable_url=_optional_str(payload.get("reachable_url")),
             feed_phase=False,
         )
+    if kind == "gpu":
+        if "samples" not in payload and "devices" in payload:
+            payload["samples"] = payload["devices"]
+        result = _gpu_poll_result_from_agent_payload(payload)
+        if result.unavailable:
+            return GpuStatsUnavailable(result.note or "GPU stats unavailable")
+        return GpuStatsUpdated(result)
     if kind == "exited" and payload.get("phase") is not None:
         return PhaseChanged(
             Phase(str(payload["phase"])),
