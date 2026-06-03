@@ -659,6 +659,73 @@ async def test_target_client_detached_launch_can_reattach_by_run_id(
     json.dumps(reattached)
 
 
+@pytest.mark.asyncio
+async def test_target_client_detached_launch_is_idempotent_by_requested_run_id(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "detached-idempotent.yaml",
+        f"""
+        name: detached-idempotent
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    starts: list[str | None] = []
+
+    def fake_start_detached(*_args, run_id=None, **_kwargs) -> DetachedLaunch:
+        starts.append(run_id)
+        actual_run_id = str(run_id or "generated")
+        return DetachedLaunch(
+            run_id=actual_run_id,
+            supervisor_pid=123,
+            sidecar_path=tmp_path / "runs" / f"{actual_run_id}.json",
+            manifest_path=tmp_path / "runs" / f"{actual_run_id}.manifest.json",
+            log_path=tmp_path / "runs" / f"{actual_run_id}.run.log",
+        )
+
+    monkeypatch.setattr(local_agent_module, "start_detached", fake_start_detached)
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    first = await client.call(
+        "launch",
+        {
+            "name": "detached-idempotent",
+            "configs_dir": str(config_dir),
+            "run_id": "detached-idem-1",
+        },
+    )
+    second = await client.call(
+        "launch",
+        {
+            "name": "detached-idempotent",
+            "configs_dir": str(config_dir),
+            "run_id": "detached-idem-1",
+        },
+    )
+
+    assert first == {
+        "run_id": "detached-idem-1",
+        "launch_mode": "detached",
+        "status": "started",
+    }
+    assert second == {
+        "run_id": "detached-idem-1",
+        "launch_mode": "detached",
+        "status": "already-running",
+    }
+    assert starts == ["detached-idem-1"]
+
+
 def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

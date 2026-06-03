@@ -231,7 +231,16 @@ class LocalAgent:
                 "status": "already-running",
             }
         if cfg.launch.mode.value == "detached":
-            launch = self._start_detached_run(prepared)
+            if run_id is not None and (
+                run_id in self._detached_runs
+                or run_id in self._detached_sidecar_paths
+            ):
+                return {
+                    "run_id": run_id,
+                    "launch_mode": "detached",
+                    "status": "already-running",
+                }
+            launch = self._start_detached_run(prepared, run_id=run_id)
             self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
             return {
                 "run_id": launch.run_id,
@@ -350,10 +359,15 @@ class LocalAgent:
         self._attached_runs[run.run_id] = run
         return run
 
-    def _start_detached_run(self, prepared: dict[str, Any]) -> DetachedLaunch:
+    def _start_detached_run(
+        self, prepared: dict[str, Any], *, run_id: str | None = None
+    ) -> DetachedLaunch:
         cfg = ModelConfig.model_validate(prepared["config"])
         build = _build_result_from_payload(prepared["build"])
         secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
+        launch_kwargs: dict[str, Any] = {}
+        if run_id is not None:
+            launch_kwargs["run_id"] = run_id
         try:
             return start_detached(
                 cfg,
@@ -361,6 +375,7 @@ class LocalAgent:
                 secrets=secrets,
                 vllm_version=detect_vllm_version_for_config(cfg),
                 vllm_version_profile=build.metadata.get("vllm_version_profile"),
+                **launch_kwargs,
             )
         except FileNotFoundError as exc:
             command = str(exc.filename or build.argv[0])

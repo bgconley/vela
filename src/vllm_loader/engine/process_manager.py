@@ -111,6 +111,7 @@ def start_detached(
     build: CommandBuildResult,
     *,
     secrets: list[str],
+    run_id: str | None = None,
     vllm_version: str | None = None,
     vllm_version_profile: str | None = None,
     wait_timeout: float = 5.0,
@@ -118,7 +119,7 @@ def start_detached(
 ) -> DetachedLaunch:
     _require_executable(build.argv[0], cwd=build.cwd, env={**os.environ, **build.env})
     secret_values = [secret for secret in secrets if secret]
-    run_id = uuid.uuid4().hex
+    run_id = run_id or uuid.uuid4().hex
     run_dir = cfg.run_artifacts_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     log_path = run_dir / f"{run_id}.run.log"

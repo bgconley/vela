@@ -168,6 +168,56 @@ def test_config_snapshot_scrubs_generic_secret_patterns() -> None:
     assert "••••" in text
 
 
+def test_detached_launch_uses_requested_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_dir = tmp_path / "runs"
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "detached-id",
+            "model": "fake/model",
+            "launch": {"mode": "detached", "runs_dir": runs_dir},
+        }
+    )
+    build = CommandBuildResult(
+        argv=[sys.executable, "-c", "pass"],
+        env={},
+        cwd=tmp_path,
+    )
+
+    class FakeSupervisor:
+        pid = 4321
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        process_manager_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeSupervisor(),
+    )
+    monkeypatch.setattr(process_manager_module, "_wait_for_sidecar", lambda *args: None)
+
+    launch = start_detached(
+        cfg,
+        build,
+        secrets=[],
+        run_id="controller-run-1",
+    )
+
+    payload = json.loads(
+        (runs_dir / "controller-run-1.supervisor-payload.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert launch.run_id == "controller-run-1"
+    assert launch.sidecar_path == runs_dir / "controller-run-1.json"
+    assert launch.manifest_path == runs_dir / "controller-run-1.manifest.json"
+    assert launch.log_path == runs_dir / "controller-run-1.run.log"
+    assert payload["run_id"] == "controller-run-1"
+    assert payload["sidecar_path"] == str(runs_dir / "controller-run-1.json")
+
+
 def test_detached_launch_cleans_up_supervisor_when_sidecar_handshake_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
