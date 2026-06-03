@@ -503,7 +503,9 @@ class VllmLoaderApp(App):
         self._target_client = target_client
         self.target_connection_state = "disconnected"
         self.target_connection_detail = ""
+        self.target_agent_restarted = False
         self._target_has_connected_once = False
+        self._target_daemon_start_ts: str | None = None
         self._target_ping_interval_seconds = target_ping_interval_seconds
         self._target_ping_timeout_seconds = target_ping_timeout_seconds
         self._clock = clock
@@ -1435,14 +1437,36 @@ class VllmLoaderApp(App):
         return params
 
     async def _ensure_target_client_connected(self) -> None:
+        agent_restarted = False
         if not getattr(self._target_client, "connected", False):
             self.target_connection_state = (
                 "reconnecting" if self._target_has_connected_once else "connecting"
             )
-            await self._target_client.connect()
+            agent_info = await self._target_client.connect()
+            if isinstance(agent_info, dict):
+                daemon_start_ts = agent_info.get("daemon_start_ts")
+                if isinstance(daemon_start_ts, str) and daemon_start_ts:
+                    previous_daemon_start_ts = self._target_daemon_start_ts
+                    if (
+                        self._target_has_connected_once
+                        and previous_daemon_start_ts is not None
+                        and previous_daemon_start_ts != daemon_start_ts
+                    ):
+                        agent_restarted = True
+                        self.target_agent_restarted = True
+                        self._debug_event(
+                            "target.agent_restarted",
+                            previous_daemon_start_ts=previous_daemon_start_ts,
+                            daemon_start_ts=daemon_start_ts,
+                        )
+                    self._target_daemon_start_ts = daemon_start_ts
         self._target_has_connected_once = True
         self.target_connection_state = "connected"
-        self.target_connection_detail = ""
+        self.target_connection_detail = (
+            "agent restarted; rediscovering detached runs" if agent_restarted else ""
+        )
+        if agent_restarted:
+            await self._refresh_detached_runs()
 
     async def _target_call(
         self, method: str, params: dict[str, Any] | None = None

@@ -408,6 +408,98 @@ async def test_tui_keepalive_timeout_reconnects_to_target(
 
 
 @pytest.mark.asyncio
+async def test_tui_reconnect_detects_agent_restart_and_rediscovers_runs(
+    config_dir: Path,
+) -> None:
+    reconnect_started = asyncio.Event()
+    allow_reconnect = asyncio.Event()
+
+    class RestartingTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.connect_calls = 0
+            self.disconnect_calls = 0
+            self.ping_calls = 0
+            self.calls: list[tuple[str, dict[str, object] | None]] = []
+
+        async def connect(self):
+            self.connect_calls += 1
+            if self.connect_calls > 1:
+                reconnect_started.set()
+                await allow_reconnect.wait()
+            self.connected = True
+            return {
+                "agent_version": "test",
+                "protocol_version": 1,
+                "target": "local",
+                "daemon_start_ts": (
+                    "2026-06-03T00:00:00Z"
+                    if self.connect_calls == 1
+                    else "2026-06-03T00:01:00Z"
+                ),
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+            self.disconnect_calls += 1
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def ping(self):
+            self.ping_calls += 1
+            if self.ping_calls == 1:
+                await asyncio.sleep(60)
+            return {
+                "pong": True,
+                "target": "local",
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive reconnect should not subscribe")
+
+    target_client = RestartingTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=target_client,
+        target_ping_interval_seconds=0.01,
+        target_ping_timeout_seconds=0.01,
+    )
+
+    async with app.run_test() as pilot:
+        await asyncio.wait_for(reconnect_started.wait(), timeout=5)
+        initial_discover_calls = [
+            call for call in target_client.calls if call[0] == "discover_detached"
+        ]
+        allow_reconnect.set()
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_condition(
+            lambda: app.target_agent_restarted is True,
+            "agent restart was not detected",
+        )
+        await _wait_for_condition(
+            lambda: len(
+                [call for call in target_client.calls if call[0] == "discover_detached"]
+            )
+            > len(initial_discover_calls),
+            "detached runs were not rediscovered after agent restart",
+        )
+        await pilot.pause()
+
+        assert target_client.connect_calls >= 2
+        assert target_client.disconnect_calls >= 1
+
+
+@pytest.mark.asyncio
 async def test_tui_default_local_target_uses_target_client_factory(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
