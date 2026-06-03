@@ -46,6 +46,22 @@ from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
 from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
 
 PROTOCOL_VERSION = 1
+AGENT_CAPABILITIES = [
+    "handshake",
+    "list_configs",
+    "preview",
+    "prepare_launch",
+    "launch",
+    "wait",
+    "stop",
+    "kill",
+    "probe_until_ready",
+    "tail_detached",
+    "discover_detached",
+    "reattach_detached",
+    "sample_gpus",
+    "subscribe",
+]
 
 
 @dataclass
@@ -161,6 +177,19 @@ class LocalAgent:
                     "controller_protocol_version": int(controller_protocol_version),
                 },
             )
+        requested_capabilities = params.get("capabilities") or []
+        if isinstance(requested_capabilities, list):
+            missing_capabilities = [
+                str(capability)
+                for capability in requested_capabilities
+                if str(capability) not in AGENT_CAPABILITIES
+            ]
+            if missing_capabilities:
+                raise TargetCallError(
+                    "feature-unavailable",
+                    "target agent does not support requested capabilities",
+                    {"missing_capabilities": missing_capabilities},
+                )
         return {
             "agent_version": __version__,
             "protocol_version": PROTOCOL_VERSION,
@@ -172,22 +201,7 @@ class LocalAgent:
                 "platform": platform.platform(),
                 "vllm_loader_version": __version__,
             },
-            "capabilities": [
-                "handshake",
-                "list_configs",
-                "preview",
-                "prepare_launch",
-                "launch",
-                "wait",
-                "stop",
-                "kill",
-                "probe_until_ready",
-                "tail_detached",
-                "discover_detached",
-                "reattach_detached",
-                "sample_gpus",
-                "subscribe",
-            ],
+            "capabilities": list(AGENT_CAPABILITIES),
         }
 
     def _list_configs(self, params: dict[str, Any]) -> dict[str, Any]:

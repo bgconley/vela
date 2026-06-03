@@ -91,6 +91,18 @@ async def test_in_process_target_client_handshake_rejects_newer_controller_proto
     }
 
 
+@pytest.mark.asyncio
+async def test_in_process_target_client_handshake_rejects_missing_capability() -> None:
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.call("handshake", {"capabilities": ["models"]})
+
+    assert exc_info.value.code == "feature-unavailable"
+    assert exc_info.value.details == {"missing_capabilities": ["models"]}
+
+
 def test_local_agent_lifecycle_boundary_is_handle_and_subscribe_only() -> None:
     public_lifecycle_helpers = {
         "start_attached_run",
@@ -146,6 +158,21 @@ async def test_subprocess_target_client_handshake_rejects_newer_controller_proto
         "agent_protocol_version": 1,
         "controller_protocol_version": 2,
     }
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_handshake_rejects_missing_capability() -> None:
+    client = _subprocess_target_client_class()(_agent_connect_command())
+
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("handshake", {"capabilities": ["models"]})
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "feature-unavailable"
+    assert exc_info.value.details == {"missing_capabilities": ["models"]}
 
 
 @pytest.mark.asyncio
