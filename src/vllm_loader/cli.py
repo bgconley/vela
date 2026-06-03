@@ -22,7 +22,6 @@ from vllm_loader.config.targets import (
     upsert_target_file,
 )
 from vllm_loader.engine.phases import Phase
-from vllm_loader.monitoring.health import probe_host_for
 from vllm_loader.transport.client import TargetClient
 from vllm_loader.transport.factory import target_client_for_config
 from vllm_loader.tui.app import VllmLoaderApp
@@ -521,7 +520,10 @@ async def _smoke_tui_config_cli(
                 tui.action_stop()
                 await _wait_for_tui_stopped(tui, timeout=10)
                 return 2
-            url = tui.ready_url or (_server_url(tui.current_config) if tui.current_config else "")
+            if not tui.ready_url:
+                typer.echo("ERROR: TUI smoke reached READY without reachable_url", err=True)
+                return 2
+            url = tui.ready_url
             models = ",".join(tui.served_models)
             suffix = f" models={models}" if models else ""
             typer.echo(f"READY {url}{suffix}")
@@ -654,7 +656,13 @@ async def _wait_target_until_ready_or_exit(
         if probe.get("ready"):
             models = ",".join(probe.get("models") or [])
             suffix = f" models={models}" if models else ""
-            url = str(probe.get("reachable_url") or _server_url(cfg))
+            url = probe.get("reachable_url")
+            if not isinstance(url, str) or not url.strip():
+                typer.echo(
+                    "ERROR: Agent health response missing reachable_url",
+                    err=True,
+                )
+                return 2
             typer.echo(f"READY {url}{suffix}")
             return 0
         error_kind = probe.get("error_kind")
@@ -668,11 +676,6 @@ async def _wait_target_until_ready_or_exit(
         return int(result.get("returncode") or 1)
     probe_task.cancel()
     return 1
-
-
-def _server_url(cfg) -> str:
-    return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
-
 
 @app.command("version")
 def version() -> None:

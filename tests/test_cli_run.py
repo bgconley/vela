@@ -1480,6 +1480,7 @@ def test_cli_smoke_detached_uses_target_client(
                     "detail": "ready",
                     "models": ["served"],
                     "error_kind": None,
+                    "reachable_url": "http://10.25.0.51:18124",
                 }
             if method == "stop":
                 return {"run_id": params["run_id"], "signaled": True}
@@ -1519,13 +1520,107 @@ def test_cli_smoke_detached_uses_target_client(
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 0
     assert "detached smoke run: run-1" in captured.out
-    assert "READY http://127.0.0.1:8124 models=served" in captured.out
+    assert "READY http://10.25.0.51:18124 models=served" in captured.out
     launch_call = client_instances[0].calls[1]
     assert launch_call[0] == "launch"
     assert launch_call[1]["name"] == "smoke-detached"
     assert launch_call[1]["configs_dir"] == str(config_dir)
     assert isinstance(launch_call[1]["run_id"], str)
     assert launch_call[1]["run_id"]
+
+
+def test_cli_smoke_does_not_fallback_to_controller_probe_url(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "smoke-no-url.yaml",
+        f"""
+        name: smoke-no-url
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        server:
+          host: 0.0.0.0
+          port: 8125
+          exposure: lan
+        """,
+    )
+
+    class FakeAgent:
+        def handle(self, method: str, _params):
+            assert method == "prepare_launch"
+            return {
+                "config": {
+                    "name": "smoke-no-url",
+                    "model": "fake/model",
+                    "command": {"entrypoint": "serve", "executable": str(executable)},
+                    "server": {"host": "0.0.0.0", "port": 8125, "exposure": "lan"},
+                },
+                "build": {
+                    "argv": [str(executable)],
+                    "env": {},
+                    "cwd": str(tmp_path),
+                    "warnings": [],
+                    "metadata": {},
+                    "preview": "",
+                },
+                "preflight": None,
+            }
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "prepare_launch":
+                return self.agent.handle(method, params)
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "health":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            if method == "stop":
+                return {"run_id": params["run_id"], "signaled": True}
+            if method == "wait":
+                return {"run_id": params["run_id"], "returncode": 0, "intentional": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(FakeAgent()),
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.smoke_config("smoke-no-url", configs_dir=config_dir)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 2
+    assert "reachable_url" in captured.err
+    assert "127.0.0.1:8125" not in captured.out
 
 
 @pytest.mark.asyncio
