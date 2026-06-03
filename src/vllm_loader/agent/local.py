@@ -122,6 +122,7 @@ class LocalAgent:
         self._event_buffer_size = 5000
         self._subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
         self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        self._controller_version: str | None = None
 
     def handle(
         self, method: str, params: dict[str, Any] | None = None
@@ -170,11 +171,8 @@ class LocalAgent:
         }
 
     def _handshake(self, params: dict[str, Any]) -> dict[str, Any]:
-        controller_protocol_version = params.get("protocol_version")
-        if (
-            controller_protocol_version is not None
-            and int(controller_protocol_version) > PROTOCOL_VERSION
-        ):
+        controller_protocol_version = self._controller_protocol_version(params)
+        if controller_protocol_version > PROTOCOL_VERSION:
             raise TargetCallError(
                 "version-mismatch",
                 (
@@ -187,6 +185,25 @@ class LocalAgent:
                     "actual": PROTOCOL_VERSION,
                 },
             )
+        if controller_protocol_version < PROTOCOL_VERSION - 1:
+            raise TargetCallError(
+                "version-mismatch",
+                (
+                    "controller protocol version "
+                    f"{controller_protocol_version} is too old for agent protocol "
+                    f"{PROTOCOL_VERSION}"
+                ),
+                {
+                    "required": PROTOCOL_VERSION - 1,
+                    "actual": controller_protocol_version,
+                },
+            )
+        controller_version = params.get("controller_version")
+        self._controller_version = (
+            str(controller_version)
+            if isinstance(controller_version, str) and controller_version
+            else None
+        )
         requested_capabilities = params.get("capabilities") or []
         if isinstance(requested_capabilities, list):
             missing_capabilities = [
@@ -202,17 +219,32 @@ class LocalAgent:
                 )
         return {
             "agent_version": __version__,
-            "protocol_version": PROTOCOL_VERSION,
+            "agent_protocol_version": PROTOCOL_VERSION,
+            "protocol_version": controller_protocol_version,
+            "controller_version": self._controller_version,
             "target": self.target_name,
             "daemon_pid": os.getpid(),
             "daemon_start_ts": self._start_ts,
             "host_info": {
                 "hostname": platform.node(),
                 "platform": platform.platform(),
+                "driver": _driver_version(),
                 "vllm_loader_version": __version__,
             },
             "capabilities": list(AGENT_CAPABILITIES),
         }
+
+    @staticmethod
+    def _controller_protocol_version(params: dict[str, Any]) -> int:
+        value = params.get("protocol_version", PROTOCOL_VERSION)
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise TargetCallError(
+                "invalid-params",
+                "handshake protocol_version must be an integer",
+                {"protocol_version": value},
+            ) from exc
 
     def _remember_registry_runs_dirs(self, registry: ConfigRegistry) -> None:
         for item in registry.valid:
@@ -991,6 +1023,10 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _driver_version() -> str | None:
+    return os.environ.get("NVIDIA_DRIVER_VERSION")
 
 
 def _run_id_param(params: dict[str, Any]) -> str:

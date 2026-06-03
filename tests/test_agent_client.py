@@ -320,6 +320,26 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert client.connected is False
 
 
+def test_local_agent_handshake_downgrades_for_older_controller_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(local_agent_module, "PROTOCOL_VERSION", 2)
+    agent = LocalAgent(target_name="local")
+
+    result = agent.handle(
+        "handshake",
+        {
+            "protocol_version": 1,
+            "controller_version": "controller-0.9.0",
+        },
+    )
+
+    assert result["protocol_version"] == 1
+    assert result["agent_protocol_version"] == 2
+    assert result["controller_version"] == "controller-0.9.0"
+    assert "driver" in result["host_info"]
+
+
 @pytest.mark.asyncio
 async def test_in_process_target_client_ping_returns_agent_timestamps() -> None:
     client = InProcessTargetClient(LocalAgent(target_name="local-ping"))
