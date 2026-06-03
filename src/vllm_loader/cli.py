@@ -32,9 +32,11 @@ app = typer.Typer(
 )
 agent_app = typer.Typer(help="Run or connect to the local vLLM Loader agent.")
 build_app = typer.Typer(help="Manage target-local vLLM builds.")
+model_app = typer.Typer(help="Manage target-local model metadata.")
 targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
 app.add_typer(build_app, name="build")
+app.add_typer(model_app, name="model")
 app.add_typer(targets_app, name="targets")
 
 
@@ -282,6 +284,154 @@ def build_remove(
         return
     typer.echo(
         f"removed build\t{result.get('build_id', '')}\t{result.get('label', '')}"
+    )
+
+
+@model_app.command("list")
+def model_list(
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable model list."),
+    ] = False,
+) -> None:
+    result = _agent_call("list_models", target_name=target)
+    if json_output:
+        _echo_json(result)
+        return
+    for model in result.get("models", []):
+        typer.echo(
+            "\t".join(
+                [
+                    str(model.get("entry_id") or ""),
+                    str(model.get("display_name") or ""),
+                    str(model.get("source") or ""),
+                    str(model.get("cache_state") or "unknown"),
+                ]
+            )
+        )
+    for skipped in result.get("skipped", []):
+        typer.echo(
+            f"SKIPPED {skipped.get('entry_id', '')}\t{skipped.get('reason', 'unknown')}"
+        )
+
+
+@model_app.command("pin")
+def model_pin(
+    entry_id: Annotated[str, typer.Argument(help="Stable model entry id.")],
+    repo_id: Annotated[str | None, typer.Option("--repo-id", help="Hugging Face repo id.")] = None,
+    display_name: Annotated[
+        str | None,
+        typer.Option("--display-name", help="Human-readable model name."),
+    ] = None,
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Revision, branch, tag, or commit sha."),
+    ] = None,
+    commit_sha: Annotated[
+        str | None,
+        typer.Option("--commit-sha", help="Resolved immutable commit sha."),
+    ] = None,
+    local_path: Annotated[
+        Path | None,
+        typer.Option("--local-path", help="Adopt a local model directory."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable pin result."),
+    ] = False,
+) -> None:
+    params = _agent_params(
+        entry_id=entry_id,
+        repo_id=repo_id,
+        display_name=display_name,
+        revision=revision,
+        commit_sha=commit_sha,
+        local_path=local_path,
+    )
+    if local_path is not None:
+        params["source"] = "local_path"
+    try:
+        result = _agent_call("pin_model", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    entry = result.get("entry", {})
+    typer.echo(
+        f"pinned model\t{entry.get('entry_id', '')}\t{entry.get('display_name', '')}"
+    )
+
+
+@model_app.command("verify")
+def model_verify(
+    model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable verification result."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "verify_model",
+            {"model_ref": model_ref},
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    verdict = "OK" if result.get("ok") else "FAIL"
+    typer.echo(
+        "\t".join(
+            [
+                verdict,
+                str(result.get("entry_id") or model_ref),
+                str(result.get("cache_state") or "unknown"),
+                str(result.get("detail") or ""),
+            ]
+        )
+    )
+
+
+@model_app.command("remove")
+def model_remove(
+    model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Config directory for pin checks."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Confirm removing model metadata."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable removal result."),
+    ] = False,
+) -> None:
+    if not yes:
+        typer.echo("ERROR: use --yes to remove model metadata", err=True)
+        raise typer.Exit(2)
+    try:
+        result = _agent_call(
+            "remove_model",
+            _agent_params(model_ref=model_ref, configs_dir=configs_dir),
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    entry = result.get("entry", {})
+    typer.echo(
+        f"removed model\t{result.get('entry_id', '')}\t{entry.get('display_name', '')}"
     )
 
 

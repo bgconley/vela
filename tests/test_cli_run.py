@@ -381,6 +381,195 @@ def test_cli_build_remove_passes_configs_dir_to_agent(
     assert result.output == "removed build\t01BUILD\tnightly-cu130\n"
 
 
+def test_cli_model_list_uses_selected_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "models": [
+                {
+                    "entry_id": "01MODEL",
+                    "display_name": "llama-pin",
+                    "source": "hf_repo",
+                    "cache_state": "cached",
+                }
+            ],
+            "default_cache": "hf",
+            "app_download_dir": None,
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "list", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("list_models", None, "blackbird")]
+    assert result.output.splitlines() == [
+        "01MODEL\tllama-pin\thf_repo\tcached",
+    ]
+
+
+def test_cli_model_pin_passes_metadata_to_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "pin",
+            "01MODEL",
+            "--repo-id",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "--display-name",
+            "llama-pin",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "entry_id": "01MODEL",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "display_name": "llama-pin",
+            },
+            "blackbird",
+        )
+    ]
+    assert result.output == "pinned model\t01MODEL\tllama-pin\n"
+
+
+def test_cli_model_verify_prints_agent_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry_id": "01MODEL",
+            "ok": True,
+            "cache_state": "cached",
+            "detail": "model metadata is cached",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "verify", "01MODEL", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("verify_model", {"model_ref": "01MODEL"}, "blackbird")]
+    assert result.output == "OK\t01MODEL\tcached\tmodel metadata is cached\n"
+
+
+def test_cli_model_remove_requires_yes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": calls.append(
+            (method, params, target_name)
+        ),
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["model", "remove", "01MODEL"])
+
+    assert result.exit_code == 2
+    assert calls == []
+    assert "use --yes to remove model metadata" in result.output
+
+
+def test_cli_model_remove_passes_configs_dir_to_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry_id": "01MODEL",
+            "source": "hf_repo",
+            "removed_weights": False,
+            "entry": {"display_name": "llama-pin"},
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "remove",
+            "llama-pin",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path),
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "remove_model",
+            {"model_ref": "llama-pin", "configs_dir": str(tmp_path)},
+            "blackbird",
+        )
+    ]
+    assert result.output == "removed model\t01MODEL\tllama-pin\n"
+
+
 def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatch) -> None:
     blackbird = TargetConfig(
         name="blackbird",
