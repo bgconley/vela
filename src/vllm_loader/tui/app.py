@@ -133,6 +133,11 @@ STATUS_ICONS = {
     Phase.STOPPED: "○",
     Phase.ERROR: "✕",
 }
+
+
+def _looks_secret_env_key(key: str) -> bool:
+    upper = key.upper()
+    return "TOKEN" in upper or "KEY" in upper or "SECRET" in upper or "AUTH" in upper
 OPTIONAL_MONITOR_GROUP_LABELS = {
     "gpu": "gpu",
     "gpu-initial": "gpu",
@@ -813,7 +818,9 @@ class VllmLoaderApp(App):
             return
         log_path = Path(manifest.active_log.path)
         if sidecar.config_snapshot:
-            self.current_config = ModelConfig.model_validate(sidecar.config_snapshot)
+            self.current_config = self._config_from_sidecar_snapshot(
+                sidecar.config_name, sidecar.config_snapshot
+            )
         else:
             self.current_config = self.registry.by_name(sidecar.config_name)
         self.reattached_sidecar_path = sidecar_path
@@ -833,6 +840,31 @@ class VllmLoaderApp(App):
             group="tail",
             exclusive=True,
         )
+
+    def _config_from_sidecar_snapshot(self, config_name: str, snapshot: dict) -> ModelConfig:
+        snapshot_config = ModelConfig.model_validate(snapshot)
+        try:
+            registry_config = self.registry.by_name(config_name)
+        except KeyError:
+            return snapshot_config
+        return self._restore_registry_secrets(snapshot_config, registry_config)
+
+    @staticmethod
+    def _restore_registry_secrets(
+        snapshot_config: ModelConfig, registry_config: ModelConfig
+    ) -> ModelConfig:
+        data = snapshot_config.model_dump(mode="python")
+        if snapshot_config.server.api_key is None and registry_config.server.api_key:
+            data["server"] = {
+                **data.get("server", {}),
+                "api_key": registry_config.server.api_key,
+            }
+        env = dict(data.get("env", {}))
+        for key, value in registry_config.env.items():
+            if key not in env and _looks_secret_env_key(key):
+                env[key] = value
+        data["env"] = env
+        return ModelConfig.model_validate(data)
 
     def on_log_line_committed(self, message: LogLineCommitted) -> None:
         self._handle_committed_log(message.text, message.level)

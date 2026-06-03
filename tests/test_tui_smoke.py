@@ -1440,6 +1440,73 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
 
 
 @pytest.mark.asyncio
+async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "secret-detached.yaml",
+        """
+        name: secret-detached
+        model: registry/model
+        server:
+          host: 127.0.0.1
+          port: 9001
+          api_key: registry-api-key
+        env:
+          HF_TOKEN: registry-hf-token
+        """,
+    )
+    log_path = tmp_path / "detached.log"
+    log_path.write_text("INFO Uvicorn running on http://127.0.0.1:8000\n", encoding="utf-8")
+    manifest_path = tmp_path / "detached.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "detached.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="secret-detached",
+        command_argv=["vllm", "serve", "snapshot/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["snapshot-model"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        config_snapshot={
+            "name": "secret-detached",
+            "model": "snapshot/model",
+            "server": {"host": "127.0.0.1", "port": 8000, "api_key": None},
+            "env": {},
+        },
+    )
+
+    def capture_worker(coro, **_kwargs):
+        coro.close()
+
+    monkeypatch.setattr(tui_app_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(tui_app_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(tui_app_module, "load_manifest", lambda path: manifest)
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        app.reattach_detached_run(sidecar_path)
+
+        assert app.current_config is not None
+        assert app.current_config.model == "snapshot/model"
+        assert app.current_config.server.port == 8000
+        assert app.current_config.server.api_key == "registry-api-key"
+        assert app.current_config.env["HF_TOKEN"] == "registry-hf-token"
+
+
+@pytest.mark.asyncio
 async def test_stop_after_detached_reattach_signals_verified_run(
     config_dir: Path, tmp_path: Path
 ) -> None:
