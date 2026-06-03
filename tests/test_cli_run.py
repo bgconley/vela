@@ -803,7 +803,18 @@ def test_cli_smoke_tui_prepares_through_target_client(
         """,
     )
     client_instances: list[object] = []
-    smoke_calls: list[tuple[str, Path | None]] = []
+    smoke_calls: list[tuple[str, Path | None, str]] = []
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
 
     class FakeAgent:
         def handle(self, method: str, _params=None):
@@ -847,11 +858,19 @@ def test_cli_smoke_tui_prepares_through_target_client(
                 }
             raise AssertionError(f"unexpected target client call: {method}")
 
-    async def fake_smoke_tui(name: str, configs_dir: Path | None) -> int:
-        smoke_calls.append((name, configs_dir))
+    async def fake_smoke_tui(
+        name: str, configs_dir: Path | None, target_name: str = "local"
+    ) -> int:
+        smoke_calls.append((name, configs_dir, target_name))
         return 0
 
     fake_agent = FakeAgent()
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
     monkeypatch.setattr(
         cli_module,
         "LocalAgent",
@@ -883,14 +902,16 @@ def test_cli_smoke_tui_prepares_through_target_client(
     )
 
     with pytest.raises(typer.Exit) as exc_info:
-        cli_module.smoke_tui_config("agent-tui", configs_dir=config_dir)
+        cli_module.smoke_tui_config(
+            "agent-tui", configs_dir=config_dir, target="blackbird"
+        )
 
     assert exc_info.value.exit_code == 0
     assert client_instances[0].calls == [
         ("prepare_launch", {"name": "agent-tui", "configs_dir": str(config_dir)})
     ]
     assert client_instances[0].connected is False
-    assert smoke_calls == [("agent-tui", config_dir)]
+    assert smoke_calls == [("agent-tui", config_dir, "blackbird")]
 
 
 @pytest.mark.parametrize("command", ["preview", "run"])

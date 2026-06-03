@@ -244,7 +244,7 @@ def smoke_tui_config(
     client = _target_client_for_name_or_exit(target)
     prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
     cfg = ModelConfig.model_validate(prepared["config"])
-    raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir)))
+    raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir, target)))
 
 
 def _echo_warnings(warnings) -> None:
@@ -387,6 +387,7 @@ async def _run_attached_cli(
     prepared: dict[str, Any],
 ) -> int:
     await client.connect()
+    interrupt_event = _install_sigint_event()
     try:
         try:
             launch = await client.call(
@@ -399,7 +400,6 @@ async def _run_attached_cli(
         run_id = str(launch["run_id"])
         wait_task = asyncio.create_task(client.call("wait", {"run_id": run_id}))
         events = client.subscribe([run_id], resume_from="live")
-        interrupt_event = _install_sigint_event()
         interrupt_task = (
             asyncio.create_task(interrupt_event.wait())
             if interrupt_event is not None
@@ -430,11 +430,11 @@ async def _run_attached_cli(
                     *(task for task in (stream_task, interrupt_task) if task is not None),
                     return_exceptions=True,
                 )
-            if interrupt_event is not None:
-                with contextlib.suppress(Exception):
-                    asyncio.get_running_loop().remove_signal_handler(signal.SIGINT)
             await events.aclose()
     finally:
+        if interrupt_event is not None:
+            with contextlib.suppress(Exception):
+                asyncio.get_running_loop().remove_signal_handler(signal.SIGINT)
         await client.disconnect()
 
 
@@ -500,8 +500,10 @@ async def _smoke_config_cli(
     return await _smoke_attached_cli(client, prepared, name, configs_dir)
 
 
-async def _smoke_tui_config_cli(name: str, configs_dir: Path | None) -> int:
-    tui = VllmLoaderApp(configs_dir=configs_dir)
+async def _smoke_tui_config_cli(
+    name: str, configs_dir: Path | None, target_name: str = "local"
+) -> int:
+    tui = VllmLoaderApp(configs_dir=configs_dir, target_name=target_name)
     try:
         async with tui.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
