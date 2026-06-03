@@ -143,7 +143,11 @@ class ModelConfig(BaseModel):
     def run_artifacts_dir(self) -> Path:
         if self.launch.runs_dir is not None:
             return self.launch.runs_dir
-        return Path(os.path.expanduser("~/.local/state/vllm-loader/runs"))
+        return default_run_artifacts_dir()
+
+
+def default_run_artifacts_dir() -> Path:
+    return Path(os.path.expanduser("~/.local/state/vllm-loader/runs"))
 
 
 def model_basename(model: str) -> str:

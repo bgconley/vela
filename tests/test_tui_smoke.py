@@ -1215,6 +1215,29 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
         await _cleanup_port(port)
 
 
+def test_reattach_discovery_scans_default_and_configured_runs_dirs(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    custom_runs_dir = tmp_path / "custom-runs"
+    write_yaml(
+        config_dir / "custom-runs.yaml",
+        f"""
+        name: custom-runs
+        model: org/model
+        launch:
+          runs_dir: {custom_runs_dir}
+        """,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+    app.registry = load_registry(config_dir)
+
+    assert app._runs_dirs() == sorted(
+        [home / ".local" / "state" / "vllm-loader" / "runs", custom_runs_dir]
+    )
+
+
 @pytest.mark.asyncio
 async def test_load_while_reattached_refuses_second_managed_run(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

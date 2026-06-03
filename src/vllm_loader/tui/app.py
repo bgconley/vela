@@ -20,7 +20,7 @@ from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
 from vllm_loader.config.loader import ConfigRegistry, load_registry
-from vllm_loader.config.schema import ModelConfig
+from vllm_loader.config.schema import ModelConfig, default_run_artifacts_dir
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -1845,5 +1845,6 @@ class VllmLoaderApp(App):
         return GOOD
 
     def _runs_dirs(self) -> list[Path]:
-        dirs = {item.config.run_artifacts_dir for item in self.registry.valid}
+        dirs = {default_run_artifacts_dir()}
+        dirs.update(item.config.run_artifacts_dir for item in self.registry.valid)
         return sorted(dirs)
