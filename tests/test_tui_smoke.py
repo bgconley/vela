@@ -434,12 +434,10 @@ async def test_tui_attached_launch_uses_target_client_stream(
 
 
 @pytest.mark.asyncio
-async def test_tui_detached_launch_runs_through_agent(config_dir: Path, tmp_path: Path) -> None:
+async def test_tui_detached_launch_runs_through_target_client(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class DetachedLaunchAgent(RecordingConfigAgent):
-        def __init__(self) -> None:
-            super().__init__()
-            self.detached_launches: list[dict[str, object]] = []
-
         def handle(self, method: str, params: dict[str, str] | None = None):
             if method == "list_configs":
                 return {
@@ -482,21 +480,96 @@ async def test_tui_detached_launch_runs_through_agent(config_dir: Path, tmp_path
                 }
             return super().handle(method, params)
 
-        def start_detached_run(self, prepared):
-            self.detached_launches.append(prepared)
-            return SimpleNamespace(sidecar_path=tmp_path / "runs" / "run-1.json")
+        def start_detached_run(self, *_args, **_kwargs):
+            raise AssertionError("direct detached TUI launch")
 
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "discover_detached":
+                return {"runs": []}
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "detached",
+                    "status": "started",
+                }
+            if method == "reattach_detached":
+                return {
+                    "run_id": params["run_id"],
+                    "config": {
+                        "name": "detached",
+                        "model": "org/detached",
+                        "launch": {
+                            "mode": "detached",
+                            "runs_dir": str(tmp_path / "runs"),
+                        },
+                    },
+                    "sidecar": {
+                        "config_name": "detached",
+                        "host": "127.0.0.1",
+                        "port": 8000,
+                        "exposure": "local",
+                        "served_model_names": ["org/detached"],
+                        "launch_mode": "detached",
+                        "vllm_version_profile": "current",
+                    },
+                    "fsm": {"vllm_version_profile": "current"},
+                }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["org/detached"],
+                    "error_kind": None,
+                }
+            if method == "tail_detached":
+                return {"run_id": params["run_id"], "status": "ended"}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-1",
+                "returncode": None,
+                "intentional": False,
+                "phase": Phase.READY.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
+
+    monkeypatch.setattr(tui_app_module, "InProcessTargetClient", FakeTargetClient)
     agent = DetachedLaunchAgent()
     app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
-    reattached: list[Path] = []
-    app.reattach_detached_run = reattached.append
 
     async with app.run_test() as pilot:
         await pilot.pause()
         await app._run_selected_config()
 
-        assert len(agent.detached_launches) == 1
-        assert reattached == [tmp_path / "runs" / "run-1.json"]
+        assert _non_discovery_target_calls(app)[:2] == [
+            ("launch", {"name": "detached", "configs_dir": str(config_dir)}),
+            ("reattach_detached", {"run_id": "run-1"}),
+        ]
+        assert app.reattached_run_id == "run-1"
+        assert app.reattached_sidecar_path is None
 
 
 @pytest.mark.asyncio
@@ -2758,13 +2831,19 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
             await _wait_for_phase(app, Phase.READY)
             launched_process = app.current_process
             launched_sidecar_path = app.reattached_sidecar_path
+            launched_run_id = app.reattached_run_id
             await pilot.press("s")
             await _wait_for_port_down(port)
             assert launched_process is None
-            assert launched_sidecar_path is not None
-            assert launched_sidecar_path.parent == runs_dir
-            assert launched_sidecar_path.exists()
-            sidecar = json.loads(launched_sidecar_path.read_text(encoding="utf-8"))
+            assert launched_run_id is not None
+            assert launched_sidecar_path is None
+            sidecar_paths = [
+                path
+                for path in runs_dir.glob("*.json")
+                if not path.name.endswith(".manifest.json")
+            ]
+            assert len(sidecar_paths) == 1
+            sidecar = json.loads(sidecar_paths[0].read_text(encoding="utf-8"))
             assert sidecar["vllm_version_profile"] == "older-request-logging-on"
     finally:
         await _cleanup_port(port)

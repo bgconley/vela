@@ -219,6 +219,7 @@ class LocalAgent:
             }
         if cfg.launch.mode.value == "detached":
             launch = self.start_detached_run(prepared)
+            self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
             return {
                 "run_id": launch.run_id,
                 "launch_mode": "detached",

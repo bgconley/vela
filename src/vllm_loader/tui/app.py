@@ -1856,13 +1856,14 @@ class VllmLoaderApp(App):
         self._record_warnings(build.warnings)
         if cfg.launch.mode.value == "detached":
             try:
-                launch = await asyncio.to_thread(
-                    lambda: self._agent_start_detached_run(prepared)
+                launch = await self._target_call(
+                    "launch",
+                    self._agent_params(name=cfg.name, configs_dir=self.configs_dir),
                 )
             except TargetCallError as exc:
                 self._handle_attached_start_agent_error(exc, build.argv[0])
                 return
-            self.reattach_detached_run(launch.sidecar_path)
+            await self._reattach_target_detached_run(str(launch["run_id"]))
             return
         try:
             launch = await self._target_call(

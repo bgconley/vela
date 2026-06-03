@@ -421,6 +421,83 @@ def test_local_agent_starts_detached_run_from_prepared_launch(
     assert seen["vllm_version_profile"] == "current"
 
 
+@pytest.mark.asyncio
+async def test_target_client_detached_launch_can_reattach_by_run_id(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "detached-wire.yaml",
+        f"""
+        name: detached-wire
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    sidecar_path = tmp_path / "runs" / "run-1.json"
+    log_path = tmp_path / "runs" / "run-1.run.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("", encoding="utf-8")
+    manifest = Manifest.from_active_log(log_path)
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached-wire",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(tmp_path / "runs" / "run-1.manifest.json"),
+        config_snapshot={"name": "detached-wire", "model": "fake/model"},
+    )
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "start_detached",
+        lambda *_args, **_kwargs: DetachedLaunch(
+            run_id="run-1",
+            supervisor_pid=123,
+            sidecar_path=sidecar_path,
+            manifest_path=tmp_path / "runs" / "run-1.manifest.json",
+            log_path=log_path,
+        ),
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+
+    launch = await client.call(
+        "launch", {"name": "detached-wire", "configs_dir": str(config_dir)}
+    )
+    reattached = await client.call("reattach_detached", {"run_id": "run-1"})
+
+    assert launch == {
+        "run_id": "run-1",
+        "launch_mode": "detached",
+        "status": "started",
+    }
+    assert reattached["run_id"] == "run-1"
+    assert reattached["sidecar"]["config_name"] == "detached-wire"
+    json.dumps(launch)
+    json.dumps(reattached)
+
+
 def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
