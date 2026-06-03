@@ -73,6 +73,7 @@ def test_target_client_requires_lifecycle_capabilities() -> None:
         "stop",
         "kill",
         "health",
+        "status",
         "tail_detached",
         "discover_runs",
         "discover_runs_no_paths",
@@ -302,6 +303,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "list_configs" in result["capabilities"]
     assert "preview" in result["capabilities"]
     assert "health" in result["capabilities"]
+    assert "status" in result["capabilities"]
     assert "discover_runs" in result["capabilities"]
     assert "discover_runs_no_paths" in result["capabilities"]
     assert "reattach" in result["capabilities"]
@@ -513,6 +515,7 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     assert connected["target"] == "local"
     assert result["protocol_version"] == 1
     assert result["target"] == "local"
+    assert "status" in result["capabilities"]
     assert "list_configs" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
@@ -1458,6 +1461,7 @@ async def test_target_client_discovers_and_reattaches_detached_runs_by_run_id(
     discovered = await client.call(
         "discover_detached", {"runs_dirs": [str(tmp_path / "runs")]}
     )
+    status = await client.call("status", {"run_id": "run-1"})
     reattached = await client.call("reattach_detached", {"run_id": "run-1"})
 
     assert discovered == {
@@ -1468,6 +1472,10 @@ async def test_target_client_discovers_and_reattaches_detached_runs_by_run_id(
             }
         ]
     }
+    assert status == reattached
+    assert "sidecar_path" not in status
+    assert "manifest" not in status
+    json.dumps(status)
     json.dumps(discovered)
     assert reattached["run_id"] == "run-1"
     assert reattached["config"]["name"] == "detached"

@@ -54,6 +54,7 @@ AGENT_CAPABILITIES = [
     "wait",
     "stop",
     "kill",
+    "status",
     "health",
     "probe_until_ready",
     "tail_detached",
@@ -142,6 +143,8 @@ class LocalAgent:
             return self._stop(payload)
         if method == "kill":
             return self._kill(payload)
+        if method == "status":
+            return self._status(payload)
         if method in {"health", "probe_until_ready"}:
             return self._probe_until_ready(payload)
         if method == "tail_detached":
@@ -474,6 +477,16 @@ class LocalAgent:
             sidecar_path = self._detached_sidecar_paths.get(run_id)
             if sidecar_path is None:
                 raise TargetCallError("run-not-found", f"unknown detached run: {run_id}")
+            run = self._load_verified_detached_run(sidecar_path)
+        return _detached_run_payload(run)
+
+    def _status(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        run = self._detached_runs.get(run_id)
+        if run is None:
+            sidecar_path = self._detached_sidecar_paths.get(run_id)
+            if sidecar_path is None:
+                raise TargetCallError("run-not-found", f"unknown run: {run_id}")
             run = self._load_verified_detached_run(sidecar_path)
         return _detached_run_payload(run)
 

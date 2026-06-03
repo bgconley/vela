@@ -11,6 +11,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "wait",
     "stop",
     "kill",
+    "status",
     "health",
     "tail_detached",
     "discover_runs",
