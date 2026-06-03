@@ -12,7 +12,7 @@ import pytest
 from conftest import write_yaml
 from rich.text import Text
 from textual.screen import ModalScreen
-from textual.widgets import ProgressBar, RichLog, Static
+from textual.widgets import Input, ProgressBar, RichLog, Static
 from textual.worker import WorkerState
 
 from vllm_loader.agent.local import LocalAgent, TargetCallError
@@ -3397,6 +3397,170 @@ async def test_build_manager_selects_build_through_target_client(
             and "▣ nightly-cu130 ●" in _static_text(app, "#active-model"),
             "build selection did not refresh header",
         )
+
+
+@pytest.mark.asyncio
+async def test_build_manager_create_build_streams_job_events(
+    config_dir: Path,
+) -> None:
+    class FakeEvents:
+        def __init__(self) -> None:
+            self.closed = False
+            self.job_id = ""
+            self._events: list[dict[str, object]] = []
+
+        def arm(self, job_id: str) -> None:
+            self.job_id = job_id
+            self._events = [
+                {
+                    "event": "job_progress",
+                    "job_id": job_id,
+                    "kind": "committed",
+                    "text": "Installing build",
+                    "level": "INFO",
+                },
+                {
+                    "event": "job_progress",
+                    "job_id": job_id,
+                    "kind": "transient",
+                    "text": "Installing build: 50% 1/2",
+                },
+                {
+                    "event": "job_done",
+                    "job_id": job_id,
+                    "ok": True,
+                    "detail": "build ready",
+                },
+            ]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._events:
+                raise StopAsyncIteration
+            return self._events.pop(0)
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.events = FakeEvents()
+            self.create_calls: list[dict[str, object]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": "01STABLE",
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": True,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        }
+                    ],
+                    "skipped": [],
+                }
+            if method == "create_build":
+                self.create_calls.append(dict(params))
+                self.events.arm(str(params["job_id"]))
+                return {
+                    "job_id": params["job_id"],
+                    "kind": "create_build",
+                    "status": "running",
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((list(run_ids), resume_from))
+            return self.events
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build",
+            "create build screen did not open",
+        )
+        app.screen.query_one("#create-build-input", Input).value = (
+            "method=nightly label=nvfp4 channel=cu130"
+        )
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: bool(target_client.create_calls)
+            and target_client.events.closed
+            and "Installing build" in app.visible_log_lines
+            and app.progress_text == "build ready",
+            "create build job did not stream through the TUI",
+        )
+        job_id = str(target_client.create_calls[0]["job_id"])
+        assert target_client.create_calls == [
+            {
+                "job_id": job_id,
+                "method": "nightly",
+                "label": "nvfp4",
+                "channel": "cu130",
+            }
+        ]
+        assert target_client.subscribe_calls == [([job_id], "live")]
 
 
 @pytest.mark.asyncio

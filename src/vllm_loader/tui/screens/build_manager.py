@@ -49,6 +49,7 @@ class BuildManagerScreen(ModalScreen):
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
         ("enter", "accept", "Select"),
+        ("n", "new", "New"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -63,7 +64,7 @@ class BuildManagerScreen(ModalScreen):
             with Horizontal():
                 yield Static("", id="build-manager-list")
                 yield Static("", id="build-manager-detail")
-            yield Static("Enter Select   Esc Close", id="build-manager-footer")
+            yield Static("Enter Select   n New   Esc Close", id="build-manager-footer")
 
     def on_mount(self) -> None:
         self._refresh()
@@ -84,6 +85,9 @@ class BuildManagerScreen(ModalScreen):
             self.dismiss(None)
             return
         self.dismiss(_build_reference(build))
+
+    def action_new(self) -> None:
+        self.dismiss({"action": "create_build"})
 
     def action_cancel(self) -> None:
         self.dismiss(None)

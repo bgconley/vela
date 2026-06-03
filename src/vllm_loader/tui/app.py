@@ -53,6 +53,7 @@ from vllm_loader.transport.factory import target_client_for_config
 from vllm_loader.tui.screens.build_manager import BuildManagerScreen
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
+from vllm_loader.tui.screens.create_build import CreateBuildScreen
 from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
 from vllm_loader.tui.screens.model_manager import ModelManagerScreen
@@ -870,7 +871,17 @@ class VllmLoaderApp(App):
             callback=self._handle_build_manager_selection,
         )
 
-    def _handle_build_manager_selection(self, build: str | None) -> None:
+    def _handle_build_manager_selection(self, selection: object) -> None:
+        if not selection:
+            return
+        if isinstance(selection, dict):
+            if selection.get("action") == "create_build":
+                self.push_screen(
+                    CreateBuildScreen(),
+                    callback=self._handle_create_build_submission,
+                )
+            return
+        build = _optional_str(selection)
         if not build:
             return
         self.run_worker(
@@ -892,6 +903,27 @@ class VllmLoaderApp(App):
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+
+    def _handle_create_build_submission(self, params: dict[str, Any] | None) -> None:
+        if not params:
+            return
+        self.run_worker(
+            self._create_build(params),
+            name="build-create",
+            group="build-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _create_build(self, params: dict[str, Any]) -> None:
+        job_params = dict(params)
+        job_params["job_id"] = uuid.uuid4().hex
+        await self._run_target_job(
+            "create_build",
+            job_params,
+            error_action="create build",
+            incomplete_label="Build creation",
+        )
 
     def action_models(self) -> None:
         self.run_worker(
@@ -930,23 +962,51 @@ class VllmLoaderApp(App):
         )
 
     async def _download_model(self, model_ref: str) -> None:
-        job_id = uuid.uuid4().hex
-        params = {"job_id": job_id, "model_ref": model_ref}
+        params = {"job_id": uuid.uuid4().hex, "model_ref": model_ref}
+        await self._run_target_job(
+            "download_model",
+            params,
+            error_action="download model",
+            incomplete_label="Model download",
+        )
+
+    async def _run_target_job(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        error_action: str,
+        incomplete_label: str,
+    ) -> None:
+        job_id = str(params["job_id"])
         await self._ensure_target_client_connected()
         events = self._target_client.subscribe([job_id], resume_from="live")
         try:
             try:
-                await self._target_client.call("download_model", params)
+                await self._target_client.call(method, params)
             except TargetCallError as exc:
-                self._set_error_text(f"Unable to download model: {exc}", style=f"bold {BAD}")
+                self._set_error_text(
+                    f"Unable to {error_action}: {exc}",
+                    style=f"bold {BAD}",
+                )
                 return
-            await self._consume_target_job_events_until_done(job_id, events)
+            await self._consume_target_job_events_until_done(
+                job_id,
+                events,
+                incomplete_label=incomplete_label,
+            )
         finally:
             aclose = getattr(events, "aclose", None)
             if aclose is not None:
                 await aclose()
 
-    async def _consume_target_job_events_until_done(self, job_id: str, events) -> None:
+    async def _consume_target_job_events_until_done(
+        self,
+        job_id: str,
+        events,
+        *,
+        incomplete_label: str,
+    ) -> None:
         async for event in events:
             if event.get("job_id") != job_id:
                 continue
@@ -957,7 +1017,7 @@ class VllmLoaderApp(App):
                 await self._refresh_selected_config_preview()
             return
         self._set_error_text(
-            f"Model download stream ended before completion: {job_id}",
+            f"{incomplete_label} stream ended before completion: {job_id}",
             style=f"bold {BAD}",
         )
 
