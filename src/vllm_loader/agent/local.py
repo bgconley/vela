@@ -65,6 +65,7 @@ AGENT_CAPABILITIES = [
     "reattach_detached",
     "sample_gpus",
     "subscribe",
+    "unsubscribe",
 ]
 
 
@@ -155,6 +156,8 @@ class LocalAgent:
             return self._reattach_detached(payload)
         if method == "sample_gpus":
             return self._sample_gpus()
+        if method == "unsubscribe":
+            return self._unsubscribe(payload)
         raise TargetCallError("method-not-found", f"unknown agent method: {method}")
 
     def _ping(self) -> dict[str, Any]:
@@ -492,6 +495,12 @@ class LocalAgent:
 
     async def _sample_gpus(self) -> dict[str, Any]:
         return _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+
+    def _unsubscribe(self, params: dict[str, Any]) -> dict[str, Any]:
+        sub_id = params.get("sub_id")
+        if not isinstance(sub_id, str) or not sub_id.strip():
+            raise TargetCallError("invalid-params", "sub_id is required")
+        return {"sub_id": sub_id}
 
     async def _tail_detached_log_to_events(
         self,

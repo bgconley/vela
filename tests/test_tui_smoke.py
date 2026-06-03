@@ -3824,6 +3824,68 @@ async def test_reattach_starts_tail_worker_before_health_probe(
 
 
 @pytest.mark.asyncio
+async def test_reattach_health_snapshot_updates_phase_when_stream_misses_ready(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.agent = LocalAgent()
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method == "sample_gpus":
+                return {"samples": [], "note": "", "unavailable": False}
+            if method == "reattach":
+                return _target_reattach_payload(served_model_names=["fake-model"])
+            if method == "health":
+                return {
+                    "run_id": params["run_id"],
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["fake-model"],
+                    "error_kind": None,
+                    "reachable_url": "http://127.0.0.1:8000",
+                    "phase": Phase.READY.value,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("stream should not be required for ready snapshot")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(),
+    )
+    app = VllmLoaderApp(configs_dir=config_dir)
+    worker_coros: dict[str, object] = {}
+
+    def capture_worker(coro, **kwargs):
+        worker_coros[str(kwargs.get("name"))] = coro
+        return SimpleNamespace()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        await app._reattach_target_detached_run("run-1")
+        worker_coros["reattach-tail"].close()
+        await worker_coros["reattach-health"]
+        await pilot.pause()
+
+        assert app.phase is Phase.READY
+        assert app.ready_url == "http://127.0.0.1:8000"
+
+
+@pytest.mark.asyncio
 async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

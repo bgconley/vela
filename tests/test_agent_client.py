@@ -80,6 +80,7 @@ def test_target_client_requires_lifecycle_capabilities() -> None:
         "reattach",
         "sample_gpus",
         "subscribe",
+        "unsubscribe",
     }
 
 
@@ -307,6 +308,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "discover_runs" in result["capabilities"]
     assert "discover_runs_no_paths" in result["capabilities"]
     assert "reattach" in result["capabilities"]
+    assert "unsubscribe" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
     assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
@@ -517,6 +519,7 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     assert result["target"] == "local"
     assert "status" in result["capabilities"]
     assert "list_configs" in result["capabilities"]
+    assert "unsubscribe" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
     assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
@@ -662,6 +665,86 @@ async def test_subprocess_target_client_demuxes_run_events(
     event_spool = tmp_path / "runs" / "rpc-run.events.ndjson"
     assert "Loading checkpoint shards" not in durable_log.read_text(encoding="utf-8")
     assert "Loading checkpoint shards" in event_spool.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_unsubscribes_when_event_stream_closes(
+    tmp_path: Path,
+) -> None:
+    calls_path = tmp_path / "calls.ndjson"
+    bridge = tmp_path / "fake_bridge.py"
+    bridge.write_text(
+        "\n".join(
+            [
+                "import json",
+                "import sys",
+                f"calls_path = {str(calls_path)!r}",
+                "def write_call(method, params):",
+                "    with open(calls_path, 'a', encoding='utf-8') as calls:",
+                "        calls.write(json.dumps({'method': method, 'params': params}, sort_keys=True) + '\\n')",
+                "for line in sys.stdin:",
+                "    frame = json.loads(line)",
+                "    request_id = frame.get('id')",
+                "    method = frame.get('method')",
+                "    params = frame.get('params') or {}",
+                "    write_call(method, params)",
+                "    if method == 'handshake':",
+                "        result = {",
+                "            'protocol_version': params.get('protocol_version', 1),",
+                "            'target': 'fake',",
+                "            'capabilities': params.get('capabilities', []),",
+                "            'agent_version': 'test',",
+                "            'daemon_pid': 123,",
+                "            'daemon_start_ts': '2026-06-03T00:00:00Z',",
+                "            'host_info': {},",
+                "        }",
+                "        print(json.dumps({'id': request_id, 'result': result}), flush=True)",
+                "    elif method == 'subscribe':",
+                "        sub_id = params.get('sub_id')",
+                "        print(json.dumps({'id': request_id, 'result': {'sub_id': sub_id}}), flush=True)",
+                "        print(json.dumps({",
+                "            'event': 'log',",
+                "            'run_id': params.get('run_ids', ['run-1'])[0],",
+                "            'kind': 'committed',",
+                "            'text': 'INFO one line',",
+                "            'level': 'INFO',",
+                "            'seq': 1,",
+                "            'ts': '2026-06-03T00:00:01Z',",
+                "            'mono': 1.0,",
+                "        }), flush=True)",
+                "    elif method == 'unsubscribe':",
+                "        print(json.dumps({'id': request_id, 'result': {'sub_id': params.get('sub_id')}}), flush=True)",
+                "    else:",
+                "        print(json.dumps({'id': request_id, 'result': {}}), flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = _subprocess_target_client_class()([sys.executable, str(bridge)])
+
+    await client.connect()
+    events = client.subscribe(["run-1"], resume_from="live")
+    try:
+        event = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    calls = [
+        json.loads(line)
+        for line in calls_path.read_text(encoding="utf-8").splitlines()
+    ]
+    subscribe_call = next(call for call in calls if call["method"] == "subscribe")
+    unsubscribe_call = next(call for call in calls if call["method"] == "unsubscribe")
+
+    assert event["text"] == "INFO one line"
+    assert subscribe_call["params"]["run_ids"] == ["run-1"]
+    assert subscribe_call["params"]["resume_from"] == "live"
+    assert isinstance(subscribe_call["params"]["sub_id"], str)
+    assert subscribe_call["params"]["sub_id"]
+    assert unsubscribe_call["params"] == {
+        "sub_id": subscribe_call["params"]["sub_id"]
+    }
 
 
 @pytest.mark.asyncio

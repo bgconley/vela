@@ -19,6 +19,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "reattach",
     "sample_gpus",
     "subscribe",
+    "unsubscribe",
 )
 
 

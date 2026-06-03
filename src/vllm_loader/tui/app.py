@@ -1578,7 +1578,6 @@ class VllmLoaderApp(App):
         self.run_worker(
             self._target_probe_run_until_ready(
                 self.reattached_run_id,
-                publish_result=False,
             ),
             name="reattach-health",
             group="health",
@@ -2027,7 +2026,7 @@ class VllmLoaderApp(App):
     ) -> None:
         if reachable_url is not None:
             self.ready_url = reachable_url
-        elif self.current_config is not None:
+        elif self.ready_url is None and self.current_config is not None:
             self.ready_url = self._server_url(self.current_config)
         self.served_models = models
         if not feed_phase:

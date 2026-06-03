@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -138,23 +140,41 @@ class SubprocessTargetClient:
         *,
         resume_from: object = "live",
     ) -> AsyncIterator[dict[str, Any]]:
+        sub_id = uuid.uuid4().hex
         subscribe_task = asyncio.create_task(
             self.call(
                 "subscribe",
-                {"run_ids": list(run_ids), "resume_from": resume_from},
+                {
+                    "sub_id": sub_id,
+                    "run_ids": list(run_ids),
+                    "resume_from": resume_from,
+                },
             )
         )
         self._subscription_tasks.add(subscribe_task)
         subscribe_task.add_done_callback(self._subscription_tasks.discard)
 
         async def events() -> AsyncIterator[dict[str, Any]]:
-            await subscribe_task
-            selected = set(run_ids)
-            while True:
-                event = await self._events.get()
-                run_id = event.get("run_id")
-                if not selected or run_id in selected:
-                    yield event
+            active_sub_id = sub_id
+            subscribed = False
+            try:
+                result = await subscribe_task
+                active_sub_id = str(result.get("sub_id") or sub_id)
+                subscribed = True
+                selected = set(run_ids)
+                while True:
+                    event = await self._events.get()
+                    run_id = event.get("run_id")
+                    if not selected or run_id in selected:
+                        yield event
+            finally:
+                if not subscribe_task.done():
+                    subscribe_task.cancel()
+                    with contextlib.suppress(Exception):
+                        await subscribe_task
+                if subscribed and self._connected:
+                    with contextlib.suppress(Exception):
+                        await self.call("unsubscribe", {"sub_id": active_sub_id})
 
         return events()
 

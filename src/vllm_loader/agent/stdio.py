@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import sys
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any, BinaryIO
 
@@ -29,7 +31,8 @@ async def serve_agent_stream(
     writer: asyncio.StreamWriter,
 ) -> None:
     write_lock = asyncio.Lock()
-    subscription_tasks: set[asyncio.Task[None]] = set()
+    handler_tasks: set[asyncio.Task[None]] = set()
+    subscription_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def write_frame(frame: dict[str, Any]) -> None:
         async with write_lock:
@@ -45,13 +48,14 @@ async def serve_agent_stream(
             task = asyncio.create_task(
                 _handle_frame(agent, frame, write_frame, subscription_tasks)
             )
-            subscription_tasks.add(task)
-            task.add_done_callback(subscription_tasks.discard)
+            handler_tasks.add(task)
+            task.add_done_callback(handler_tasks.discard)
     finally:
-        for task in subscription_tasks:
+        tasks = [*handler_tasks, *subscription_tasks.values()]
+        for task in tasks:
             task.cancel()
-        if subscription_tasks:
-            await asyncio.gather(*subscription_tasks, return_exceptions=True)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         writer.close()
         await writer.wait_closed()
 
@@ -60,7 +64,7 @@ async def _handle_frame(
     agent,
     frame: dict[str, Any],
     write_frame,
-    subscription_tasks: set[asyncio.Task[None]],
+    subscription_tasks: dict[str, asyncio.Task[None]],
 ) -> None:
     request_id = frame.get("id")
     method = frame.get("method")
@@ -80,6 +84,8 @@ async def _handle_frame(
     try:
         if method == "subscribe":
             result = await _subscribe(agent, params, write_frame, subscription_tasks)
+        elif method == "unsubscribe":
+            result = await _unsubscribe(params, subscription_tasks)
         else:
             result = agent.handle(method, params if isinstance(params, dict) else None)
             if inspect.isawaitable(result):
@@ -113,27 +119,59 @@ async def _subscribe(
     agent,
     params: object,
     write_frame,
-    subscription_tasks: set[asyncio.Task[None]],
+    subscription_tasks: dict[str, asyncio.Task[None]],
 ) -> dict[str, Any]:
     payload = params if isinstance(params, dict) else {}
     run_ids = payload.get("run_ids", [])
     if not isinstance(run_ids, list):
         raise TargetCallError("invalid-params", "subscribe requires run_ids list")
+    sub_id = str(payload.get("sub_id") or uuid.uuid4().hex)
     resume_from = payload.get("resume_from", "live")
+    existing = subscription_tasks.pop(sub_id, None)
+    if existing is not None:
+        existing.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await existing
     task = asyncio.create_task(
         _stream_events(agent.subscribe(run_ids, resume_from=resume_from), write_frame)
     )
-    subscription_tasks.add(task)
-    task.add_done_callback(subscription_tasks.discard)
-    return {"subscribed": True}
+    subscription_tasks[sub_id] = task
+
+    def forget(done: asyncio.Task[None]) -> None:
+        if subscription_tasks.get(sub_id) is done:
+            subscription_tasks.pop(sub_id, None)
+
+    task.add_done_callback(forget)
+    return {"sub_id": sub_id}
+
+
+async def _unsubscribe(
+    params: object,
+    subscription_tasks: dict[str, asyncio.Task[None]],
+) -> dict[str, Any]:
+    payload = params if isinstance(params, dict) else {}
+    sub_id = payload.get("sub_id")
+    if not isinstance(sub_id, str) or not sub_id.strip():
+        raise TargetCallError("invalid-params", "sub_id is required")
+    task = subscription_tasks.pop(sub_id, None)
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    return {"sub_id": sub_id}
 
 
 async def _stream_events(
     events: AsyncIterator[dict[str, Any]],
     write_frame,
 ) -> None:
-    async for event in events:
-        await write_frame(event)
+    try:
+        async for event in events:
+            await write_frame(event)
+    finally:
+        aclose = getattr(events, "aclose", None)
+        if callable(aclose):
+            await aclose()
 
 
 async def _stdio_streams(
