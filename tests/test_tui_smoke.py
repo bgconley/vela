@@ -206,6 +206,63 @@ async def test_tui_launch_preparation_runs_through_agent(config_dir: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_tui_launch_fsm_uses_agent_profile_metadata(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class AgentProfileLaunchAgent(RecordingConfigAgent):
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {"name": "alpha", "model": "org/alpha"},
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "agent-profile"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+        def start_attached_run(self, prepared, *, emit_event):
+            return SimpleNamespace(
+                run_id="run-1",
+                process=SimpleNamespace(proc=SimpleNamespace(pid=1234)),
+            )
+
+        async def wait_attached_run(self, run_id: str):
+            return 0, False
+
+        async def probe_run_until_ready(self, run_id: str, *, emit) -> None:
+            emit(HealthEvent(ready=True, detail="ready from agent", models=["served"]))
+
+    def refuse_controller_profile(_cfg):
+        raise AssertionError("TUI should use agent profile metadata")
+
+    agent = AgentProfileLaunchAgent()
+    app = VllmLoaderApp(configs_dir=config_dir, agent=agent)
+    monkeypatch.setattr(
+        tui_app_module,
+        "select_profile_for_config",
+        refuse_controller_profile,
+        raising=False,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+
+        assert agent.calls[-1] == (
+            "prepare_launch",
+            {"name": "alpha", "configs_dir": str(config_dir)},
+        )
+        assert app.fsm.profile.version == "agent-profile"
+
+
+@pytest.mark.asyncio
 async def test_tui_detached_launch_runs_through_agent(config_dir: Path, tmp_path: Path) -> None:
     class DetachedLaunchAgent(RecordingConfigAgent):
         def __init__(self) -> None:

@@ -30,8 +30,6 @@ from vllm_loader.engine.process_manager import AttachedProcess
 from vllm_loader.engine.profile import (
     VllmProfileError,
     bundled_profile,
-    select_profile,
-    select_profile_for_config,
 )
 from vllm_loader.engine.sidecar import (
     Sidecar,
@@ -164,6 +162,11 @@ def _command_build_result_from_agent_payload(payload: dict[str, Any]) -> Command
         metadata=dict(payload.get("metadata", {})),
         preview=str(payload.get("preview", "")),
     )
+
+
+def _phase_fsm_from_agent_metadata(metadata: dict[str, Any] | None) -> PhaseFSM:
+    profile_name = str((metadata or {}).get("vllm_version_profile") or "current")
+    return PhaseFSM(bundled_profile(profile_name))
 
 
 def _error_kind_from_agent_payload(value: object) -> ErrorKind:
@@ -986,7 +989,9 @@ class VllmLoaderApp(App):
         self.reattached_run_id = run.run_id
         self.current_process = None
         self.current_run_id = None
-        self.fsm = PhaseFSM(select_profile(sidecar.vllm_version_profile))
+        self.fsm = _phase_fsm_from_agent_metadata(
+            {"vllm_version_profile": sidecar.vllm_version_profile}
+        )
         self.ready_url = self._server_url_from_sidecar(sidecar)
         self.served_models = list(sidecar.served_model_names)
         tail_position = self._load_scrubbed_log_file(log_path)
@@ -1585,8 +1590,7 @@ class VllmLoaderApp(App):
         if cfg is None:
             return
         self._reset_run_state()
-        profile = select_profile_for_config(cfg)
-        self.fsm = PhaseFSM(profile)
+        self.fsm = PhaseFSM(bundled_profile("current"))
         self._set_phase(Phase.STARTING)
         try:
             prepared = self._prepare_launch_from_agent(cfg.name)
@@ -1596,6 +1600,7 @@ class VllmLoaderApp(App):
         cfg = ModelConfig.model_validate(prepared["config"])
         self.current_config = cfg
         build = _command_build_result_from_agent_payload(prepared["build"])
+        self.fsm = _phase_fsm_from_agent_metadata(build.metadata)
         self._record_warnings(build.warnings)
         if cfg.launch.mode.value == "detached":
             try:
