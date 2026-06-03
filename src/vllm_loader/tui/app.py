@@ -506,6 +506,7 @@ class VllmLoaderApp(App):
         self.target_agent_restarted = False
         self._target_has_connected_once = False
         self._target_daemon_start_ts: str | None = None
+        self._target_last_event_seq_by_run: dict[str, int] = {}
         self._target_ping_interval_seconds = target_ping_interval_seconds
         self._target_ping_timeout_seconds = target_ping_timeout_seconds
         self._clock = clock
@@ -1454,6 +1455,7 @@ class VllmLoaderApp(App):
                     ):
                         agent_restarted = True
                         self.target_agent_restarted = True
+                        self._target_last_event_seq_by_run.clear()
                         self._debug_event(
                             "target.agent_restarted",
                             previous_daemon_start_ts=previous_daemon_start_ts,
@@ -1639,12 +1641,20 @@ class VllmLoaderApp(App):
 
     async def _consume_target_run_events_until_exit(self, run_id: str) -> Phase | None:
         await self._ensure_target_client_connected()
-        events = self._target_client.subscribe([run_id], resume_from="live")
+        last_seq = self._target_last_event_seq_by_run.get(run_id)
+        resume_from: object = "live" if last_seq is None else {"seq": last_seq}
+        events = self._target_client.subscribe([run_id], resume_from=resume_from)
         terminal_phase: Phase | None = None
         try:
             async for event in events:
                 if str(event.get("run_id")) != run_id:
                     continue
+                seq = event.get("seq")
+                if isinstance(seq, int):
+                    self._target_last_event_seq_by_run[run_id] = max(
+                        seq,
+                        self._target_last_event_seq_by_run.get(run_id, 0),
+                    )
                 if event.get("event") == "exited":
                     phase_value = event.get("phase")
                     if phase_value is not None:
