@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from conftest import write_yaml
 
-from vllm_loader.config.targets import TransportKind, load_targets_file
+from vllm_loader.config.targets import TransportKind, load_targets_file, remove_target_file
 
 
 def test_missing_targets_file_still_yields_implicit_local_target(tmp_path: Path) -> None:
@@ -77,3 +77,8 @@ def test_ssh_target_requires_host(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="blackbird.*host"):
         load_targets_file(path)
+
+
+def test_targets_registry_does_not_remove_implicit_local(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="local.*implicit"):
+        remove_target_file("local", tmp_path / "targets.yaml")

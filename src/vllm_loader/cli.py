@@ -15,6 +15,7 @@ from vllm_loader.config.targets import (
     TargetsRegistry,
     TransportKind,
     load_targets_file,
+    remove_target_file,
     upsert_target_file,
 )
 from vllm_loader.engine.phases import Phase
@@ -124,6 +125,18 @@ def targets_add(
         typer.echo(f"ERROR: Unable to add target: {exc}", err=True)
         raise typer.Exit(2) from exc
     typer.echo(f"added target {name}")
+
+
+@targets_app.command("remove")
+def targets_remove(
+    name: Annotated[str, typer.Argument(help="Target name to remove.")],
+) -> None:
+    try:
+        remove_target_file(name)
+    except ValueError as exc:
+        typer.echo(f"ERROR: Unable to remove target: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"removed target {name}")
 
 
 @targets_app.command("test")

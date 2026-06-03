@@ -129,6 +129,20 @@ def upsert_target_file(target: TargetConfig, path: str | Path | None = None) -> 
     return save_targets_file(TargetsRegistry(tuple((_local_target(), *targets))), path)
 
 
+def remove_target_file(name: str, path: str | Path | None = None) -> Path:
+    if name == "local":
+        raise ValueError("local target is implicit and cannot be removed")
+    registry = load_targets_file(path)
+    if all(target.name != name for target in registry.targets):
+        raise ValueError(f"unknown target {name!r}")
+    targets = [
+        target
+        for target in registry.targets
+        if target.name not in {"local", name}
+    ]
+    return save_targets_file(TargetsRegistry(tuple((_local_target(), *targets))), path)
+
+
 def _local_target() -> TargetConfig:
     return TargetConfig(name="local", transport=TransportKind.LOCAL)
 

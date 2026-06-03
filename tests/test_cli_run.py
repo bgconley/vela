@@ -291,6 +291,29 @@ def test_cli_targets_add_persists_ssh_target(
     assert blackbird.ssh_opts_env == "VLLM_LOADER_SSH_OPTS"
 
 
+def test_cli_targets_remove_deletes_named_target(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "vllm-loader").mkdir()
+    targets_path = write_yaml(
+        tmp_path / "vllm-loader" / "targets.yaml",
+        """
+        targets:
+          blackbird:
+            transport: ssh
+            host: bgconley@10.25.0.51
+        """,
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "remove", "blackbird"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "removed target blackbird\n"
+    assert [target.name for target in load_targets_file(targets_path).targets] == ["local"]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
