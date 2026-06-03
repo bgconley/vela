@@ -309,6 +309,8 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "discover_runs" in result["capabilities"]
     assert "discover_runs_no_paths" in result["capabilities"]
     assert "reattach" in result["capabilities"]
+    assert "list_builds" in result["capabilities"]
+    assert "list_models" in result["capabilities"]
     assert "unsubscribe" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
@@ -1816,6 +1818,186 @@ async def test_target_client_samples_gpus_with_spec_named_gpu_method() -> None:
         "note": "",
         "unavailable": False,
     }
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01BUILDREADY"
+    build_dir.mkdir(parents=True)
+    (builds_root / "active.json").write_text(
+        json.dumps({"build_id": "01BUILDREADY"}), encoding="utf-8"
+    )
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01BUILDREADY",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "install": {
+                    "method": "nightly",
+                    "installer": "uv",
+                    "python_requested": "3.12",
+                    "provenance": {"nightly_channel": "cu130"},
+                    "exit_code": 0,
+                },
+                "resolved": {
+                    "vllm": "0.17.0.dev",
+                    "vllm_commit": "abc123",
+                    "vllm_version_profile": "current",
+                    "torch": "2.9.0+cu130",
+                    "cuda": "13.0",
+                    "python": "3.12.7",
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                    "activate": "activate",
+                    "run_script": "run.sh",
+                },
+                "created_at": "2026-06-02T14:03:11Z",
+                "last_used_at": "2026-06-02T18:20:05Z",
+                "notes": "Blackwell test build",
+            }
+        ),
+        encoding="utf-8",
+    )
+    broken_dir = builds_root / "BROKEN"
+    broken_dir.mkdir()
+    (broken_dir / "build.json").write_text("{", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        result = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    assert result["default_build_id"] == "01BUILDREADY"
+    assert result["builds"] == [
+        {
+            "build_id": "01BUILDREADY",
+            "label": "nightly-cu130",
+            "status": "ready",
+            "default": True,
+            "install": {
+                "method": "nightly",
+                "installer": "uv",
+                "python_requested": "3.12",
+                "provenance": {"nightly_channel": "cu130"},
+                "exit_code": 0,
+            },
+            "resolved": {
+                "vllm": "0.17.0.dev",
+                "vllm_commit": "abc123",
+                "vllm_version_profile": "current",
+                "torch": "2.9.0+cu130",
+                "cuda": "13.0",
+                "python": "3.12.7",
+            },
+            "paths": {
+                "root": str(build_dir),
+                "venv": "venv",
+                "executable": "bin/vllm",
+                "python": "bin/python",
+                "activate": "activate",
+                "run_script": "run.sh",
+            },
+            "created_at": "2026-06-02T14:03:11Z",
+            "last_used_at": "2026-06-02T18:20:05Z",
+            "notes": "Blackwell test build",
+        }
+    ]
+    assert result["skipped"] == [{"build_id": "BROKEN", "reason": "invalid-json"}]
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-3.1-8b",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 7,
+                            "total_bytes": 16060530000,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 16060530000,
+                        "cache_state": "cached",
+                        "gated": True,
+                        "token_required": True,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": "2026-06-02T18:20:05Z",
+                        "notes": "pinned for repro",
+                    },
+                    {"display_name": "missing identity"},
+                    "not-a-record",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        result = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert result["default_cache"] == "hf"
+    assert result["app_download_dir"] is None
+    assert result["models"] == [
+        {
+            "entry_id": "01MODEL",
+            "display_name": "llama-3.1-8b",
+            "source": "hf_repo",
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+            "commit_sha": "abc123",
+            "local_path": None,
+            "url": None,
+            "quant_format": "none",
+            "tokenizer": None,
+            "files": {
+                "count": 7,
+                "total_bytes": 16060530000,
+                "weights_format": "safetensors",
+            },
+            "size_bytes": 16060530000,
+            "cache_state": "cached",
+            "gated": True,
+            "token_required": True,
+            "created_at": "2026-06-02T14:03:11Z",
+            "last_used_at": "2026-06-02T18:20:05Z",
+            "notes": "pinned for repro",
+        }
+    ]
+    assert result["skipped"] == [
+        {"entry_id": "", "reason": "missing-entry-id"},
+        {"entry_id": "", "reason": "invalid-entry"},
+    ]
     json.dumps(result)
 
 

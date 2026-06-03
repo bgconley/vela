@@ -15,8 +15,13 @@ from typing import Any
 from vllm_loader import __version__
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
 from vllm_loader.config.schema import ModelConfig, default_run_artifacts_dir
+from vllm_loader.engine.build_registry import default_builds_root, list_builds
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
+from vllm_loader.engine.model_registry import (
+    default_models_registry_path,
+    list_models,
+)
 from vllm_loader.engine.phases import PhaseFSM
 from vllm_loader.engine.preflight import check_launch_preflight
 from vllm_loader.engine.process_manager import (
@@ -64,6 +69,8 @@ AGENT_CAPABILITIES = [
     "discover_detached",
     "reattach",
     "reattach_detached",
+    "list_builds",
+    "list_models",
     "sample_gpus",
     "subscribe",
     "unsubscribe",
@@ -111,9 +118,17 @@ class LocalAgent:
         *,
         target_name: str = "local",
         gpu_sampler: Callable[[], GpuPollResult] = default_gpu_sampler,
+        builds_root: str | Path | None = None,
+        models_registry_path: str | Path | None = None,
     ) -> None:
         self.target_name = target_name
         self._gpu_sampler = gpu_sampler
+        self._builds_root = Path(builds_root) if builds_root is not None else default_builds_root()
+        self._models_registry_path = (
+            Path(models_registry_path)
+            if models_registry_path is not None
+            else default_models_registry_path()
+        )
         self._detached_runs: dict[str, LocalDetachedRun] = {}
         self._detached_sidecar_paths: dict[str, Path] = {}
         self._known_runs_dirs: set[Path] = {default_run_artifacts_dir()}
@@ -156,6 +171,10 @@ class LocalAgent:
             return self._discover_detached(payload)
         if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)
+        if method == "list_builds":
+            return self._list_builds()
+        if method == "list_models":
+            return self._list_models()
         if method in {"gpu", "sample_gpus"}:
             return self._sample_gpus(payload)
         if method == "unsubscribe":
@@ -536,6 +555,12 @@ class LocalAgent:
                 event_payload["sub_id"] = sub_id
             self._publish_event(AgentEvent("gpu", "__agent__", event_payload))
         return payload
+
+    def _list_builds(self) -> dict[str, Any]:
+        return list_builds(self._builds_root)
+
+    def _list_models(self) -> dict[str, Any]:
+        return list_models(self._models_registry_path)
 
     def _unsubscribe(self, params: dict[str, Any]) -> dict[str, Any]:
         sub_id = params.get("sub_id")
