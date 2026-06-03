@@ -3273,6 +3273,9 @@ async def test_header_uses_agent_preview_metadata_for_build_model_scope(
         segment = _static_text(app, "#active-model")
         assert "▣ 📌nightly-cu130 ●" in segment
         assert "M 📌llama-pin ● abc123" in segment
+        assert "Target: blackbird" in app.config_summary
+        assert "Build: ▣ 📌nightly-cu130 ●" in app.config_summary
+        assert "Model state: M 📌llama-pin ● abc123" in app.config_summary
 
 
 @pytest.mark.asyncio

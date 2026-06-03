@@ -1512,6 +1512,9 @@ class VllmLoaderApp(App):
                     f"Server: {self._server_url(self.current_config)}",
                 ]
             )
+            lines.extend(
+                f"{label}: {value}" for label, value in self._composition_detail_rows()
+            )
         if self.selected_config_preview:
             lines.append("Full preview: press c")
             lines.append("")
@@ -1531,6 +1534,9 @@ class VllmLoaderApp(App):
             text.append(self.current_config.model, style=TEXT)
             text.append("\nServer: ", style=MUTED)
             text.append(self._server_url(self.current_config), style=GOOD)
+            for label, value in self._composition_detail_rows():
+                text.append(f"\n{label}: ", style=MUTED)
+                text.append(value, style=TEXT)
             if self.selected_config_preview:
                 text.append("\nFull preview: press c", style=MUTED)
             text.append("\n\n")
@@ -1564,6 +1570,15 @@ class VllmLoaderApp(App):
             text.append("No configs found", style=MUTED)
         text.rstrip()
         return text
+
+    def _composition_detail_rows(self) -> list[tuple[str, str]]:
+        if self.current_config is None:
+            return []
+        return [
+            ("Target", self.target_name or "local"),
+            ("Build", self._render_active_build_segment()),
+            ("Model state", self._render_active_model_segment()),
+        ]
 
     def _render_configs_title(self) -> Text:
         valid_count = len(self.registry.valid)
