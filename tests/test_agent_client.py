@@ -225,6 +225,9 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]
     assert "preview" in result["capabilities"]
+    assert "health" in result["capabilities"]
+    assert "discover_runs" in result["capabilities"]
+    assert "reattach" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
     assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
@@ -804,7 +807,7 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
             "launch", {"name": "health", "configs_dir": str(config_dir)}
         )
         run_id = str(launch["run_id"])
-        result = await client.call("probe_until_ready", {"run_id": run_id})
+        result = await client.call("health", {"run_id": run_id})
         events = client.subscribe([run_id], resume_from="start")
         try:
             health_event = await _next_event(events, event_name="health")
@@ -815,6 +818,7 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
         assert result["ready"] is True
         assert result["detail"] == "ready"
         assert result["models"] == ["served"]
+        assert result["reachable_url"] == "http://127.0.0.1:8129"
         assert health_event["ready"] is True
         assert health_event["models"] == ["served"]
     finally:

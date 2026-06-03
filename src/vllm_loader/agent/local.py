@@ -54,9 +54,12 @@ AGENT_CAPABILITIES = [
     "wait",
     "stop",
     "kill",
+    "health",
     "probe_until_ready",
     "tail_detached",
+    "discover_runs",
     "discover_detached",
+    "reattach",
     "reattach_detached",
     "sample_gpus",
     "subscribe",
@@ -137,13 +140,13 @@ class LocalAgent:
             return self._stop(payload)
         if method == "kill":
             return self._kill(payload)
-        if method == "probe_until_ready":
+        if method in {"health", "probe_until_ready"}:
             return self._probe_until_ready(payload)
         if method == "tail_detached":
             return self._tail_detached(payload)
-        if method == "discover_detached":
+        if method in {"discover_runs", "discover_detached"}:
             return self._discover_detached(payload)
-        if method == "reattach_detached":
+        if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)
         if method == "sample_gpus":
             return self._sample_gpus()
