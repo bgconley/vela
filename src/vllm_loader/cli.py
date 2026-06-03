@@ -47,6 +47,7 @@ def interactive(
     configs_dir: Annotated[
         Path | None, typer.Option("--configs-dir", help="Config directory override.")
     ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
     debug: Annotated[
         bool,
         typer.Option("--debug", help="Enable structured debug log and Textual devtools."),
@@ -65,6 +66,7 @@ def interactive(
         VllmLoaderApp(
             configs_dir=configs_dir,
             debug_log_path=debug_log or (_default_debug_log_path() if debug else None),
+            target_name=target,
         ).run()
 
 

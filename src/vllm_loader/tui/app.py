@@ -22,7 +22,7 @@ from textual.worker import Worker, WorkerState
 from vllm_loader.agent.local import AgentEvent, LocalAgent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig, ServerConfig, default_run_artifacts_dir
-from vllm_loader.config.targets import TargetConfig
+from vllm_loader.config.targets import TargetConfig, load_targets_file
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -458,15 +458,22 @@ class VllmLoaderApp(App):
         debug_log_path: str | Path | None = None,
         agent: Any | None = None,
         target_client: Any | None = None,
+        target_name: str = "local",
     ) -> None:
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
+        self.target_name = target_name
         if target_client is None:
             if agent is not None:
                 target_client = InProcessTargetClient(agent)
             else:
+                target_config = (
+                    TargetConfig(name="local")
+                    if target_name == "local"
+                    else load_targets_file().by_name(target_name)
+                )
                 target_client = target_client_for_config(
-                    TargetConfig(name="local"),
+                    target_config,
                     local_agent_factory=lambda **kwargs: LocalAgent(
                         gpu_sampler=gpu_sampler,
                         **kwargs,

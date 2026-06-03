@@ -16,6 +16,7 @@ from textual.worker import WorkerState
 
 from vllm_loader.agent.local import TargetCallError
 from vllm_loader.config.loader import load_registry
+from vllm_loader.config.targets import TargetConfig, TransportKind
 from vllm_loader.engine.command_builder import build_command
 from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import ErrorKind, Phase
@@ -369,6 +370,101 @@ async def test_tui_default_local_target_uses_target_client_factory(
             ("list_configs", {"configs_dir": str(config_dir)}),
             ("preview", {"name": "factory-local", "configs_dir": str(config_dir)}),
         ]
+
+
+@pytest.mark.asyncio
+async def test_tui_target_name_uses_selected_registry_target(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+    requested_target_names: list[str] = []
+    requested_targets: list[TargetConfig] = []
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            requested_target_names.append(name)
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/factory/configs/remote.yaml",
+                            "name": "factory-remote",
+                            "model": "org/factory-remote",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "factory-remote",
+                                "target": "blackbird",
+                                "model": "org/factory-remote",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/remote\nvllm serve org/factory-remote", "warnings": []}
+            if method == "sample_gpus":
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_detached":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target setup should not subscribe")
+
+    def fake_target_client_for_config(target, **_kwargs):
+        requested_targets.append(target)
+        return FactoryTargetClient()
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(tui_app_module, "target_client_for_config", fake_target_client_for_config)
+    monkeypatch.setattr(
+        tui_app_module,
+        "LocalAgent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI constructed a LocalAgent")
+        ),
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "InProcessTargetClient",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("TUI constructed an InProcessTargetClient")
+        ),
+    )
+
+    app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert requested_target_names == ["blackbird"]
+        assert requested_targets == [blackbird]
+        assert app.current_config is not None
+        assert app.current_config.name == "factory-remote"
 
 
 @pytest.mark.asyncio

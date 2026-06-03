@@ -48,6 +48,34 @@ def test_cli_root_version_option_prints_version_without_launching_tui() -> None:
     assert proc.stderr == ""
 
 
+def test_cli_root_target_option_launches_tui_with_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed: list[dict[str, object]] = []
+    run_calls: list[str] = []
+
+    class FakeTui:
+        def __init__(self, **kwargs) -> None:
+            constructed.append(kwargs)
+
+        def run(self) -> None:
+            run_calls.append("run")
+
+    monkeypatch.setattr(cli_module, "VllmLoaderApp", FakeTui)
+
+    result = CliRunner().invoke(cli_module.app, ["--target", "blackbird"])
+
+    assert result.exit_code == 0, result.output
+    assert constructed == [
+        {
+            "configs_dir": None,
+            "debug_log_path": None,
+            "target_name": "blackbird",
+        }
+    ]
+    assert run_calls == ["run"]
+
+
 def test_cli_list_uses_local_target_client(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
