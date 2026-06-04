@@ -5003,7 +5003,7 @@ async def test_model_manager_pins_model_metadata_through_target_client(
             lambda: app.screen.id == "pin-model",
             "pin model screen did not open",
         )
-        app.screen.query_one("#pin-model-entry-id", Input).value = "02REMOTE"
+        assert not app.screen.query("#pin-model-entry-id")
         app.screen.query_one("#pin-model-repo-id", Input).value = "Qwen/Qwen3-32B"
         app.screen.query_one("#pin-model-display-name", Input).value = "qwen-remote"
         app.screen.query_one("#pin-model-revision", Input).value = "main"
@@ -5017,7 +5017,6 @@ async def test_model_manager_pins_model_metadata_through_target_client(
         )
         assert target_client.pin_calls == [
             {
-                "entry_id": "02REMOTE",
                 "repo_id": "Qwen/Qwen3-32B",
                 "display_name": "qwen-remote",
                 "revision": "main",

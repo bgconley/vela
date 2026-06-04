@@ -61,6 +61,7 @@ class ModelHandoff:
 MODEL_ENTRY_FIELDS = (
     "entry_id",
     "display_name",
+    "aliases",
     "source",
     "repo_id",
     "revision",
@@ -401,6 +402,7 @@ def model_reference_aliases(
         value = entry.get(field)
         if isinstance(value, str) and value:
             aliases.add(value)
+    aliases.update(_model_aliases_from_entry(entry))
     return aliases
 
 
@@ -951,6 +953,7 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
         )
     entry_id_matches: list[dict[str, Any]] = []
     display_name_matches: list[dict[str, Any]] = []
+    alias_matches: list[dict[str, Any]] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -958,6 +961,8 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
             entry_id_matches.append(entry)
         if entry.get("display_name") == reference:
             display_name_matches.append(entry)
+        if reference in _model_aliases_from_entry(entry):
+            alias_matches.append(entry)
     if len(entry_id_matches) == 1:
         return entry_id_matches[0]
     if len(entry_id_matches) > 1:
@@ -972,6 +977,14 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
         raise ModelRegistryError(
             "model-not-found",
             f"model display name is ambiguous: {reference}",
+            {"model_ref": reference},
+        )
+    if len(alias_matches) == 1:
+        return alias_matches[0]
+    if len(alias_matches) > 1:
+        raise ModelRegistryError(
+            "model-not-found",
+            f"model alias is ambiguous: {reference}",
             {"model_ref": reference},
         )
     raise ModelRegistryError(
@@ -1029,18 +1042,22 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
 def _pin_entry_from_params(
     params: dict[str, Any], entries: list[object] | None = None
 ) -> dict[str, Any]:
-    entry_id = _entry_id_from_params(params, entries or [])
+    requested_entry_id = _optional_str(params.get("entry_id"))
+    effective_params = dict(params)
+    if requested_entry_id is not None and _optional_str(params.get("display_name")) is None:
+        effective_params["display_name"] = requested_entry_id
+    entry_id = _entry_id_from_params(entries or [])
     now = _utc_now()
-    source = str(params.get("source") or "hf_repo")
+    source = str(effective_params.get("source") or "hf_repo")
     if source == "local_path":
-        return _local_path_entry_from_params(params, entry_id, now)
+        return _local_path_entry_from_params(effective_params, entry_id, now)
     if source != "hf_repo":
         raise ModelRegistryError(
             "invalid-config",
             f"unsupported model source: {source}",
             {"reason": "unsupported-source", "source": source},
         )
-    return _hf_repo_entry_from_params(params, entry_id, now)
+    return _hf_repo_entry_from_params(effective_params, entry_id, now)
 
 
 def _hf_repo_entry_from_params(
@@ -1064,6 +1081,7 @@ def _hf_repo_entry_from_params(
     entry: dict[str, Any] = {
         "entry_id": entry_id,
         "display_name": _optional_str(params.get("display_name")) or entry_id,
+        "aliases": _model_aliases(params, entry_id),
         "source": "hf_repo",
         "repo_id": repo_id,
         "revision": revision,
@@ -1113,6 +1131,7 @@ def _local_path_entry_from_params(
     return {
         "entry_id": entry_id,
         "display_name": _optional_str(params.get("display_name")) or local_path.name,
+        "aliases": _model_aliases(params, entry_id),
         "source": "local_path",
         "repo_id": None,
         "revision": None,
@@ -1377,10 +1396,7 @@ def _required_param(params: dict[str, Any], field: str) -> str:
     return value
 
 
-def _entry_id_from_params(params: dict[str, Any], entries: list[object]) -> str:
-    explicit = _optional_str(params.get("entry_id"))
-    if explicit:
-        return explicit
+def _entry_id_from_params(entries: list[object]) -> str:
     used = {
         str(item.get("entry_id"))
         for item in entries
@@ -1395,6 +1411,21 @@ def _entry_id_from_params(params: dict[str, Any], entries: list[object]) -> str:
         "unable to mint an unused model entry id",
         {"reason": "model-entry-id-collision"},
     )
+
+
+def _model_aliases(params: dict[str, Any], entry_id: str) -> list[str]:
+    aliases: list[str] = []
+    requested_entry_id = _optional_str(params.get("entry_id"))
+    if requested_entry_id is not None and requested_entry_id != entry_id:
+        aliases.append(requested_entry_id)
+    return aliases
+
+
+def _model_aliases_from_entry(entry: dict[str, Any]) -> set[str]:
+    value = entry.get("aliases")
+    if not isinstance(value, list):
+        return set()
+    return {str(item) for item in value if isinstance(item, str) and item}
 
 
 def _required_str(entry: dict[str, Any], field: str, reference: str) -> str:
@@ -1469,6 +1500,13 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
         elif field == "integrity":
             if isinstance(value, dict) and value:
                 payload[field] = dict(value)
+        elif field == "aliases":
+            if isinstance(value, list):
+                payload[field] = [
+                    str(item) for item in value if isinstance(item, str) and item
+                ]
+            else:
+                payload[field] = []
         elif field in {"gated", "token_required"}:
             payload[field] = bool(value)
         elif field == "size_bytes":

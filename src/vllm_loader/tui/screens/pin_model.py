@@ -54,12 +54,6 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="pin-model-panel"):
             yield Static("Pin Model", id="pin-model-title")
-            yield Static("Entry id", classes="pin-model-field-label")
-            yield Input(
-                value=self._initial_value("entry_id"),
-                placeholder="optional; registry mints one when blank",
-                id="pin-model-entry-id",
-            )
             yield Static("Repo id", classes="pin-model-field-label")
             yield Input(
                 value=self._initial_value("repo_id"),
@@ -115,7 +109,7 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("", id="pin-model-error")
 
     def on_mount(self) -> None:
-        self.query_one("#pin-model-entry-id", Input).focus()
+        self.query_one("#pin-model-repo-id", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
@@ -145,7 +139,6 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
 
     def _collect_model_pin_params(self) -> dict[str, Any]:
         fields = {
-            "entry_id": self._field_value("#pin-model-entry-id"),
             "repo_id": self._field_value("#pin-model-repo-id"),
             "local_path": self._field_value("#pin-model-local-path"),
             "display_name": self._field_value("#pin-model-display-name"),

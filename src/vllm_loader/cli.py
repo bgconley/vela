@@ -535,7 +535,7 @@ def model_adopt(
     local_path: Annotated[Path, typer.Argument(help="Local model directory to adopt.")],
     entry_id: Annotated[
         str | None,
-        typer.Option("--entry-id", help="Stable model entry id; generated when omitted."),
+        typer.Option("--entry-id", help="Deprecated; ignored. Entry ids are minted."),
     ] = None,
     display_name: Annotated[
         str | None,
@@ -555,8 +555,8 @@ def model_adopt(
         typer.Option("--json", help="Emit machine-readable adoption result."),
     ] = False,
 ) -> None:
+    del entry_id
     params = _agent_params(
-        entry_id=entry_id,
         display_name=display_name,
         local_path=local_path,
         quant_format=quant_format,
@@ -588,7 +588,7 @@ def model_pin(
     ],
     entry_id: Annotated[
         str | None,
-        typer.Option("--entry-id", help="Stable model entry id; generated when omitted."),
+        typer.Option("--entry-id", help="Deprecated; ignored. Entry ids are minted."),
     ] = None,
     repo_id: Annotated[str | None, typer.Option("--repo-id", help="Hugging Face repo id.")] = None,
     display_name: Annotated[
@@ -614,11 +614,11 @@ def model_pin(
     ] = False,
 ) -> None:
     selected_repo_id = repo_id or repo_or_entry
-    selected_entry_id = entry_id or (repo_or_entry if repo_id is not None else None)
+    del entry_id
+    selected_display_name = display_name or (repo_or_entry if repo_id is not None else None)
     params = _agent_params(
-        entry_id=selected_entry_id,
         repo_id=selected_repo_id,
-        display_name=display_name,
+        display_name=selected_display_name,
         revision=revision,
         commit_sha=commit_sha,
         local_path=local_path,

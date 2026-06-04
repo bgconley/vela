@@ -2957,6 +2957,18 @@ def _assert_minted_build_dir(
     return builds_root / build_id
 
 
+def _assert_minted_model_entry(
+    entry: dict[str, object],
+    *,
+    ignored: str | None = None,
+) -> str:
+    entry_id = _assert_ulid(entry["entry_id"])
+    if ignored is not None:
+        assert entry_id != ignored
+        assert ignored in entry.get("aliases", [])
+    return entry_id
+
+
 @pytest.mark.asyncio
 async def test_agent_removes_unpinned_build_from_agent_owned_registry(
     config_dir: Path, tmp_path: Path
@@ -3603,6 +3615,7 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
         {
             "entry_id": "01MODEL",
             "display_name": "llama-3.1-8b",
+            "aliases": [],
             "source": "hf_repo",
             "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
             "revision": "main",
@@ -3705,6 +3718,7 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
         {
             "entry_id": "01PINNED",
             "display_name": "llama-pin",
+            "aliases": [],
             "source": "hf_repo",
             "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
             "revision": "main",
@@ -3761,14 +3775,16 @@ async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
         await client.disconnect()
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert pinned["entry"]["entry_id"] == "01PINNED"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01PINNED")
     assert pinned["entry"]["source"] == "hf_repo"
     assert pinned["entry"]["cache_state"] == "remote_only"
     assert registry["schema_version"] == 1
-    assert registry["entries"][0]["entry_id"] == "01PINNED"
+    assert registry["entries"][0]["entry_id"] == entry_id
+    assert registry["entries"][0]["aliases"] == ["01PINNED"]
     assert registry["entries"][0]["token_required"] is True
     assert "HF_TOKEN" not in json.dumps(registry)
-    assert listed["models"][0]["entry_id"] == "01PINNED"
+    assert listed["models"][0]["entry_id"] == entry_id
+    assert listed["models"][0]["aliases"] == ["01PINNED"]
     assert listed["models"][0]["commit_sha"] == "abc123"
     assert listed["models"][0]["cache_state"] == "remote_only"
     json.dumps(pinned)
@@ -3801,6 +3817,37 @@ async def test_agent_pins_model_with_registry_minted_id(tmp_path: Path) -> None:
     assert registry["entries"][0]["entry_id"] == entry_id
     assert listed["models"][0]["entry_id"] == entry_id
     assert entry_id != "llama-pinned"
+    json.dumps(pinned)
+    json.dumps(listed)
+
+
+@pytest.mark.asyncio
+async def test_agent_pin_model_ignores_caller_supplied_entry_id(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01CALLER",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+            },
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01CALLER")
+    assert entry_id != "01CALLER"
+    assert pinned["entry"]["display_name"] == "01CALLER"
+    assert registry["entries"][0]["entry_id"] == entry_id
+    assert listed["models"][0]["entry_id"] == entry_id
+    assert listed["models"][0]["display_name"] == "01CALLER"
     json.dumps(pinned)
     json.dumps(listed)
 
@@ -3851,7 +3898,7 @@ def test_model_verify_takes_entry_lock(
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
     (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
     (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
-    model_registry_module.pin_model(
+    pinned = model_registry_module.pin_model(
         {
             "entry_id": "01LOCAL",
             "source": "local_path",
@@ -3859,6 +3906,7 @@ def test_model_verify_takes_entry_lock(
         },
         registry_path,
     )
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01LOCAL")
     flock_calls: list[tuple[str, int]] = []
 
     def fake_flock(handle: object, operation: int) -> None:
@@ -3873,7 +3921,7 @@ def test_model_verify_takes_entry_lock(
 
     verified = model_registry_module.verify_model("01LOCAL", registry_path)
 
-    entry_lock = registry_path.parent / "locks" / "01LOCAL.lock"
+    entry_lock = registry_path.parent / "locks" / f"{entry_id}.lock"
     assert verified["ok"] is True
     assert (str(entry_lock), fcntl.LOCK_EX) in flock_calls
     assert (str(entry_lock), fcntl.LOCK_UN) in flock_calls
@@ -3883,7 +3931,7 @@ def test_model_download_holds_entry_lock_during_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
-    model_registry_module.pin_model(
+    pinned = model_registry_module.pin_model(
         {
             "entry_id": "01REMOTE",
             "display_name": "llama-remote",
@@ -3892,9 +3940,10 @@ def test_model_download_holds_entry_lock_during_snapshot(
         },
         registry_path,
     )
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
     active_locks: set[str] = set()
     flock_calls: list[tuple[str, int]] = []
-    entry_lock = registry_path.parent / "locks" / "01REMOTE.lock"
+    entry_lock = registry_path.parent / "locks" / f"{entry_id}.lock"
     registry_lock = registry_path.parent / "registry.lock"
 
     def fake_flock(handle: object, operation: int) -> None:
@@ -3989,7 +4038,7 @@ async def test_agent_adopts_local_model_path_for_launch_handoff(
     finally:
         await client.disconnect()
 
-    assert adopted["entry"]["entry_id"] == "01LOCAL"
+    _assert_minted_model_entry(adopted["entry"], ignored="01LOCAL")
     assert adopted["entry"]["source"] == "local_path"
     assert adopted["entry"]["local_path"] == str(model_dir)
     assert adopted["entry"]["cache_state"] == "cached"
@@ -4047,7 +4096,7 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        adopted = await client.call(
             "pin_model",
             {
                 "entry_id": "01LOCAL",
@@ -4059,7 +4108,8 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
     finally:
         await client.disconnect()
 
-    assert verified["entry_id"] == "01LOCAL"
+    entry_id = _assert_minted_model_entry(adopted["entry"], ignored="01LOCAL")
+    assert verified["entry_id"] == entry_id
     assert verified["ok"] is True
     assert verified["cache_state"] == "cached"
     assert verified["detail"] == "local model verified"
@@ -4082,7 +4132,7 @@ async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4096,7 +4146,8 @@ async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
     finally:
         await client.disconnect()
 
-    assert verified["entry_id"] == "01REMOTE"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert verified["entry_id"] == entry_id
     assert verified["ok"] is False
     assert verified["cache_state"] == "partial"
     assert verified["reason"] == "missing-commit"
@@ -4120,7 +4171,7 @@ async def test_agent_verify_marks_cached_hf_model_missing_when_cache_scan_lacks_
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4141,7 +4192,8 @@ async def test_agent_verify_marks_cached_hf_model_missing_when_cache_scan_lacks_
     finally:
         await client.disconnect()
 
-    assert verified["entry_id"] == "01REMOTE"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert verified["entry_id"] == entry_id
     assert verified["ok"] is False
     assert verified["cache_state"] == "missing"
     assert verified["reason"] == "missing-cache-entry"
@@ -4180,7 +4232,7 @@ async def test_agent_verify_reconciles_cached_hf_model_from_cache_scan(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4195,7 +4247,8 @@ async def test_agent_verify_reconciles_cached_hf_model_from_cache_scan(
     finally:
         await client.disconnect()
 
-    assert verified["entry_id"] == "01REMOTE"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert verified["entry_id"] == entry_id
     assert verified["ok"] is True
     assert verified["cache_state"] == "cached"
     assert verified["entry"]["files"]["total_bytes"] == 130
@@ -4210,7 +4263,7 @@ async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01MODEL",
@@ -4225,7 +4278,8 @@ async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
     finally:
         await client.disconnect()
 
-    assert inspected["entry"]["entry_id"] == "01MODEL"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01MODEL")
+    assert inspected["entry"]["entry_id"] == entry_id
     assert inspected["entry"]["display_name"] == "llama-pin"
     assert inspected["entry"]["repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
     assert inspected["entry"]["commit_sha"] == "abc123"
@@ -4287,7 +4341,7 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01LOCAL",
@@ -4301,7 +4355,8 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
     finally:
         await client.disconnect()
 
-    assert verified["entry_id"] == "01LOCAL"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01LOCAL")
+    assert verified["entry_id"] == entry_id
     assert verified["ok"] is False
     assert verified["cache_state"] == "partial"
     assert verified["reason"] == "missing-weights"
@@ -4340,7 +4395,8 @@ async def test_agent_verify_marks_local_model_partial_after_integrity_drift(
     finally:
         await client.disconnect()
 
-    assert verified["entry_id"] == "01LOCAL"
+    entry_id = _assert_minted_model_entry(adopted["entry"], ignored="01LOCAL")
+    assert verified["entry_id"] == entry_id
     assert verified["ok"] is False
     assert verified["cache_state"] == "partial"
     assert verified["reason"] == "integrity-mismatch"
@@ -4367,7 +4423,7 @@ async def test_agent_refresh_reconciles_local_model_entries(tmp_path: Path) -> N
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01LOCAL",
@@ -4381,8 +4437,9 @@ async def test_agent_refresh_reconciles_local_model_entries(tmp_path: Path) -> N
     finally:
         await client.disconnect()
 
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01LOCAL")
     assert refreshed["refreshed"] == 1
-    assert refreshed["models"][0]["entry_id"] == "01LOCAL"
+    assert refreshed["models"][0]["entry_id"] == entry_id
     assert refreshed["models"][0]["cache_state"] == "partial"
     json.dumps(refreshed)
 
@@ -4417,7 +4474,7 @@ async def test_agent_refresh_reconciles_hf_pin_from_cache_scan(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4433,8 +4490,9 @@ async def test_agent_refresh_reconciles_hf_pin_from_cache_scan(
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     [entry] = registry["entries"]
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
     assert refreshed["refreshed"] == 1
-    assert refreshed["models"][0]["entry_id"] == "01REMOTE"
+    assert refreshed["models"][0]["entry_id"] == entry_id
     assert refreshed["models"][0]["cache_state"] == "cached"
     assert refreshed["models"][0]["commit_sha"] == "abc123"
     assert refreshed["models"][0]["files"]["total_bytes"] == 130
@@ -4459,7 +4517,7 @@ async def test_agent_refresh_marks_missing_hf_cache_entry(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4476,8 +4534,9 @@ async def test_agent_refresh_marks_missing_hf_cache_entry(
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     [entry] = registry["entries"]
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
     assert refreshed["refreshed"] == 1
-    assert refreshed["models"][0]["entry_id"] == "01REMOTE"
+    assert refreshed["models"][0]["entry_id"] == entry_id
     assert refreshed["models"][0]["cache_state"] == "missing"
     assert entry["cache_state"] == "missing"
     json.dumps(refreshed)
@@ -4499,7 +4558,7 @@ async def test_agent_removes_unpinned_local_model_metadata(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01LOCAL",
@@ -4517,7 +4576,8 @@ async def test_agent_removes_unpinned_local_model_metadata(
         await client.disconnect()
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert removed["entry_id"] == "01LOCAL"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01LOCAL")
+    assert removed["entry_id"] == entry_id
     assert removed["source"] == "local_path"
     assert removed["removed_weights"] is False
     assert removed["entry"]["local_path"] == str(model_dir)
@@ -4558,7 +4618,7 @@ async def test_agent_removes_cached_hf_model_via_cache_delete_revisions(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4577,8 +4637,9 @@ async def test_agent_removes_cached_hf_model_via_cache_delete_revisions(
         await client.disconnect()
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
     assert executed == [("abc123",)]
-    assert removed["entry_id"] == "01REMOTE"
+    assert removed["entry_id"] == entry_id
     assert removed["source"] == "hf_repo"
     assert removed["removed_weights"] is True
     assert removed["expected_freed_size"] == 42
@@ -4607,7 +4668,7 @@ async def test_agent_removes_remote_only_hf_model_metadata_without_cache_access(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4625,7 +4686,8 @@ async def test_agent_removes_remote_only_hf_model_metadata_without_cache_access(
         await client.disconnect()
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert removed["entry_id"] == "01REMOTE"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert removed["entry_id"] == entry_id
     assert removed["source"] == "hf_repo"
     assert removed["removed_weights"] is False
     assert removed["expected_freed_size"] == 0
@@ -4650,7 +4712,7 @@ async def test_agent_refuses_to_remove_model_pinned_by_config(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01PINNED",
@@ -4661,7 +4723,7 @@ async def test_agent_refuses_to_remove_model_pinned_by_config(
         with pytest.raises(TargetCallError) as exc_info:
             await client.call(
                 "remove_model",
-                {"model_ref": "01PINNED", "configs_dir": str(config_dir)},
+                {"model_ref": "llama-pinned", "configs_dir": str(config_dir)},
             )
         listed = await client.call("list_models")
     finally:
@@ -4670,7 +4732,8 @@ async def test_agent_refuses_to_remove_model_pinned_by_config(
     assert exc_info.value.code == "resource-in-use"
     assert exc_info.value.details["reason"] == "config-pin"
     assert exc_info.value.details["configs"] == ["uses-pinned"]
-    assert listed["models"][0]["entry_id"] == "01PINNED"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01PINNED")
+    assert listed["models"][0]["entry_id"] == entry_id
 
 
 @pytest.mark.asyncio
@@ -4690,7 +4753,7 @@ async def test_agent_refuses_to_remove_model_pinned_by_bare_model_revision(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01PINNED",
@@ -4712,7 +4775,8 @@ async def test_agent_refuses_to_remove_model_pinned_by_bare_model_revision(
     assert exc_info.value.code == "resource-in-use"
     assert exc_info.value.details["reason"] == "config-pin"
     assert exc_info.value.details["configs"] == ["uses-revision"]
-    assert listed["models"][0]["entry_id"] == "01PINNED"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01PINNED")
+    assert listed["models"][0]["entry_id"] == entry_id
 
 
 @pytest.mark.asyncio
@@ -4732,7 +4796,7 @@ async def test_agent_force_removes_model_pinned_by_config(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01PINNED",
@@ -4753,7 +4817,8 @@ async def test_agent_force_removes_model_pinned_by_config(
         await client.disconnect()
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert removed["entry_id"] == "01PINNED"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01PINNED")
+    assert removed["entry_id"] == entry_id
     assert removed["entry"]["display_name"] == "llama-pinned"
     assert removed["removed_weights"] is False
     assert listed["models"] == []
@@ -4808,7 +4873,7 @@ async def test_agent_refuses_to_force_remove_model_used_by_live_run(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -4837,7 +4902,8 @@ async def test_agent_refuses_to_force_remove_model_used_by_live_run(
     assert exc_info.value.details["model_ref"] == "llama-remote"
     assert exc_info.value.details["run_id"] == "run-live-model"
     assert exc_info.value.details["config_name"] == "live-config"
-    assert registry["entries"][0]["entry_id"] == "01REMOTE"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert registry["entries"][0]["entry_id"] == entry_id
 
 
 @pytest.mark.asyncio
@@ -4862,7 +4928,7 @@ async def test_agent_ignores_unverified_sidecar_when_removing_model(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01DEADSIDECAR",
@@ -4883,7 +4949,8 @@ async def test_agent_ignores_unverified_sidecar_when_removing_model(
         await client.disconnect()
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert removed["entry_id"] == "01DEADSIDECAR"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01DEADSIDECAR")
+    assert removed["entry_id"] == entry_id
     assert removed["entry"]["display_name"] == "dead-sidecar-model"
     assert removed["source"] == "hf_repo"
     assert removed["removed_weights"] is False
@@ -7307,7 +7374,7 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     await client.connect()
     events = client.subscribe(["job-model-remote"], resume_from="live")
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -7349,7 +7416,8 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     assert done["job_id"] == "job-model-remote"
     assert done["ok"] is True
     assert done["detail"] == "model cached"
-    assert done["entry_id"] == "01REMOTE"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert done["entry_id"] == entry_id
     assert done["cache_state"] == "cached"
     assert done["entry"]["commit_sha"] == "abc123"
     assert done["entry"]["files"] == {

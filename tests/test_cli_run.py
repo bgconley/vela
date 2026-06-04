@@ -809,7 +809,6 @@ def test_cli_model_adopt_uses_verified_local_pin_path(
         (
             "pin_model",
             {
-                "entry_id": "01LOCAL",
                 "display_name": "local-llama",
                 "local_path": str(model_dir),
                 "source": "local_path",
@@ -912,7 +911,6 @@ def test_cli_model_pin_passes_metadata_to_agent(
         (
             "pin_model",
             {
-                "entry_id": "01MODEL",
                 "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
                 "display_name": "llama-pin",
             },
