@@ -2037,8 +2037,12 @@ async def test_agent_selects_build_default_from_agent_owned_registry(
     build_dir = builds_root / "01BUILDREADY"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
-    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.2'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
     (build_dir / "build.json").write_text(
         json.dumps(
             {
@@ -2175,8 +2179,12 @@ async def test_agent_verifies_ready_build_from_agent_owned_registry(
     build_dir = builds_root / "01BUILDREADY"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
-    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.2'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
     (build_dir / "build.json").write_text(
         json.dumps(
             {
@@ -2207,6 +2215,8 @@ async def test_agent_verifies_ready_build_from_agent_owned_registry(
     assert verified["status"] == "ready"
     assert verified["detail"] == "build verified"
     assert verified["manifest"]["status"] == "ready"
+    assert verified["manifest"]["verify"]["verify_output"]["python_import"] == "0.11.2"
+    assert verified["manifest"]["verify"]["verify_output"]["vllm_version"] == "vLLM 0.11.2"
     json.dumps(verified)
 
 
@@ -2255,6 +2265,55 @@ async def test_agent_verify_marks_build_broken_when_executable_missing(
     assert manifest["status"] == "broken"
     assert manifest["verify"]["reason"] == "missing-executable"
     assert listed["builds"][0]["status"] == "broken"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_marks_build_broken_when_vllm_probe_fails(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01PROBEFAIL"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\nexit 42\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho 0.11.2\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01PROBEFAIL",
+                "label": "probe-fail",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        verified = await client.call("verify_build", {"build": "probe-fail"})
+    finally:
+        await client.disconnect()
+
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert verified["ok"] is False
+    assert verified["status"] == "broken"
+    assert verified["reason"] == "vllm-version-probe-failed"
+    assert manifest["status"] == "broken"
+    assert manifest["verify"]["reason"] == "vllm-version-probe-failed"
+    assert manifest["verify"]["verify_output"]["vllm_returncode"] == 42
     json.dumps(verified)
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -335,6 +336,11 @@ def _verify_build_manifest(manifest: dict[str, Any], build_dir: Path) -> dict[st
         "executable": str(executable),
         "python": str(python),
     }
+    verify_output: dict[str, Any] = {}
+    if reason is None:
+        reason, verify_output = _build_verify_output(executable, python)
+    if verify_output:
+        verify_payload["verify_output"] = verify_output
     if reason is None:
         verify_payload.update({"ok": True, "reason": None})
         manifest["verify"] = verify_payload
@@ -357,6 +363,47 @@ def _verify_build_manifest(manifest: dict[str, Any], build_dir: Path) -> dict[st
         "reason": reason,
         "detail": f"build verification failed: {reason}",
         "manifest": _build_payload(manifest, None),
+    }
+
+
+def _build_verify_output(executable: Path, python: Path) -> tuple[str | None, dict[str, Any]]:
+    import_probe = _run_build_verify_command(
+        [str(python), "-c", "import vllm; print(vllm.__version__)"],
+    )
+    output = {
+        "python_import": import_probe["output"],
+        "python_returncode": import_probe["returncode"],
+    }
+    if not import_probe["ok"]:
+        return "vllm-import-probe-failed", output
+    version_probe = _run_build_verify_command([str(executable), "--version"])
+    output.update(
+        {
+            "vllm_version": version_probe["output"],
+            "vllm_returncode": version_probe["returncode"],
+        }
+    )
+    if not version_probe["ok"]:
+        return "vllm-version-probe-failed", output
+    return None, output
+
+
+def _run_build_verify_command(argv: list[str]) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "returncode": None, "output": str(exc)}
+    output = (result.stdout or result.stderr or "").strip()
+    return {
+        "ok": result.returncode == 0 and bool(output),
+        "returncode": result.returncode,
+        "output": output,
     }
 
 
@@ -426,7 +473,7 @@ def _is_agent_owned_build_dir(root: Path, build_dir: Path) -> bool:
 
 def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> dict[str, Any]:
     build_id = str(manifest["build_id"])
-    return {
+    payload = {
         "build_id": build_id,
         "label": str(manifest.get("label") or ""),
         "status": str(manifest.get("status") or "unknown"),
@@ -438,6 +485,10 @@ def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> di
         "last_used_at": _optional_str(manifest.get("last_used_at")),
         "notes": str(manifest.get("notes") or ""),
     }
+    verify = _dict_or_empty(manifest.get("verify"))
+    if verify:
+        payload["verify"] = verify
+    return payload
 
 
 def _dict_or_empty(value: object) -> dict[str, Any]:
