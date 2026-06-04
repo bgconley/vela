@@ -3101,6 +3101,55 @@ async def test_agent_create_build_adopt_job_reports_registry_errors(
 
 
 @pytest.mark.asyncio
+async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "generated-build-id"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-generated-id"], resume_from="live")
+    try:
+        result = await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-generated-id",
+                "method": "adopt",
+                "label": "generated-build-id",
+                "path": str(venv_dir),
+            },
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    manifest = json.loads(
+        (builds_root / "job-build-generated-id" / "build.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result == {
+        "job_id": "job-build-generated-id",
+        "kind": "create_build",
+        "status": "running",
+    }
+    assert progress["text"] == "Adopting build generated-build-id"
+    assert done["ok"] is True
+    assert done["build_id"] == "job-build-generated-id"
+    assert manifest["build_id"] == "job-build-generated-id"
+    assert manifest["status"] == "adopted"
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_download_model_job_streams_by_job_id() -> None:
     async def model_job_runner(params, emit, cancel_event) -> dict[str, object]:
         assert params["job_id"] == "job-model-1"

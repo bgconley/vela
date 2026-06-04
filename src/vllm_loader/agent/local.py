@@ -926,7 +926,7 @@ class LocalAgent:
         method = str(params.get("method") or "").strip().lower()
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
             adopt_params = {
-                "build_id": params.get("build_id"),
+                "build_id": params.get("build_id") or params.get("job_id"),
                 "label": params.get("label"),
                 "venv_path": params.get("venv_path") or params.get("path"),
                 "vllm_version": params.get("vllm_version"),
