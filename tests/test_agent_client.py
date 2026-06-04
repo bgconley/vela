@@ -2113,12 +2113,15 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
         "root": str(build_dir),
         "venv": "venv",
         "executable": "bin/vllm",
-        "python": "venv/bin/python",
+        "python": "bin/python",
         "activate": "activate",
         "run_script": "run.sh",
     }
     assert (build_dir / "venv").resolve() == venv_dir.resolve()
     assert (build_dir / "bin" / "vllm").resolve() == (venv_dir / "bin" / "vllm")
+    assert (build_dir / "bin" / "python").resolve() == (
+        venv_dir / "bin" / "python"
+    )
     assert (build_dir / "activate").resolve() == (venv_dir / "bin" / "activate")
     run_script = build_dir / "run.sh"
     assert run_script.stat().st_mode & 0o111
