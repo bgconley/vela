@@ -3694,6 +3694,48 @@ async def test_agent_refuses_to_remove_model_pinned_by_config(
 
 
 @pytest.mark.asyncio
+async def test_agent_refuses_to_remove_model_pinned_by_bare_model_revision(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(
+        config_dir / "uses-revision.yaml",
+        """
+        name: uses-revision
+        model: meta-llama/Llama-3.1-8B-Instruct
+        revision: abc123
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01PINNED",
+                "display_name": "llama-pinned",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+            },
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "remove_model",
+                {"model_ref": "01PINNED", "configs_dir": str(config_dir)},
+            )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "config-pin"
+    assert exc_info.value.details["configs"] == ["uses-revision"]
+    assert listed["models"][0]["entry_id"] == "01PINNED"
+
+
+@pytest.mark.asyncio
 async def test_agent_force_removes_model_pinned_by_config(
     config_dir: Path, tmp_path: Path
 ) -> None:

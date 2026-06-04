@@ -999,7 +999,11 @@ class LocalAgent:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
         force = _param_bool(params.get("force"))
         config_registry = self._load_config_registry(_configs_dir(params))
-        pinned_configs = _configs_pinning_model(config_registry, aliases)
+        pinned_configs = _configs_pinning_model(
+            config_registry,
+            aliases,
+            inspected["entry"],
+        )
         if pinned_configs and not force:
             raise TargetCallError(
                 "resource-in-use",
@@ -2857,13 +2861,36 @@ def _scrub_job_payload(value: Any, *, secrets: list[str]) -> Any:
     return value
 
 
-def _configs_pinning_model(registry: ConfigRegistry, aliases: set[str]) -> list[str]:
-    pinned = [
-        item.config.name
-        for item in registry.valid
-        if item.config.model_ref is not None and item.config.model_ref in aliases
-    ]
+def _configs_pinning_model(
+    registry: ConfigRegistry, aliases: set[str], entry: dict[str, Any]
+) -> list[str]:
+    pinned = []
+    for item in registry.valid:
+        cfg = item.config
+        if cfg.model_ref is not None and cfg.model_ref in aliases:
+            pinned.append(cfg.name)
+        elif _config_pins_hf_model_revision(cfg, entry):
+            pinned.append(cfg.name)
     return sorted(pinned)
+
+
+def _config_pins_hf_model_revision(cfg: ModelConfig, entry: dict[str, Any]) -> bool:
+    if cfg.model_ref is not None or not cfg.revision:
+        return False
+    if _optional_param_str(entry.get("source")) != "hf_repo":
+        return False
+    repo_id = _optional_param_str(entry.get("repo_id"))
+    if repo_id is None or cfg.model != repo_id:
+        return False
+    pinned_revisions = {
+        value
+        for value in (
+            _optional_param_str(entry.get("commit_sha")),
+            _optional_param_str(entry.get("revision")),
+        )
+        if value is not None
+    }
+    return cfg.revision in pinned_revisions
 
 
 def _configs_pinning_build(registry: ConfigRegistry, aliases: set[str]) -> list[str]:
