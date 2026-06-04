@@ -189,8 +189,13 @@ The remote command invokes
 `vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
 from P620.
 
-The latest P620-to-Blackbird validation record is in
-`artifacts/remote-validation/2026-06-04-p620-blackbird-eb2a116-remote-validation.md`.
+The latest P620-to-Blackbird validation records are:
+
+- `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-build-model-resume.md`
+  for the managed vLLM build install, tiny HF model pin/download, and real
+  model resume/daemon restart pass.
+- `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-qwen-smoke.md`
+  for the Qwen3.6 27B FP8 `smoke-tui` pass through the Blackbird target.
 
 Direct Mac to Blackbird validation is still useful for host-local checks:
 

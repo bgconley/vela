@@ -111,7 +111,11 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
         in docs
     )
     assert (
-        "artifacts/remote-validation/2026-06-04-p620-blackbird-eb2a116-remote-validation.md"
+        "artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-build-model-resume.md"
+        in docs
+    )
+    assert (
+        "artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-qwen-smoke.md"
         in docs
     )
     assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in docs

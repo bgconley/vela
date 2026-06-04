@@ -34,12 +34,10 @@ a theoretical stretch. The right cadence is still **better proof cadence, not
 gate every commit**: a 30-60 minute Qwen/build/model run is too heavy for every
 push, and one shared GPU needs a concurrency guard plus trusted-code hygiene.
 
-**What's true now (good).** `scripts/run_remote_tests.sh` is a genuinely repeatable lane that *executes* a real `vllm` build install + real HF download + real Qwen `smoke-tui` against the GPU host and writes a dated, commit-pinned artifact. A fresh P620 controller → Blackbird target artifact exists (`artifacts/remote-validation/2026-06-04-p620-blackbird-eb2a116-remote-validation.md`). A `.github/workflows/remote-validation.yml` lane is wired for manual dispatch, nightly self-hosted execution, fast/full profiles, and concurrency guarding. **[Opus-verified]**
+**What's true now (good).** `scripts/run_remote_tests.sh` is a genuinely repeatable lane that *executes* a real `vllm` build install + real HF download + real Qwen `smoke-tui` against the GPU host and writes dated, commit-pinned artifacts. Fresh P620 controller → Blackbird target artifacts exist at HEAD `b085610`: `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-build-model-resume.md` covers managed build install, tiny HF model pin/download, and real model resume/daemon restart; `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-qwen-smoke.md` covers Qwen3.6 27B FP8 `smoke-tui`. A `.github/workflows/remote-validation.yml` lane is wired for manual dispatch, nightly self-hosted execution, fast/full profiles, and concurrency guarding. **[Opus-verified]**
 
 **What's not yet true.**
-- **Stale vs HEAD:** the real build+model+Qwen artifact is pinned to `eb2a116`, one commit behind the evidence commit (`70133d0`) and behind the current in-flight docs/validation-helper edits. Re-run once those land.
-- **Resume/daemon-restart only fake-child:** in every artifact, `DAEMON_RESTART_LIVE_RUN_OK` / `DISCONNECT_RECONNECT_RESUME_OK` ran against `scripts/fake_vllm_child.py` (`run_remote_tests.sh:~258,~426`), never a real multi-GB model load.
-- **Workflow still needs live runner proof:** the YAML now targets self-hosted scheduled/manual real-hardware validation, but the runner/secret/concurrency hygiene must be verified live on Blackbird or P620→Blackbird.
+- **Workflow still needs live runner proof:** the YAML now targets self-hosted scheduled/manual real-hardware validation, but the actual GitHub Actions self-hosted runner/secret/concurrency path still needs a live run. The manual P620→Blackbird path is proven at HEAD.
 
 **Important nuance (don't over-fix).** Auto-gating a real GPU run on every commit is **not realistic** for a lab tool (slow, costly, and contends with research use). The stronger target is scheduled/manual self-hosted proof with a concurrency guard, plus an optional `fast` profile for cheaper build/model validation.
 
