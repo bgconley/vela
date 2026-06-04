@@ -25,7 +25,12 @@ from textual.worker import Worker, WorkerState
 from vllm_loader.agent.local import AgentEvent, TargetCallError
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vllm_loader.config.schema import ModelConfig
-from vllm_loader.config.targets import TargetConfig, TransportKind, load_targets_file
+from vllm_loader.config.targets import (
+    TargetConfig,
+    TransportKind,
+    load_targets_file,
+    remove_target_file,
+)
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
 from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -60,7 +65,10 @@ from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
 from vllm_loader.tui.screens.model_manager import ModelManagerScreen
 from vllm_loader.tui.screens.pin_model import PinModelScreen
-from vllm_loader.tui.screens.target_manager import TargetManagerScreen
+from vllm_loader.tui.screens.target_manager import (
+    TargetManagerRequest,
+    TargetManagerScreen,
+)
 from vllm_loader.tui.theme import ACCENT, BAD, GOOD, MUTED, TEXT, WARN
 
 LEVEL_STYLE = {
@@ -598,6 +606,7 @@ class VllmLoaderApp(App):
         self._pending_log_writes: list[tuple[str, str | None]] = []
         self._pending_build_remove: dict[str, str] | None = None
         self._pending_model_remove: dict[str, str] | None = None
+        self._pending_target_remove: dict[str, str] | None = None
         self._log_flush_scheduled = False
         self.last_copied_url: str | None = None
         self.reattached_run_id: str | None = None
@@ -829,7 +838,14 @@ class VllmLoaderApp(App):
             callback=self._handle_target_manager_selection,
         )
 
-    def _handle_target_manager_selection(self, target_name: str | None) -> None:
+    def _handle_target_manager_selection(
+        self, selection: str | TargetManagerRequest | None
+    ) -> None:
+        if isinstance(selection, TargetManagerRequest):
+            if selection.action == "remove":
+                self._confirm_remove_target(selection.target_name)
+            return
+        target_name = selection
         if not target_name or target_name == self.target_name:
             return
         if self._attached_run_is_alive() or self._has_reattached_run():
@@ -849,6 +865,41 @@ class VllmLoaderApp(App):
             exclusive=True,
             exit_on_error=False,
         )
+
+    def _confirm_remove_target(self, target_name: str) -> None:
+        if target_name == "local":
+            self._set_error_text("The local target is implicit and cannot be removed")
+            return
+        if target_name == self.target_name:
+            self._set_error_text("Switch targets before removing the active target")
+            return
+        self._pending_target_remove = {"target": target_name}
+        self.push_screen(
+            ConfirmScreen(
+                (
+                    f"Remove target {target_name}?"
+                    "\n\nThis deletes the controller-side target registry entry."
+                ),
+                title="Remove target",
+                confirm_label="Remove",
+                confirm_action="confirm_remove_target",
+            )
+        )
+
+    def confirm_remove_target(self) -> None:
+        if self.screen.id == "confirm":
+            self.pop_screen()
+        pending = self._pending_target_remove
+        self._pending_target_remove = None
+        if pending is None:
+            return
+        target_name = pending["target"]
+        try:
+            remove_target_file(target_name)
+        except ValueError as exc:
+            self._set_error_text(f"Unable to remove target: {exc}", style=f"bold {BAD}")
+            return
+        self.notify(f"Removed target: {target_name}")
 
     def action_builds(self) -> None:
         self.run_worker(

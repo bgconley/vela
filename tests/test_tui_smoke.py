@@ -587,6 +587,98 @@ async def test_target_manager_selection_switches_target_and_refreshes_configs(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_remove_confirms_and_updates_registry(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+    targets = [TargetConfig(name="local"), blackbird]
+    removed_targets: list[str] = []
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return list(targets)
+
+        def by_name(self, name: str) -> TargetConfig:
+            for target in targets:
+                if target.name == name:
+                    return target
+            raise KeyError(name)
+
+    class QuietTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target remove should not subscribe")
+
+    def fake_remove_target_file(name: str) -> Path:
+        removed_targets.append(name)
+        targets[:] = [target for target in targets if target.name != name]
+        return Path("/agent/targets.yaml")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "remove_target_file",
+        fake_remove_target_file,
+        raising=False,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=QuietTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.press("down")
+        await pilot.press("x")
+        await _wait_for_condition(
+            lambda: app.screen.id == "confirm",
+            "target remove confirm did not open",
+        )
+        confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
+        assert "Remove target blackbird?" in confirm_text
+
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: removed_targets == ["blackbird"],
+            "target remove was not persisted",
+        )
+        await pilot.press("t")
+        await pilot.pause()
+
+        target_list = str(app.screen.query_one("#target-manager-list", Static).content)
+        assert "blackbird" not in target_list
+
+
+@pytest.mark.asyncio
 async def test_tui_surfaces_target_version_mismatch_on_mount(
     config_dir: Path,
 ) -> None:

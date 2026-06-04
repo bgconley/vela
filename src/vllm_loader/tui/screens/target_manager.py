@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
@@ -7,6 +9,12 @@ from textual.widgets import Static
 
 from vllm_loader.config.targets import TargetConfig, TargetsRegistry
 from vllm_loader.tui.theme import ACCENT, SURFACE_ALT, TEXT
+
+
+@dataclass(frozen=True)
+class TargetManagerRequest:
+    action: str
+    target_name: str
 
 
 class TargetManagerScreen(ModalScreen):
@@ -41,6 +49,7 @@ class TargetManagerScreen(ModalScreen):
         ("down", "next", "Next"),
         ("enter", "accept", "Select"),
         ("R", "reconnect", "Reconnect"),
+        ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -90,6 +99,13 @@ class TargetManagerScreen(ModalScreen):
     def action_reconnect(self) -> None:
         self.app.action_reconnect()
         self._refresh()
+
+    def action_remove(self) -> None:
+        target = self._selected_target()
+        if target is None:
+            self.dismiss(None)
+            return
+        self.dismiss(TargetManagerRequest("remove", target.name))
 
     def _refresh(self) -> None:
         self.query_one("#target-manager-list", Static).update(self._render_list())
