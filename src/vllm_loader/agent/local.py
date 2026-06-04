@@ -870,8 +870,9 @@ class LocalAgent:
             aliases = model_reference_aliases(reference, self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
+        force = _param_bool(params.get("force"))
         pinned_configs = _configs_pinning_model(_configs_dir(params), aliases)
-        if pinned_configs:
+        if pinned_configs and not force:
             raise TargetCallError(
                 "resource-in-use",
                 "model is pinned by one or more configs",
@@ -1699,6 +1700,14 @@ def _optional_param_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _param_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def _optional_str_list(value: object) -> list[str] | None:

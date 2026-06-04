@@ -682,6 +682,10 @@ def model_remove(
         bool,
         typer.Option("--yes", help="Confirm removing model metadata."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Override config pin protection."),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable removal result."),
@@ -693,7 +697,11 @@ def model_remove(
     try:
         result = _agent_call(
             "remove_model",
-            _agent_params(model_ref=model_ref, configs_dir=configs_dir),
+            _agent_params(
+                model_ref=model_ref,
+                configs_dir=configs_dir,
+                force="true" if force else None,
+            ),
             target_name=target,
         )
     except TargetCallError as exc:

@@ -3274,6 +3274,52 @@ async def test_agent_refuses_to_remove_model_pinned_by_config(
 
 
 @pytest.mark.asyncio
+async def test_agent_force_removes_model_pinned_by_config(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(
+        config_dir / "uses-pinned.yaml",
+        """
+        name: uses-pinned
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01PINNED
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01PINNED",
+                "display_name": "llama-pinned",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            },
+        )
+        removed = await client.call(
+            "remove_model",
+            {
+                "model_ref": "01PINNED",
+                "configs_dir": str(config_dir),
+                "force": True,
+            },
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert removed["entry_id"] == "01PINNED"
+    assert removed["entry"]["display_name"] == "llama-pinned"
+    assert removed["removed_weights"] is False
+    assert listed["models"] == []
+    assert registry["entries"] == []
+    json.dumps(removed)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:

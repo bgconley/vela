@@ -923,6 +923,43 @@ def test_cli_model_remove_passes_configs_dir_to_agent(
     assert result.output == "removed model\t01MODEL\tllama-pin\n"
 
 
+def test_cli_model_remove_force_passes_force_to_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry_id": "01MODEL",
+            "source": "hf_repo",
+            "removed_weights": False,
+            "entry": {"display_name": "llama-pin"},
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "remove", "llama-pin", "--yes", "--force"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "remove_model",
+            {"model_ref": "llama-pin", "force": "true"},
+            "local",
+        )
+    ]
+    assert result.output == "removed model\t01MODEL\tllama-pin\n"
+
+
 def test_cli_model_remove_reports_expected_freed_size(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
