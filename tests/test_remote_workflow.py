@@ -146,6 +146,8 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
     assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in docs
     assert "scripts/laptop_sleep_reconnect_check.py" in docs
     assert "LAPTOP_SLEEP_RECONNECT_OK" in docs
+    assert "--build gha-26976430928-1-build" in docs
+    assert "--model-ref gha-26976430928-1-model" in docs
 
 
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:
@@ -485,6 +487,9 @@ def test_laptop_sleep_reconnect_check_is_operator_gated_and_resumes_by_cursor() 
     assert "reattach" in script
     assert "resume_from=cursor" in script
     assert "LAPTOP_SLEEP_RECONNECT_OK" in script
+    assert "LAPTOP_SLEEP_RECONNECT_ABORTED" in script
+    assert "EOFError" in script
+    assert "KeyboardInterrupt" in script
     assert "artifact_dir" in script
 
 

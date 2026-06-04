@@ -16,6 +16,10 @@ from vllm_loader.transport.client import TargetClient
 from vllm_loader.transport.factory import target_client_for_config
 
 
+class OperatorAbort(RuntimeError):
+    pass
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -155,7 +159,12 @@ def _operator_pause(run_id: str) -> None:
         "sleep this controller now, wake it, then press Enter to reconnect.",
         flush=True,
     )
-    input("Press Enter after the physical sleep/wake cycle has completed: ")
+    try:
+        input("Press Enter after the physical sleep/wake cycle has completed: ")
+    except EOFError as exc:
+        raise OperatorAbort("stdin closed before sleep confirmation") from exc
+    except KeyboardInterrupt as exc:
+        raise OperatorAbort("operator interrupted sleep validation") from exc
 
 
 def _utc_now() -> str:
@@ -209,6 +218,34 @@ def _write_artifact(path: Path | None, lines: list[str]) -> None:
     print(f"laptop sleep validation artifact: {path}", file=sys.stderr)
 
 
+async def _stop_aborted_run(
+    *,
+    target_name: str,
+    run_id: str,
+    runs_dirs: list[str],
+) -> dict[str, Any]:
+    client = _new_client(target_name)
+    await client.connect()
+    try:
+        discover_params = {"runs_dirs": runs_dirs} if runs_dirs else {}
+        with contextlib.suppress(Exception):
+            await client.call("discover_runs", discover_params)
+        with contextlib.suppress(Exception):
+            await client.call("reattach", {"run_id": run_id})
+        stop_result = await client.call(
+            "stop",
+            {
+                "run_id": run_id,
+                "interrupt_timeout": 5,
+                "terminate_timeout": 5,
+            },
+        )
+        waited = await client.call("wait", {"run_id": run_id})
+        return {"stop": stop_result, "wait": waited}
+    finally:
+        await client.disconnect()
+
+
 async def _run(
     config_name: str,
     *,
@@ -238,6 +275,8 @@ async def _run(
     )
     events = None
     tail_task = None
+    aborted_reason: str | None = None
+    runs_dirs: list[str] = []
     client = _new_client(target_name)
     await client.connect()
     try:
@@ -261,7 +300,10 @@ async def _run(
             timeout=max(30.0, min(timeout / 4.0, 180.0)),
         )
         first_text = str(first_log.get("text") or "")
-        await asyncio.to_thread(_operator_pause, run_id)
+        try:
+            _operator_pause(run_id)
+        except OperatorAbort as exc:
+            aborted_reason = str(exc)
     finally:
         await _close_events(events)
         if client.connected:
@@ -270,6 +312,42 @@ async def _run(
         if tail_task is not None:
             with contextlib.suppress(Exception):
                 await tail_task
+
+    if aborted_reason is not None:
+        cleanup = await _stop_aborted_run(
+            target_name=target_name,
+            run_id=run_id,
+            runs_dirs=runs_dirs,
+        )
+        waited = cleanup.get("wait") if isinstance(cleanup.get("wait"), dict) else {}
+        marker = (
+            "LAPTOP_SLEEP_RECONNECT_ABORTED "
+            f"run_id={run_id} "
+            f"reason={aborted_reason} "
+            f"returncode={waited.get('returncode', 'unknown')}"
+        )
+        print(marker)
+        completed = _utc_now()
+        _write_artifact(
+            artifact,
+            [
+                "# vLLM Loader Laptop Sleep Validation",
+                "",
+                f"- Started: `{started}`",
+                f"- Completed: `{completed}`",
+                f"- Local commit: `{head_short}` (`{head_full}`)",
+                f"- Target: `{target_name}`",
+                f"- Config: `{config_name}`",
+                f"- Run id: `{run_id}`",
+                f"- Abort reason: `{aborted_reason}`",
+                f"- Returncode: `{waited.get('returncode', 'unknown')}`",
+                "",
+                "## Result",
+                "",
+                f"`{marker}`",
+            ],
+        )
+        return
 
     cursor = {
         "log_inode": int(first_log["log_inode"]),

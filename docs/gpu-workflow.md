@@ -228,6 +228,8 @@ log cursor, and writes `LAPTOP_SLEEP_RECONNECT_OK` to an optional artifact:
 ```bash
 scripts/laptop_sleep_reconnect_check.py tiny-random-llama-detached-blackbird \
   --target blackbird \
+  --build gha-26976430928-1-build \
+  --model-ref gha-26976430928-1-model \
   --timeout 900 \
   --artifact-dir artifacts/remote-validation
 ```
@@ -235,6 +237,9 @@ scripts/laptop_sleep_reconnect_check.py tiny-random-llama-detached-blackbird \
 Do not run this from an unsupervised CI job. If the Mac is only an SSH terminal
 to P620, sleeping the Mac tests the outer operator session, not controller
 sleep; run the script on the actual controller host for the stricter drill.
+If the selected target venv already has a compatible `vllm` on `PATH`, the
+`--build`/`--model-ref` overrides can be omitted; the Blackbird validation lane
+uses the managed build/model labels shown above.
 
 Direct Mac to Blackbird validation is still useful for host-local checks:
 
