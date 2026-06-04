@@ -471,6 +471,53 @@ def test_cli_build_adopt_passes_external_venv_to_agent(
     assert result.output == "adopted build\t01ADOPTED\texternal-nightly\n"
 
 
+def test_cli_build_adopt_allows_agent_generated_build_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    venv_dir = tmp_path / "venv"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "build_id": "01J9Z8KQ4M7R2VEXAMPLE0001",
+            "label": "external-nightly",
+            "status": "adopted",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "adopt",
+            str(venv_dir),
+            "--label",
+            "external-nightly",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "adopt_build",
+            {
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+            },
+            "blackbird",
+        )
+    ]
+
+
 def test_cli_build_select_uses_selected_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -774,6 +821,56 @@ def test_cli_model_adopt_uses_verified_local_pin_path(
     assert result.output == "adopted model\t01LOCAL\tlocal-llama\n"
 
 
+def test_cli_model_adopt_allows_agent_generated_entry_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    model_dir = tmp_path / "models" / "local-llama"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01J9Z9ABCDEF2VEXAMPLEMODEL01",
+                "display_name": "local-llama",
+                "source": "local_path",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "adopt",
+            str(model_dir),
+            "--display-name",
+            "local-llama",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "display_name": "local-llama",
+                "local_path": str(model_dir),
+                "source": "local_path",
+            },
+            "blackbird",
+        )
+    ]
+
+
 def test_cli_model_pin_passes_metadata_to_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -824,6 +921,54 @@ def test_cli_model_pin_passes_metadata_to_agent(
         )
     ]
     assert result.output == "pinned model\t01MODEL\tllama-pin\n"
+
+
+def test_cli_model_pin_uses_repo_argument_and_generated_entry_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01J9Z9ABCDEF2VEXAMPLEMODEL01",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "pin",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "--display-name",
+            "llama-pin",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "display_name": "llama-pin",
+            },
+            "blackbird",
+        )
+    ]
 
 
 def test_cli_model_verify_prints_agent_result(

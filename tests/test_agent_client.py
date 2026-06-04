@@ -5,6 +5,7 @@ import inspect
 import io
 import json
 import os
+import re
 import signal
 import socket
 import sys
@@ -2184,6 +2185,46 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_agent_adopts_external_build_with_registry_minted_id(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "vllm-nightly"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "adopt_build",
+            {
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+            },
+        )
+        listed = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    build_id = _assert_ulid(adopted["build_id"])
+    manifest_path = builds_root / build_id / "build.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert adopted["label"] == "external-nightly"
+    assert adopted["manifest"]["build_id"] == build_id
+    assert manifest["build_id"] == build_id
+    assert listed["builds"][0]["build_id"] == build_id
+    assert build_id != "external-nightly"
+    json.dumps(adopted)
+
+
+@pytest.mark.asyncio
 async def test_agent_rejects_invalid_external_build_adoption(tmp_path: Path) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
     venv_dir = tmp_path / "external" / "broken"
@@ -2461,6 +2502,12 @@ async def test_agent_verify_marks_build_broken_when_executable_hash_drifts(
 
 def _sha256_uri(data: bytes) -> str:
     return f"sha256:{sha256(data).hexdigest()}"
+
+
+def _assert_ulid(value: object) -> str:
+    assert isinstance(value, str)
+    assert re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", value)
+    return value
 
 
 @pytest.mark.asyncio
@@ -3094,6 +3141,36 @@ async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
     assert listed["models"][0]["entry_id"] == "01PINNED"
     assert listed["models"][0]["commit_sha"] == "abc123"
     assert listed["models"][0]["cache_state"] == "remote_only"
+    json.dumps(pinned)
+    json.dumps(listed)
+
+
+@pytest.mark.asyncio
+async def test_agent_pins_model_with_registry_minted_id(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "display_name": "llama-pinned",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+            },
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    entry_id = _assert_ulid(pinned["entry"]["entry_id"])
+    assert pinned["entry"]["display_name"] == "llama-pinned"
+    assert registry["entries"][0]["entry_id"] == entry_id
+    assert listed["models"][0]["entry_id"] == entry_id
+    assert entry_id != "llama-pinned"
     json.dumps(pinned)
     json.dumps(listed)
 
@@ -4461,7 +4538,7 @@ async def test_agent_create_build_adopt_job_reports_registry_errors(
 
 
 @pytest.mark.asyncio
-async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
+async def test_agent_create_build_adopt_job_mints_registry_build_id_when_omitted(
     tmp_path: Path,
 ) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
@@ -4494,11 +4571,6 @@ async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
         await events.aclose()
         await client.disconnect()
 
-    manifest = json.loads(
-        (builds_root / "job-build-generated-id" / "build.json").read_text(
-            encoding="utf-8"
-        )
-    )
     assert result == {
         "job_id": "job-build-generated-id",
         "kind": "create_build",
@@ -4506,8 +4578,12 @@ async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
     }
     assert progress["text"] == "Adopting build generated-build-id"
     assert done["ok"] is True
-    assert done["build_id"] == "job-build-generated-id"
-    assert manifest["build_id"] == "job-build-generated-id"
+    build_id = _assert_ulid(done["build_id"])
+    assert build_id != "job-build-generated-id"
+    manifest = json.loads(
+        (builds_root / build_id / "build.json").read_text(encoding="utf-8")
+    )
+    assert manifest["build_id"] == build_id
     assert manifest["status"] == "adopted"
     assert manifest["integrity"]["executable_sha256"] == _sha256_uri(
         vllm_bin.read_bytes()

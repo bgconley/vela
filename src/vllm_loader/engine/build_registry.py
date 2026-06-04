@@ -10,6 +10,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from vllm_loader.engine.ids import mint_ulid
+
 
 @dataclass(frozen=True)
 class BuildRegistryError(RuntimeError):
@@ -125,7 +127,7 @@ def inspect_build(reference: str, root: str | Path | None = None) -> dict[str, A
 
 def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
-    build_id = _required_param(params, "build_id")
+    build_id = _build_id_from_params(params, builds_root)
     venv_path = Path(_required_param(params, "venv_path")).expanduser()
     executable = venv_path / "bin" / "vllm"
     python = venv_path / "bin" / "python"
@@ -534,6 +536,21 @@ def _required_param(params: dict[str, Any], field: str) -> str:
             {"reason": f"missing-{field}"},
         )
     return value
+
+
+def _build_id_from_params(params: dict[str, Any], builds_root: Path) -> str:
+    explicit = _optional_str(params.get("build_id"))
+    if explicit:
+        return explicit
+    for _attempt in range(16):
+        candidate = mint_ulid()
+        if not (builds_root / candidate).exists():
+            return candidate
+    raise BuildRegistryError(
+        "resource-in-use",
+        "unable to mint an unused build id",
+        {"reason": "build-id-collision"},
+    )
 
 
 def _active_build_id(root: Path) -> str | None:

@@ -304,7 +304,10 @@ def build_inspect(
 @build_app.command("adopt")
 def build_adopt(
     venv_path: Annotated[Path, typer.Argument(help="External vLLM virtualenv to adopt.")],
-    build_id: Annotated[str, typer.Option("--build-id", help="Stable build id.")],
+    build_id: Annotated[
+        str | None,
+        typer.Option("--build-id", help="Stable build id; generated when omitted."),
+    ] = None,
     label: Annotated[str | None, typer.Option("--label", help="Build label.")] = None,
     vllm_version: Annotated[
         str | None,
@@ -530,7 +533,10 @@ def model_inspect(
 @model_app.command("adopt")
 def model_adopt(
     local_path: Annotated[Path, typer.Argument(help="Local model directory to adopt.")],
-    entry_id: Annotated[str, typer.Option("--entry-id", help="Stable model entry id.")],
+    entry_id: Annotated[
+        str | None,
+        typer.Option("--entry-id", help="Stable model entry id; generated when omitted."),
+    ] = None,
     display_name: Annotated[
         str | None,
         typer.Option("--display-name", help="Human-readable model name."),
@@ -572,7 +578,18 @@ def model_adopt(
 
 @model_app.command("pin")
 def model_pin(
-    entry_id: Annotated[str, typer.Argument(help="Stable model entry id.")],
+    repo_or_entry: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "Hugging Face repo id, or a legacy entry id when --repo-id is supplied."
+            )
+        ),
+    ],
+    entry_id: Annotated[
+        str | None,
+        typer.Option("--entry-id", help="Stable model entry id; generated when omitted."),
+    ] = None,
     repo_id: Annotated[str | None, typer.Option("--repo-id", help="Hugging Face repo id.")] = None,
     display_name: Annotated[
         str | None,
@@ -596,9 +613,11 @@ def model_pin(
         typer.Option("--json", help="Emit machine-readable pin result."),
     ] = False,
 ) -> None:
+    selected_repo_id = repo_id or repo_or_entry
+    selected_entry_id = entry_id or (repo_or_entry if repo_id is not None else None)
     params = _agent_params(
-        entry_id=entry_id,
-        repo_id=repo_id,
+        entry_id=selected_entry_id,
+        repo_id=selected_repo_id,
         display_name=display_name,
         revision=revision,
         commit_sha=commit_sha,

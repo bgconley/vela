@@ -9,6 +9,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from vllm_loader.engine.ids import mint_ulid
+
 
 @dataclass(frozen=True)
 class ModelRegistryError(RuntimeError):
@@ -107,10 +109,10 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
         else default_models_registry_path()
     )
     registry = _load_registry_for_write(path)
-    entry = _pin_entry_from_params(params)
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
         entries = []
+    entry = _pin_entry_from_params(params, entries)
     entries = [
         item
         for item in entries
@@ -918,8 +920,10 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
     )
 
 
-def _pin_entry_from_params(params: dict[str, Any]) -> dict[str, Any]:
-    entry_id = _required_param(params, "entry_id")
+def _pin_entry_from_params(
+    params: dict[str, Any], entries: list[object] | None = None
+) -> dict[str, Any]:
+    entry_id = _entry_id_from_params(params, entries or [])
     now = _utc_now()
     source = str(params.get("source") or "hf_repo")
     if source == "local_path":
@@ -1246,6 +1250,26 @@ def _required_param(params: dict[str, Any], field: str) -> str:
             {"reason": f"missing-{field}"},
         )
     return value
+
+
+def _entry_id_from_params(params: dict[str, Any], entries: list[object]) -> str:
+    explicit = _optional_str(params.get("entry_id"))
+    if explicit:
+        return explicit
+    used = {
+        str(item.get("entry_id"))
+        for item in entries
+        if isinstance(item, dict) and item.get("entry_id")
+    }
+    for _attempt in range(16):
+        candidate = mint_ulid()
+        if candidate not in used:
+            return candidate
+    raise ModelRegistryError(
+        "resource-in-use",
+        "unable to mint an unused model entry id",
+        {"reason": "model-entry-id-collision"},
+    )
 
 
 def _required_str(entry: dict[str, Any], field: str, reference: str) -> str:
