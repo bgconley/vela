@@ -3990,6 +3990,242 @@ async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
 
 
 @pytest.mark.asyncio
+async def test_agent_create_build_pip_job_installs_managed_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        command_calls.append(list(argv))
+        assert env["VLLM_USE_PRECOMPILED"] == "1"
+        assert cwd == builds_root / "01PIP"
+        assert cancel_event.is_set() is False
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    def fake_resolve_versions(_venv_path: Path) -> dict[str, str]:
+        return {
+            "vllm": "0.11.2",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        }
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        fake_resolve_versions,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-pip"], resume_from="live")
+    try:
+        result = await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-pip",
+                "method": "pip",
+                "build_id": "01PIP",
+                "label": "stable-cu124",
+                "spec": "vllm==0.11.2",
+                "python": "3.12",
+                "env": ["VLLM_USE_PRECOMPILED=1"],
+            },
+        )
+        progress = []
+        done = None
+        for _ in range(6):
+            event = await asyncio.wait_for(events.__anext__(), timeout=2)
+            if event.get("event") == "job_done":
+                done = event
+                break
+            progress.append(event)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01PIP"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert result == {
+        "job_id": "job-build-pip",
+        "kind": "create_build",
+        "status": "running",
+    }
+    assert done is not None
+    assert [event["event"] for event in progress] == ["job_progress"] * 4
+    assert progress[0]["text"] == "Creating build stable-cu124"
+    assert progress[-1]["text"] == "Verifying build stable-cu124"
+    assert done["event"] == "job_done"
+    assert done["job_id"] == "job-build-pip"
+    assert done["ok"] is True
+    assert done["detail"] == "build ready"
+    assert done["build_id"] == "01PIP"
+    assert done["label"] == "stable-cu124"
+    assert done["status"] == "ready"
+    assert done["manifest"]["paths"]["root"] == str(build_dir)
+    assert manifest["status"] == "ready"
+    assert manifest["install"] == {
+        "method": "pip",
+        "installer": "pip",
+        "python_requested": "3.12",
+        "provenance": {
+            "pip_spec": "vllm==0.11.2",
+            "env_overrides": {"VLLM_USE_PRECOMPILED": "1"},
+        },
+        "exit_code": 0,
+    }
+    assert manifest["resolved"]["vllm"] == "0.11.2"
+    assert manifest["paths"] == {
+        "root": str(build_dir),
+        "venv": "venv",
+        "executable": "bin/vllm",
+        "python": "bin/python",
+        "activate": "activate",
+        "run_script": "run.sh",
+    }
+    assert (build_dir / "bin" / "vllm").resolve() == (
+        build_dir / "venv" / "bin" / "vllm"
+    ).resolve()
+    assert (build_dir / "bin" / "python").resolve() == (
+        build_dir / "venv" / "bin" / "python"
+    ).resolve()
+    assert (build_dir / "activate").resolve() == (
+        build_dir / "venv" / "bin" / "activate"
+    ).resolve()
+    assert (build_dir / "run.sh").stat().st_mode & 0o111
+    assert (build_dir / "install.log").stat().st_mode & 0o077 == 0
+    assert command_calls == [
+        [sys.executable, "-m", "venv", str(build_dir / "venv")],
+        [
+            str(build_dir / "venv" / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            "vllm==0.11.2",
+        ],
+    ]
+    json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_pip_job_marks_failed_when_verify_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    def failing_resolve_versions(_venv_path: Path) -> dict[str, str]:
+        raise local_agent_module.BuildRegistryError(
+            "invalid-config",
+            "vLLM import failed",
+            {"reason": "vllm-import-failed"},
+        )
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        failing_resolve_versions,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-verify-fail"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-verify-fail",
+                "method": "pip",
+                "build_id": "01VERIFYFAIL",
+                "spec": "vllm==0.11.2",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01VERIFYFAIL"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is False
+    assert done["error_kind"] == "invalid-config"
+    assert done["detail"] == "vLLM import failed"
+    assert done["reason"] == "vllm-import-failed"
+    assert done["build_id"] == "01VERIFYFAIL"
+    assert done["status"] == "failed"
+    assert manifest["status"] == "failed"
+    assert manifest["install"]["exit_code"] == 0
+    assert manifest["paths"]["root"] == str(build_dir)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_download_model_job_streams_by_job_id() -> None:
     async def model_job_runner(params, emit, cancel_event) -> dict[str, object]:
         assert params["job_id"] == "job-model-1"

@@ -6,6 +6,8 @@ import json
 import os
 import platform
 import signal
+import subprocess
+import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field, replace
@@ -30,7 +32,7 @@ from vllm_loader.engine.build_registry import (
     verify_build,
 )
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
-from vllm_loader.engine.log_sink import LogRecord, level_for_line
+from vllm_loader.engine.log_sink import LogRecord, LogSink, level_for_line
 from vllm_loader.engine.model_registry import (
     ModelHandoff,
     ModelRegistryError,
@@ -983,6 +985,169 @@ class LocalAgent:
         job.result = dict(result)
         self._publish_event(AgentEvent("job_done", job_id, dict(result)))
 
+    async def _run_pip_build_job(
+        self,
+        params: dict[str, Any],
+        emit: JobProgressEmitter,
+        cancel_event: asyncio.Event,
+    ) -> dict[str, Any]:
+        build_id = _optional_param_str(params.get("build_id")) or _job_id_param(params)
+        label = _optional_param_str(params.get("label")) or build_id
+        pip_spec = _optional_param_str(params.get("spec"))
+        if pip_spec is None:
+            return {
+                "ok": False,
+                "error_kind": "invalid-params",
+                "detail": "create_build method=pip requires spec",
+                "build_id": build_id,
+            }
+        build_dir = self._builds_root / build_id
+        venv_path = build_dir / "venv"
+        env_overrides = _env_overrides(params.get("env"))
+        if build_dir.exists():
+            return {
+                "ok": False,
+                "error_kind": "resource-in-use",
+                "detail": f"build already exists: {build_id}",
+                "build_id": build_id,
+                "reason": "build-exists",
+            }
+
+        emit(
+            {
+                "kind": "committed",
+                "text": f"Creating build {label}",
+                "level": "INFO",
+                "phase": "RESOLVING",
+            }
+        )
+        build_dir.mkdir(parents=True)
+        log_sink = LogSink(build_dir / "install.log", secrets=[])
+
+        def emit_install(payload: dict[str, Any]) -> None:
+            text = _optional_param_str(payload.get("text"))
+            if text is not None:
+                log_sink.feed((text + "\n").encode("utf-8"))
+            emit(payload)
+
+        install_payload: dict[str, Any] = {
+            "method": "pip",
+            "installer": "pip",
+            "python_requested": _optional_param_str(params.get("python")),
+            "provenance": {
+                "pip_spec": pip_spec,
+                "env_overrides": dict(env_overrides),
+            },
+            "exit_code": None,
+        }
+        try:
+            _write_build_manifest(
+                build_dir,
+                _managed_build_manifest(
+                    build_id=build_id,
+                    label=label,
+                    status="creating",
+                    install=install_payload,
+                    resolved={},
+                ),
+            )
+            env = {**os.environ, **env_overrides}
+            venv_exit = await _build_subprocess_exec(
+                [sys.executable, "-m", "venv", str(venv_path)],
+                env=env,
+                cwd=build_dir,
+                emit=emit_install,
+                phase="RESOLVING",
+                cancel_event=cancel_event,
+            )
+            if venv_exit != 0:
+                return _failed_build_result(
+                    build_dir,
+                    build_id=build_id,
+                    label=label,
+                    install=install_payload,
+                    error_kind="venv-create-failed",
+                    detail="build virtualenv creation failed",
+                    exit_code=venv_exit,
+                )
+            install_exit = await _build_subprocess_exec(
+                [
+                    str(venv_path / "bin" / "python"),
+                    "-m",
+                    "pip",
+                    "install",
+                    pip_spec,
+                ],
+                env=env,
+                cwd=build_dir,
+                emit=emit_install,
+                phase="INSTALLING",
+                cancel_event=cancel_event,
+            )
+            install_payload["exit_code"] = install_exit
+            if install_exit != 0:
+                return _failed_build_result(
+                    build_dir,
+                    build_id=build_id,
+                    label=label,
+                    install=install_payload,
+                    error_kind="install-failed",
+                    detail="build package install failed",
+                    exit_code=install_exit,
+                )
+
+            emit(
+                {
+                    "kind": "committed",
+                    "text": f"Verifying build {label}",
+                    "level": "INFO",
+                    "phase": "VERIFYING",
+                }
+            )
+            try:
+                _write_managed_build_artifacts(build_dir, venv_path)
+                resolved = _managed_build_resolved_versions(venv_path)
+            except BuildRegistryError as exc:
+                result = _failed_build_result(
+                    build_dir,
+                    build_id=build_id,
+                    label=label,
+                    install=install_payload,
+                    error_kind=exc.code,
+                    detail=exc.message,
+                    exit_code=int(install_payload.get("exit_code") or 0),
+                )
+                result.update(exc.details)
+                return result
+            except OSError:
+                return _failed_build_result(
+                    build_dir,
+                    build_id=build_id,
+                    label=label,
+                    install=install_payload,
+                    error_kind="invalid-config",
+                    detail="unable to prepare managed build artifacts",
+                    exit_code=int(install_payload.get("exit_code") or 0),
+                )
+            manifest = _managed_build_manifest(
+                build_id=build_id,
+                label=label,
+                status="ready",
+                install=install_payload,
+                resolved=resolved,
+            )
+            _write_build_manifest(build_dir, manifest)
+            return {
+                "ok": True,
+                "detail": "build ready",
+                "build_id": build_id,
+                "label": label,
+                "status": "ready",
+                "manifest": _build_job_manifest_payload(manifest),
+            }
+        finally:
+            log_sink.close()
+
     async def _default_build_job_runner(
         self,
         params: dict[str, Any],
@@ -990,6 +1155,8 @@ class LocalAgent:
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
         method = str(params.get("method") or "").strip().lower()
+        if method == "pip":
+            return await self._run_pip_build_job(params, emit, _cancel_event)
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
             adopt_params = {
                 "build_id": params.get("build_id") or params.get("job_id"),
@@ -1679,6 +1846,242 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+async def _build_subprocess_exec(
+    argv: list[str],
+    *,
+    env: dict[str, str],
+    cwd: Path,
+    emit: JobProgressEmitter,
+    phase: str,
+    cancel_event: asyncio.Event,
+) -> int:
+    if cancel_event.is_set():
+        return 130
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(cwd),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    assert process.stdout is not None
+    while True:
+        chunk = await process.stdout.readline()
+        if not chunk:
+            break
+        text = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
+        if text:
+            emit(
+                {
+                    "kind": "committed",
+                    "text": text,
+                    "level": level_for_line(text),
+                    "phase": phase,
+                }
+            )
+        if cancel_event.is_set() and process.returncode is None:
+            process.terminate()
+    return int(await process.wait())
+
+
+def _managed_build_resolved_versions(venv_path: Path) -> dict[str, str]:
+    python_bin = venv_path / "bin" / "python"
+    vllm_bin = venv_path / "bin" / "vllm"
+    import_version = _run_build_probe(
+        [
+            str(python_bin),
+            "-c",
+            "import vllm; print(vllm.__version__)",
+        ],
+        "vLLM import failed",
+    )
+    vllm_version_output = _run_build_probe(
+        [str(vllm_bin), "--version"],
+        "vLLM version probe failed",
+    )
+    if import_version not in vllm_version_output:
+        raise BuildRegistryError(
+            "invalid-config",
+            "vLLM executable version and Python import version disagree",
+            {
+                "reason": "vllm-version-mismatch",
+                "executable_version": vllm_version_output,
+                "import_version": import_version,
+            },
+        )
+    python_version = _run_build_probe(
+        [str(python_bin), "--version"],
+        "Python version probe failed",
+    )
+    profile = select_profile(import_version)
+    return {
+        "vllm": import_version,
+        "vllm_version_profile": profile.name,
+        "python": python_version.replace("Python ", "", 1),
+    }
+
+
+def _run_build_probe(argv: list[str], failure_message: str) -> str:
+    try:
+        result = subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BuildRegistryError(
+            "invalid-config",
+            failure_message,
+            {"reason": "build-probe-failed", "command": argv},
+        ) from exc
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0 or not output:
+        raise BuildRegistryError(
+            "invalid-config",
+            failure_message,
+            {
+                "reason": "build-probe-failed",
+                "command": argv,
+                "returncode": result.returncode,
+                "output": output,
+            },
+        )
+    return output.splitlines()[-1].strip()
+
+
+def _write_managed_build_artifacts(build_dir: Path, venv_path: Path) -> None:
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    _replace_symlink(bin_dir / "vllm", venv_path / "bin" / "vllm")
+    _replace_symlink(bin_dir / "python", venv_path / "bin" / "python")
+    _replace_symlink(build_dir / "activate", venv_path / "bin" / "activate")
+    run_script = build_dir / "run.sh"
+    run_script.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "set -eu",
+                f'BUILD_ROOT="{build_dir}"',
+                'export VIRTUAL_ENV="${BUILD_ROOT}/venv"',
+                'export PATH="${VIRTUAL_ENV}/bin:${PATH}"',
+                'exec "${BUILD_ROOT}/bin/vllm" "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    run_script.chmod(0o755)
+
+
+def _replace_symlink(link_path: Path, target_path: Path) -> None:
+    link_path.unlink(missing_ok=True)
+    link_path.symlink_to(target_path)
+
+
+def _managed_build_manifest(
+    *,
+    build_id: str,
+    label: str,
+    status: str,
+    install: dict[str, Any],
+    resolved: dict[str, str],
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return {
+        "schema_version": 1,
+        "build_id": build_id,
+        "label": label,
+        "status": status,
+        "install": dict(install),
+        "resolved": dict(resolved),
+        "paths": {
+            "root": "",
+            "venv": "venv",
+            "executable": "bin/vllm",
+            "python": "bin/python",
+            "activate": "activate",
+            "run_script": "run.sh",
+        },
+        "created_at": now,
+        "last_used_at": None,
+        "notes": "",
+    }
+
+
+def _write_build_manifest(build_dir: Path, manifest: dict[str, Any]) -> None:
+    payload = dict(manifest)
+    paths = dict(payload.get("paths") if isinstance(payload.get("paths"), dict) else {})
+    paths["root"] = str(build_dir)
+    payload["paths"] = paths
+    manifest["paths"] = paths
+    tmp = build_dir / ".build.json.tmp"
+    tmp.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, build_dir / "build.json")
+
+
+def _failed_build_result(
+    build_dir: Path,
+    *,
+    build_id: str,
+    label: str,
+    install: dict[str, Any],
+    error_kind: str,
+    detail: str,
+    exit_code: int,
+) -> dict[str, Any]:
+    failed_install = dict(install)
+    failed_install["exit_code"] = exit_code
+    manifest = _managed_build_manifest(
+        build_id=build_id,
+        label=label,
+        status="failed",
+        install=failed_install,
+        resolved={},
+    )
+    _write_build_manifest(build_dir, manifest)
+    return {
+        "ok": False,
+        "error_kind": error_kind,
+        "detail": detail,
+        "build_id": build_id,
+        "label": label,
+        "status": "failed",
+        "exit_code": exit_code,
+        "manifest": _build_job_manifest_payload(manifest),
+    }
+
+
+def _build_job_manifest_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(json.dumps(manifest))
+
+
+def _env_overrides(value: object) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {
+            str(key): str(item)
+            for key, item in value.items()
+            if str(key) and str(item)
+        }
+    if not isinstance(value, list):
+        return {}
+    env: dict[str, str] = {}
+    for item in value:
+        text = str(item)
+        if "=" not in text:
+            continue
+        key, env_value = text.split("=", 1)
+        if key:
+            env[key] = env_value
+    return env
 
 
 def _configs_pinning_model(configs_dir: Path | None, aliases: set[str]) -> list[str]:
