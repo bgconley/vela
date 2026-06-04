@@ -142,25 +142,3 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
         if not params["method"]:
             raise ValueError("Choose a build method")
         return params
-
-
-def _parse_build_params(value: str) -> dict[str, Any]:
-    tokens = [token.strip() for token in value.split() if token.strip()]
-    if not tokens:
-        raise ValueError("Enter a build method")
-    params: dict[str, Any] = {}
-    for index, token in enumerate(tokens):
-        if "=" not in token:
-            if index == 0 and "method" not in params:
-                params["method"] = token
-                continue
-            raise ValueError(f"Use key=value for '{token}'")
-        key, raw_value = token.split("=", 1)
-        key = key.strip().replace("-", "_")
-        raw_value = raw_value.strip()
-        if not key or not raw_value:
-            raise ValueError("Build fields must use key=value")
-        params[key] = raw_value
-    if not params.get("method"):
-        raise ValueError("Enter method=<type>")
-    return params

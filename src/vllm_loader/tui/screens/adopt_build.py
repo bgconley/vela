@@ -100,22 +100,3 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
         if not cleaned.get("venv_path"):
             raise ValueError("Enter venv_path=<path>")
         return cleaned
-
-
-def _parse_adopt_build_params(value: str) -> dict[str, Any]:
-    tokens = [token.strip() for token in value.split() if token.strip()]
-    if not tokens:
-        raise ValueError("Enter venv_path=<path>")
-    params: dict[str, Any] = {}
-    for token in tokens:
-        if "=" not in token:
-            raise ValueError(f"Use key=value for '{token}'")
-        key, raw_value = token.split("=", 1)
-        key = key.strip().replace("-", "_")
-        raw_value = raw_value.strip()
-        if not key or not raw_value:
-            raise ValueError("Build fields must use key=value")
-        params[key] = raw_value
-    if not params.get("venv_path"):
-        raise ValueError("Enter venv_path=<path>")
-    return params

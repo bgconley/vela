@@ -1315,8 +1315,9 @@ class VllmLoaderApp(App):
             return
         action = selection.get("action")
         if action == "pin_model":
+            initial = selection.get("initial") if isinstance(selection.get("initial"), dict) else {}
             self.push_screen(
-                PinModelScreen(initial=str(selection.get("initial") or "")),
+                PinModelScreen(initial=initial),
                 callback=self._handle_pin_model_submission,
             )
             return

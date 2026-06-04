@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shlex
 from typing import Any
 
 from textual.app import ComposeResult
@@ -115,7 +114,7 @@ class ModelManagerScreen(ModalScreen):
 
     def action_pin(self) -> None:
         model = self._selected_model()
-        initial = _initial_pin_text(model) if model is not None else ""
+        initial = _initial_pin_params(model) if model is not None else {}
         self.dismiss({"action": "pin_model", "initial": initial})
 
     def action_refresh_models(self) -> None:
@@ -213,7 +212,7 @@ def _is_url_model(model: dict[str, Any]) -> bool:
     return str(model.get("source") or "") == "url"
 
 
-def _initial_pin_text(model: dict[str, Any]) -> str:
+def _initial_pin_params(model: dict[str, Any]) -> dict[str, Any]:
     fields = [
         ("entry_id", model.get("entry_id")),
         ("repo_id", model.get("repo_id")),
@@ -225,16 +224,14 @@ def _initial_pin_text(model: dict[str, Any]) -> str:
         ("tokenizer", model.get("tokenizer")),
         ("notes", model.get("notes")),
     ]
-    tokens = [
-        f"{key}={shlex.quote(value)}"
-        for key, value in fields
-        if isinstance(value, str) and value.strip()
-    ]
+    params = {key: value for key, value in fields if isinstance(value, str) and value.strip()}
     if model.get("gated"):
-        tokens.append("gated=true")
+        params["gated"] = True
     if model.get("token_required"):
-        tokens.append("token_required=true")
-    return " ".join(tokens)
+        params["token_required"] = True
+    if params.get("url"):
+        params["source"] = "url"
+    return params
 
 
 def _quant_label(model: dict[str, Any]) -> str:

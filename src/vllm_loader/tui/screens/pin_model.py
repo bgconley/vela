@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shlex
 from typing import Any
 
 from textual.app import ComposeResult
@@ -44,13 +43,9 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def __init__(self, *, initial: str = "") -> None:
+    def __init__(self, *, initial: dict[str, Any] | None = None) -> None:
         super().__init__(id="pin-model")
-        self.initial = initial
-        try:
-            self.initial_params = _parse_model_pin_params(initial) if initial else {}
-        except ValueError:
-            self.initial_params = {}
+        self.initial_params = dict(initial or {})
 
     def compose(self) -> ComposeResult:
         with Vertical(id="pin-model-panel"):
@@ -172,27 +167,3 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
         if not params.get("repo_id") and not params.get("local_path") and not params.get("url"):
             raise ValueError("Enter repo_id=<repo>, local_path=<path>, or url=<url>")
         return params
-
-
-def _parse_model_pin_params(value: str) -> dict[str, Any]:
-    tokens = [token.strip() for token in shlex.split(value) if token.strip()]
-    if not tokens:
-        raise ValueError("Enter model pin metadata")
-    params: dict[str, Any] = {}
-    for token in tokens:
-        if "=" not in token:
-            raise ValueError(f"Use key=value for '{token}'")
-        key, raw_value = token.split("=", 1)
-        key = key.strip().replace("-", "_")
-        raw_value = raw_value.strip()
-        if not key or not raw_value:
-            raise ValueError("Model pin fields must use key=value")
-        if key in {"gated", "token_required"}:
-            params[key] = raw_value.lower() in {"1", "true", "yes", "on"}
-        else:
-            params[key] = raw_value
-    if params.get("url"):
-        params["source"] = "url"
-    if not params.get("repo_id") and not params.get("local_path") and not params.get("url"):
-        raise ValueError("Enter repo_id=<repo>, local_path=<path>, or url=<url>")
-    return params
