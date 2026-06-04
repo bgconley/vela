@@ -77,7 +77,11 @@ def build_command(
 
     warnings.extend(_network_warnings(cfg))
     preview = render_preview(argv, env, cwd)
-    metadata = {"vllm_version_profile": cfg.vllm.version_profile or profile.version}
+    metadata = {
+        "vllm_version_profile": cfg.vllm.version_profile or profile.version,
+        "known_flags": sorted(profile.known_flags),
+        "flag_map": dict(sorted(profile.flag_map.items())),
+    }
     return CommandBuildResult(
         argv=argv,
         env=env,

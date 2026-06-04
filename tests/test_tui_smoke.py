@@ -3435,6 +3435,74 @@ async def test_selected_config_preview_uses_config_executable_help_for_require_f
 
 
 @pytest.mark.asyncio
+async def test_flag_manager_opens_from_binding_and_partitions_flags(
+    config_dir: Path,
+    tmp_path: Path,
+) -> None:
+    fake_vllm = tmp_path / "fake-vllm"
+    fake_vllm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('vllm 0.11.2')\n"
+        "elif len(sys.argv) >= 2 and sys.argv[1] == 'serve':\n"
+        "    print('usage: vllm serve')\n"
+        "    print('  --host TEXT')\n"
+        "    print('  --port INTEGER')\n"
+        "    print('  --tensor-parallel-size INTEGER')\n"
+        "    print('  --kv-cache-dtype TEXT')\n"
+        "    print('  --moe-backend TEXT')\n",
+        encoding="utf-8",
+    )
+    fake_vllm.chmod(0o755)
+    write_yaml(
+        config_dir / "flags.yaml",
+        f"""
+        name: flags
+        model: org/model
+        command:
+          executable: {fake_vllm}
+        engine:
+          tensor_parallel_size: 2
+          kv_cache_dtype: fp8
+        extra_args:
+          - --moe-backend
+          - flashinfer_cutlass
+          - --legacy-flag
+          - value
+        """,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=InProcessTargetClient(LocalAgent()),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await pilot.pause()
+
+        assert app.screen.id == "flag-manager"
+        flag_list = str(app.screen.query_one("#flag-manager-list", Static).content)
+        detail = str(app.screen.query_one("#flag-manager-detail", Static).content)
+        assert "Flag Manager" in flag_list
+        assert "modeled 2" in flag_list
+        assert "passthrough 1" in flag_list
+        assert "unknown 1" in flag_list
+        assert "MODELED" in flag_list
+        assert "kv-cache-dtype = fp8" in flag_list
+        assert "tensor-parallel-size = 2" in flag_list
+        assert "PASSTHROUGH" in flag_list
+        assert "--moe-backend flashinfer_cutlass" in flag_list
+        assert "UNKNOWN-TO-BUILD" in flag_list
+        assert "--legacy-flag value" in flag_list
+        assert "Resolved command" in detail
+        assert "--kv-cache-dtype fp8" in detail
+        assert "--moe-backend flashinfer_cutlass" in detail
+
+
+@pytest.mark.asyncio
 async def test_select_config_with_profile_gate_failure_shows_preview_error(
     config_dir: Path,
 ) -> None:

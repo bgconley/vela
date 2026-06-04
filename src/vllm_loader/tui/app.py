@@ -62,6 +62,7 @@ from vllm_loader.tui.screens.build_manager import BuildManagerScreen
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.create_build import CreateBuildScreen
+from vllm_loader.tui.screens.flag_manager import FlagManagerScreen
 from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
 from vllm_loader.tui.screens.model_manager import ModelManagerScreen
@@ -522,6 +523,7 @@ class VllmLoaderApp(App):
         ("c", "config_picker", "Configs"),
         ("t", "targets", "Targets"),
         ("b", "builds", "Builds"),
+        ("F", "flags", "Flags"),
         ("m", "models", "Models"),
         ("R", "reconnect", "Reconnect"),
         ("/", "search", "Search"),
@@ -770,6 +772,11 @@ class VllmLoaderApp(App):
             "Manage vLLM builds", "View and select target-local vLLM builds", self.action_builds
         )
         yield SystemCommand(
+            "Manage vLLM flags",
+            "Inspect flags for the selected config and build",
+            self.action_flags,
+        )
+        yield SystemCommand(
             "Manage models", "View target-local model catalog entries", self.action_models
         )
         yield SystemCommand(
@@ -963,6 +970,30 @@ class VllmLoaderApp(App):
             group="build-manager",
             exclusive=True,
             exit_on_error=False,
+        )
+
+    def action_flags(self) -> None:
+        if self.current_config is None:
+            self._set_error_text("Select a config before opening Flag Manager")
+            return
+        self.run_worker(
+            self._open_flag_manager(),
+            name="flag-manager",
+            group="flag-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _open_flag_manager(self) -> None:
+        if self.current_config is None:
+            return
+        await self._refresh_selected_config_preview()
+        self.push_screen(
+            FlagManagerScreen(
+                self.current_config,
+                preview=self.selected_config_preview,
+                metadata=self.selected_config_metadata,
+            )
         )
 
     async def _open_build_manager(self) -> None:

@@ -938,6 +938,54 @@ async def test_local_agent_preview_matches_existing_command_shape(config_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_local_agent_preview_metadata_includes_collected_known_flags(
+    config_dir: Path,
+    tmp_path: Path,
+) -> None:
+    fake_vllm = tmp_path / "fake-vllm"
+    fake_vllm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('vllm 0.11.2')\n"
+        "elif len(sys.argv) >= 2 and sys.argv[1] == 'serve':\n"
+        "    print('usage: vllm serve')\n"
+        "    print('  --host TEXT')\n"
+        "    print('  --port INTEGER')\n"
+        "    print('  --moe-backend TEXT')\n",
+        encoding="utf-8",
+    )
+    fake_vllm.chmod(0o755)
+    write_yaml(
+        config_dir / "preview-known-flags.yaml",
+        f"""
+        name: preview-known-flags
+        model: org/model
+        command:
+          executable: {fake_vllm}
+        extra_args:
+          - --moe-backend
+          - flashinfer_cutlass
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    result = await client.call(
+        "preview",
+        {"name": "preview-known-flags", "configs_dir": str(config_dir)},
+    )
+
+    metadata = result["metadata"]
+    assert "--host" in metadata["known_flags"]
+    assert "--port" in metadata["known_flags"]
+    assert "--moe-backend" in metadata["known_flags"]
+    assert metadata["flag_map"]["host"] == "--host"
+    assert metadata["flag_map"]["port"] == "--port"
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_local_agent_prepare_launch_uses_command_cwd_for_relative_model(
     config_dir: Path, tmp_path: Path
 ) -> None:
