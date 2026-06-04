@@ -18,6 +18,15 @@ If real-config-name is provided, the remote host also runs:
   - vllm-loader preview REAL_CONFIG
   - timeout-bound vllm-loader smoke-tui REAL_CONFIG
 
+Optional real artifact validation is enabled by local environment variables:
+  - VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==X.Y.Z' runs build add/verify
+  - VLLM_LOADER_REMOTE_BUILD_METHOD defaults to pip
+  - VLLM_LOADER_REMOTE_BUILD_LABEL defaults to remote-smoke-build
+  - VLLM_LOADER_REMOTE_MODEL_REPO pins a HF repo before download
+  - VLLM_LOADER_REMOTE_MODEL_ID defaults to remote-smoke-model
+  - VLLM_LOADER_REMOTE_MODEL_REF downloads an existing pinned entry instead
+  - VLLM_LOADER_REMOTE_MODEL_REVISION optionally pins/downloads a revision
+
 Example:
   scripts/run_remote_tests.sh blackbird /srv/lab-tui
   scripts/run_remote_tests.sh blackbird /srv/lab-tui llama-3.1-8b
@@ -35,6 +44,13 @@ real_config="${3:-}"
 remote_timeout="${VLLM_LOADER_REMOTE_TIMEOUT:-1800}"
 remote_python="${VLLM_LOADER_REMOTE_PYTHON:-auto}"
 remote_venv="${VLLM_LOADER_REMOTE_VENV:-/tank/venvs/lab-tui}"
+remote_build_method="${VLLM_LOADER_REMOTE_BUILD_METHOD:-pip}"
+remote_build_spec="${VLLM_LOADER_REMOTE_BUILD_SPEC:-}"
+remote_build_label="${VLLM_LOADER_REMOTE_BUILD_LABEL:-remote-smoke-build}"
+remote_model_id="${VLLM_LOADER_REMOTE_MODEL_ID:-remote-smoke-model}"
+remote_model_repo="${VLLM_LOADER_REMOTE_MODEL_REPO:-}"
+remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
+remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
 ssh_cmd=(ssh)
 if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
@@ -43,6 +59,20 @@ fi
 ssh_cmd+=("$host" bash -s -- "$remote_path" "$remote_timeout" "$remote_python" "$remote_venv")
 if [[ -n "$real_config" ]]; then
   ssh_cmd+=("$real_config")
+fi
+if [[ -n "$remote_build_spec" || -n "$remote_model_repo" || -n "$remote_model_ref" ]]; then
+  if [[ -z "$real_config" ]]; then
+    ssh_cmd+=("")
+  fi
+  ssh_cmd+=(
+    "$remote_build_method"
+    "$remote_build_spec"
+    "$remote_build_label"
+    "$remote_model_id"
+    "$remote_model_repo"
+    "$remote_model_ref"
+    "$remote_model_revision"
+  )
 fi
 
 "${ssh_cmd[@]}" <<'REMOTE'
@@ -53,6 +83,13 @@ remote_timeout="$2"
 remote_python="${3:-auto}"
 remote_venv="${4:-/tank/venvs/lab-tui}"
 real_config="${5:-}"
+remote_build_method="${6:-pip}"
+remote_build_spec="${7:-}"
+remote_build_label="${8:-remote-smoke-build}"
+remote_model_id="${9:-remote-smoke-model}"
+remote_model_repo="${10:-}"
+remote_model_ref="${11:-}"
+remote_model_revision="${12:-}"
 
 if [[ "$remote_python" == "auto" ]]; then
   if [[ -x /tank/preproc/venv/bin/python ]]; then
@@ -112,6 +149,39 @@ fi
 "$venv_python" -m pytest -q
 "$venv_bin/vllm-loader" list
 "$venv_bin/vllm-loader" preview fake-child
+
+if [[ -n "$remote_build_spec" ]]; then
+  echo "== Real build install =="
+  "$venv_bin/vllm-loader" build add \
+    --method "$remote_build_method" \
+    --label "$remote_build_label" \
+    --spec "$remote_build_spec"
+  "$venv_bin/vllm-loader" build verify "$remote_build_label"
+fi
+
+if [[ -n "$remote_model_repo" ]]; then
+  echo "== Real model pin =="
+  if [[ -n "$remote_model_revision" ]]; then
+    "$venv_bin/vllm-loader" model pin "$remote_model_id" \
+      --repo-id "$remote_model_repo" \
+      --revision "$remote_model_revision"
+  else
+    "$venv_bin/vllm-loader" model pin "$remote_model_id" \
+      --repo-id "$remote_model_repo"
+  fi
+  remote_model_ref="$remote_model_id"
+fi
+
+if [[ -n "$remote_model_ref" ]]; then
+  echo "== Real model download =="
+  if [[ -n "$remote_model_revision" ]]; then
+    "$venv_bin/vllm-loader" model download "$remote_model_ref" \
+      --revision "$remote_model_revision"
+  else
+    "$venv_bin/vllm-loader" model download "$remote_model_ref"
+  fi
+  "$venv_bin/vllm-loader" model verify "$remote_model_ref"
+fi
 
 if [[ -n "$real_config" ]]; then
   "$venv_bin/vllm-loader" preview "$real_config"

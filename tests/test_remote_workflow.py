@@ -29,6 +29,8 @@ def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     assert "v0.19.1rc1.dev119+gba4a78eb5" in docs
     assert "vLLM 0.19" in docs
     assert "vllm-loader smoke-tui" in docs
+    assert "VLLM_LOADER_REMOTE_BUILD_SPEC" in docs
+    assert "VLLM_LOADER_REMOTE_MODEL_REPO" in docs
     assert "textual serve" in docs
     assert "network/auth" in docs
     assert "controls model launches" in docs
@@ -90,6 +92,69 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
         'timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config"'
         in remote_script
     )
+
+
+def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "SSH_CAPTURE": str(capture),
+        "VLLM_LOADER_REMOTE_BUILD_SPEC": "vllm==0.11.2",
+        "VLLM_LOADER_REMOTE_BUILD_LABEL": "real-build-smoke",
+        "VLLM_LOADER_REMOTE_MODEL_ID": "real-model-smoke",
+        "VLLM_LOADER_REMOTE_MODEL_REPO": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+        "VLLM_LOADER_REMOTE_MODEL_REVISION": "main",
+    }
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    assert args[-12:] == [
+        "/srv/lab-tui",
+        "1800",
+        "auto",
+        "/tank/venvs/lab-tui",
+        "",
+        "pip",
+        "vllm==0.11.2",
+        "real-build-smoke",
+        "real-model-smoke",
+        "hf-internal-testing/tiny-random-LlamaForCausalLM",
+        "",
+        "main",
+    ]
+    assert 'remote_build_method="${6:-pip}"' in remote_script
+    assert '"$venv_bin/vllm-loader" build add' in remote_script
+    assert '--method "$remote_build_method"' in remote_script
+    assert '--spec "$remote_build_spec"' in remote_script
+    assert '"$venv_bin/vllm-loader" build verify "$remote_build_label"' in remote_script
+    assert '"$venv_bin/vllm-loader" model pin "$remote_model_id"' in remote_script
+    assert '--repo-id "$remote_model_repo"' in remote_script
+    assert '"$venv_bin/vllm-loader" model download "$remote_model_ref"' in remote_script
+    assert '"$venv_bin/vllm-loader" model verify "$remote_model_ref"' in remote_script
 
 
 def test_remote_validation_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:

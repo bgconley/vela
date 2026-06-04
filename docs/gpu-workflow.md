@@ -62,6 +62,30 @@ Real vLLM validation with a named config already present in the synced
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
+Real managed-artifact validation is opt-in so the default remote run stays safe
+and reasonably fast. To exercise the build installer, provide a pip spec; the
+script runs `vllm-loader build add` followed by `build verify` on the GPU host:
+
+```bash
+VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==0.11.2' \
+VLLM_LOADER_REMOTE_BUILD_LABEL=real-build-smoke \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+```
+
+To exercise the model download path, pin a small Hugging Face repo and download
+it through the agent. Keep `HF_TOKEN` on the GPU host if the repo is gated:
+
+```bash
+VLLM_LOADER_REMOTE_MODEL_ID=real-model-smoke \
+VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VLLM_LOADER_REMOTE_MODEL_REVISION=main \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+```
+
+These knobs can be combined with the real config smoke. In that case the script
+first runs no-GPU checks, then the optional build/model artifact jobs, then
+`preview` + `smoke-tui` for the named config.
+
 Preferred future real smoke target: `blackbird` (`10.25.0.51`) with the
 `RTX PRO 6000 Blackwell Max-Q` GPU and Qwen3.6 27B FP8:
 
