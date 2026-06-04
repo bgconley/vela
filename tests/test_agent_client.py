@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import io
 import json
+import os
+import signal
 import socket
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -5370,6 +5374,283 @@ async def test_agent_create_build_pip_job_marks_failed_when_verify_fails(
 
 
 @pytest.mark.asyncio
+async def test_build_subprocess_exec_derives_install_phases_from_output(
+    tmp_path: Path,
+) -> None:
+    installer = tmp_path / "fake_installer.py"
+    installer.write_text(
+        "\n".join(
+            [
+                "print('Collecting vllm==0.11.2')",
+                "print('Downloading vllm-0.11.2.whl')",
+                "print('Building wheel for vllm (pyproject.toml)')",
+                "print('ninja: build stopped: subcommand failed')",
+                "print('Successfully installed vllm-0.11.2')",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    events: list[dict[str, object]] = []
+
+    exit_code = await local_agent_module._build_subprocess_exec(
+        [sys.executable, str(installer)],
+        env=dict(os.environ),
+        cwd=tmp_path,
+        emit=events.append,
+        phase="INSTALLING",
+        cancel_event=asyncio.Event(),
+    )
+
+    assert exit_code == 0
+    assert [(event["text"], event["phase"]) for event in events] == [
+        ("Collecting vllm==0.11.2", "DOWNLOADING"),
+        ("Downloading vllm-0.11.2.whl", "DOWNLOADING"),
+        ("Building wheel for vllm (pyproject.toml)", "BUILDING"),
+        ("ninja: build stopped: subcommand failed", "BUILDING"),
+        ("Successfully installed vllm-0.11.2", "INSTALLING"),
+    ]
+    json.dumps(events)
+
+
+@pytest.mark.asyncio
+async def test_build_subprocess_exec_terminates_child_on_task_cancel(
+    tmp_path: Path,
+) -> None:
+    pid_file = tmp_path / "installer.pid"
+    installer = tmp_path / "slow_installer.py"
+    installer.write_text(
+        "\n".join(
+            [
+                "import os",
+                "import time",
+                f"{str(pid_file)!r} and open({str(pid_file)!r}, 'w').write(str(os.getpid()))",
+                "print('started', flush=True)",
+                "time.sleep(60)",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    started = asyncio.Event()
+
+    def emit(event: dict[str, object]) -> None:
+        if event.get("text") == "started":
+            started.set()
+
+    task = asyncio.create_task(
+        local_agent_module._build_subprocess_exec(
+            [sys.executable, str(installer)],
+            env=dict(os.environ),
+            cwd=tmp_path,
+            emit=emit,
+            phase="INSTALLING",
+            cancel_event=asyncio.Event(),
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=2)
+    pid = int(pid_file.read_text(encoding="utf-8"))
+    try:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        for _ in range(20):
+            if not _pid_alive(pid):
+                break
+            await asyncio.sleep(0.05)
+        assert not _pid_alive(pid)
+    finally:
+        if _pid_alive(pid):
+            os.kill(pid, signal.SIGKILL)
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_pip_cancel_marks_failed_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    install_started = asyncio.Event()
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+            return 0
+        emit({"kind": "committed", "text": "Collecting vllm", "phase": phase})
+        install_started.set()
+        await asyncio.Event().wait()
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-cancel"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-cancel",
+                "method": "pip",
+                "build_id": "01CANCEL",
+                "spec": "vllm==0.11.2",
+            },
+        )
+        await asyncio.wait_for(install_started.wait(), timeout=2)
+        cancel_result = await client.call("cancel_job", {"job_id": "job-build-cancel"})
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    manifest = json.loads((builds_root / "01CANCEL" / "build.json").read_text())
+    assert cancel_result == {
+        "job_id": "job-build-cancel",
+        "cancelled": True,
+        "status": "cancelled",
+    }
+    assert done["event"] == "job_done"
+    assert done["ok"] is False
+    assert done["error_kind"] == "cancelled"
+    assert done["detail"] == "build install cancelled"
+    assert done["build_id"] == "01CANCEL"
+    assert done["status"] == "failed"
+    assert manifest["status"] == "failed"
+    assert manifest["install"]["exit_code"] == 130
+    assert manifest["install"]["cancelled"] is True
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("installer_line", "expected_kind"),
+    [
+        (
+            "ERROR: Could not install packages due to an OSError: "
+            "[Errno 28] No space left on device",
+            "disk-full",
+        ),
+        (
+            "ERROR: Could not find a version that satisfies the requirement vllm==9.9",
+            "package-not-found",
+        ),
+        (
+            "HTTPSConnectionPool: Read timed out while downloading wheel",
+            "network",
+        ),
+        (
+            "403 Client Error: Forbidden for url https://packages.example/simple",
+            "auth",
+        ),
+        (
+            "ninja: build stopped: subcommand failed",
+            "build-failed",
+        ),
+    ],
+)
+async def test_agent_create_build_pip_job_classifies_install_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    installer_line: str,
+    expected_kind: str,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+            return 0
+        emit(
+            {
+                "kind": "committed",
+                "text": installer_line,
+                "level": "ERROR",
+                "phase": phase,
+            }
+        )
+        return 1
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-install-fail"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-install-fail",
+                "method": "pip",
+                "build_id": "01INSTALLFAIL",
+                "spec": "vllm==9.9",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    manifest = json.loads(
+        (builds_root / "01INSTALLFAIL" / "build.json").read_text(encoding="utf-8")
+    )
+    assert done["ok"] is False
+    assert done["error_kind"] == expected_kind
+    assert done["status"] == "failed"
+    assert manifest["status"] == "failed"
+    assert manifest["install"]["exit_code"] == 1
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_download_model_job_streams_by_job_id() -> None:
     async def model_job_runner(params, emit, cancel_event) -> dict[str, object]:
         assert params["job_id"] == "job-model-1"
@@ -5593,6 +5874,7 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
         )
         progress = await asyncio.wait_for(events.__anext__(), timeout=2)
         downloading = await asyncio.wait_for(events.__anext__(), timeout=2)
+        verifying = await asyncio.wait_for(events.__anext__(), timeout=2)
         done = await asyncio.wait_for(events.__anext__(), timeout=2)
     finally:
         await events.aclose()
@@ -5607,6 +5889,9 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     assert progress["text"] == "Resolving model"
     assert downloading["event"] == "job_progress"
     assert downloading["text"] == "Downloading model meta-llama/Llama-3.1-8B-Instruct"
+    assert verifying["event"] == "job_progress"
+    assert verifying["text"] == "Verifying model meta-llama/Llama-3.1-8B-Instruct"
+    assert verifying["phase"] == "VERIFYING"
     assert done["event"] == "job_done"
     assert done["job_id"] == "job-model-remote"
     assert done["ok"] is True
@@ -5619,6 +5904,8 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
         "total_bytes": 130,
         "weights_format": "safetensors",
     }
+    tqdm_class = snapshot_calls[0].pop("tqdm_class")
+    assert isinstance(tqdm_class, type)
     assert snapshot_calls == [
         {
             "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
@@ -5635,6 +5922,87 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     json.dumps(progress)
     json.dumps(downloading)
     json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_download_model_job_streams_snapshot_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    def fake_snapshot_download(**kwargs: object) -> str:
+        tqdm_class = kwargs.get("tqdm_class")
+        assert tqdm_class is not None
+        progress = tqdm_class(total=200, file=io.StringIO())
+        progress.update(50)
+        progress.update(150)
+        progress.close()
+        return str(tmp_path / "hf-cache" / "snapshots" / "abc123")
+
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=200,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=20),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=180),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        fake_snapshot_download,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-progress"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-progress", "model_ref": "01REMOTE"},
+        )
+        progress_events = []
+        while True:
+            event = await asyncio.wait_for(events.__anext__(), timeout=2)
+            if event.get("event") == "job_done":
+                done = event
+                break
+            progress_events.append(event)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    percents = [event.get("percent") for event in progress_events]
+    assert 25 in percents
+    assert 100 in percents
+    assert any(event.get("bytes_total") == 200 for event in progress_events)
+    assert any(event.get("phase") == "VERIFYING" for event in progress_events)
+    assert done["ok"] is True
+    assert done["cache_state"] == "cached"
+    json.dumps({"progress": progress_events, "done": done})
 
 
 @pytest.mark.asyncio
@@ -5700,6 +6068,8 @@ async def test_agent_download_model_job_injects_hf_token_without_persisting_it(
         await events.aclose()
         await client.disconnect()
 
+    tqdm_class = snapshot_calls[0].pop("tqdm_class")
+    assert isinstance(tqdm_class, type)
     assert snapshot_calls == [
         {
             "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
@@ -5837,6 +6207,82 @@ async def test_agent_cancelled_model_download_marks_entry_partial(
     }
     assert done["event"] == "job_done"
     assert done["error_kind"] == "cancelled"
+    assert entry["cache_state"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_agent_cancelled_model_download_interrupts_progress_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    first_progress = threading.Event()
+    continue_download = threading.Event()
+    worker_interrupted = threading.Event()
+
+    def fake_snapshot_download(**kwargs: object) -> str:
+        tqdm_class = kwargs.get("tqdm_class")
+        assert tqdm_class is not None
+        progress = tqdm_class(total=100, file=io.StringIO())
+        progress.update(10)
+        first_progress.set()
+        continue_download.wait(timeout=2)
+        try:
+            progress.update(10)
+        except Exception:
+            worker_interrupted.set()
+            raise
+        return str(tmp_path / "hf-cache" / "snapshots" / "abc123")
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        fake_snapshot_download,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-interrupt"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-interrupt", "model_ref": "01REMOTE"},
+        )
+        assert await asyncio.to_thread(first_progress.wait, 2)
+        cancel_task = asyncio.create_task(
+            client.call("cancel_job", {"job_id": "job-model-interrupt"})
+        )
+        await asyncio.sleep(0.05)
+        assert cancel_task.done() is False
+        continue_download.set()
+        cancel_result = await asyncio.wait_for(cancel_task, timeout=2)
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        continue_download.set()
+        await events.aclose()
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    [entry] = registry["entries"]
+    assert worker_interrupted.is_set()
+    assert cancel_result == {
+        "job_id": "job-model-interrupt",
+        "cancelled": True,
+        "status": "cancelled",
+    }
+    assert done["event"] == "job_done"
+    assert done["error_kind"] == "cancelled"
+    assert done["detail"] == "model download cancelled"
     assert entry["cache_state"] == "partial"
 
 

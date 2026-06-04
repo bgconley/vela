@@ -134,6 +134,67 @@ JOB_SECRET_ENV_MARKERS = (
     "CREDENTIAL",
 )
 URL_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+")
+BUILD_INSTALL_PHASE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"\b(collecting|downloading|fetching|obtaining|cloning|checkout|"
+            r"receiving objects|resolving deltas)\b",
+            re.IGNORECASE,
+        ),
+        "DOWNLOADING",
+    ),
+    (
+        re.compile(
+            r"\b(building wheel|building editable|preparing metadata|compiling|"
+            r"ninja|cmake|nvcc|build_ext|running build|pyproject\.toml)\b",
+            re.IGNORECASE,
+        ),
+        "BUILDING",
+    ),
+    (
+        re.compile(
+            r"\b(installing collected packages|successfully installed|"
+            r"requirement already satisfied|installed)\b",
+            re.IGNORECASE,
+        ),
+        "INSTALLING",
+    ),
+)
+BUILD_INSTALL_ERROR_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(errno 28|no space left|disk full)\b", re.IGNORECASE), "disk-full"),
+    (
+        re.compile(
+            r"(could not find a version|no matching distribution|package .* not found)",
+            re.IGNORECASE,
+        ),
+        "package-not-found",
+    ),
+    (
+        re.compile(
+            r"\b(401|403)\b|forbidden|unauthorized|authentication required|"
+            r"invalid credentials",
+            re.IGNORECASE,
+        ),
+        "auth",
+    ),
+    (
+        re.compile(
+            r"(connectionpool|connection error|read timed out|timed out|timeout|"
+            r"temporary failure|network is unreachable|connection reset|"
+            r"connection refused|ssl|tls)",
+            re.IGNORECASE,
+        ),
+        "network",
+    ),
+    (
+        re.compile(
+            r"(ninja.*failed|subcommand failed|failed building wheel|"
+            r"building wheel .* failed|nvcc.*failed|cmake.*error|compilation failed)",
+            re.IGNORECASE,
+        ),
+        "build-failed",
+    ),
+)
 VLLM_COMMIT_INDEX_BASE = "https://wheels.vllm.ai"
 VLLM_NIGHTLY_INDEX_BASE = "https://wheels.vllm.ai/nightly"
 
@@ -1052,7 +1113,7 @@ class LocalAgent:
             result = await runner(params, emit, cancel_event)
         except asyncio.CancelledError:
             job.status = "cancelled"
-            result = {"ok": False, "error_kind": "cancelled", "detail": "cancelled"}
+            result = _cancelled_job_result(kind, params)
         except Exception as exc:
             job.status = "failed"
             result = {
@@ -1061,7 +1122,10 @@ class LocalAgent:
                 "detail": str(exc),
             }
         else:
-            job.status = "succeeded" if bool(result.get("ok")) else "failed"
+            if result.get("error_kind") == "cancelled":
+                job.status = "cancelled"
+            else:
+                job.status = "succeeded" if bool(result.get("ok")) else "failed"
         safe_result = _scrub_job_payload(dict(result), secrets=job_secrets)
         job.result = safe_result
         self._publish_event(AgentEvent("job_done", job_id, safe_result))
@@ -1117,8 +1181,12 @@ class LocalAgent:
         )
         build_dir.mkdir(parents=True)
         current_log_payload: dict[str, Any] = {}
+        install_output_tail: list[str] = []
 
         def emit_log_record(record: LogRecord) -> None:
+            install_output_tail.append(record.text)
+            if len(install_output_tail) > 50:
+                del install_output_tail[:-50]
             payload = dict(current_log_payload)
             payload["kind"] = record.kind
             payload["text"] = record.text
@@ -1177,12 +1245,16 @@ class LocalAgent:
                 cancel_event=cancel_event,
             )
             if venv_exit != 0:
+                error_kind = _classify_build_install_failure(
+                    install_output_tail,
+                    default="venv-create-failed",
+                )
                 return _failed_build_result(
                     build_dir,
                     build_id=build_id,
                     label=label,
                     install=install_payload,
-                    error_kind="venv-create-failed",
+                    error_kind=error_kind,
                     detail="build virtualenv creation failed",
                     exit_code=venv_exit,
                 )
@@ -1196,12 +1268,16 @@ class LocalAgent:
                     cancel_event=cancel_event,
                 )
                 if preinstall_exit != 0:
+                    error_kind = _classify_build_install_failure(
+                        install_output_tail,
+                        default="source-prepare-failed",
+                    )
                     return _failed_build_result(
                         build_dir,
                         build_id=build_id,
                         label=label,
                         install=install_payload,
-                        error_kind="source-prepare-failed",
+                        error_kind=error_kind,
                         detail="build source preparation failed",
                         exit_code=preinstall_exit,
                     )
@@ -1215,12 +1291,16 @@ class LocalAgent:
             )
             install_payload["exit_code"] = install_exit
             if install_exit != 0:
+                error_kind = _classify_build_install_failure(
+                    install_output_tail,
+                    default="install-failed",
+                )
                 return _failed_build_result(
                     build_dir,
                     build_id=build_id,
                     label=label,
                     install=install_payload,
-                    error_kind="install-failed",
+                    error_kind=error_kind,
                     detail="build package install failed",
                     exit_code=install_exit,
                 )
@@ -1274,6 +1354,18 @@ class LocalAgent:
                 "status": "ready",
                 "manifest": _build_job_manifest_payload(manifest),
             }
+        except asyncio.CancelledError:
+            install_payload["cancelled"] = True
+            _failed_build_result(
+                build_dir,
+                build_id=build_id,
+                label=label,
+                install=install_payload,
+                error_kind="cancelled",
+                detail="build install cancelled",
+                exit_code=130,
+            )
+            raise
         finally:
             log_sink.close()
 
@@ -1349,7 +1441,7 @@ class LocalAgent:
         self,
         params: dict[str, Any],
         emit: JobProgressEmitter,
-        _cancel_event: asyncio.Event,
+        cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
         model_ref = params.get("model_ref") or params.get("model")
         if not isinstance(model_ref, str) or not model_ref.strip():
@@ -1416,15 +1508,52 @@ class LocalAgent:
                     "phase": "DOWNLOADING",
                 }
             )
-            try:
-                downloaded = await asyncio.to_thread(
+            loop = asyncio.get_running_loop()
+
+            def emit_download_progress(progress: dict[str, Any]) -> None:
+                if cancel_event.is_set():
+                    raise ModelRegistryError(
+                        "cancelled",
+                        "model download cancelled",
+                        {
+                            "model_ref": str(model_ref),
+                            "repo_id": repo_id,
+                            "cache_state": "partial",
+                        },
+                    )
+                payload = _model_download_progress_payload(repo_id, progress)
+                loop.call_soon_threadsafe(emit, payload)
+
+            download_task = asyncio.create_task(
+                asyncio.to_thread(
                     download_hf_model,
                     model_ref,
                     self._models_registry_path,
                     revision=_optional_param_str(params.get("revision")),
                     allow_patterns=allow_patterns,
                     ignore_patterns=ignore_patterns,
+                    progress_callback=emit_download_progress,
                 )
+            )
+            try:
+                downloaded = await asyncio.shield(download_task)
+            except asyncio.CancelledError:
+                cancel_event.set()
+                try:
+                    await asyncio.wait_for(asyncio.shield(download_task), timeout=2)
+                except ModelRegistryError as exc:
+                    if exc.code != "cancelled":
+                        return _cancelled_model_download_result(model_ref, repo_id)
+                    result = {
+                        "ok": False,
+                        "error_kind": exc.code,
+                        "detail": exc.message,
+                    }
+                    result.update(exc.details)
+                    return result
+                except asyncio.TimeoutError:
+                    raise
+                return _cancelled_model_download_result(model_ref, repo_id)
             except ModelRegistryError as exc:
                 result = {
                     "ok": False,
@@ -1433,6 +1562,14 @@ class LocalAgent:
                 }
                 result.update(exc.details)
                 return result
+            emit(
+                {
+                    "kind": "committed",
+                    "text": f"Verifying model {repo_id}",
+                    "level": "INFO",
+                    "phase": "VERIFYING",
+                }
+            )
             return {
                 "ok": True,
                 "detail": "model cached",
@@ -1996,23 +2133,57 @@ async def _build_subprocess_exec(
         stderr=asyncio.subprocess.STDOUT,
     )
     assert process.stdout is not None
-    while True:
-        chunk = await process.stdout.readline()
-        if not chunk:
-            break
-        text = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
-        if text:
-            emit(
-                {
-                    "kind": "committed",
-                    "text": text,
-                    "level": level_for_line(text),
-                    "phase": phase,
-                }
-            )
-        if cancel_event.is_set() and process.returncode is None:
-            process.terminate()
-    return int(await process.wait())
+    try:
+        while True:
+            chunk = await process.stdout.readline()
+            if not chunk:
+                break
+            text = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
+            if text:
+                line_phase = _build_install_phase_for_line(text, phase)
+                emit(
+                    {
+                        "kind": "committed",
+                        "text": text,
+                        "level": level_for_line(text),
+                        "phase": line_phase,
+                    }
+                )
+            if cancel_event.is_set() and process.returncode is None:
+                process.terminate()
+        return int(await process.wait())
+    except asyncio.CancelledError:
+        await _terminate_build_subprocess(process)
+        raise
+
+
+def _build_install_phase_for_line(text: str, default_phase: str) -> str:
+    for pattern, phase in BUILD_INSTALL_PHASE_RULES:
+        if pattern.search(text):
+            return phase
+    return default_phase
+
+
+def _classify_build_install_failure(lines: list[str], *, default: str) -> str:
+    text = "\n".join(lines)
+    for pattern, error_kind in BUILD_INSTALL_ERROR_RULES:
+        if pattern.search(text):
+            return error_kind
+    return default
+
+
+async def _terminate_build_subprocess(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2)
+    except asyncio.TimeoutError:
+        if process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+        await process.wait()
 
 
 def _managed_build_resolved_versions(venv_path: Path) -> dict[str, str]:
@@ -2184,6 +2355,56 @@ def _failed_build_result(
         "status": "failed",
         "exit_code": exit_code,
         "manifest": _build_job_manifest_payload(manifest),
+    }
+
+
+def _cancelled_job_result(kind: str, params: dict[str, Any]) -> dict[str, Any]:
+    if kind == "create_build":
+        build_id = _optional_param_str(params.get("build_id")) or _job_id_param(params)
+        return {
+            "ok": False,
+            "error_kind": "cancelled",
+            "detail": "build install cancelled",
+            "build_id": build_id,
+            "status": "failed",
+            "exit_code": 130,
+        }
+    return {"ok": False, "error_kind": "cancelled", "detail": "cancelled"}
+
+
+def _model_download_progress_payload(
+    repo_id: str,
+    progress: dict[str, Any],
+) -> dict[str, Any]:
+    percent = _optional_int(progress.get("percent"))
+    bytes_done = _optional_int(progress.get("bytes_done"))
+    bytes_total = _optional_int(progress.get("bytes_total"))
+    text = f"Downloading model {repo_id}"
+    if percent is not None:
+        text = f"{text} {percent}%"
+    payload: dict[str, Any] = {
+        "kind": "transient",
+        "text": text,
+        "level": "INFO",
+        "phase": "DOWNLOADING",
+    }
+    if percent is not None:
+        payload["percent"] = percent
+    if bytes_done is not None:
+        payload["bytes_done"] = bytes_done
+    if bytes_total is not None:
+        payload["bytes_total"] = bytes_total
+    return payload
+
+
+def _cancelled_model_download_result(model_ref: object, repo_id: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error_kind": "cancelled",
+        "detail": "model download cancelled",
+        "model_ref": str(model_ref),
+        "repo_id": repo_id,
+        "cache_state": "partial",
     }
 
 
@@ -2911,6 +3132,15 @@ def _optional_param_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def _param_bool(value: object) -> bool:

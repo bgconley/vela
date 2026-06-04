@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,6 +146,7 @@ def download_hf_model(
     revision: str | None = None,
     allow_patterns: list[str] | None = None,
     ignore_patterns: list[str] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()
@@ -178,6 +180,8 @@ def download_hf_model(
     token = os.environ.get("HF_TOKEN")
     if token:
         download_kwargs["token"] = token
+    if progress_callback is not None:
+        download_kwargs["tqdm_class"] = _snapshot_progress_tqdm_class(progress_callback)
 
     entry["cache_state"] = "partial"
     registry["schema_version"] = 1
@@ -187,6 +191,8 @@ def download_hf_model(
 
     try:
         snapshot_path = _snapshot_download(**download_kwargs)
+    except ModelRegistryError:
+        raise
     except ImportError as exc:
         raise ModelRegistryError(
             "feature-unavailable",
@@ -623,6 +629,41 @@ def _snapshot_download(**kwargs: Any) -> str:
     from huggingface_hub import snapshot_download
 
     return str(snapshot_download(**kwargs))
+
+
+def _snapshot_progress_tqdm_class(
+    progress_callback: Callable[[dict[str, Any]], None],
+) -> type:
+    from tqdm.auto import tqdm
+
+    class SnapshotProgressTqdm(tqdm):
+        def update(self, n: int | float = 1) -> bool | None:
+            result = super().update(n)
+            _emit_snapshot_progress(self, progress_callback)
+            return result
+
+        def close(self) -> None:
+            try:
+                _emit_snapshot_progress(self, progress_callback)
+            except Exception:
+                pass
+            super().close()
+
+    return SnapshotProgressTqdm
+
+
+def _emit_snapshot_progress(
+    progress: object,
+    progress_callback: Callable[[dict[str, Any]], None],
+) -> None:
+    bytes_done = _safe_int(getattr(progress, "n", 0))
+    bytes_total_raw = getattr(progress, "total", None)
+    bytes_total = _safe_int(bytes_total_raw)
+    payload: dict[str, Any] = {"bytes_done": bytes_done}
+    if bytes_total > 0:
+        payload["bytes_total"] = bytes_total
+        payload["percent"] = max(0, min(100, int(bytes_done * 100 / bytes_total)))
+    progress_callback(payload)
 
 
 def _snapshot_download_error(
