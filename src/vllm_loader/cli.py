@@ -539,7 +539,7 @@ def model_adopt(
     ] = None,
     display_name: Annotated[
         str | None,
-        typer.Option("--display-name", help="Human-readable model name."),
+        typer.Option("--display-name", "--name", help="Human-readable model name."),
     ] = None,
     quant_format: Annotated[
         str | None,
@@ -577,6 +577,7 @@ def model_adopt(
 
 
 @model_app.command("pin")
+@model_app.command("add")
 def model_pin(
     repo_or_entry: Annotated[
         str,
@@ -594,7 +595,7 @@ def model_pin(
     repo_id: Annotated[str | None, typer.Option("--repo-id", help="Hugging Face repo id.")] = None,
     display_name: Annotated[
         str | None,
-        typer.Option("--display-name", help="Human-readable model name."),
+        typer.Option("--display-name", "--name", help="Human-readable model name."),
     ] = None,
     revision: Annotated[
         str | None,

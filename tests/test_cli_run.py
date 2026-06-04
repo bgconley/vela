@@ -915,6 +915,56 @@ def test_cli_model_adopt_allows_agent_generated_entry_id(
     ]
 
 
+def test_cli_model_adopt_accepts_name_alias(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    model_dir = tmp_path / "models" / "local-llama"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "local-llama",
+                "source": "local_path",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "adopt",
+            str(model_dir),
+            "--name",
+            "local-llama",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "display_name": "local-llama",
+                "local_path": str(model_dir),
+                "source": "local_path",
+            },
+            "blackbird",
+        )
+    ]
+
+
 def test_cli_model_pin_passes_metadata_to_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1021,6 +1071,60 @@ def test_cli_model_pin_passes_optional_model_metadata(
                 "gated": "true",
                 "token_required": "true",
                 "notes": "license accepted",
+            },
+            "blackbird",
+        )
+    ]
+
+
+def test_cli_model_add_alias_passes_name_to_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "add",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "--name",
+            "llama-pin",
+            "--revision",
+            "main",
+            "--tokenizer",
+            "meta-llama/Llama-3.1-tokenizer",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "display_name": "llama-pin",
+                "revision": "main",
+                "tokenizer": "meta-llama/Llama-3.1-tokenizer",
             },
             "blackbird",
         )
