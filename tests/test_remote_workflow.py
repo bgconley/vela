@@ -55,6 +55,21 @@ def test_remote_validation_exercises_live_run_daemon_restart() -> None:
     assert "DAEMON_RESTART_LIVE_RUN_OK" in script
 
 
+def test_remote_validation_exercises_disconnect_reconnect_resume() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    assert "== Disconnect/reconnect stream resume ==" in script
+    assert "disconnect-reconnect-fake" in script
+    assert "tail_detached" in script
+    assert '"start_position": 0' in script
+    assert '"resume_from": {' in script
+    assert '"log_inode": first_cursor["log_inode"]' in script
+    assert '"byte_offset": first_cursor["byte_offset"]' in script
+    assert 'await client.call("discover_runs", {"runs_dirs": [str(runs_dir)]})' in script
+    assert 'await client.call("reattach", {"run_id": run_id})' in script
+    assert "DISCONNECT_RECONNECT_RESUME_OK" in script
+
+
 def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 

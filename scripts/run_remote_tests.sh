@@ -304,6 +304,245 @@ launch:
 asyncio.run(_main())
 PY
 
+echo "== Disconnect/reconnect stream resume =="
+"$venv_python" - "$remote_path" "$venv_bin" <<'PY'
+import asyncio
+import contextlib
+import shutil
+import socket
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+from vllm_loader.transport.subprocess import SubprocessTargetClient
+
+
+remote_path = Path(sys.argv[1])
+venv_bin = Path(sys.argv[2])
+config_name = "disconnect-reconnect-fake"
+tmp_root = Path(tempfile.mkdtemp(prefix="vllm-loader-disconnect-reconnect-"))
+runs_dir = tmp_root / "runs"
+config_path = tmp_root / f"{config_name}.yaml"
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _agent_client() -> SubprocessTargetClient:
+    return SubprocessTargetClient(
+        [str(venv_bin / "vllm-loader"), "agent", "connect"],
+        cwd=remote_path,
+    )
+
+
+async def _wait_ready(client: SubprocessTargetClient, run_id: str) -> dict:
+    for _ in range(80):
+        health = await client.call("health", {"run_id": run_id})
+        if health.get("ready"):
+            return health
+        await asyncio.sleep(0.25)
+    raise RuntimeError(f"run did not become ready for reconnect test: {run_id}")
+
+
+async def _next_log(events, *, contains: str, timeout: float) -> dict:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise RuntimeError(f"timed out waiting for log containing {contains!r}")
+        event = await asyncio.wait_for(events.__anext__(), timeout=remaining)
+        if event.get("event") != "log":
+            continue
+        text = str(event.get("text") or "")
+        if contains in text:
+            return event
+
+
+async def _collect_resumed_logs(
+    events,
+    *,
+    stop_contains: str,
+    timeout: float,
+) -> list[str]:
+    deadline = asyncio.get_running_loop().time() + timeout
+    logs: list[str] = []
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise RuntimeError(f"timed out waiting for replayed log {stop_contains!r}")
+        event = await asyncio.wait_for(events.__anext__(), timeout=remaining)
+        if event.get("event") != "log":
+            continue
+        text = str(event.get("text") or "")
+        logs.append(text)
+        if stop_contains in text:
+            return logs
+
+
+async def _close_events(events) -> None:
+    if events is None:
+        return
+    with contextlib.suppress(Exception):
+        await events.aclose()
+
+
+async def _main() -> None:
+    port = _free_port()
+    config_path.write_text(
+        f"""
+name: {config_name}
+model: fake/model
+served_model_name: fake-model
+command:
+  entrypoint: serve
+  executable: {remote_path / "scripts" / "fake_vllm_child.py"}
+server:
+  host: 127.0.0.1
+  port: {port}
+logging:
+  request_logging: false
+launch:
+  mode: detached
+  runs_dir: {runs_dir}
+  ready_timeout_seconds: 30
+extra_args:
+  - --sleep
+  - "0.2"
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    run_id = f"disconnect-reconnect-{uuid.uuid4().hex}"
+    first_cursor: dict[str, int] = {}
+    first_text = ""
+    first_seq = 0
+    client = _agent_client()
+    events = None
+    tail_task = None
+    await client.connect()
+    try:
+        await client.call(
+            "launch",
+            {
+                "run_id": run_id,
+                "name": config_name,
+                "configs_dir": str(tmp_root),
+            },
+        )
+        events = client.subscribe([run_id], resume_from="start")
+        tail_task = asyncio.create_task(
+            client.call(
+                "tail_detached",
+                {
+                    "run_id": run_id,
+                    "start_position": 0,
+                    "poll_interval": 0.05,
+                },
+            )
+        )
+        first_log = await _next_log(
+            events,
+            contains="INFO Initializing a V1 LLM engine",
+            timeout=10,
+        )
+        first_text = str(first_log.get("text") or "")
+        first_seq = int(first_log["seq"])
+        first_cursor = {
+            "log_inode": first_log["log_inode"],
+            "byte_offset": first_log["byte_offset"],
+        }
+    finally:
+        await _close_events(events)
+        await client.disconnect()
+        if tail_task is not None:
+            with contextlib.suppress(Exception):
+                await tail_task
+
+    # Let the supervised run keep writing while no controller is connected.
+    await asyncio.sleep(2.5)
+
+    client = _agent_client()
+    events = None
+    waited: dict = {}
+    await client.connect()
+    try:
+        await client.call("discover_runs", {"runs_dirs": [str(runs_dir)]})
+        await client.call("reattach", {"run_id": run_id})
+        health = await _wait_ready(client, run_id)
+        resume_request = {
+            "resume_from": {
+                "log_inode": first_cursor["log_inode"],
+                "byte_offset": first_cursor["byte_offset"],
+            },
+        }
+        events = client.subscribe([run_id], resume_from=resume_request["resume_from"])
+        resumed_logs = await _collect_resumed_logs(
+            events,
+            stop_contains="INFO Uvicorn running",
+            timeout=10,
+        )
+        expected = [
+            "INFO Fetching 2 files",
+            "INFO Downloading model file",
+            "INFO Starting to load model",
+            "INFO GPU KV cache size",
+            "INFO Capturing CUDA graph shapes",
+            "INFO Uvicorn running",
+        ]
+        missing = [
+            item
+            for item in expected
+            if not any(item in text for text in resumed_logs)
+        ]
+        if missing:
+            raise RuntimeError(
+                f"reconnect replay missed logs {missing}; got {resumed_logs}"
+            )
+        if first_text in resumed_logs:
+            raise RuntimeError("reconnect replay duplicated the pre-disconnect cursor")
+        await _close_events(events)
+        events = None
+        await client.call(
+            "stop",
+            {
+                "run_id": run_id,
+                "interrupt_timeout": 2,
+                "terminate_timeout": 2,
+            },
+        )
+        waited = await client.call("wait", {"run_id": run_id})
+    finally:
+        await _close_events(events)
+        if client.connected:
+            with contextlib.suppress(Exception):
+                await client.call(
+                    "stop",
+                    {
+                        "run_id": run_id,
+                        "interrupt_timeout": 1,
+                        "terminate_timeout": 1,
+                    },
+                )
+            await client.disconnect()
+
+    shutil.rmtree(tmp_root, ignore_errors=True)
+    print(
+        "DISCONNECT_RECONNECT_RESUME_OK "
+        f"run_id={run_id} first_seq={first_seq} "
+        f"resume_inode={first_cursor['log_inode']} "
+        f"resume_offset={first_cursor['byte_offset']} "
+        f"url={health.get('reachable_url')} "
+        f"returncode={waited.get('returncode')}"
+    )
+
+
+asyncio.run(_main())
+PY
+
 if [[ -n "$remote_build_spec" ]]; then
   echo "== Real build install =="
   "$venv_bin/vllm-loader" build add \
