@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from collections.abc import Callable
@@ -108,6 +109,11 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
         if registry_path is not None
         else default_models_registry_path()
     )
+    with _registry_lock(path):
+        return _pin_model_locked(params, path)
+
+
+def _pin_model_locked(params: dict[str, Any], path: Path) -> dict[str, Any]:
     registry = _load_registry_for_write(path)
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
@@ -133,6 +139,11 @@ def verify_model(reference: str, registry_path: str | Path | None = None) -> dic
         if registry_path is not None
         else default_models_registry_path()
     )
+    with _registry_lock(path):
+        return _verify_model_locked(reference, path)
+
+
+def _verify_model_locked(reference: str, path: Path) -> dict[str, Any]:
     registry = _load_registry_for_write(path)
     entry = _entry_for_reference(registry, reference)
     if entry.get("source") == "local_path":
@@ -157,6 +168,74 @@ def download_hf_model(
         if registry_path is not None
         else default_models_registry_path()
     )
+    with _registry_lock(path):
+        download_kwargs, repo_id, selected_revision = _prepare_hf_model_download(
+            reference,
+            path,
+            revision=revision,
+            allow_patterns=allow_patterns,
+            ignore_patterns=ignore_patterns,
+            progress_callback=progress_callback,
+        )
+
+    try:
+        snapshot_path = _snapshot_download(**download_kwargs)
+    except ModelRegistryError:
+        raise
+    except ImportError as exc:
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "huggingface_hub is required to download remote models",
+            {"model_ref": reference, "repo_id": repo_id},
+        ) from exc
+    except Exception as exc:
+        raise _snapshot_download_error(
+            exc,
+            model_ref=reference,
+            repo_id=repo_id,
+            revision=selected_revision,
+        ) from exc
+
+    cached = _matching_hf_cache_payload(repo_id, selected_revision)
+    if cached is None:
+        raise ModelRegistryError(
+            "model-not-found",
+            f"downloaded model {repo_id} was not found in the Hugging Face cache",
+            {
+                "model_ref": reference,
+                "repo_id": repo_id,
+                "snapshot_path": str(snapshot_path),
+            },
+        )
+    with _registry_lock(path):
+        registry = _load_registry_for_write(path)
+        entry = _entry_for_reference(registry, reference)
+        _apply_cached_model_payload(entry, cached)
+        registry["schema_version"] = 1
+        registry["default_cache"] = str(registry.get("default_cache") or "hf")
+        registry.setdefault("app_download_dir", None)
+        _write_registry_atomic(path, registry)
+        entry_id = str(entry.get("entry_id") or "")
+        entry_payload = _model_payload(entry)
+    return {
+        "entry_id": entry_id,
+        "ok": True,
+        "cache_state": "cached",
+        "detail": "model cached",
+        "snapshot_path": str(snapshot_path),
+        "entry": entry_payload,
+    }
+
+
+def _prepare_hf_model_download(
+    reference: str,
+    path: Path,
+    *,
+    revision: str | None = None,
+    allow_patterns: list[str] | None = None,
+    ignore_patterns: list[str] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> tuple[dict[str, Any], str, str | None]:
     registry = _load_registry_for_write(path)
     entry = _entry_for_reference(registry, reference)
     if entry.get("source") != "hf_repo":
@@ -192,49 +271,7 @@ def download_hf_model(
     registry["default_cache"] = str(registry.get("default_cache") or "hf")
     registry.setdefault("app_download_dir", None)
     _write_registry_atomic(path, registry)
-
-    try:
-        snapshot_path = _snapshot_download(**download_kwargs)
-    except ModelRegistryError:
-        raise
-    except ImportError as exc:
-        raise ModelRegistryError(
-            "feature-unavailable",
-            "huggingface_hub is required to download remote models",
-            {"model_ref": reference, "repo_id": repo_id},
-        ) from exc
-    except Exception as exc:
-        raise _snapshot_download_error(
-            exc,
-            model_ref=reference,
-            repo_id=repo_id,
-            revision=selected_revision,
-        ) from exc
-
-    cached = _matching_hf_cache_payload(repo_id, selected_revision)
-    if cached is None:
-        raise ModelRegistryError(
-            "model-not-found",
-            f"downloaded model {repo_id} was not found in the Hugging Face cache",
-            {
-                "model_ref": reference,
-                "repo_id": repo_id,
-                "snapshot_path": str(snapshot_path),
-            },
-        )
-    _apply_cached_model_payload(entry, cached)
-    registry["schema_version"] = 1
-    registry["default_cache"] = str(registry.get("default_cache") or "hf")
-    registry.setdefault("app_download_dir", None)
-    _write_registry_atomic(path, registry)
-    return {
-        "entry_id": str(entry.get("entry_id") or ""),
-        "ok": True,
-        "cache_state": "cached",
-        "detail": "model cached",
-        "snapshot_path": str(snapshot_path),
-        "entry": _model_payload(entry),
-    }
+    return download_kwargs, repo_id, selected_revision
 
 
 def mark_hf_model_partial(
@@ -249,6 +286,22 @@ def mark_hf_model_partial(
         if registry_path is not None
         else default_models_registry_path()
     )
+    with _registry_lock(path):
+        return _mark_hf_model_partial_locked(
+            reference,
+            path,
+            allow_patterns=allow_patterns,
+            ignore_patterns=ignore_patterns,
+        )
+
+
+def _mark_hf_model_partial_locked(
+    reference: str,
+    path: Path,
+    *,
+    allow_patterns: list[str] | None = None,
+    ignore_patterns: list[str] | None = None,
+) -> dict[str, Any]:
     registry = _load_registry_for_write(path)
     entry = _entry_for_reference(registry, reference)
     if entry.get("source") != "hf_repo":
@@ -275,6 +328,11 @@ def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         if registry_path is not None
         else default_models_registry_path()
     )
+    with _registry_lock(path):
+        return _refresh_models_locked(path)
+
+
+def _refresh_models_locked(path: Path) -> dict[str, Any]:
     registry = _load_registry_for_write(path)
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
@@ -346,6 +404,11 @@ def remove_model(reference: str, registry_path: str | Path | None = None) -> dic
         if registry_path is not None
         else default_models_registry_path()
     )
+    with _registry_lock(path):
+        return _remove_model_locked(reference, path)
+
+
+def _remove_model_locked(reference: str, path: Path) -> dict[str, Any]:
     registry = _load_registry_for_write(path)
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
@@ -1320,6 +1383,31 @@ def _write_registry_atomic(path: Path, registry: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(tmp, path)
+
+
+def _registry_lock(path: Path) -> _ExclusiveFileLock:
+    return _ExclusiveFileLock(path.parent / "registry.lock")
+
+
+class _ExclusiveFileLock:
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._handle: Any | None = None
+
+    def __enter__(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = self._path.open("a", encoding="utf-8")
+        fcntl.flock(self._handle, fcntl.LOCK_EX)
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        if self._handle is None:
+            return False
+        try:
+            fcntl.flock(self._handle, fcntl.LOCK_UN)
+        finally:
+            self._handle.close()
+            self._handle = None
+        return False
 
 
 def _utc_now() -> str:

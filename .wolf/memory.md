@@ -296,4 +296,59 @@
 | 18:31 | Fixed quit-confirm Stop exit-before-process-stop race | src/vllm_loader/tui/app.py, tests/test_tui_smoke.py, .wolf/buglog.json | red: confirm Stop exited while attached process still polled running; Stop now waits for process exit before app exit, focused 2 passed, Ruff clean, pytest 170 passed | ~500 |
 | 18:37 | Fixed reattached detached Restart load-before-sidecar-exit race | src/vllm_loader/tui/app.py, tests/test_tui_smoke.py, .wolf/buglog.json | red: reattached Restart cleared the sidecar and called Load before the tracked sidecar stopped; restart now waits for sidecar identity to disappear, focused 6 passed, Ruff clean, pytest 171 passed | ~550 |
 | 18:43 | Added final wait after SIGKILL escalation | src/vllm_loader/engine/{process_manager.py,sidecar.py}, tests/test_{process_manager,sidecar}.py, .wolf/buglog.json | red: attached and sidecar stop helpers sent SIGKILL without a final wait; helpers now perform one final bounded wait, process+sidecar suites 12 passed, Ruff clean, pytest 173 passed | ~450 |
+| 18:43 | Drafted UX brief for build-selection + flag-management feature (read-only research) | spec §8, app.py, screens/*, profile.py, schema.py, sidecar.py, command_builder.py | brief returned to orchestrator, no files written | ~12k |
 | 18:48 | Added no-log crash exit-code excerpt | src/vllm_loader/engine/phases.py, tests/test_tui_smoke.py, .wolf/buglog.json | red: CRASHED banner for ProcessExited(7) without logs lacked relevant context; FSM now uses process exit code as fallback excerpt, focused 4 passed, Ruff clean, pytest 174 passed | ~400 |
+| 18:51 | Created vllm-build-management-spec-v1.md | — | ~13366 |
+| 18:51 | Session end: 1 writes across 1 files (vllm-build-management-spec-v1.md) | 30 reads | ~48150 tok |
+| 19:01 | research: HF hub cache + download + vLLM model-resolution domain brief (context7 + web) | (research only, no files) | delivered structured cited brief | ~22k |
+| 19:06 | Created vllm-model-management-spec-v1.md | — | ~13046 |
+| 19:07 | Session end: 2 writes across 2 files (vllm-build-management-spec-v1.md, vllm-model-management-spec-v1.md) | 34 reads | ~75159 tok |
+
+## Session: 2026-06-03 22:54
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-03 22:54
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 23:16 | Created vllm-agent-architecture-spec-v1.md | — | ~13339 |
+| 23:17 | Session end: 1 writes across 1 files (vllm-agent-architecture-spec-v1.md) | 22 reads | ~67327 tok |
+| 23:22 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~129 |
+| 23:22 | Edited vllm-agent-architecture-spec-v1.md | 5→5 lines | ~276 |
+| 23:22 | Edited vllm-agent-architecture-spec-v1.md | "runs overview" → "SO_PEERCRED" | ~79 |
+| 23:22 | Edited vllm-agent-architecture-spec-v1.md | 2→2 lines | ~84 |
+| 23:22 | Edited vllm-agent-architecture-spec-v1.md | 1→2 lines | ~100 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | modified Lifecycle() | ~909 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~119 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | modified Event() | ~170 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~82 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~49 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | 7→11 lines | ~274 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | 7→7 lines | ~382 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~90 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~196 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | 7→9 lines | ~222 |
+| 23:23 | Edited vllm-agent-architecture-spec-v1.md | "vllm-loader agent [--sess" → "vllm-loader agent start|s" | ~139 |
+| 23:24 | Edited vllm-agent-architecture-spec-v1.md | 1→3 lines | ~371 |
+| 23:24 | Edited vllm-agent-architecture-spec-v1.md | "ssh … vllm-loader agent" → "agent.json" | ~164 |
+| 23:24 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~179 |
+| 23:24 | Edited vllm-agent-architecture-spec-v1.md | "discover_active_sidecars" → "agent start|stop" | ~267 |
+| 23:24 | Edited vllm-agent-architecture-spec-v1.md | "t" → "systemctl --user enable -" | ~206 |
+| 23:24 | Edited vllm-agent-architecture-spec-v1.md | inline fix | ~80 |
+| 23:24 | Session end: 23 writes across 1 files (vllm-agent-architecture-spec-v1.md) | 22 reads | ~72218 tok |
+| 23:25 | Session end: 23 writes across 1 files (vllm-agent-architecture-spec-v1.md) | 22 reads | ~72218 tok |
+| 02:57 | Session end: 23 writes across 1 files (vllm-agent-architecture-spec-v1.md) | 32 reads | ~87838 tok |
+| 14:05 | Session end: 23 writes across 1 files (vllm-agent-architecture-spec-v1.md) | 44 reads | ~88788 tok |
+| 14:10 | Created vllm-agent-architecture-review-punchlist.md | — | ~3029 |
+| 14:10 | Session end: 24 writes across 2 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md) | 44 reads | ~92033 tok |
+| 14:12 | Session end: 24 writes across 2 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md) | 44 reads | ~92033 tok |
+| 17:55 | Session end: 24 writes across 2 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md) | 44 reads | ~92033 tok |
+| 22:34 | Session end: 24 writes across 2 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md) | 55 reads | ~94873 tok |
+| 22:38 | Created vllm-agent-architecture-review-punchlist-v2.md | — | ~3233 |
+| 22:38 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 55 reads | ~98337 tok |
+| 01:22 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |
+| 01:35 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |
+| 01:36 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |
+| 01:37 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |

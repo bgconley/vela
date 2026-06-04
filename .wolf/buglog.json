@@ -8,7 +8,11 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "CLI hard-rejected configs with launch.mode detached even though canonical v2 requires detached mode support.",
       "fix": "Added start_detached path that launches a supervisor, writes sidecar/manifest/log artifacts, prints artifact paths, and exits.",
-      "tags": ["detached", "cli", "supervisor"],
+      "tags": [
+        "detached",
+        "cli",
+        "supervisor"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:19:32Z"
@@ -20,8 +24,15 @@
       "file": "src/vllm_loader/engine/supervisor.py",
       "root_cause": "Supervisor drained child stdout with buffered read(4096), delaying small log chunks until EOF or a full buffer.",
       "fix": "Changed the supervisor drain loop to use os.read(fd, 4096) on the child pipe so committed startup logs stream live.",
-      "tags": ["detached", "logs", "pipe", "supervisor"],
-      "related_bugs": ["bug-001"],
+      "tags": [
+        "detached",
+        "logs",
+        "pipe",
+        "supervisor"
+      ],
+      "related_bugs": [
+        "bug-001"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:19:32Z"
     },
@@ -32,8 +43,15 @@
       "file": "src/vllm_loader/engine/supervisor.py",
       "root_cause": "Sidecar captured script child identity too early while the shebang path still reported /usr/bin/env instead of the settled Python process.",
       "fix": "Supervisor now waits briefly for actual cmdline/executable to settle and stores that identity/hash in the sidecar.",
-      "tags": ["sidecar", "identity", "reattach", "shebang"],
-      "related_bugs": ["bug-001"],
+      "tags": [
+        "sidecar",
+        "identity",
+        "reattach",
+        "shebang"
+      ],
+      "related_bugs": [
+        "bug-001"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:19:32Z"
     },
@@ -44,7 +62,12 @@
       "file": "src/vllm_loader/engine/sidecar.py",
       "root_cause": "Atomic JSON helpers used Path.write_text, inheriting normal umask permissions.",
       "fix": "Changed sidecar and manifest atomic writes to create temp files with os.open(..., 0600) before rename.",
-      "tags": ["sidecar", "manifest", "permissions", "security"],
+      "tags": [
+        "sidecar",
+        "manifest",
+        "permissions",
+        "security"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:19:32Z"
@@ -56,8 +79,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The TUI reattach path set current_process to None, so action_stop only changed the UI phase instead of signaling the detached sidecar process group.",
       "fix": "Added sidecar system signal/stop helpers with identity re-verification and wired TUI Stop/Kill for reattached detached runs through those helpers.",
-      "tags": ["tui", "reattach", "detached", "signals", "sidecar"],
-      "related_bugs": ["bug-001", "bug-003"],
+      "tags": [
+        "tui",
+        "reattach",
+        "detached",
+        "signals",
+        "sidecar"
+      ],
+      "related_bugs": [
+        "bug-001",
+        "bug-003"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:32:50Z"
     },
@@ -68,8 +100,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp._run_selected_config always called start_attached and ignored cfg.launch.mode.",
       "fix": "Added a detached branch that calls start_detached with scrubbed secrets and immediately reattaches to the emitted sidecar for log tailing, health probing, and Stop/Kill control.",
-      "tags": ["tui", "detached", "launch-mode", "sidecar"],
-      "related_bugs": ["bug-001", "bug-005"],
+      "tags": [
+        "tui",
+        "detached",
+        "launch-mode",
+        "sidecar"
+      ],
+      "related_bugs": [
+        "bug-001",
+        "bug-005"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:39:49Z"
     },
@@ -80,8 +120,15 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "check_once caught connection failures for the health endpoint but allowed /v1/models connection failures to escape if the server stopped after /health returned 200.",
       "fix": "Wrapped the /v1/models request with the same connection, timeout, and HTTP error handling used for the health request.",
-      "tags": ["health", "tui", "detached", "shutdown-race"],
-      "related_bugs": ["bug-006"],
+      "tags": [
+        "health",
+        "tui",
+        "detached",
+        "shutdown-race"
+      ],
+      "related_bugs": [
+        "bug-006"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:39:49Z"
     },
@@ -92,7 +139,11 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The new phase timeline f-string formatted the marker, phase name, and elapsed duration in one expression that exceeded the repo line-length rule.",
       "fix": "Split elapsed duration formatting into a local variable before appending the timeline row.",
-      "tags": ["lint", "tui", "phase-timeline"],
+      "tags": [
+        "lint",
+        "tui",
+        "phase-timeline"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:48:01Z"
@@ -104,8 +155,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "Reattach loaded the existing log and then the tail worker initialized from the file's latest size, so log lines written between those two steps were skipped in the TUI.",
       "fix": "Changed _load_scrubbed_log_file to return the exact read offset and passed that offset into _tail_detached_log as start_position.",
-      "tags": ["tui", "detached", "reattach", "log-tail", "race"],
-      "related_bugs": ["bug-006"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "log-tail",
+        "race"
+      ],
+      "related_bugs": [
+        "bug-006"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:51:06Z"
     },
@@ -116,8 +175,16 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "The smoke test treated dynamic command discovery as instant even though the command list can be regenerated while detached sidecar/process state is still settling in the full suite.",
       "fix": "Changed the test to poll briefly for the expected dynamic reattach SystemCommand before invoking it.",
-      "tags": ["test", "tui", "command-palette", "detached", "flake"],
-      "related_bugs": ["bug-009"],
+      "tags": [
+        "test",
+        "tui",
+        "command-palette",
+        "detached",
+        "flake"
+      ],
+      "related_bugs": [
+        "bug-009"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:53:24Z"
     },
@@ -128,7 +195,12 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp.on_mount called _update_gpu_panel once and did not start a monitoring worker.",
       "fix": "Added injectable GPU sampler state, richer GPU panel text, and an optional periodic Textual worker with exit_on_error=false.",
-      "tags": ["tui", "gpu", "monitoring", "worker"],
+      "tags": [
+        "tui",
+        "gpu",
+        "monitoring",
+        "worker"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:58:57Z"
@@ -140,7 +212,12 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "handle_log_record updated the phase from PhaseFSM but did not render fsm.error_kind/error_excerpt into the ErrorBanner area.",
       "fix": "Added ErrorKind guidance mapping and rendered named error banners when committed log lines transition the FSM to ERROR.",
-      "tags": ["tui", "errors", "banner", "fsm"],
+      "tags": [
+        "tui",
+        "errors",
+        "banner",
+        "fsm"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T05:58:57Z"
@@ -152,7 +229,12 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "select_config only updated current_config and the sidebar title, leaving command-builder preview output available only through the CLI.",
       "fix": "Added selected_config_preview state and rendered the masked build_command preview in the config sidebar after selection.",
-      "tags": ["tui", "config", "preview", "security"],
+      "tags": [
+        "tui",
+        "config",
+        "preview",
+        "security"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:04:41Z"
@@ -164,7 +246,12 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "action_pause updated internal state and notification text but did not update the RichLog widget's auto_scroll property.",
       "fix": "Set RichLog.auto_scroll to the inverse of app.paused whenever pause/resume is toggled.",
-      "tags": ["tui", "logs", "autoscroll", "pause"],
+      "tags": [
+        "tui",
+        "logs",
+        "autoscroll",
+        "pause"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:04:41Z"
@@ -176,8 +263,14 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The new build_command/select_profile call for selected config preview was written on one overlong line.",
       "fix": "Split profile selection and command building into separate statements.",
-      "tags": ["lint", "tui", "preview"],
-      "related_bugs": ["bug-013"],
+      "tags": [
+        "lint",
+        "tui",
+        "preview"
+      ],
+      "related_bugs": [
+        "bug-013"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:04:41Z"
     },
@@ -188,8 +281,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp._handle_health_event routed every health error_kind through PhaseFSM.timeout(), flattening specific health classifications into timeout state/raw detail handling.",
       "fix": "Added PhaseFSM.health_error(kind, detail) and changed the TUI health handler to preserve event.error_kind and render the shared named error banner.",
-      "tags": ["tui", "health", "errors", "hf-auth", "banner"],
-      "related_bugs": ["bug-012"],
+      "tags": [
+        "tui",
+        "health",
+        "errors",
+        "hf-auth",
+        "banner"
+      ],
+      "related_bugs": [
+        "bug-012"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:11:19Z"
     },
@@ -200,7 +301,11 @@
       "file": "tool invocation",
       "root_cause": "The skill path was copied from the wrong plugin cache root even though the active skill root for Superpowers was openai-curated.",
       "fix": "Reran the skill reads from /Users/brennanconley/.codex/plugins/cache/openai-curated/superpowers/bebc3d6a/skills and recorded the path gotcha.",
-      "tags": ["tooling", "skills", "path"],
+      "tags": [
+        "tooling",
+        "skills",
+        "path"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:11:19Z"
@@ -212,7 +317,13 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp stored committed UI log history in plain unbounded lists and constructed RichLog without max_lines.",
       "fix": "Added a max_log_lines setting defaulting to 50000, passed it to RichLog(max_lines=...), and pruned log_lines, log_records, visible_log_lines, and search_matches as old records fall out.",
-      "tags": ["tui", "logs", "nfr-2", "ring-buffer", "memory"],
+      "tags": [
+        "tui",
+        "logs",
+        "nfr-2",
+        "ring-buffer",
+        "memory"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:17:45Z"
@@ -224,8 +335,17 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Undetermined transient timing issue; the focused test passed immediately afterward and the full TUI suite rerun passed.",
       "fix": "Recorded the non-reproduced flake for future investigation; no code change was made for this symptom in this slice.",
-      "tags": ["test", "tui", "detached", "reattach", "flake"],
-      "related_bugs": ["bug-009", "bug-010"],
+      "tags": [
+        "test",
+        "tui",
+        "detached",
+        "reattach",
+        "flake"
+      ],
+      "related_bugs": [
+        "bug-009",
+        "bug-010"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:17:45Z"
     },
@@ -236,7 +356,13 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "The CLI only launched the Textual app normally, and VllmLoaderApp had no separate debug event sink.",
       "fix": "Added --debug/--debug-log options, merged debug/devtools into the TEXTUAL feature env before app construction, and added debug_log_path JSONL events in the TUI.",
-      "tags": ["cli", "tui", "debug", "nfr-7", "devtools"],
+      "tags": [
+        "cli",
+        "tui",
+        "debug",
+        "nfr-7",
+        "devtools"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:22:29Z"
@@ -248,8 +374,14 @@
       "file": "tests/test_cli_run.py",
       "root_cause": "The new CLI debug regression asserted against os.environ without importing os.",
       "fix": "Added the missing os import to tests/test_cli_run.py and reran the focused test.",
-      "tags": ["test", "import", "debug"],
-      "related_bugs": ["bug-020"],
+      "tags": [
+        "test",
+        "import",
+        "debug"
+      ],
+      "related_bugs": [
+        "bug-020"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:22:29Z"
     },
@@ -260,8 +392,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The attached run path called PhaseFSM.process_exited(returncode) and _set_phase(), but did not render the named error banner after process-exit classification; PhaseFSM also did not preserve a recent-line excerpt for generic crashes.",
       "fix": "PhaseFSM.process_exited now stores the last recent committed log line as the CRASHED excerpt, and VllmLoaderApp renders the shared error banner after process exit.",
-      "tags": ["tui", "errors", "crashed", "process-exit", "fr-21"],
-      "related_bugs": ["bug-012"],
+      "tags": [
+        "tui",
+        "errors",
+        "crashed",
+        "process-exit",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-012"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:27:26Z"
     },
@@ -272,8 +412,15 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "The fixture invoked Python with a missing 'serve' file, producing 'No such file' text that correctly matched the profile's model-not-found classifier.",
       "fix": "Changed the regression to use a temporary executable script that prints an unclassified abort line and exits non-zero.",
-      "tags": ["test", "fixture", "crashed", "model-not-found"],
-      "related_bugs": ["bug-022"],
+      "tags": [
+        "test",
+        "fixture",
+        "crashed",
+        "model-not-found"
+      ],
+      "related_bugs": [
+        "bug-022"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:27:26Z"
     },
@@ -284,7 +431,13 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp declared a fixed Textual layout but did not define horizontal breakpoints or apply width-based widget visibility.",
       "fix": "Added Textual HORIZONTAL_BREAKPOINTS, responsive_mode state, and a resize/mount layout helper that hides the sidebar below 100 columns, hides the GPU panel below 60 columns, and keeps the RichLog displayed.",
-      "tags": ["tui", "responsive", "fr-24", "layout", "textual"],
+      "tags": [
+        "tui",
+        "responsive",
+        "fr-24",
+        "layout",
+        "textual"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:34:00Z"
@@ -296,8 +449,15 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "The responsive smoke test used a non-existent Textual Pilot.resize helper; Textual 8.2.7 exposes resize_terminal instead.",
       "fix": "Changed the responsive smoke test to call await pilot.resize_terminal(width, height).",
-      "tags": ["test", "textual", "responsive", "api"],
-      "related_bugs": ["bug-024"],
+      "tags": [
+        "test",
+        "textual",
+        "responsive",
+        "api"
+      ],
+      "related_bugs": [
+        "bug-024"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:34:00Z"
     },
@@ -308,7 +468,13 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "apply_log_search only updated search_matches and did not refresh RichLog with styled search spans; writes always emitted a plain severity-styled Text object.",
       "fix": "Added a log Text formatter that applies search highlight spans over severity styling, wired it into live writes and refreshes, and made apply_log_search refresh the visible log view.",
-      "tags": ["tui", "logs", "search", "highlight", "fr-12"],
+      "tags": [
+        "tui",
+        "logs",
+        "search",
+        "highlight",
+        "fr-12"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:39:19Z"
@@ -320,7 +486,13 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp.handle_log_record wrote transient progress text directly into a Static #progress widget and did not parse percentages into a progress control.",
       "fix": "Replaced the progress area with a Textual ProgressBar plus progress text label, parsed percentage tokens from transient records, and kept transient progress out of committed log history.",
-      "tags": ["tui", "logs", "progress", "fr-10", "progressbar"],
+      "tags": [
+        "tui",
+        "logs",
+        "progress",
+        "fr-10",
+        "progressbar"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:43:00Z"
@@ -332,8 +504,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "VllmLoaderApp._run_selected_config called start_attached directly, and start_attached propagated subprocess.Popen FileNotFoundError before the TUI could classify or render a launch error.",
       "fix": "Added ErrorKind.COMMAND_NOT_FOUND, caught FileNotFoundError in the attached launch path, rendered the spec guidance banner, and closed the PTY master if Popen fails.",
-      "tags": ["tui", "launch", "command-not-found", "error-banner", "fr-21"],
-      "related_bugs": ["bug-022"],
+      "tags": [
+        "tui",
+        "launch",
+        "command-not-found",
+        "error-banner",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-022"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:47:40Z"
     },
@@ -344,8 +524,14 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The new command-not-found guidance used sentence-case wording while the regression asserted the spec phrase verbatim.",
       "fix": "Changed the guidance string to use lower-case 'install vLLM or set command.entrypoint: module'.",
-      "tags": ["test", "wording", "command-not-found"],
-      "related_bugs": ["bug-028"],
+      "tags": [
+        "test",
+        "wording",
+        "command-not-found"
+      ],
+      "related_bugs": [
+        "bug-028"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:47:40Z"
     },
@@ -356,8 +542,16 @@
       "file": "src/vllm_loader/engine/process_manager.py",
       "root_cause": "start_detached launched the supervisor without checking the child executable first; the supervisor hit FileNotFoundError before sidecar creation and the parent only saw a generic early supervisor exit.",
       "fix": "Added detached executable preflight using the merged launch environment and cwd, and reused the TUI command-not-found banner for detached FileNotFoundError.",
-      "tags": ["detached", "launch", "command-not-found", "supervisor", "fr-21"],
-      "related_bugs": ["bug-028"],
+      "tags": [
+        "detached",
+        "launch",
+        "command-not-found",
+        "supervisor",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-028"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:52:04Z"
     },
@@ -368,8 +562,14 @@
       "file": "src/vllm_loader/engine/process_manager.py",
       "root_cause": "The new shutil import was placed after signal instead of in sorted stdlib order.",
       "fix": "Moved shutil before signal and reran Ruff successfully.",
-      "tags": ["lint", "ruff", "imports"],
-      "related_bugs": ["bug-030"],
+      "tags": [
+        "lint",
+        "ruff",
+        "imports"
+      ],
+      "related_bugs": [
+        "bug-030"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T06:52:04Z"
     },
@@ -380,8 +580,15 @@
       "file": "tool invocation",
       "root_cause": "The expanded focused test command used a stale bounded-buffer smoke test name instead of the current test_log_buffers_are_bounded_for_bursty_output selector.",
       "fix": "Confirmed the current selector with rg and reran the focused log group successfully.",
-      "tags": ["test", "pytest", "selector", "tooling"],
-      "related_bugs": ["bug-018"],
+      "tags": [
+        "test",
+        "pytest",
+        "selector",
+        "tooling"
+      ],
+      "related_bugs": [
+        "bug-018"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:00:06Z"
     },
@@ -392,8 +599,18 @@
       "file": "src/vllm_loader/engine/supervisor.py",
       "root_cause": "run_supervisor opened a single LogSink and wrote the manifest only once at startup, so durable logs were not bounded or rotated as required by the canonical spec.",
       "fix": "Added LogSink.rotate_to(), supervisor rotation after the active log exceeds the payload threshold, private rotated active files, and atomic manifest rewrites.",
-      "tags": ["detached", "supervisor", "logs", "rotation", "manifest", "nfr-2"],
-      "related_bugs": ["bug-001", "bug-004"],
+      "tags": [
+        "detached",
+        "supervisor",
+        "logs",
+        "rotation",
+        "manifest",
+        "nfr-2"
+      ],
+      "related_bugs": [
+        "bug-001",
+        "bug-004"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:06:26Z"
     },
@@ -404,8 +621,15 @@
       "file": "tests/test_cli_run.py",
       "root_cause": "The new imports were inserted manually and did not match Ruff's import grouping/order.",
       "fix": "Ran Ruff's I001 autofix for tests/test_cli_run.py and reran Ruff successfully.",
-      "tags": ["lint", "ruff", "imports", "test"],
-      "related_bugs": ["bug-033"],
+      "tags": [
+        "lint",
+        "ruff",
+        "imports",
+        "test"
+      ],
+      "related_bugs": [
+        "bug-033"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:06:26Z"
     },
@@ -416,8 +640,17 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Undetermined transient detached TUI timing issue; the focused test, the exact smoke pytest subset, and a full smoke script rerun all passed immediately afterward.",
       "fix": "No code change; recorded the non-reproduced flake and kept the verified rotation implementation unchanged.",
-      "tags": ["test", "tui", "detached", "flake", "smoke"],
-      "related_bugs": ["bug-009", "bug-019"],
+      "tags": [
+        "test",
+        "tui",
+        "detached",
+        "flake",
+        "smoke"
+      ],
+      "related_bugs": [
+        "bug-009",
+        "bug-019"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:09:30Z"
     },
@@ -428,7 +661,12 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "probe_loop discarded each not-ready HealthEvent detail before emitting TIMED_OUT, so the timeout banner had no cause-specific diagnostic.",
       "fix": "Track the last not-ready detail in probe_loop and format timeout details as either still loading/not bound or bound but unhealthy with the last health/model response.",
-      "tags": ["health", "timeout", "fr-17", "diagnostics"],
+      "tags": [
+        "health",
+        "timeout",
+        "fr-17",
+        "diagnostics"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:13:40Z"
@@ -440,8 +678,15 @@
       "file": "tool invocation",
       "root_cause": "The focused TUI lifecycle command used an old launch smoke selector instead of the current test_fake_child_launch_streams_logs_and_stop_works name.",
       "fix": "Confirmed the current selector with rg and reran the corrected TUI lifecycle group successfully.",
-      "tags": ["test", "pytest", "selector", "tooling"],
-      "related_bugs": ["bug-032"],
+      "tags": [
+        "test",
+        "pytest",
+        "selector",
+        "tooling"
+      ],
+      "related_bugs": [
+        "bug-032"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:13:40Z"
     },
@@ -452,8 +697,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The TUI launch path built the command and spawned attached/detached processes without using the existing local-model-reference helper to preflight path-like model values.",
       "fix": "Added a TUI local model path preflight before launch; missing path-like models now set MODEL_NOT_FOUND and render the named error banner without spawning the child.",
-      "tags": ["tui", "launch", "model-not-found", "fr-21", "preflight"],
-      "related_bugs": ["bug-022"],
+      "tags": [
+        "tui",
+        "launch",
+        "model-not-found",
+        "fr-21",
+        "preflight"
+      ],
+      "related_bugs": [
+        "bug-022"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:18:30Z"
     },
@@ -464,8 +717,15 @@
       "file": "tool invocation",
       "root_cause": "The focused command-builder command used an old local-model-reference selector instead of the current test_model_reference_local_vs_hf_repo_logic name.",
       "fix": "Confirmed the current selector with rg and reran the corrected focused group successfully.",
-      "tags": ["test", "pytest", "selector", "tooling"],
-      "related_bugs": ["bug-037"],
+      "tags": [
+        "test",
+        "pytest",
+        "selector",
+        "tooling"
+      ],
+      "related_bugs": [
+        "bug-037"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:18:30Z"
     },
@@ -476,8 +736,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "action_search and action_filter were wired into bindings and the command palette, but only called apply_log_search/apply_log_filter with the current value, so new keypresses never changed search_text or filter_text.",
       "fix": "Added LogPromptScreen with a focused Textual Input and routed / and f through push_screen callbacks that apply submitted text to the existing log refresh path.",
-      "tags": ["tui", "logs", "search", "filter", "fr-12", "fr-22"],
-      "related_bugs": ["bug-013"],
+      "tags": [
+        "tui",
+        "logs",
+        "search",
+        "filter",
+        "fr-12",
+        "fr-22"
+      ],
+      "related_bugs": [
+        "bug-013"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:24:31Z"
     },
@@ -488,8 +757,15 @@
       "file": "tool invocation",
       "root_cause": "The focused prompt verification command used a shortened command-palette selector instead of the current test_command_palette_exposes_core_actions_and_config_loads name.",
       "fix": "Confirmed the current selector with rg and reran the corrected focused TUI group successfully.",
-      "tags": ["test", "pytest", "selector", "tooling"],
-      "related_bugs": ["bug-039"],
+      "tags": [
+        "test",
+        "pytest",
+        "selector",
+        "tooling"
+      ],
+      "related_bugs": [
+        "bug-039"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:25:40Z"
     },
@@ -500,8 +776,17 @@
       "file": "src/vllm_loader/engine/supervisor.py",
       "root_cause": "run_supervisor started the child and then constructed LogSink before any fallback drain path existed, so LogSink.__init__ failures aborted the supervisor setup before stdout was consumed.",
       "fix": "Added an _open_log_sink helper that falls back to a drain-only sink on OSError, allowing the supervisor to keep reading child output even when durable log creation fails.",
-      "tags": ["detached", "supervisor", "logs", "drain", "nfr-5"],
-      "related_bugs": ["bug-002", "bug-033"],
+      "tags": [
+        "detached",
+        "supervisor",
+        "logs",
+        "drain",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-002",
+        "bug-033"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:30:55Z"
     },
@@ -512,8 +797,18 @@
       "file": "src/vllm_loader/engine/supervisor.py",
       "root_cause": "_write_run_artifacts was called before the drain thread and its exceptions were allowed to escape, so a sidecar/manifest I/O failure could stop pipe draining even though the child was still running.",
       "fix": "Caught artifact write failures in run_supervisor, left the manifest unset, and continued with the drain loop so child output is still consumed.",
-      "tags": ["detached", "supervisor", "sidecar", "manifest", "drain", "nfr-5"],
-      "related_bugs": ["bug-004", "bug-042"],
+      "tags": [
+        "detached",
+        "supervisor",
+        "sidecar",
+        "manifest",
+        "drain",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-004",
+        "bug-042"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:30:55Z"
     },
@@ -524,8 +819,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "get_system_commands exposed launch/control/search/filter/help commands but did not include palette entries for action_top, action_bottom, or action_quit from the BINDINGS list.",
       "fix": "Added Scroll logs to top, Scroll logs to bottom, and Quit app SystemCommand entries wired to the existing actions.",
-      "tags": ["tui", "command-palette", "fr-22", "ux"],
-      "related_bugs": ["bug-040", "bug-041"],
+      "tags": [
+        "tui",
+        "command-palette",
+        "fr-22",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-040",
+        "bug-041"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:34:48Z"
     },
@@ -536,8 +839,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "_tail_detached_log fed each tailed committed line into PhaseFSM and updated the phase, but unlike handle_log_record it did not render the shared named error banner when the FSM entered ERROR.",
       "fix": "After detached tail line classification, render _render_error_banner when the FSM is in ERROR with an error_kind before writing the line to the visible log.",
-      "tags": ["tui", "detached", "logs", "error-banner", "fr-21"],
-      "related_bugs": ["bug-012", "bug-016", "bug-022"],
+      "tags": [
+        "tui",
+        "detached",
+        "logs",
+        "error-banner",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-012",
+        "bug-016",
+        "bug-022"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T07:39:10Z"
     },
@@ -548,8 +861,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "_load_scrubbed_log_file replayed existing detached log lines into PhaseFSM and updated the phase, but did not render the shared named error banner when those existing lines had already put the FSM into ERROR.",
       "fix": "After replaying the scrubbed log and setting the phase, render _render_error_banner when the FSM is in ERROR with an error_kind.",
-      "tags": ["tui", "detached", "reattach", "logs", "error-banner", "fr-21"],
-      "related_bugs": ["bug-045"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "logs",
+        "error-banner",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-045"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T15:39:26Z"
     },
@@ -560,8 +882,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "_run_selected_config called build_command without catching the profile hard-gate exception raised by VllmProfile.soft_validate, so the TUI worker crashed instead of showing a pre-launch error.",
       "fix": "Added ErrorKind.CONFIG_INVALID, caught VllmProfileError during TUI command build, and rendered the shared error banner before any attached or detached child launch.",
-      "tags": ["tui", "profile", "require-flags", "preflight", "fr-21"],
-      "related_bugs": ["bug-038"],
+      "tags": [
+        "tui",
+        "profile",
+        "require-flags",
+        "preflight",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-038"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T15:45:58Z"
     },
@@ -572,8 +902,17 @@
       "file": "src/vllm_loader/tui/screens/config_picker.py",
       "root_cause": "_refresh rendered only the valid/invalid config list, even though the spec requires the picker modal to include a resolved-command preview with masked env.",
       "fix": "Added selected-preview rendering through build_command/select_profile, preserving centralized masking and showing a safe preview-unavailable message for profile hard-gate failures.",
-      "tags": ["tui", "config-picker", "preview", "fr-3", "ux"],
-      "related_bugs": ["bug-013", "bug-047"],
+      "tags": [
+        "tui",
+        "config-picker",
+        "preview",
+        "fr-3",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-013",
+        "bug-047"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T15:48:51Z"
     },
@@ -584,8 +923,16 @@
       "file": "src/vllm_loader/engine/log_sink.py",
       "root_cause": "_flush_if_too_large truncated only the first max_pending segment per feed call, leaving the rest pending even when it still exceeded the configured cap.",
       "fix": "Changed the pending overflow guard to loop until the remaining partial line is within max_pending, emitting multiple truncated committed records when needed.",
-      "tags": ["logs", "nfr-5", "bounded-buffer", "partial-line"],
-      "related_bugs": ["bug-018", "bug-042"],
+      "tags": [
+        "logs",
+        "nfr-5",
+        "bounded-buffer",
+        "partial-line"
+      ],
+      "related_bugs": [
+        "bug-018",
+        "bug-042"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T15:51:10Z"
     },
@@ -596,8 +943,15 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "preview and run called build_command directly, so VllmProfileError from the profile hard gate bubbled through Typer as an exception traceback.",
       "fix": "Added a shared CLI build helper that catches VllmProfileError, prints a plain ERROR message to stderr, and exits with code 2.",
-      "tags": ["cli", "profile", "require-flags", "preflight"],
-      "related_bugs": ["bug-047"],
+      "tags": [
+        "cli",
+        "profile",
+        "require-flags",
+        "preflight"
+      ],
+      "related_bugs": [
+        "bug-047"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T15:54:26Z"
     },
@@ -608,8 +962,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "_poll_gpu_panel called _gpu_sampler synchronously from the app worker, so slow NVML or nvidia-smi sampling could block UI responsiveness.",
       "fix": "Added _sample_gpu_panel_once using asyncio.to_thread for the sampler call and rendered the returned GpuPollResult back on the app thread.",
-      "tags": ["tui", "gpu", "responsiveness", "nfr-1", "fr-19"],
-      "related_bugs": ["bug-011"],
+      "tags": [
+        "tui",
+        "gpu",
+        "responsiveness",
+        "nfr-1",
+        "fr-19"
+      ],
+      "related_bugs": [
+        "bug-011"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T15:57:31Z"
     },
@@ -620,8 +982,16 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "run_config and _run_attached_cli did not catch FileNotFoundError from start_detached/start_attached, so missing binaries bubbled through Typer.",
       "fix": "Caught FileNotFoundError in detached and attached CLI launch paths and printed command-not-found guidance before exiting nonzero.",
-      "tags": ["cli", "command-not-found", "launch", "fr-21"],
-      "related_bugs": ["bug-026", "bug-027"],
+      "tags": [
+        "cli",
+        "command-not-found",
+        "launch",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-026",
+        "bug-027"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:00:44Z"
     },
@@ -632,8 +1002,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "confirm_stop_running called current_process.stop and then only popped the modal screen, so the action named by the quit prompt did not finish quitting.",
       "fix": "Changed confirm_stop_running to exit the app after stopping the attached process; the Cancel binding still simply pops the modal.",
-      "tags": ["tui", "quit", "confirm", "fr-8", "lifecycle"],
-      "related_bugs": ["bug-014"],
+      "tags": [
+        "tui",
+        "quit",
+        "confirm",
+        "fr-8",
+        "lifecycle"
+      ],
+      "related_bugs": [
+        "bug-014"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:05:02Z"
     },
@@ -644,8 +1022,15 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "probe_host_for only mapped wildcard hosts to 127.0.0.1 and otherwise returned non-loopback host values directly, contrary to the canonical health probe rule.",
       "fix": "Changed probe_host_for so explicit probe_host wins, loopback hosts are preserved, and all other bind hosts probe 127.0.0.1.",
-      "tags": ["health", "probe-host", "non-loopback", "fr-16"],
-      "related_bugs": ["bug-007"],
+      "tags": [
+        "health",
+        "probe-host",
+        "non-loopback",
+        "fr-16"
+      ],
+      "related_bugs": [
+        "bug-007"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:07:46Z"
     },
@@ -656,8 +1041,16 @@
       "file": "src/vllm_loader/monitoring/gpu.py",
       "root_cause": "_sample_nvml collected UUID, name, memory, utilization, temperature, and power, but never queried NVML GPU/compute instance IDs for MIG-backed handles.",
       "fix": "Added a best-effort _mig_instance_id helper that reads nvmlDeviceGetGpuInstanceId and nvmlDeviceGetComputeInstanceId when available and stores them on GpuSample.",
-      "tags": ["gpu", "nvml", "mig", "fr-19"],
-      "related_bugs": ["bug-011", "bug-051"],
+      "tags": [
+        "gpu",
+        "nvml",
+        "mig",
+        "fr-19"
+      ],
+      "related_bugs": [
+        "bug-011",
+        "bug-051"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:11:04Z"
     },
@@ -668,8 +1061,15 @@
       "file": "src/vllm_loader/tui/screens/config_picker.py",
       "root_cause": "The picker only rendered all valid configs and up/down selection, with no input state or filtered selection set.",
       "fix": "Added a focused Input, fuzzy matching over config name/model, filtered selection navigation, filtered previews, and Enter selection for the filtered item.",
-      "tags": ["tui", "config-picker", "ux", "fr-25"],
-      "related_bugs": ["bug-048"],
+      "tags": [
+        "tui",
+        "config-picker",
+        "ux",
+        "fr-25"
+      ],
+      "related_bugs": [
+        "bug-048"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:14:12Z"
     },
@@ -680,8 +1080,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "_render_status returned bare phase text and _set_phase only updated the Static content, so the status strip had no monochrome-friendly icon or phase-specific class for TCSS color/pulse styling.",
       "fix": "Added status icons, normalized status--* classes, and status--pulse for loading phases whenever _set_phase updates the status widget.",
-      "tags": ["tui", "status", "ux", "fr-14", "fr-24"],
-      "related_bugs": ["bug-020"],
+      "tags": [
+        "tui",
+        "status",
+        "ux",
+        "fr-14",
+        "fr-24"
+      ],
+      "related_bugs": [
+        "bug-020"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:21:11Z"
     },
@@ -692,8 +1100,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "action_copy_server_url only set last_copied_url and emitted a notification, so the Ctrl+P Copy server URL action did not perform an actual copy.",
       "fix": "Routed the action through App.copy_to_clipboard, preferring the proven ready_url when available and retaining the existing no-URL warning path.",
-      "tags": ["tui", "command-palette", "clipboard", "fr-22", "ux"],
-      "related_bugs": ["bug-044"],
+      "tags": [
+        "tui",
+        "command-palette",
+        "clipboard",
+        "fr-22",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-044"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:26:11Z"
     },
@@ -704,8 +1120,16 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "preview and run called ConfigRegistry.by_name directly, so a missing name raised KeyError through Typer instead of producing an operator-facing config lookup error.",
       "fix": "Added a shared CLI config lookup helper that prints the unknown name, available valid config names, and exits with code 2 without a traceback.",
-      "tags": ["cli", "config", "fr-4", "remote-validation"],
-      "related_bugs": ["bug-050", "bug-052"],
+      "tags": [
+        "cli",
+        "config",
+        "fr-4",
+        "remote-validation"
+      ],
+      "related_bugs": [
+        "bug-050",
+        "bug-052"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:49:27Z"
     },
@@ -716,8 +1140,15 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "The CLI config lookup helper caught ConfigRegistry.by_name misses but only listed valid configs, ignoring retained InvalidConfig entries with matching raw_name or filename stem.",
       "fix": "Changed the CLI lookup helper to print an Invalid config error with the matching file name and field-level validation errors before falling back to the true unknown-config path.",
-      "tags": ["cli", "config", "fr-2", "remote-validation"],
-      "related_bugs": ["bug-059"],
+      "tags": [
+        "cli",
+        "config",
+        "fr-2",
+        "remote-validation"
+      ],
+      "related_bugs": [
+        "bug-059"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:53:39Z"
     },
@@ -728,8 +1159,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "Detached runs were launched or reattached through sidecar-backed tail and health workers, but the control surface exposed only Stop/Kill/Quit. Users could not stop local tailing/probing while intentionally leaving the detached server running.",
       "fix": "Added a command-palette Detach from detached run action that cancels detached tail/health worker groups, clears local sidecar control, and leaves the server process alive.",
-      "tags": ["tui", "detached", "reattach", "lifecycle", "fr-7"],
-      "related_bugs": ["bug-005", "bug-006", "bug-009"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "lifecycle",
+        "fr-7"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-006",
+        "bug-009"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T16:59:12Z"
     },
@@ -740,8 +1181,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "reattach_detached_run only caught TrackedProcessMismatch from identity verification, so JSON decode, sidecar load, or manifest load failures from stale/corrupt run artifacts could escape and crash the TUI flow.",
       "fix": "Wrapped sidecar verification, sidecar parsing, and manifest loading in one guarded reattach preflight that renders an Unable to reattach error and leaves local attachment state unchanged.",
-      "tags": ["tui", "detached", "reattach", "sidecar", "robustness"],
-      "related_bugs": ["bug-005", "bug-046", "bug-061"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "sidecar",
+        "robustness"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-046",
+        "bug-061"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:04:07Z"
     },
@@ -752,8 +1203,19 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "action_stop and action_kill called the sidecar signal helpers directly, so TrackedProcessMismatch or stale artifact failures could escape instead of rendering the required refusal to signal a possibly recycled PID.",
       "fix": "Added a shared guarded sidecar signal helper for reattached Stop/Kill; failed signals render Unable to stop/kill with the sidecar error and keep the local attachment state unchanged.",
-      "tags": ["tui", "detached", "sidecar", "signals", "fr-6", "fr-7"],
-      "related_bugs": ["bug-005", "bug-061", "bug-062"],
+      "tags": [
+        "tui",
+        "detached",
+        "sidecar",
+        "signals",
+        "fr-6",
+        "fr-7"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-061",
+        "bug-062"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:10:20Z"
     },
@@ -764,7 +1226,15 @@
       "file": "Figma file 9xUgzyoFqWmd40tV5dwaHv",
       "root_cause": "The first screen pass emphasized the visible shell and reused existing-TUI visual assumptions instead of deriving screens from the full canonical spec workflow, detached lifecycle, error catalog, ops/debug requirements, and Textual rendering constraints.",
       "fix": "Created a new Spec-complete Textual-realistic screens page with 20 editable terminal-cell frames, renamed the prior page as superseded, added Firecrawl-backed Textual feasibility notes, and sampled rendered screenshots for clipping/legibility.",
-      "tags": ["figma", "spec-coverage", "textual", "requirements", "fr-7", "fr-21", "fr-22"],
+      "tags": [
+        "figma",
+        "spec-coverage",
+        "textual",
+        "requirements",
+        "fr-7",
+        "fr-21",
+        "fr-22"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:09:57Z"
@@ -776,8 +1246,18 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "The preview subcommand printed result.warnings, but run_config returned immediately after printing result.preview when --preview was set.",
       "fix": "Added a shared CLI warning emitter and called it from both preview and run --preview so remote dry-runs surface non-local bind/API-key caveats.",
-      "tags": ["cli", "preview", "remote-validation", "security", "fr-3", "nfr-6"],
-      "related_bugs": ["bug-059", "bug-060"],
+      "tags": [
+        "cli",
+        "preview",
+        "remote-validation",
+        "security",
+        "fr-3",
+        "nfr-6"
+      ],
+      "related_bugs": [
+        "bug-059",
+        "bug-060"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:17:08Z"
     },
@@ -788,8 +1268,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "select_config built the selected command preview without catching VllmProfileError, even though it is reachable directly through dashboard/palette selection before launch.",
       "fix": "Wrapped the selected-config preview build in a VllmProfileError guard and retained the selected config while showing Preview unavailable with the profile error text.",
-      "tags": ["tui", "config", "preview", "profile", "fr-2", "fr-3"],
-      "related_bugs": ["bug-050"],
+      "tags": [
+        "tui",
+        "config",
+        "preview",
+        "profile",
+        "fr-2",
+        "fr-3"
+      ],
+      "related_bugs": [
+        "bug-050"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:21:51Z"
     },
@@ -800,8 +1289,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "Launch preflights covered profile gates and local model paths, but did not compare tensor_parallel_size*pipeline_parallel_size against a clear CUDA_VISIBLE_DEVICES count.",
       "fix": "Added a pre-launch TP_MISMATCH guard that uses explicit numeric or UUID CUDA_VISIBLE_DEVICES entries and refuses to spawn when configured world size exceeds the visible GPU count.",
-      "tags": ["tui", "gpu", "tp-mismatch", "preflight", "fr-21"],
-      "related_bugs": ["bug-012"],
+      "tags": [
+        "tui",
+        "gpu",
+        "tp-mismatch",
+        "preflight",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-012"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:26:00Z"
     },
@@ -812,8 +1309,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "Launch preflights did not check server.host/server.port, so a known occupied port was left to the child process and log parser instead of surfacing a named PORT_IN_USE error before spawn.",
       "fix": "Added a pre-launch reusable bind probe with a short grace window and routed EADDRINUSE to PORT_IN_USE with the configured host/port. The probe uses SO_REUSEADDR so restart is not blocked by TIME_WAIT after the old process exits.",
-      "tags": ["tui", "port", "preflight", "fr-21", "restart"],
-      "related_bugs": ["bug-067"],
+      "tags": [
+        "tui",
+        "port",
+        "preflight",
+        "fr-21",
+        "restart"
+      ],
+      "related_bugs": [
+        "bug-067"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:34:01Z"
     },
@@ -824,8 +1329,17 @@
       "file": "Figma file 9xUgzyoFqWmd40tV5dwaHv",
       "root_cause": "The first polished Figma pass improved the UX direction but still had cramped log headings, GPU detail captions overlapping row labels, filter chips colliding with ProgressLine, error/detail panels competing with progress strips, and a responsive overlay chip partially hidden by the overlay.",
       "fix": "Ran an automated visible-node audit for text fit, bounds, and text overlaps; patched headings, GPU row spacing, filter chips, banner/detail surfaces, wrapped prose, and the responsive overlay; verified zero visible audit issues and rendered a 14-frame contact-sheet scan.",
-      "tags": ["figma", "polish", "text-fit", "overlap", "textual", "ux"],
-      "related_bugs": ["bug-064"],
+      "tags": [
+        "figma",
+        "polish",
+        "text-fit",
+        "overlap",
+        "textual",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-064"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:35:05Z"
     },
@@ -836,7 +1350,13 @@
       "file": "src/vllm_loader/engine/log_sink.py",
       "root_cause": "TOKEN_RE only matched sk- tokens made from alphanumeric, underscore, and dash characters, while the canonical spec requires masking generic sk-\\S+ tokens through the next whitespace.",
       "fix": "Changed TOKEN_RE to match sk- followed by non-whitespace so emitted UI records and durable logs mask punctuation-heavy tokens completely.",
-      "tags": ["logs", "scrubbing", "security", "fr-27", "nfr-8"],
+      "tags": [
+        "logs",
+        "scrubbing",
+        "security",
+        "fr-27",
+        "nfr-8"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:38:06Z"
@@ -848,8 +1368,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The TUI still used a plain Textual Header/Footer/dashboard composition and mostly plain string renderables, so the Figma chrome/sidebar/log/progress/status structure and meaningful color hierarchy were not represented in the actual app.",
       "fix": "Reworked the dashboard into a terminal shell with top chrome, footer bindings, sidebar panels, log panel, status strip, and progress panel, then emitted styled Rich Text for status, log controls, severity rails, GPU memory bars, progress, and error surfaces.",
-      "tags": ["tui", "figma", "rich", "color", "ux", "textual"],
-      "related_bugs": ["bug-069"],
+      "tags": [
+        "tui",
+        "figma",
+        "rich",
+        "color",
+        "ux",
+        "textual"
+      ],
+      "related_bugs": [
+        "bug-069"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T17:57:35Z"
     },
@@ -860,7 +1389,12 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "The CLI exposed a `version` subcommand but did not define the root `--version` option promised by the canonical deployment contract.",
       "fix": "Added an eager Typer callback option that prints __version__ and exits before creating the Textual app.",
-      "tags": ["cli", "deployment", "version", "packaging"],
+      "tags": [
+        "cli",
+        "deployment",
+        "version",
+        "packaging"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:02:21Z"
@@ -872,8 +1406,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The prior Figma shell/color pass styled the dashboard chrome, status, logs, GPU, progress, and error surfaces but left config summaries and phase timelines as plain strings.",
       "fix": "Split plain internal summaries from visible Rich Text renderables, styled selected/valid/invalid configs, added a stable workflow phase map with complete/current/upcoming color roles, and rendered warning banners amber while preserving red fault banners.",
-      "tags": ["tui", "rich", "color", "sidebar", "phases", "ux"],
-      "related_bugs": ["bug-071"],
+      "tags": [
+        "tui",
+        "rich",
+        "color",
+        "sidebar",
+        "phases",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-071"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:13:40Z"
     },
@@ -884,8 +1427,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical §8.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
       "fix": "Bound Tab to Textual's built-in focus_next action, added a Focus next widget system command, and documented Tab focus in the footer and Help modal.",
-      "tags": ["tui", "ux", "keybindings", "command-palette", "fr-22"],
-      "related_bugs": ["bug-071"],
+      "tags": [
+        "tui",
+        "ux",
+        "keybindings",
+        "command-palette",
+        "fr-22"
+      ],
+      "related_bugs": [
+        "bug-071"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:20:29Z"
     },
@@ -896,8 +1447,19 @@
       "file": "src/vllm_loader/tui/screens/confirm.py",
       "root_cause": "The app had Figma-derived dashboard color but the quit-while-attached confirmation still subclassed plain Screen, while Help content was a plain string, so modal workflows did not match the canonical modal/safe-vs-destructive visual language.",
       "fix": "Added a shared TUI theme palette, converted ConfirmScreen to a centered ModalScreen with red Stop and green Cancel Rich spans, rendered Help content with semantic Rich colors, and applied the same explicit palette to config picker and log prompt modal shells.",
-      "tags": ["tui", "figma", "modal", "rich", "color", "ux"],
-      "related_bugs": ["bug-071", "bug-073", "bug-074"],
+      "tags": [
+        "tui",
+        "figma",
+        "modal",
+        "rich",
+        "color",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-071",
+        "bug-073",
+        "bug-074"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:32:39Z"
     },
@@ -908,8 +1470,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by §8.6's sidebar-overlay behavior.",
       "fix": "Added a Textual-native `#sidebar-overlay` in the main column, rendered it as Rich Text with selected config, phase/status, and URL context, and toggled it on whenever the full sidebar is hidden while preserving GPU visibility rules and log visibility.",
-      "tags": ["tui", "responsive", "fr-24", "ux", "textual", "figma"],
-      "related_bugs": ["bug-071", "bug-073"],
+      "tags": [
+        "tui",
+        "responsive",
+        "fr-24",
+        "ux",
+        "textual",
+        "figma"
+      ],
+      "related_bugs": [
+        "bug-071",
+        "bug-073"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:41:41Z"
     },
@@ -920,8 +1492,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the §8.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
       "fix": "Added an error jump target derived from `PhaseFSM.error_excerpt`, routed named errors through a shared banner helper, appended a visible `Jump to error log line` palette hint, and added a dynamic palette command that applies log search/highlight for the target excerpt.",
-      "tags": ["tui", "error-banner", "logs", "command-palette", "fr-21", "ux"],
-      "related_bugs": ["bug-071", "bug-073"],
+      "tags": [
+        "tui",
+        "error-banner",
+        "logs",
+        "command-palette",
+        "fr-21",
+        "ux"
+      ],
+      "related_bugs": [
+        "bug-071",
+        "bug-073"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:48:05Z"
     },
@@ -932,8 +1514,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical §8.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
       "fix": "Generalized ConfirmScreen with configurable title, label, and app confirm action; action_kill now opens a Kill/Cancel modal for attached and reattached runs, and confirm_kill_running is the only path that sends SIGKILL or process.kill().",
-      "tags": ["tui", "confirm", "kill", "modal", "ux", "safety"],
-      "related_bugs": ["bug-075"],
+      "tags": [
+        "tui",
+        "confirm",
+        "kill",
+        "modal",
+        "ux",
+        "safety"
+      ],
+      "related_bugs": [
+        "bug-075"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T18:55:16Z"
     },
@@ -944,8 +1535,19 @@
       "file": "src/vllm_loader/engine/profile.py",
       "root_cause": "select_profile returned bundled profile flags even when vLLM serve help was available, and the new config-aware probing initially executed arbitrary custom scripts before launch preflights.",
       "fix": "Narrow selected profile flag maps and known_flags from collected vLLM help when available; route CLI/TUI/picker previews through a config-aware selector; teach the fake child --version/serve --help; and skip help probing for arbitrary non-vLLM-like custom executables.",
-      "tags": ["profile", "vllm", "require-flags", "help", "tui", "cli", "fake-child"],
-      "related_bugs": ["bug-050", "bug-066"],
+      "tags": [
+        "profile",
+        "vllm",
+        "require-flags",
+        "help",
+        "tui",
+        "cli",
+        "fake-child"
+      ],
+      "related_bugs": [
+        "bug-050",
+        "bug-066"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:08:53Z"
     },
@@ -956,8 +1558,17 @@
       "file": "scripts/run_remote_tests.sh",
       "root_cause": "The GPU-host validation flow could run a real config only by wrapping `vllm-loader run` in timeout, which did not prove READY and naturally waits forever for a healthy attached server.",
       "fix": "Added `vllm-loader smoke` to launch a config, wait for `/health` and `/v1/models`, print the READY URL/models, and stop the server; updated the remote script to print GPU/vLLM diagnostics and use smoke for real configs.",
-      "tags": ["remote", "gpu", "cli", "smoke", "readiness", "ops"],
-      "related_bugs": ["bug-079"],
+      "tags": [
+        "remote",
+        "gpu",
+        "cli",
+        "smoke",
+        "readiness",
+        "ops"
+      ],
+      "related_bugs": [
+        "bug-079"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:15:31Z"
     },
@@ -968,8 +1579,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The TUI treated every nonzero attached child return code as an unintentional crash, so an operator-confirmed SIGKILL could be rendered as CRASHED instead of an intentional lifecycle stop.",
       "fix": "Track operator shutdown intent by attached process PID before Stop/Kill signals and consume that marker when the read loop returns, mapping the intentional exit to STOPPED while preserving ordinary crash classification.",
-      "tags": ["tui", "lifecycle", "kill", "phase", "ux", "fr-6"],
-      "related_bugs": ["bug-078"],
+      "tags": [
+        "tui",
+        "lifecycle",
+        "kill",
+        "phase",
+        "ux",
+        "fr-6"
+      ],
+      "related_bugs": [
+        "bug-078"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:23:17Z"
     },
@@ -980,8 +1600,19 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The detached log-tail worker exited when `_sidecar_is_alive` returned false but did not feed a terminal process-exit event into the FSM for the currently attached sidecar.",
       "fix": "Added a tail-end handler that classifies unexpected disappearance of the active reattached sidecar as a process exit, rendering the existing CRASHED banner before READY while leaving intentional detach/stop paths alone.",
-      "tags": ["tui", "detached", "reattach", "tail", "fsm", "nfr-5"],
-      "related_bugs": ["bug-005", "bug-009", "bug-081"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "tail",
+        "fsm",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-009",
+        "bug-081"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:31:17Z"
     },
@@ -992,8 +1623,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical §8.6 state-change notification used by neighboring controls.",
       "fix": "Added a focused smoke regression for `w` wrap toggles and emitted `Wrap enabled`/`Wrap disabled` notifications after refreshing the visible chrome.",
-      "tags": ["tui", "wrap", "toast", "ux", "fr-13", "polish"],
-      "related_bugs": ["bug-071", "bug-073"],
+      "tags": [
+        "tui",
+        "wrap",
+        "toast",
+        "ux",
+        "fr-13",
+        "polish"
+      ],
+      "related_bugs": [
+        "bug-071",
+        "bug-073"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:36:58Z"
     },
@@ -1004,8 +1645,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The detached reattach path scheduled its health monitor without `exit_on_error=False`, unlike the GPU monitors and contrary to the canonical optional-monitor rule.",
       "fix": "Added a smoke regression that captures reattach worker options and set `exit_on_error=False` on the `reattach-health` worker.",
-      "tags": ["tui", "detached", "reattach", "health", "worker", "nfr-5"],
-      "related_bugs": ["bug-082"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "health",
+        "worker",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-082"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:41:41Z"
     },
@@ -1016,8 +1666,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "GPU and health workers could be configured as non-crashing monitors, but the TUI did not implement the canonical `on_worker_state_changed` backstop to notify operators when one stopped with an error.",
       "fix": "Added a focused worker-state smoke regression and implemented `on_worker_state_changed` for optional GPU/health monitor groups, normalizing current GPU worker group names to a `gpu monitor stopped: ...` warning toast.",
-      "tags": ["tui", "worker", "gpu", "health", "notify", "nfr-5"],
-      "related_bugs": ["bug-084"],
+      "tags": [
+        "tui",
+        "worker",
+        "gpu",
+        "health",
+        "notify",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-084"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:47:03Z"
     },
@@ -1028,8 +1687,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`_sample_gpu_panel_once` let sampler exceptions become worker errors, so the GPU panel could remain on the generic placeholder instead of showing why stats were unavailable.",
       "fix": "Caught sampler exceptions at the sampling boundary and rendered a `GpuPollResult` marked unavailable with the exception detail; added a focused smoke regression for the visible panel text.",
-      "tags": ["tui", "gpu", "monitoring", "worker", "fr-20", "nfr-5"],
-      "related_bugs": ["bug-085"],
+      "tags": [
+        "tui",
+        "gpu",
+        "monitoring",
+        "worker",
+        "fr-20",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-085"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:54:04Z"
     },
@@ -1040,8 +1708,17 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "`check_once` trusted a 200 `/v1/models` body to be valid JSON, so malformed responses raised `JSONDecodeError` out of the health probe instead of preserving the `/health` readiness result.",
       "fix": "Caught model-list JSON parse failures and returned a READY health event with empty models plus `ready; /v1/models returned invalid JSON` detail.",
-      "tags": ["health", "readiness", "models", "tui", "nfr-5"],
-      "related_bugs": ["bug-084", "bug-085"],
+      "tags": [
+        "health",
+        "readiness",
+        "models",
+        "tui",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-084",
+        "bug-085"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T19:59:07Z"
     },
@@ -1052,8 +1729,16 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "After JSON parsing succeeded, `check_once` assumed the payload was an object with a list-valued `data` field containing objects, so valid JSON with a wrong shape raised `AttributeError` during model-name extraction.",
       "fix": "Added a guarded model-name extractor that returns an advisory invalid-shape detail with READY and empty models instead of raising.",
-      "tags": ["health", "readiness", "models", "tui", "nfr-5"],
-      "related_bugs": ["bug-087"],
+      "tags": [
+        "health",
+        "readiness",
+        "models",
+        "tui",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-087"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:03:47Z"
     },
@@ -1064,8 +1749,19 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "`check_once` only treated `/v1/models` 401 as an auth failure when `server.api_key` was configured, so remote smoke could claim READY even though model introspection was auth-blocked.",
       "fix": "Classified every `/v1/models` 401 as `HF_AUTH`, using distinct guidance for missing vs mismatched configured API keys.",
-      "tags": ["health", "readiness", "models", "auth", "smoke", "remote"],
-      "related_bugs": ["bug-080", "bug-087", "bug-088"],
+      "tags": [
+        "health",
+        "readiness",
+        "models",
+        "auth",
+        "smoke",
+        "remote"
+      ],
+      "related_bugs": [
+        "bug-080",
+        "bug-087",
+        "bug-088"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:13:29Z"
     },
@@ -1076,8 +1772,18 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Non-reproduced detached log-tail timing flake; the exact selector passed immediately afterward and a full-suite rerun passed.",
       "fix": "No code change in this slice; recorded the symptom and verified with focused rerun plus full-suite rerun before proceeding.",
-      "tags": ["test", "tui", "detached", "log-tail", "flake"],
-      "related_bugs": ["bug-009", "bug-010", "bug-019"],
+      "tags": [
+        "test",
+        "tui",
+        "detached",
+        "log-tail",
+        "flake"
+      ],
+      "related_bugs": [
+        "bug-009",
+        "bug-010",
+        "bug-019"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:14:52Z"
     },
@@ -1088,7 +1794,13 @@
       "file": "src/vllm_loader/messages.py",
       "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving §6.3/P4 message wiring incomplete.",
       "fix": "Added a Textual `LoaderMessage` base, converted canonical event dataclasses to `Message` subclasses, added the missing message types, and changed transient log-record conversion to emit `ProgressUpdated`.",
-      "tags": ["messages", "textual", "architecture", "events", "p4"],
+      "tags": [
+        "messages",
+        "textual",
+        "architecture",
+        "events",
+        "p4"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:20:58Z"
@@ -1100,8 +1812,15 @@
       "file": "src/vllm_loader/messages.py",
       "root_cause": "Textual 8.2.7 `Message.__init__()` calls `self.__post_init__()`, so a dataclass subclass hook that called `Message.__init__(self)` recursively invoked itself.",
       "fix": "Call `Message.__post_init__(self)` directly from the shared dataclass hook so Textual's internal slots are initialized without recursion.",
-      "tags": ["messages", "textual", "dataclass", "test-failure"],
-      "related_bugs": ["bug-091"],
+      "tags": [
+        "messages",
+        "textual",
+        "dataclass",
+        "test-failure"
+      ],
+      "related_bugs": [
+        "bug-091"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:20:58Z"
     },
@@ -1112,8 +1831,15 @@
       "file": "tests/test_messages.py",
       "root_cause": "The new test imported `vllm_loader.messages` after specific `vllm_loader.*` imports instead of sorting the project import block.",
       "fix": "Moved the module import before the specific package imports and reran Ruff successfully.",
-      "tags": ["lint", "ruff", "imports", "tests"],
-      "related_bugs": ["bug-091"],
+      "tags": [
+        "lint",
+        "ruff",
+        "imports",
+        "tests"
+      ],
+      "related_bugs": [
+        "bug-091"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:23:18Z"
     },
@@ -1124,8 +1850,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The previous taxonomy slice defined Textual message classes, but the app still routed log, health, GPU, and lifecycle updates through direct helper calls only, so posted canonical messages did not update TUI state.",
       "fix": "Added Textual message handlers for log, progress, phase, readiness, health, process exit, engine errors, GPU updates, and GPU unavailable events; attached log, health, and GPU workers now post canonical messages.",
-      "tags": ["tui", "messages", "textual", "architecture", "workers"],
-      "related_bugs": ["bug-091"],
+      "tags": [
+        "tui",
+        "messages",
+        "textual",
+        "architecture",
+        "workers"
+      ],
+      "related_bugs": [
+        "bug-091"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:29:36Z"
     },
@@ -1136,8 +1870,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "After GPU sampling switched to `post_message`, a queued `GpuStatsUpdated` could be delivered during `run_test` teardown when the default screen no longer contained the `#gpu` widget.",
       "fix": "Made `_render_gpu_panel` update `gpu_panel_text` but tolerate `NoMatches` for the widget so teardown-time monitor messages cannot crash the app.",
-      "tags": ["tui", "gpu", "messages", "teardown", "nfr-5"],
-      "related_bugs": ["bug-086", "bug-094"],
+      "tags": [
+        "tui",
+        "gpu",
+        "messages",
+        "teardown",
+        "nfr-5"
+      ],
+      "related_bugs": [
+        "bug-086",
+        "bug-094"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:29:36Z"
     },
@@ -1148,8 +1891,14 @@
       "file": "tool invocation",
       "root_cause": "The active Superpowers plugin cache directory changed from the previously used hash to `de4c9ab7`, so reading the old `bd80d7d9` path failed.",
       "fix": "Located the current skill files with `find` and read the TDD, verification, and debugging skills from the active cache path.",
-      "tags": ["tooling", "skills", "path"],
-      "related_bugs": ["bug-017"],
+      "tags": [
+        "tooling",
+        "skills",
+        "path"
+      ],
+      "related_bugs": [
+        "bug-017"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:29:36Z"
     },
@@ -1160,8 +1909,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The new canonical message imports were placed after `vllm_loader.monitoring.gpu`, while Ruff expects the project import block sorted with `vllm_loader.messages` before `vllm_loader.monitoring.*`.",
       "fix": "Moved the message import block before the monitoring imports and reran Ruff successfully.",
-      "tags": ["lint", "ruff", "imports", "tui"],
-      "related_bugs": ["bug-093", "bug-094"],
+      "tags": [
+        "lint",
+        "ruff",
+        "imports",
+        "tui"
+      ],
+      "related_bugs": [
+        "bug-093",
+        "bug-094"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:33:44Z"
     },
@@ -1172,8 +1929,17 @@
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Non-reproduced dynamic sidecar discovery timing miss in `test_command_palette_reattaches_detached_run`; the exact selector passed immediately and the full smoke script passed on rerun.",
       "fix": "No code change in this slice; recorded the symptom and verified with exact-selector rerun plus full smoke rerun.",
-      "tags": ["test", "tui", "detached", "command-palette", "flake"],
-      "related_bugs": ["bug-010", "bug-090"],
+      "tags": [
+        "test",
+        "tui",
+        "detached",
+        "command-palette",
+        "flake"
+      ],
+      "related_bugs": [
+        "bug-010",
+        "bug-090"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:33:44Z"
     },
@@ -1184,8 +1950,16 @@
       "file": "src/vllm_loader/engine/sidecar.py",
       "root_cause": "On macOS, a shebang-launched script can report a transient framework/Homebrew Python executable even when PID, create_time, process group, and command line still match the sidecar identity.",
       "fix": "Treat exact command-line identity as stronger evidence after PID/create_time/PGID checks, and only reject executable drift when command-line identity is absent or mismatched.",
-      "tags": ["sidecar", "identity", "macos", "shebang", "flake"],
-      "related_bugs": ["bug-003"],
+      "tags": [
+        "sidecar",
+        "identity",
+        "macos",
+        "shebang",
+        "flake"
+      ],
+      "related_bugs": [
+        "bug-003"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:56:23Z"
     },
@@ -1196,7 +1970,13 @@
       "file": "scripts/run_remote_tests.sh",
       "root_cause": "The SSH heredoc relied on local environment variables and always passed an empty optional real-config argument before required remote parameters, which broke under `set -u` and did not make timeout behavior explicit.",
       "fix": "Pass timeout, seed Python, venv path, and optional real config as explicit SSH arguments, and omit the real-config argument entirely when it is not set.",
-      "tags": ["remote", "ssh", "gpu", "validation", "bash"],
+      "tags": [
+        "remote",
+        "ssh",
+        "gpu",
+        "validation",
+        "bash"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:56:23Z"
@@ -1208,8 +1988,16 @@
       "file": "scripts/run_remote_tests.sh",
       "root_cause": "The remote runner installed directly into the auto-detected system Python, but the GPU host's `/usr/bin/python3` lacked pip and the real project lane is supposed to use a persistent ZFS-backed venv.",
       "fix": "Create or reuse `/tank/venvs/lab-tui`, prefer `/tank/preproc/venv/bin/python` as the seed interpreter when available, and run install/lint/tests from the dedicated venv.",
-      "tags": ["remote", "venv", "zfs", "gpu", "python"],
-      "related_bugs": ["bug-100"],
+      "tags": [
+        "remote",
+        "venv",
+        "zfs",
+        "gpu",
+        "python"
+      ],
+      "related_bugs": [
+        "bug-100"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:56:23Z"
     },
@@ -1220,8 +2008,16 @@
       "file": "scripts/run_remote_tests.sh",
       "root_cause": "The remote runner invoked pytest with the venv Python but did not prepend the venv's `bin` directory to PATH, so tests spawning `vllm-loader` and scripts using `/usr/bin/env python3` escaped the dedicated venv.",
       "fix": "Export `PATH=$remote_venv/bin:$PATH` before installing and running remote diagnostics/tests.",
-      "tags": ["remote", "venv", "path", "pytest", "fake-child"],
-      "related_bugs": ["bug-101"],
+      "tags": [
+        "remote",
+        "venv",
+        "path",
+        "pytest",
+        "fake-child"
+      ],
+      "related_bugs": [
+        "bug-101"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T20:56:23Z"
     },
@@ -1232,7 +2028,13 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "Missing local model, tensor-parallel/GPU-count, and occupied-port checks lived only on VllmLoaderApp, while the remote GPU workflow uses CLI run/smoke.",
       "fix": "Moved those checks into engine/preflight.py, kept the TUI wrappers aligned, and made CLI run/smoke exit 2 with canonical MODEL_NOT_FOUND, TP_MISMATCH, or PORT_IN_USE before spawning a child.",
-      "tags": ["cli", "preflight", "gpu", "remote", "safety"],
+      "tags": [
+        "cli",
+        "preflight",
+        "gpu",
+        "remote",
+        "safety"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:17:09Z"
@@ -1244,8 +2046,16 @@
       "file": "src/vllm_loader/engine/profile.py",
       "root_cause": "vLLM 0.19's summary `serve --help` output contained only generic help flags; the profile collector treated that non-empty set as authoritative and filtered out every common serve flag.",
       "fix": "Collect `vllm serve --help=all` first and ignore collected help unless it includes the core `--host` and `--port` serve flags, preserving the bundled profile when help is summary-only.",
-      "tags": ["profile", "vllm", "remote", "gpu", "help-flags"],
-      "related_bugs": ["bug-103"],
+      "tags": [
+        "profile",
+        "vllm",
+        "remote",
+        "gpu",
+        "help-flags"
+      ],
+      "related_bugs": [
+        "bug-103"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:17:09Z"
     },
@@ -1256,8 +2066,16 @@
       "file": "src/vllm_loader/monitoring/health.py",
       "root_cause": "check_once returned HealthEvent(error_kind=HF_AUTH), but probe_loop treated all pre-READY non-ready events as retryable unless the timeout expired.",
       "fix": "Emit HealthEvent values with error_kind immediately and return from the probe loop so CLI/TUI smoke paths surface the named auth failure instead of timing out.",
-      "tags": ["health", "hf-auth", "readiness", "cli", "tui"],
-      "related_bugs": ["bug-089"],
+      "tags": [
+        "health",
+        "hf-auth",
+        "readiness",
+        "cli",
+        "tui"
+      ],
+      "related_bugs": [
+        "bug-089"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:21:50Z"
     },
@@ -1268,7 +2086,13 @@
       "file": "src/vllm_loader/engine/profile.py",
       "root_cause": "The phase pack recognized `Uvicorn running on ...`, but current vLLM emitted `Starting vLLM server on ...` in the real GPU smoke.",
       "fix": "Extended the SERVER_STARTING phase rule to match both Uvicorn and current vLLM server-start log forms.",
-      "tags": ["phases", "vllm", "logs", "gpu", "fsm"],
+      "tags": [
+        "phases",
+        "vllm",
+        "logs",
+        "gpu",
+        "fsm"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:21:50Z"
@@ -1280,8 +2104,17 @@
       "file": "src/vllm_loader/engine/sidecar.py",
       "root_cause": "macOS may report a live Python script child with a different interpreter executable spelling, or with the interpreter omitted from cmdline, even though PID, create_time, PGID, script path, and script args still match.",
       "fix": "After PID/create_time/PGID checks, accept command lines that are identical after removing a leading Python interpreter token, while preserving strict rejection for different script paths or args.",
-      "tags": ["sidecar", "identity", "macos", "python", "flake"],
-      "related_bugs": ["bug-003", "bug-099"],
+      "tags": [
+        "sidecar",
+        "identity",
+        "macos",
+        "python",
+        "flake"
+      ],
+      "related_bugs": [
+        "bug-003",
+        "bug-099"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:24:44Z"
     },
@@ -1292,8 +2125,16 @@
       "file": "src/vllm_loader/engine/profile.py",
       "root_cause": "The RESOLVING_MODEL phase rule matched the module name `snapshot_download` before the DOWNLOADING_MODEL rule saw the line's actual `Downloading ...` progress text.",
       "fix": "Remove the broad `snapshot_download` resolver match, add explicit cache-miss/snapshot-metadata resolver phrases, and cover success, HF cache-miss, and gated-model logs with fixture-backed phase tests.",
-      "tags": ["phases", "fixtures", "hf-cache", "vllm", "logs"],
-      "related_bugs": ["bug-106"],
+      "tags": [
+        "phases",
+        "fixtures",
+        "hf-cache",
+        "vllm",
+        "logs"
+      ],
+      "related_bugs": [
+        "bug-106"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:38:23Z"
     },
@@ -1304,8 +2145,17 @@
       "file": "docs/gpu-workflow.md",
       "root_cause": "The remote validation workflow had been updated for the lab GPU node and ZFS venv, but the ops docs still omitted the verified vLLM 0.19 build and the `textual serve` network/auth warning from the canonical spec.",
       "fix": "Added a docs regression and documented the verified `v0.19.1rc1.dev119+gba4a78eb5` lab surface, fixture/profile update expectations, and trusted network/auth requirements for `textual serve`.",
-      "tags": ["docs", "remote", "vllm", "textual", "ops"],
-      "related_bugs": ["bug-104", "bug-106"],
+      "tags": [
+        "docs",
+        "remote",
+        "vllm",
+        "textual",
+        "ops"
+      ],
+      "related_bugs": [
+        "bug-104",
+        "bug-106"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:41:11Z"
     },
@@ -1316,8 +2166,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "The single-managed-server guard in `action_load` only checked a live attached child process and ignored `reattached_sidecar_path`, so a reattached detached run did not block another launch.",
       "fix": "Make `action_load` refuse new loads while a detached run is attached and emit a warning; add a TUI smoke regression that verifies no `load` worker is scheduled in that state.",
-      "tags": ["tui", "detached", "lifecycle", "single-server", "fr"],
-      "related_bugs": ["bug-005", "bug-006"],
+      "tags": [
+        "tui",
+        "detached",
+        "lifecycle",
+        "single-server",
+        "fr"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-006"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:45:24Z"
     },
@@ -1328,8 +2187,16 @@
       "file": "tests/test_phases.py",
       "root_cause": "The phase suite had synthetic classifier strings for OOM and port-in-use but lacked recorded-style fixture files for those categories, leaving the canonical fixture matrix incomplete.",
       "fix": "Added fixture-backed OOM and port-in-use tests plus representative vLLM log snippets under `tests/fixtures/vllm_logs/`.",
-      "tags": ["tests", "fixtures", "phases", "oom", "port-in-use"],
-      "related_bugs": ["bug-108"],
+      "tags": [
+        "tests",
+        "fixtures",
+        "phases",
+        "oom",
+        "port-in-use"
+      ],
+      "related_bugs": [
+        "bug-108"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:47:37Z"
     },
@@ -1340,8 +2207,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`action_detach` cancelled detached tail/health workers, but the shared destructive sidecar signal path only cleared `reattached_sidecar_path` and set STOPPED after a successful stop/kill.",
       "fix": "Cancel the `tail` and `health` worker groups in `_signal_reattached_sidecar` after the sidecar signal succeeds, before clearing the attachment state.",
-      "tags": ["tui", "detached", "reattach", "workers", "lifecycle"],
-      "related_bugs": ["bug-005", "bug-110"],
+      "tags": [
+        "tui",
+        "detached",
+        "reattach",
+        "workers",
+        "lifecycle"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-110"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T21:54:41Z"
     },
@@ -1352,8 +2228,18 @@
       "file": "src/vllm_loader/cli.py",
       "root_cause": "The existing `smoke` command launched the engine directly, so remote validation bypassed VllmLoaderApp selection, phase handling, readiness state, and stop cleanup.",
       "fix": "Added `vllm-loader smoke-tui`, which mounts the Textual app in headless `run_test`, selects the named config, calls `action_load`, waits for READY, prints the discovered URL/models, calls `action_stop`, and waits for the child process to exit.",
-      "tags": ["cli", "tui", "textual", "gpu", "smoke"],
-      "related_bugs": ["bug-100", "bug-103", "bug-112"],
+      "tags": [
+        "cli",
+        "tui",
+        "textual",
+        "gpu",
+        "smoke"
+      ],
+      "related_bugs": [
+        "bug-100",
+        "bug-103",
+        "bug-112"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:01:08Z"
     },
@@ -1364,8 +2250,16 @@
       "file": "scripts/run_remote_tests.sh",
       "root_cause": "The new `smoke-tui` command was added as a separate CLI surface, but the canonical GPU workflow script and docs still pointed real-config validation at the older engine-only smoke path.",
       "fix": "Changed the remote real-config lane and GPU workflow docs to run timeout-bound `vllm-loader smoke-tui`, with tests asserting the script no longer runs direct `smoke` for real configs.",
-      "tags": ["remote", "gpu", "tui", "workflow", "docs"],
-      "related_bugs": ["bug-113"],
+      "tags": [
+        "remote",
+        "gpu",
+        "tui",
+        "workflow",
+        "docs"
+      ],
+      "related_bugs": [
+        "bug-113"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:02:50Z"
     },
@@ -1376,8 +2270,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`_set_phase` and other UI refresh helpers assumed `query_one` could still find mounted widgets, and `_queue_log_write` assumed a running event loop for Textual timers. On the Linux GPU host, a queued `LogLineCommitted` arrived after the headless smoke app had started teardown.",
       "fix": "Added a deterministic unmounted-message regression, broadened missing-widget guards to include `ScreenStackError`, preserved phase/error/progress/log state when widgets are absent, and skipped log flush timer scheduling when no event loop is running.",
-      "tags": ["tui", "textual", "teardown", "remote", "linux"],
-      "related_bugs": ["bug-094", "bug-095", "bug-113"],
+      "tags": [
+        "tui",
+        "textual",
+        "teardown",
+        "remote",
+        "linux"
+      ],
+      "related_bugs": [
+        "bug-094",
+        "bug-095",
+        "bug-113"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:09:34Z"
     },
@@ -1388,8 +2292,18 @@
       "file": "src/vllm_loader/engine/profile.py",
       "root_cause": "The TP mismatch error rule matched any occurrence of `tensor_parallel`, `pipeline_parallel`, or `world_size`, so a normal vLLM startup argument echo won before health readiness could mark the server READY.",
       "fix": "Added a regression for vLLM's `non-default args` line and narrowed the TP mismatch regex to actual mismatch/failure wording such as `world_size must`, invalid/exceed/greater language, or explicit TP mismatch.",
-      "tags": ["phases", "vllm", "tensor-parallel", "gpu", "smoke-tui"],
-      "related_bugs": ["bug-104", "bug-106", "bug-113"],
+      "tags": [
+        "phases",
+        "vllm",
+        "tensor-parallel",
+        "gpu",
+        "smoke-tui"
+      ],
+      "related_bugs": [
+        "bug-104",
+        "bug-106",
+        "bug-113"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:13:35Z"
     },
@@ -1400,8 +2314,18 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`_run_selected_config` replaced `cfg.run_artifacts_dir` with a temp directory whenever `configs_dir` was set, so normal `--configs-dir`/test-lab usage wrote attached durable logs away from the configured run-artifact location.",
       "fix": "Removed the temp-dir override and added a TUI fake-child regression proving an attached launch writes the scrubbed durable log to `launch.runs_dir` while still omitting transient carriage-return progress.",
-      "tags": ["tui", "attached", "logs", "runs-dir", "durability"],
-      "related_bugs": ["bug-011", "bug-042", "bug-113"],
+      "tags": [
+        "tui",
+        "attached",
+        "logs",
+        "runs-dir",
+        "durability"
+      ],
+      "related_bugs": [
+        "bug-011",
+        "bug-042",
+        "bug-113"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:21:50Z"
     },
@@ -1412,8 +2336,17 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`action_restart` called `action_stop()` and then `action_load()` synchronously. If the attached process still reported running after SIGINT, `action_load` refused with `A process is already running` instead of completing the spec's stop-then-start workflow.",
       "fix": "Added a deterministic slow-stopping process regression and changed restart to stop the current process, then run a restart worker that waits for `proc.poll()` to become non-None before calling `action_load`.",
-      "tags": ["tui", "restart", "attached", "lifecycle", "race"],
-      "related_bugs": ["bug-110", "bug-117"],
+      "tags": [
+        "tui",
+        "restart",
+        "attached",
+        "lifecycle",
+        "race"
+      ],
+      "related_bugs": [
+        "bug-110",
+        "bug-117"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:26:29Z"
     },
@@ -1424,8 +2357,16 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`confirm_stop_running` signaled stop then called `exit()` synchronously, so a slow-stopping attached child could still be running as the TUI closed.",
       "fix": "Added slow-stopping-process regression and changed confirm Stop to schedule a `quit-stop` worker that waits for `proc.poll()` to become non-None before calling `exit()`.",
-      "tags": ["tui", "quit", "attached", "lifecycle", "fr-8"],
-      "related_bugs": ["bug-118"],
+      "tags": [
+        "tui",
+        "quit",
+        "attached",
+        "lifecycle",
+        "fr-8"
+      ],
+      "related_bugs": [
+        "bug-118"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:31:25Z"
     },
@@ -1436,8 +2377,19 @@
       "file": "src/vllm_loader/tui/app.py",
       "root_cause": "`action_restart` only waited for attached processes. With a reattached detached run, it called `action_stop()`, which cleared `reattached_sidecar_path`, then called `action_load()` before confirming the sidecar identity was gone.",
       "fix": "Added a reattached-sidecar restart regression and changed detached Restart to run a restart worker: stop the verified sidecar, cancel detached monitors, wait until `_sidecar_is_alive()` is false, then clear attachment state and load the selected config.",
-      "tags": ["tui", "restart", "detached", "reattach", "lifecycle", "race"],
-      "related_bugs": ["bug-110", "bug-118", "bug-119"],
+      "tags": [
+        "tui",
+        "restart",
+        "detached",
+        "reattach",
+        "lifecycle",
+        "race"
+      ],
+      "related_bugs": [
+        "bug-110",
+        "bug-118",
+        "bug-119"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:37:49Z"
     },
@@ -1448,8 +2400,19 @@
       "file": "src/vllm_loader/engine/process_manager.py",
       "root_cause": "Attached and sidecar stop helpers escalated SIGINT to SIGTERM to SIGKILL, but returned immediately after the SIGKILL fallback instead of giving the process one final bounded exit wait.",
       "fix": "Added attached-process and sidecar stop regressions, then made both helpers perform one final wait using the terminate timeout after sending SIGKILL.",
-      "tags": ["engine", "lifecycle", "signals", "attached", "detached", "stop"],
-      "related_bugs": ["bug-118", "bug-119", "bug-120"],
+      "tags": [
+        "engine",
+        "lifecycle",
+        "signals",
+        "attached",
+        "detached",
+        "stop"
+      ],
+      "related_bugs": [
+        "bug-118",
+        "bug-119",
+        "bug-120"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:43:08Z"
     },
@@ -1460,10 +2423,51 @@
       "file": "src/vllm_loader/engine/phases.py",
       "root_cause": "`PhaseFSM.process_exited` used the latest committed log line as the generic crash excerpt, but left `error_excerpt` empty when a child exited nonzero before emitting any committed output.",
       "fix": "Added a TUI regression for `ProcessExited(7)` without logs and made the FSM fall back to `process exited with code N` or `process exited unexpectedly` when no recent log excerpt exists.",
-      "tags": ["phases", "tui", "errors", "crashed", "fr-21"],
-      "related_bugs": ["bug-115", "bug-121"],
+      "tags": [
+        "phases",
+        "tui",
+        "errors",
+        "crashed",
+        "fr-21"
+      ],
+      "related_bugs": [
+        "bug-115",
+        "bug-121"
+      ],
       "occurrences": 1,
       "last_seen": "2026-06-02T22:48:36Z"
+    },
+    {
+      "id": "bug-123",
+      "timestamp": "2026-06-03T03:22:46.015Z",
+      "error_message": "Incorrect value in code",
+      "file": "vllm-agent-architecture-spec-v1.md",
+      "root_cause": "Had \"runs overview\"",
+      "fix": "Changed to `SO_PEERCRED`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 10,
+      "last_seen": "2026-06-03T03:24:23.815Z"
+    },
+    {
+      "id": "bug-124",
+      "timestamp": "2026-06-03T03:23:05.834Z",
+      "error_message": "Significant refactor of ",
+      "file": "vllm-agent-architecture-spec-v1.md",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 7→21 lines (5 removed) | Also: Event    (A→C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 4,
+      "last_seen": "2026-06-03T03:23:48.648Z"
     }
   ]
 }

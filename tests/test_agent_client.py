@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import inspect
 import io
 import json
@@ -22,6 +23,7 @@ from conftest import write_yaml
 from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.engine import build_registry as build_registry_module
 from vllm_loader.engine import model_registry as model_registry_module
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import DetachedLaunch
@@ -2225,6 +2227,52 @@ async def test_agent_adopts_external_build_with_registry_minted_id(
 
 
 @pytest.mark.asyncio
+async def test_agent_adopt_build_takes_registry_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "vllm-nightly"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    flock_calls: list[tuple[str, int]] = []
+
+    def fake_flock(handle: object, operation: int) -> None:
+        flock_calls.append((str(getattr(handle, "name", "")), operation))
+
+    monkeypatch.setattr(
+        build_registry_module,
+        "fcntl",
+        SimpleNamespace(LOCK_EX=fcntl.LOCK_EX, LOCK_UN=fcntl.LOCK_UN, flock=fake_flock),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        await client.call(
+            "adopt_build",
+            {
+                "build_id": "01LOCKED",
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert flock_calls == [
+        (str(builds_root / "builds.lock"), fcntl.LOCK_EX),
+        (str(builds_root / "builds.lock"), fcntl.LOCK_UN),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_agent_rejects_invalid_external_build_adoption(tmp_path: Path) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
     venv_dir = tmp_path / "external" / "broken"
@@ -3173,6 +3221,43 @@ async def test_agent_pins_model_with_registry_minted_id(tmp_path: Path) -> None:
     assert entry_id != "llama-pinned"
     json.dumps(pinned)
     json.dumps(listed)
+
+
+@pytest.mark.asyncio
+async def test_agent_pin_model_takes_registry_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    flock_calls: list[tuple[str, int]] = []
+
+    def fake_flock(handle: object, operation: int) -> None:
+        flock_calls.append((str(getattr(handle, "name", "")), operation))
+
+    monkeypatch.setattr(
+        model_registry_module,
+        "fcntl",
+        SimpleNamespace(LOCK_EX=fcntl.LOCK_EX, LOCK_UN=fcntl.LOCK_UN, flock=fake_flock),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCKED",
+                "display_name": "llama-pinned",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert flock_calls == [
+        (str(registry_path.parent / "registry.lock"), fcntl.LOCK_EX),
+        (str(registry_path.parent / "registry.lock"), fcntl.LOCK_UN),
+    ]
 
 
 @pytest.mark.asyncio

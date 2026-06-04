@@ -1,14 +1,19 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-02T21:22:00.000Z
-> Files: 113 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-04T02:38:13.493Z
+> Files: 62 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
-- `CLAUDE.md` — OpenWolf (~57 tok)
 - `.gitignore` — Git ignore rules for Python caches, envs, build output, and local run logs (~90 tok)
-- `README.md` — install, CLI, Mac-to-GPU workflow, config discovery, security note (~280 tok)
+- `CLAUDE.md` — OpenWolf (~57 tok)
 - `pyproject.toml` — package metadata, dependencies, console script, pytest and ruff settings (~330 tok)
+- `README.md` — install, CLI, Mac-to-GPU workflow, config discovery, security note (~280 tok)
+- `vllm-agent-architecture-review-punchlist-v2.md` — vLLM Agent Architecture — Implementation Review Punch List **v2** (~3031 tok)
+- `vllm-agent-architecture-review-punchlist.md` — vLLM Agent Architecture — Implementation Review Punch List (~2840 tok)
+- `vllm-agent-architecture-spec-v1.md` — vLLM Loader — Agent/Controller Architecture (Remote Execution) — Specification & Implementation Plan (~14470 tok)
+- `vllm-build-management-spec-v1.md` — vLLM Build Management — Feature Specification & Implementation Plan (v1) (~12531 tok)
+- `vllm-model-management-spec-v1.md` — vLLM Model Registry & Management — Feature Specification & Implementation Plan (v1) (~12230 tok)
 - `vllm-tui-loader-spec-v2-CANONICAL.md` — vLLM TUI Model Loader — Canonical Specification & Implementation Plan (v2) (~13104 tok)
 
 ## .claude/
@@ -57,8 +62,8 @@
 
 ## src/vllm_loader/config/
 
-- `schema.py` — Pydantic v2 config schema with unset vLLM pass-through defaults (~1250 tok)
 - `loader.py` — YAML config discovery/loading, invalid config retention, duplicate detection (~850 tok)
+- `schema.py` — Pydantic v2 config schema with unset vLLM pass-through defaults (~1250 tok)
 
 ## src/vllm_loader/engine/
 

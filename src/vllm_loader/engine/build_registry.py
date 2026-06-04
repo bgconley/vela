@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -90,6 +91,16 @@ def select_build(
     updated_at: str | None = None,
 ) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        return _select_build_locked(reference, builds_root, updated_at=updated_at)
+
+
+def _select_build_locked(
+    reference: str,
+    builds_root: Path,
+    *,
+    updated_at: str | None = None,
+) -> dict[str, Any]:
     handoff = resolve_build_handoff(reference, builds_root)
     if handoff is None:
         raise BuildRegistryError(
@@ -113,6 +124,11 @@ def select_build(
 
 def verify_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        return _verify_build_locked(reference, builds_root)
+
+
+def _verify_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
     manifest, build_dir = _manifest_for_reference(builds_root, reference)
     result = _verify_build_manifest(manifest, build_dir)
     _write_json_atomic(build_dir / "build.json", manifest)
@@ -127,6 +143,11 @@ def inspect_build(reference: str, root: str | Path | None = None) -> dict[str, A
 
 def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        return _adopt_build_locked(params, builds_root)
+
+
+def _adopt_build_locked(params: dict[str, Any], builds_root: Path) -> dict[str, Any]:
     build_id = _build_id_from_params(params, builds_root)
     venv_path = Path(_required_param(params, "venv_path")).expanduser()
     executable = venv_path / "bin" / "vllm"
@@ -214,6 +235,11 @@ def build_reference_aliases(reference: str, root: str | Path | None = None) -> s
 
 def remove_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        return _remove_build_locked(reference, builds_root)
+
+
+def _remove_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
     manifest, build_dir = _manifest_for_reference(builds_root, reference)
     build_id = str(manifest["build_id"])
     if build_id == _active_build_id(builds_root):
@@ -607,6 +633,31 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(tmp, path)
+
+
+def _registry_lock(root: Path) -> _ExclusiveFileLock:
+    return _ExclusiveFileLock(root / "builds.lock")
+
+
+class _ExclusiveFileLock:
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._handle: Any | None = None
+
+    def __enter__(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = self._path.open("a", encoding="utf-8")
+        fcntl.flock(self._handle, fcntl.LOCK_EX)
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        if self._handle is None:
+            return False
+        try:
+            fcntl.flock(self._handle, fcntl.LOCK_UN)
+        finally:
+            self._handle.close()
+            self._handle = None
+        return False
 
 
 def _utc_now() -> str:
