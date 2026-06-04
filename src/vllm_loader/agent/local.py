@@ -2264,7 +2264,7 @@ def _write_managed_build_artifacts(build_dir: Path, venv_path: Path) -> None:
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(exist_ok=True)
     _replace_symlink(bin_dir / "vllm", venv_path / "bin" / "vllm")
-    _replace_symlink(bin_dir / "python", venv_path / "bin" / "python")
+    _write_venv_python_wrapper(bin_dir / "python", build_dir)
     _replace_symlink(build_dir / "activate", venv_path / "bin" / "activate")
     run_script = build_dir / "run.sh"
     run_script.write_text(
@@ -2287,6 +2287,25 @@ def _write_managed_build_artifacts(build_dir: Path, venv_path: Path) -> None:
 def _replace_symlink(link_path: Path, target_path: Path) -> None:
     link_path.unlink(missing_ok=True)
     link_path.symlink_to(target_path)
+
+
+def _write_venv_python_wrapper(path: Path, build_dir: Path) -> None:
+    path.unlink(missing_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "set -eu",
+                f'BUILD_ROOT="{build_dir}"',
+                'export VIRTUAL_ENV="${BUILD_ROOT}/venv"',
+                'export PATH="${VIRTUAL_ENV}/bin:${PATH}"',
+                'exec "${BUILD_ROOT}/venv/bin/python" "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
 
 
 def _managed_build_manifest(

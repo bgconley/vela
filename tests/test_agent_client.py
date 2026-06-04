@@ -2218,9 +2218,8 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     }
     assert (build_dir / "venv").resolve() == venv_dir.resolve()
     assert (build_dir / "bin" / "vllm").resolve() == (venv_dir / "bin" / "vllm")
-    assert (build_dir / "bin" / "python").resolve() == (
-        venv_dir / "bin" / "python"
-    )
+    assert not (build_dir / "bin" / "python").is_symlink()
+    assert (build_dir / "bin" / "python").stat().st_mode & 0o111
     assert (build_dir / "activate").resolve() == (venv_dir / "bin" / "activate")
     run_script = build_dir / "run.sh"
     assert run_script.stat().st_mode & 0o111
@@ -4958,9 +4957,8 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
     assert (build_dir / "bin" / "vllm").resolve() == (
         build_dir / "venv" / "bin" / "vllm"
     ).resolve()
-    assert (build_dir / "bin" / "python").resolve() == (
-        build_dir / "venv" / "bin" / "python"
-    ).resolve()
+    assert not (build_dir / "bin" / "python").is_symlink()
+    assert (build_dir / "bin" / "python").stat().st_mode & 0o111
     assert (build_dir / "activate").resolve() == (
         build_dir / "venv" / "bin" / "activate"
     ).resolve()
@@ -5057,6 +5055,47 @@ def test_managed_build_resolved_versions_uses_profile_version(
         "python": "3.12.7",
     }
     assert len(probes) == 3
+
+
+def test_managed_build_artifacts_write_python_wrapper(tmp_path: Path) -> None:
+    build_dir = tmp_path / "build"
+    venv_path = build_dir / "venv"
+    bin_dir = venv_path / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+
+    local_agent_module._write_managed_build_artifacts(build_dir, venv_path)
+
+    python_wrapper = build_dir / "bin" / "python"
+    assert not python_wrapper.is_symlink()
+    assert python_wrapper.stat().st_mode & 0o111
+    assert 'exec "${BUILD_ROOT}/venv/bin/python" "$@"' in python_wrapper.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_adopted_build_artifacts_write_python_wrapper(tmp_path: Path) -> None:
+    builds_root = tmp_path / "builds"
+    build_dir = builds_root / "01ADOPT"
+    venv_path = tmp_path / "external" / "venv"
+    bin_dir = venv_path / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "python").write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    (bin_dir / "vllm").write_text("#!/bin/sh\necho 'vLLM 0.11.2'\n", encoding="utf-8")
+    (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+    (bin_dir / "python").chmod(0o755)
+    (bin_dir / "vllm").chmod(0o755)
+
+    build_registry_module._write_adopted_build_artifacts(build_dir, venv_path)
+
+    python_wrapper = build_dir / "bin" / "python"
+    assert not python_wrapper.is_symlink()
+    assert python_wrapper.stat().st_mode & 0o111
+    assert 'exec "${BUILD_ROOT}/venv/bin/python" "$@"' in python_wrapper.read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.asyncio

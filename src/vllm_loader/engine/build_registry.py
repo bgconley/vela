@@ -533,7 +533,7 @@ def _write_adopted_build_artifacts(build_dir: Path, venv_path: Path) -> None:
     bin_dir.mkdir()
     (build_dir / "venv").symlink_to(venv_path)
     (bin_dir / "vllm").symlink_to(venv_path / "bin" / "vllm")
-    (bin_dir / "python").symlink_to(venv_path / "bin" / "python")
+    _write_venv_python_wrapper(bin_dir / "python", build_dir)
     (build_dir / "activate").symlink_to(venv_path / "bin" / "activate")
     run_script = build_dir / "run.sh"
     run_script.write_text(
@@ -551,6 +551,24 @@ def _write_adopted_build_artifacts(build_dir: Path, venv_path: Path) -> None:
         encoding="utf-8",
     )
     run_script.chmod(0o755)
+
+
+def _write_venv_python_wrapper(path: Path, build_dir: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "set -eu",
+                f'BUILD_ROOT="{build_dir}"',
+                'export VIRTUAL_ENV="${BUILD_ROOT}/venv"',
+                'export PATH="${VIRTUAL_ENV}/bin:${PATH}"',
+                'exec "${BUILD_ROOT}/venv/bin/python" "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
 
 
 def _required_param(params: dict[str, Any], field: str) -> str:
