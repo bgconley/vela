@@ -752,6 +752,21 @@ class VllmLoaderApp(App):
             "Manage targets", "View and switch controller targets", self.action_targets
         )
         yield SystemCommand(
+            "Agent info", "View active target agent details", self.action_targets
+        )
+        try:
+            targets = load_targets_file().targets
+        except Exception:
+            targets = []
+        for target in targets:
+            if target.name == self.target_name:
+                continue
+            yield SystemCommand(
+                f"Switch target: {target.name}",
+                f"Connect to target {target.name}",
+                lambda selected=target.name: self._handle_target_manager_selection(selected),
+            )
+        yield SystemCommand(
             "Manage vLLM builds", "View and select target-local vLLM builds", self.action_builds
         )
         yield SystemCommand(

@@ -5766,6 +5766,23 @@ async def test_command_palette_exposes_core_actions_and_config_loads(
 ) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
     app = VllmLoaderApp(configs_dir=config_dir)
     load_calls: list[str | None] = []
 
@@ -5786,6 +5803,9 @@ async def test_command_palette_exposes_core_actions_and_config_loads(
             "Force kill server",
             "Restart server",
             "Open config picker",
+            "Manage targets",
+            "Switch target: blackbird",
+            "Agent info",
             "Search logs",
             "Filter logs",
             "Toggle autoscroll",
