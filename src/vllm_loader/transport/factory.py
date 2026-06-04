@@ -13,6 +13,11 @@ from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.subprocess import SubprocessTargetClient
 
 DEFAULT_AGENT_COMMAND = ("vllm-loader", "agent", "connect")
+DEFAULT_SSH_CONTROL_OPTIONS = {
+    "ControlMaster": "auto",
+    "ControlPersist": "60s",
+    "ControlPath": "~/.ssh/vllm-loader-%C",
+}
 
 
 def target_client_for_config(
@@ -42,8 +47,15 @@ def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> li
         "-o",
         "ServerAliveCountMax=3",
     ]
-    if target.ssh_opts_env:
-        command.extend(shlex.split(os.environ.get(target.ssh_opts_env, "")))
+    ssh_opts = (
+        shlex.split(os.environ.get(target.ssh_opts_env, ""))
+        if target.ssh_opts_env
+        else []
+    )
+    command.extend(ssh_opts)
+    for key, value in DEFAULT_SSH_CONTROL_OPTIONS.items():
+        if not _ssh_option_present(ssh_opts, key):
+            command.extend(["-o", f"{key}={value}"])
     command.append(target.host)
     command.append(_remote_agent_command(target, agent_command))
     return command
@@ -56,3 +68,18 @@ def _remote_agent_command(target: TargetConfig, agent_command: Sequence[str]) ->
     if target.workdir is not None:
         command = f"cd {shlex.quote(str(target.workdir))} && {command}"
     return command
+
+
+def _ssh_option_present(options: Sequence[str], key: str) -> bool:
+    needle = key.lower()
+    for index, option in enumerate(options):
+        if option == "-o" and index + 1 < len(options):
+            if _ssh_option_key(options[index + 1]) == needle:
+                return True
+        elif option.startswith("-o") and _ssh_option_key(option[2:]) == needle:
+            return True
+    return False
+
+
+def _ssh_option_key(value: str) -> str:
+    return value.split("=", 1)[0].strip().lower()

@@ -96,6 +96,12 @@ def test_target_client_factory_builds_ssh_subprocess_client(
         "/tmp/gpu-key",
         "-o",
         "ProxyJump=bastion",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=60s",
+        "-o",
+        "ControlPath=~/.ssh/vllm-loader-%C",
         "bgconley@10.25.0.51",
         "cd /tank/repos/lab-tui && PATH=/tank/venvs/lab-tui/bin:$PATH vllm-loader agent connect",
     ]
