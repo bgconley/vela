@@ -5171,6 +5171,8 @@ async def test_model_manager_opens_model_catalog_from_target_client(
         assert "  ○ qwen-remote  bf16  -- @main" in model_list
         assert "repo: meta-llama/Llama-3.1-8B-Instruct" in detail
         assert "revision: main → abc123" in detail
+        assert "size: 2.1 GB unique / 16.1 GB nominal" in detail
+        assert "auth: gated, requires HF_TOKEN" in detail
         assert "files: 7 safetensors" in detail
 
 

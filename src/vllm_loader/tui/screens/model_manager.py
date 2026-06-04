@@ -160,8 +160,12 @@ class ModelManagerScreen(ModalScreen):
             f"repo: {model.get('repo_id') or '-'}",
             f"revision: {_revision_detail(model)}",
             f"cache: {model.get('cache_state') or 'unknown'}",
+            f"size: {_size_label(model)}",
             f"files: {_files_label(files)}",
         ]
+        auth = _auth_detail(model)
+        if auth:
+            lines.insert(-1, f"auth: {auth}")
         if _is_url_model(model):
             lines.append("download: launch-time-only")
             lines.append(f"url: {model.get('url') or '-'}")
@@ -274,6 +278,16 @@ def _size_label(model: dict[str, Any]) -> str:
     if size <= 0:
         return "--"
     return _gb_label(size)
+
+
+def _auth_detail(model: dict[str, Any]) -> str:
+    gated = bool(model.get("gated"))
+    token_required = bool(model.get("token_required")) or gated
+    if gated and token_required:
+        return "gated, requires HF_TOKEN"
+    if token_required:
+        return "requires HF_TOKEN"
+    return ""
 
 
 def _size_value(value: object) -> int:
