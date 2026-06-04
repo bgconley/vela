@@ -1254,6 +1254,14 @@ class VllmLoaderApp(App):
         )
 
     async def _create_build(self, params: dict[str, Any]) -> None:
+        try:
+            await self._target_call(
+                "check_build_prerequisites",
+                _build_prerequisite_params(params),
+            )
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to create build: {exc}", style=f"bold {BAD}")
+            return
         job_params = dict(params)
         job_params["job_id"] = uuid.uuid4().hex
         await self._run_target_job(
@@ -3705,6 +3713,10 @@ class VllmLoaderApp(App):
         if ratio >= 0.75:
             return WARN
         return GOOD
+
+
+def _build_prerequisite_params(params: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in params.items() if key != "job_id"}
 
 
 def _target_seen_timestamp(payload: dict[str, Any]) -> str:

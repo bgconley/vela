@@ -10,7 +10,12 @@ from collections.abc import AsyncIterator
 from typing import Any, BinaryIO
 
 from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport.ndjson import (
+    FRAME_STREAM_LIMIT,
+    NdjsonFrameError,
+    decode_frame,
+    encode_frame,
+)
 from vllm_loader.transport.rpc_errors import rpc_error_payload
 
 
@@ -266,7 +271,7 @@ async def _stdio_streams(
     stdout: BinaryIO,
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
+    reader = asyncio.StreamReader(limit=FRAME_STREAM_LIMIT)
     reader_protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: reader_protocol, stdin)
     writer_transport, writer_protocol = await loop.connect_write_pipe(

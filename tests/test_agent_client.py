@@ -22,13 +22,15 @@ from conftest import write_yaml
 
 from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
-from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.agent.local import LocalAgent, LocalDetachedRun, TargetCallError
 from vllm_loader.config.loader import load_registry
+from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine import build_registry as build_registry_module
 from vllm_loader.engine import model_registry as model_registry_module
-from vllm_loader.engine.phases import ErrorKind, Phase
+from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
 from vllm_loader.engine.process_manager import DetachedLaunch
-from vllm_loader.engine.sidecar import Manifest, Sidecar
+from vllm_loader.engine.profile import bundled_profile
+from vllm_loader.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
@@ -1976,6 +1978,64 @@ async def test_local_agent_reattaches_and_stops_detached_run_by_run_id(
     assert reattached["run_id"] == "run-1"
     assert agent.is_run_alive("run-1") is True
     assert stopped == [(sidecar_path, 2, 3)]
+
+
+def test_local_agent_stop_identity_mismatch_uses_named_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run-1.json"
+    manifest_path = tmp_path / "run-1.manifest.json"
+    log_path = tmp_path / "run-1.run.log"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+    )
+    agent = LocalAgent()
+    agent._detached_runs["run-1"] = LocalDetachedRun(
+        run_id="run-1",
+        sidecar_path=sidecar_path,
+        sidecar=sidecar,
+        manifest=Manifest.from_active_log(log_path),
+        config=ModelConfig.model_validate({"name": "detached", "model": "fake/model"}),
+        fsm=PhaseFSM(bundled_profile()),
+    )
+
+    def refuse_signal(*_args, **_kwargs) -> None:
+        raise TrackedProcessMismatch("tracked process group does not match sidecar")
+
+    monkeypatch.setattr(local_agent_module, "stop_sidecar_from_system", refuse_signal)
+
+    with pytest.raises(TargetCallError) as exc_info:
+        agent.handle("stop", {"run_id": "run-1"})
+
+    assert exc_info.value.code == "identity-verification-failed"
+    assert exc_info.value.details["run_id"] == "run-1"
+    assert "tracked process group" in exc_info.value.message
+
+
+def test_local_agent_build_prerequisites_reject_nightly_without_uv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None)
+
+    with pytest.raises(TargetCallError) as exc_info:
+        LocalAgent().handle("check_build_prerequisites", {"method": "nightly"})
+
+    assert exc_info.value.code == "feature-unavailable"
+    assert exc_info.value.details == {"reason": "uv-required", "method": "nightly"}
 
 
 @pytest.mark.asyncio

@@ -60,6 +60,7 @@ Common request methods and capabilities:
 - `select_build`
 - `verify_build`
 - `repair_build`
+- `check_build_prerequisites`
 - `remove_build`
 - `run_build`
 - `list_models`

@@ -13,7 +13,12 @@ from vllm_loader.transport.client import (
     event_matches_subscription,
     handshake_params,
 )
-from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport.ndjson import (
+    FRAME_STREAM_LIMIT,
+    NdjsonFrameError,
+    decode_frame,
+    encode_frame,
+)
 from vllm_loader.transport.rpc_errors import target_call_error_from_rpc_payload
 
 
@@ -59,6 +64,7 @@ class SubprocessTargetClient:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=FRAME_STREAM_LIMIT,
             )
         except OSError as exc:
             command = str(exc.filename or self._command[0])

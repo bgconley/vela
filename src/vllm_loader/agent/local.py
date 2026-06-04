@@ -72,6 +72,7 @@ from vllm_loader.engine.redaction import scrub_text as scrub_secret_text
 from vllm_loader.engine.sidecar import (
     Manifest,
     Sidecar,
+    TrackedProcessMismatch,
     discover_active_sidecars,
     load_manifest,
     load_sidecar,
@@ -113,6 +114,7 @@ AGENT_CAPABILITIES = [
     "select_build",
     "verify_build",
     "repair_build",
+    "check_build_prerequisites",
     "remove_build",
     "run_build",
     "list_models",
@@ -354,6 +356,8 @@ class LocalAgent:
             return self._verify_build(payload)
         if method == "repair_build":
             return self._repair_build(payload)
+        if method == "check_build_prerequisites":
+            return self._check_build_prerequisites(payload)
         if method == "remove_build":
             return self._remove_build(payload)
         if method == "run_build":
@@ -984,16 +988,36 @@ class LocalAgent:
     ) -> None:
         detached = self._detached_run_or_error(run_id)
         detached.intentional_shutdown = True
-        stop_sidecar_from_system(
-            detached.sidecar_path,
-            interrupt_timeout=interrupt_timeout,
-            terminate_timeout=terminate_timeout,
-        )
+        try:
+            stop_sidecar_from_system(
+                detached.sidecar_path,
+                interrupt_timeout=interrupt_timeout,
+                terminate_timeout=terminate_timeout,
+            )
+        except TrackedProcessMismatch as exc:
+            raise TargetCallError(
+                "identity-verification-failed",
+                str(exc),
+                {
+                    "run_id": run_id,
+                    "sidecar_path": str(detached.sidecar_path),
+                },
+            ) from exc
 
     def _request_kill_signal(self, run_id: str) -> None:
         detached = self._detached_run_or_error(run_id)
         detached.intentional_shutdown = True
-        signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
+        try:
+            signal_sidecar_from_system(detached.sidecar_path, signal.SIGKILL)
+        except TrackedProcessMismatch as exc:
+            raise TargetCallError(
+                "identity-verification-failed",
+                str(exc),
+                {
+                    "run_id": run_id,
+                    "sidecar_path": str(detached.sidecar_path),
+                },
+            ) from exc
 
     async def _await_run_exit_payload(self, run_id: str) -> dict[str, Any]:
         run = self._detached_run_or_error(run_id)
@@ -1155,6 +1179,23 @@ class LocalAgent:
             return repair_build(reference, self._builds_root)
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _check_build_prerequisites(self, params: dict[str, Any]) -> dict[str, Any]:
+        method = _optional_param_str(params.get("method"))
+        if method is None:
+            raise TargetCallError("invalid-params", "check_build_prerequisites requires method")
+        uv_path = _find_uv_executable()
+        if method in {"nightly", "commit"} and uv_path is None:
+            raise TargetCallError(
+                "feature-unavailable",
+                f"create_build method={method} requires uv",
+                {"reason": "uv-required", "method": method},
+            )
+        return {
+            "ok": True,
+            "method": method,
+            "uv_available": uv_path is not None,
+        }
 
     def _remove_build(self, params: dict[str, Any]) -> dict[str, Any]:
         reference = params.get("build")

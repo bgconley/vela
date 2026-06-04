@@ -284,7 +284,7 @@ def build_add(
             params[key] = value
     if env:
         params["env"] = list(env)
-    raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "create_build", params)))
+    raise typer.Exit(asyncio.run(_create_build_cli(client, params)))
 
 
 @build_app.command("inspect")
@@ -1452,6 +1452,23 @@ async def _echo_job_event_stream_until_done(
         return 2
     typer.echo(f"ERROR\t{job_id}\tjob stream ended before completion", err=True)
     return 2
+
+
+async def _create_build_cli(client: TargetClient, params: dict[str, Any]) -> int:
+    try:
+        await _target_call_async(
+            client,
+            "check_build_prerequisites",
+            _build_prerequisite_params(params),
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+        return 2
+    return await _run_agent_job_cli(client, "create_build", params)
+
+
+def _build_prerequisite_params(params: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in params.items() if key != "job_id"}
 
 
 async def _smoke_config_cli(

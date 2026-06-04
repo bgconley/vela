@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import sys
+from types import SimpleNamespace
 
 import pytest
 
+from vllm_loader.agent import socket as agent_socket_module
+from vllm_loader.agent import stdio as agent_stdio_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.agent.stdio import _handle_frame, _PrioritizedFrameWriter
 from vllm_loader.monitoring.gpu import GpuPollResult
-from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport import socket as socket_transport_module
+from vllm_loader.transport import subprocess as subprocess_transport_module
+from vllm_loader.transport.ndjson import (
+    MAX_FRAME_BYTES,
+    NdjsonFrameError,
+    decode_frame,
+    encode_frame,
+)
 from vllm_loader.transport.rpc_errors import rpc_error_payload
+from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.socket import (
     _target_call_error_from_payload as socket_error_from_payload,
 )
@@ -38,6 +50,110 @@ def test_ndjson_frame_rejects_oversized_payload() -> None:
 def test_ndjson_frame_rejects_non_object_payload() -> None:
     with pytest.raises(NdjsonFrameError, match="object"):
         decode_frame(b'["not", "an", "object"]\n')
+
+
+@pytest.mark.asyncio
+async def test_stdio_stream_reader_accepts_protocol_sized_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limits: list[int | None] = []
+
+    class FakeTransport:
+        def is_closing(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            pass
+
+    async def fake_connect_read_pipe(factory, _pipe):
+        factory()
+        return FakeTransport()
+
+    async def fake_connect_write_pipe(_factory, _pipe):
+        return FakeTransport(), SimpleNamespace()
+
+    original_stream_reader = asyncio.StreamReader
+
+    def stream_reader_factory(*, limit: int | None = None):
+        limits.append(limit)
+        if limit is None:
+            return original_stream_reader()
+        return original_stream_reader(limit=limit)
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(agent_stdio_module.asyncio, "StreamReader", stream_reader_factory)
+    monkeypatch.setattr(loop, "connect_read_pipe", fake_connect_read_pipe)
+    monkeypatch.setattr(loop, "connect_write_pipe", fake_connect_write_pipe)
+
+    await agent_stdio_module._stdio_streams(io.BytesIO(), io.BytesIO())
+
+    assert limits == [MAX_FRAME_BYTES + 1]
+
+
+@pytest.mark.asyncio
+async def test_socket_transport_uses_protocol_frame_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_kwargs: list[dict] = []
+
+    async def fake_open_unix_connection(*_args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return object(), object()
+
+    monkeypatch.setattr(
+        socket_transport_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+
+    client = UnixSocketTargetClient(tmp_path / "agent.sock", auto_start=False)
+    await client._open_socket()
+
+    assert captured_kwargs == [{"limit": MAX_FRAME_BYTES + 1}]
+
+
+@pytest.mark.asyncio
+async def test_subprocess_transport_uses_protocol_frame_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict | None = None
+
+    async def fake_create_subprocess_exec(*_args, **kwargs):
+        nonlocal captured_kwargs
+        captured_kwargs = kwargs
+        raise OSError("no agent")
+
+    monkeypatch.setattr(
+        subprocess_transport_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    client = SubprocessTargetClient([sys.executable, "-c", "pass"])
+    with pytest.raises(TargetCallError, match="Unable to start target agent command"):
+        await client.connect()
+
+    assert captured_kwargs is not None
+    assert captured_kwargs["limit"] == MAX_FRAME_BYTES + 1
+
+
+@pytest.mark.asyncio
+async def test_agent_socket_server_uses_protocol_frame_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured_kwargs: dict | None = None
+
+    async def fake_start_unix_server(*_args, **kwargs):
+        nonlocal captured_kwargs
+        captured_kwargs = kwargs
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(agent_socket_module.asyncio, "start_unix_server", fake_start_unix_server)
+
+    await agent_socket_module.serve_unix_socket_agent(LocalAgent(), tmp_path / "agent.sock")
+
+    assert captured_kwargs is not None
+    assert captured_kwargs["limit"] == MAX_FRAME_BYTES + 1
 
 
 @pytest.mark.asyncio

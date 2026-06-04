@@ -4503,6 +4503,7 @@ async def test_build_manager_create_build_streams_job_events(
         def __init__(self) -> None:
             self.connected = False
             self.events = FakeEvents()
+            self.check_calls: list[dict[str, object]] = []
             self.create_calls: list[dict[str, object]] = []
             self.subscribe_calls: list[tuple[list[str], object]] = []
 
@@ -4556,6 +4557,9 @@ async def test_build_manager_create_build_streams_job_events(
                     ],
                     "skipped": [],
                 }
+            if method == "check_build_prerequisites":
+                self.check_calls.append(dict(params))
+                return {"ok": True, "method": params["method"], "uv_available": True}
             if method == "create_build":
                 self.create_calls.append(dict(params))
                 self.events.arm(str(params["job_id"]))
@@ -4617,6 +4621,13 @@ async def test_build_manager_create_build_streams_job_events(
             "create build job did not stream through the TUI",
         )
         job_id = str(target_client.create_calls[0]["job_id"])
+        assert target_client.check_calls == [
+            {
+                "method": "nightly",
+                "label": "nvfp4",
+                "channel": "cu130",
+            }
+        ]
         assert target_client.create_calls == [
             {
                 "job_id": job_id,
@@ -4626,6 +4637,89 @@ async def test_build_manager_create_build_streams_job_events(
             }
         ]
         assert ([job_id], "live") in target_client.subscribe_calls
+
+
+@pytest.mark.asyncio
+async def test_build_manager_rejects_uv_less_target_before_create_job(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "check_build_prerequisites":
+                raise TargetCallError(
+                    "feature-unavailable",
+                    "create_build method=nightly requires uv",
+                    {"reason": "uv-required", "method": "nightly"},
+                )
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((list(run_ids), resume_from))
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
+            raise AssertionError("create_build should not subscribe before uv precheck")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)):
+        await _wait_for_target_connection_state(app, "connected")
+        await app._create_build({"method": "nightly", "channel": "cu130"})
+
+        assert ("check_build_prerequisites", {"method": "nightly", "channel": "cu130"}) in (
+            target_client.calls
+        )
+        assert all(method != "create_build" for method, _params in target_client.calls)
+        assert all(run_ids == ["__agent__"] for run_ids, _ in target_client.subscribe_calls)
+        assert "requires uv" in app.error_text
 
 
 @pytest.mark.asyncio

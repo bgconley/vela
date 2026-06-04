@@ -358,6 +358,8 @@ def test_cli_build_add_streams_job_events(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method == "check_build_prerequisites":
+                return {"ok": True, "method": params["method"], "uv_available": True}
             if method == "create_build":
                 return {
                     "job_id": params["job_id"],
@@ -402,6 +404,16 @@ def test_cli_build_add_streams_job_events(
     assert target_client.subscribe_calls == [(["job-build-1"], "live")]
     assert target_client.calls == [
         (
+            "check_build_prerequisites",
+            {
+                "method": "nightly",
+                "channel": "cu130",
+                "label": "nvfp4",
+                "python": "3.12",
+                "env": ["TORCH_CUDA_ARCH_LIST=10.0"],
+            },
+        ),
+        (
             "create_build",
             {
                 "job_id": "job-build-1",
@@ -426,6 +438,66 @@ def test_cli_build_add_help_surfaces_uv_requirement() -> None:
     assert result.exit_code == 0, result.output
     assert "nightly/commit require" in result.output
     assert "uv on the target" in result.output
+
+
+def test_cli_build_add_rejects_uv_less_target_before_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "check_build_prerequisites":
+                raise cli_module.TargetCallError(
+                    "feature-unavailable",
+                    "create_build method=nightly requires uv",
+                    {"reason": "uv-required", "method": "nightly"},
+                )
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((run_ids, resume_from))
+            raise AssertionError("build job should not be subscribed before uv precheck")
+
+    target_client = FakeTargetClient()
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target_name: target_client,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "add",
+            "--method",
+            "nightly",
+            "--channel",
+            "cu130",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert target_client.calls == [
+        (
+            "check_build_prerequisites",
+            {"method": "nightly", "channel": "cu130"},
+        )
+    ]
+    assert target_client.subscribe_calls == []
+    assert "ERROR: create_build method=nightly requires uv" in result.output
 
 
 def test_cli_build_add_git_passes_precompiled_flag(
@@ -473,6 +545,8 @@ def test_cli_build_add_git_passes_precompiled_flag(
 
         async def call(self, method: str, params):
             self.calls.append((method, params))
+            if method == "check_build_prerequisites":
+                return {"ok": True, "method": params["method"], "uv_available": False}
             return {
                 "job_id": params["job_id"],
                 "kind": "create_build",
@@ -509,6 +583,15 @@ def test_cli_build_add_git_passes_precompiled_flag(
 
     assert result.exit_code == 0, result.output
     assert target_client.calls == [
+        (
+            "check_build_prerequisites",
+            {
+                "method": "git",
+                "url": "https://github.com/vllm-project/vllm.git",
+                "ref": "main",
+                "precompiled": "true",
+            },
+        ),
         (
             "create_build",
             {

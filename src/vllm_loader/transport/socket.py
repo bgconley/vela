@@ -17,7 +17,12 @@ from vllm_loader.transport.client import (
     event_matches_subscription,
     handshake_params,
 )
-from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport.ndjson import (
+    FRAME_STREAM_LIMIT,
+    NdjsonFrameError,
+    decode_frame,
+    encode_frame,
+)
 from vllm_loader.transport.rpc_errors import target_call_error_from_rpc_payload
 
 
@@ -118,7 +123,8 @@ class UnixSocketTargetClient:
 
     async def _open_socket(self) -> None:
         self._reader, self._writer = await asyncio.open_unix_connection(
-            str(self._socket_path)
+            str(self._socket_path),
+            limit=FRAME_STREAM_LIMIT,
         )
 
     async def disconnect(self) -> None:

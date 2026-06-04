@@ -11,6 +11,7 @@ from typing import BinaryIO
 
 from vllm_loader.agent.local import LocalAgent
 from vllm_loader.agent.stdio import _stdio_streams, serve_agent_stream
+from vllm_loader.transport.ndjson import FRAME_STREAM_LIMIT
 
 
 async def serve_unix_socket_agent(
@@ -45,7 +46,11 @@ async def serve_unix_socket_agent(
             if on_connection_count_changed is not None:
                 on_connection_count_changed(active_connections)
 
-    return await asyncio.start_unix_server(handle_connection, path=str(path))
+    return await asyncio.start_unix_server(
+        handle_connection,
+        path=str(path),
+        limit=FRAME_STREAM_LIMIT,
+    )
 
 
 def verify_same_user_peer(writer: asyncio.StreamWriter) -> None:
@@ -99,7 +104,10 @@ async def bridge_stdio_to_unix_socket(
     stdin: BinaryIO | None = None,
     stdout: BinaryIO | None = None,
 ) -> None:
-    socket_reader, socket_writer = await asyncio.open_unix_connection(str(socket_path))
+    socket_reader, socket_writer = await asyncio.open_unix_connection(
+        str(socket_path),
+        limit=FRAME_STREAM_LIMIT,
+    )
     stdio_reader, stdio_writer = await _stdio_streams(
         stdin or sys.stdin.buffer,
         stdout or sys.stdout.buffer,

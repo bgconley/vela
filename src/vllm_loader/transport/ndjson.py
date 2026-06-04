@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024
+FRAME_STREAM_LIMIT = MAX_FRAME_BYTES + 1
 
 
 class NdjsonFrameError(ValueError):
