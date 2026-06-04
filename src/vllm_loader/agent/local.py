@@ -134,6 +134,7 @@ JOB_SECRET_ENV_MARKERS = (
     "CREDENTIAL",
 )
 URL_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+")
+VLLM_COMMIT_INDEX_BASE = "https://wheels.vllm.ai"
 VLLM_NIGHTLY_INDEX_BASE = "https://wheels.vllm.ai/nightly"
 
 
@@ -1258,7 +1259,7 @@ class LocalAgent:
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
         method = str(params.get("method") or "").strip().lower()
-        if method in {"pip", "nightly"}:
+        if method in {"pip", "nightly", "commit"}:
             return await self._run_pip_build_job(params, emit, _cancel_event)
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
             adopt_params = {
@@ -2241,6 +2242,43 @@ def _build_install_request(
                 "torch_backend": "auto",
             },
         )
+    if method == "commit":
+        if uv_path is None:
+            raise BuildRegistryError(
+                "feature-unavailable",
+                "create_build method=commit requires uv",
+                {"reason": "uv-required", "method": "commit"},
+            )
+        commit_sha = _optional_param_str(
+            params.get("commit") or params.get("sha") or params.get("vllm_commit")
+        )
+        if commit_sha is None:
+            raise BuildRegistryError(
+                "invalid-params",
+                "create_build method=commit requires commit",
+                {"reason": "missing-commit", "method": "commit"},
+            )
+        channel = _optional_param_str(params.get("channel") or params.get("variant"))
+        index_url = _commit_index_url(commit_sha, channel)
+        return _uv_install_request(
+            method="commit",
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+            install_args=[
+                "vllm",
+                "--torch-backend=auto",
+                "--extra-index-url",
+                index_url,
+            ],
+            provenance={
+                "pip_spec": None,
+                "vllm_commit": commit_sha,
+                "nightly_channel": channel,
+                "index_url": index_url,
+                "torch_backend": "auto",
+            },
+        )
     raise BuildRegistryError(
         "feature-unavailable",
         f"create_build method is not implemented: {method or 'unknown'}",
@@ -2312,6 +2350,13 @@ def _nightly_index_url(channel: str | None) -> str:
     if channel is None:
         return VLLM_NIGHTLY_INDEX_BASE
     return f"{VLLM_NIGHTLY_INDEX_BASE}/{channel.strip('/')}"
+
+
+def _commit_index_url(commit_sha: str, channel: str | None) -> str:
+    base = f"{VLLM_COMMIT_INDEX_BASE}/{commit_sha}"
+    if channel is None:
+        return base
+    return f"{base}/{channel.strip('/')}"
 
 
 def _find_uv_executable() -> str | None:
