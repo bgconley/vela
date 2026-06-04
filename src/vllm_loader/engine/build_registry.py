@@ -137,6 +137,29 @@ def _verify_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
     return result
 
 
+def repair_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        manifest, build_dir = _manifest_for_reference(builds_root, reference)
+        with _build_lock(build_dir):
+            try:
+                _repair_build_artifacts(manifest, build_dir)
+            except BuildRegistryError as exc:
+                manifest["status"] = "broken"
+                manifest["verify"] = {
+                    "checked_at": _utc_now(),
+                    "ok": False,
+                    "reason": exc.details.get("reason") or exc.code,
+                }
+                _write_json_atomic(build_dir / "build.json", manifest)
+                raise
+            result = _verify_build_manifest(manifest, build_dir)
+            if result.get("ok"):
+                result["detail"] = "build repaired"
+            _write_json_atomic(build_dir / "build.json", manifest)
+            return result
+
+
 def inspect_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
     manifest, build_dir = _manifest_for_reference(builds_root, reference)
@@ -176,8 +199,12 @@ def _adopt_build_locked(params: dict[str, Any], builds_root: Path) -> dict[str, 
             {"build": build_id, "reason": "build-exists"},
         )
 
+    copy_build = _truthy(params.get("copy"))
     try:
-        _write_adopted_build_artifacts(build_dir, venv_path)
+        if copy_build:
+            _copy_adopted_build_artifacts(build_dir, venv_path)
+        else:
+            _write_adopted_build_artifacts(build_dir, venv_path)
     except OSError as exc:
         shutil.rmtree(build_dir, ignore_errors=True)
         raise BuildRegistryError(
@@ -195,6 +222,7 @@ def _adopt_build_locked(params: dict[str, Any], builds_root: Path) -> dict[str, 
         "install": {
             "method": "adopt",
             "source": str(venv_path),
+            "copy": copy_build,
         },
         "resolved": {
             "vllm": _optional_str(params.get("vllm_version")),
@@ -608,7 +636,78 @@ def _write_adopted_build_artifacts(build_dir: Path, venv_path: Path) -> None:
     run_script.chmod(0o755)
 
 
+def _copy_adopted_build_artifacts(build_dir: Path, venv_path: Path) -> None:
+    build_dir.mkdir(parents=True, exist_ok=False)
+    shutil.copytree(venv_path, build_dir / "venv", symlinks=True)
+    _write_build_run_artifacts(build_dir, build_dir / "venv")
+
+
+def _repair_build_artifacts(manifest: dict[str, Any], build_dir: Path) -> None:
+    paths = _dict_or_empty(manifest.get("paths"))
+    install = _dict_or_empty(manifest.get("install"))
+    root_path = Path(str(paths.get("root") or build_dir)).expanduser()
+    venv_path = _resolve_build_path(root_path, paths.get("venv") or "venv")
+    if str(install.get("method") or "") == "adopt":
+        source = _optional_str(install.get("source"))
+        if source is not None and not venv_path.exists():
+            venv_path = Path(source).expanduser()
+            _replace_symlink(build_dir / "venv", venv_path)
+    reason = _missing_build_path_reason(
+        venv_path / "bin" / "vllm",
+        venv_path / "bin" / "python",
+    )
+    if reason is not None:
+        raise BuildRegistryError(
+            "invalid-config",
+            f"unable to repair build artifacts: {reason}",
+            {"reason": reason, "build": str(manifest.get("build_id") or "")},
+        )
+    _write_build_run_artifacts(build_dir, venv_path)
+    manifest["paths"] = {
+        "root": str(build_dir),
+        "venv": "venv",
+        "executable": "bin/vllm",
+        "python": "bin/python",
+        "activate": "activate",
+        "run_script": "run.sh",
+    }
+
+
+def _write_build_run_artifacts(build_dir: Path, venv_path: Path) -> None:
+    build_dir.mkdir(parents=True, exist_ok=True)
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    _replace_symlink(bin_dir / "vllm", venv_path / "bin" / "vllm")
+    _write_venv_python_wrapper(bin_dir / "python", build_dir)
+    _replace_symlink(build_dir / "activate", venv_path / "bin" / "activate")
+    run_script = build_dir / "run.sh"
+    run_script.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "set -eu",
+                f'BUILD_ROOT="{build_dir}"',
+                'export VIRTUAL_ENV="${BUILD_ROOT}/venv"',
+                'export PATH="${VIRTUAL_ENV}/bin:${PATH}"',
+                'exec "${BUILD_ROOT}/bin/vllm" "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    run_script.chmod(0o755)
+
+
+def _replace_symlink(link_path: Path, target_path: Path) -> None:
+    if link_path.is_dir() and not link_path.is_symlink():
+        shutil.rmtree(link_path)
+    else:
+        link_path.unlink(missing_ok=True)
+    link_path.symlink_to(target_path)
+
+
 def _write_venv_python_wrapper(path: Path, build_dir: Path) -> None:
+    path.unlink(missing_ok=True)
     path.write_text(
         "\n".join(
             [
@@ -639,6 +738,14 @@ def _required_param(params: dict[str, Any], field: str) -> str:
 
 def _build_id_from_params(_params: dict[str, Any], builds_root: Path) -> str:
     return mint_build_id(builds_root)
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def mint_build_id(builds_root: Path) -> str:

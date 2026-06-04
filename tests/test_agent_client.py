@@ -943,6 +943,39 @@ async def test_local_agent_preview_matches_existing_command_shape(config_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_local_agent_preview_accepts_draft_flag_overrides(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "preview-draft.yaml",
+        """
+        name: preview-draft
+        model: org/model
+        engine:
+          tensor_parallel_size: 2
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preview",
+            {
+                "name": "preview-draft",
+                "configs_dir": str(config_dir),
+                "engine": {"tensor_parallel_size": "4"},
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    text = (config_dir / "preview-draft.yaml").read_text(encoding="utf-8")
+    assert "--tensor-parallel-size 4" in result["preview"]
+    assert "tensor_parallel_size: 2" in text
+
+
+@pytest.mark.asyncio
 async def test_local_agent_preview_metadata_includes_collected_known_flags(
     config_dir: Path,
     tmp_path: Path,
@@ -2628,6 +2661,262 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     assert inspected["manifest"]["verify"]["ok"] is True
     json.dumps(adopted)
     json.dumps(inspected)
+
+
+@pytest.mark.asyncio
+async def test_agent_adopts_external_build_by_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "vllm-nightly"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    activate = bin_dir / "activate"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    activate.write_text("# activate\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+
+    def fake_run_build_verify_command(argv: list[str]) -> dict[str, object]:
+        if argv[-2:] == ["-c", "import vllm; print(vllm.__version__)"]:
+            return {"ok": True, "returncode": 0, "output": "0.17.0.dev"}
+        if argv[-1] == "--version":
+            return {"ok": True, "returncode": 0, "output": "vLLM 0.17.0.dev"}
+        if argv[-2:] == ["pip", "freeze"]:
+            return {"ok": True, "returncode": 0, "output": "vllm==0.17.0.dev"}
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(
+        build_registry_module,
+        "_run_build_verify_command",
+        fake_run_build_verify_command,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "adopt_build",
+            {
+                "build_id": "01ADOPTED",
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+                "vllm_version": "0.17.0.dev",
+                "vllm_version_profile": "current",
+                "copy": "true",
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    build_dir = _assert_minted_build_dir(builds_root, adopted, ignored="01ADOPTED")
+    copied_venv = build_dir / "venv"
+    assert copied_venv.is_dir()
+    assert not copied_venv.is_symlink()
+    assert (copied_venv / "bin" / "vllm").read_text(encoding="utf-8") == (
+        "#!/bin/sh\necho 'vLLM 0.17.0.dev'\n"
+    )
+    assert (build_dir / "bin" / "vllm").resolve() == (
+        copied_venv / "bin" / "vllm"
+    ).resolve()
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert manifest["install"]["method"] == "adopt"
+    assert manifest["install"]["source"] == str(venv_dir)
+    assert manifest["install"]["copy"] is True
+    assert manifest["verify"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_run_build_job_uses_build_executable_and_env_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01RUNBUILD"
+    bin_dir = build_dir / "bin"
+    venv_bin = build_dir / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    venv_bin.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01RUNBUILD",
+                "label": "run-build",
+                "status": "ready",
+                "resolved": {
+                    "vllm": "0.11.2",
+                    "vllm_version_profile": "0.11.2",
+                    "python": "3.12.7",
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                    "activate": "activate",
+                    "run_script": "run.sh",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    command_calls: list[dict[str, object]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        command_calls.append(
+            {
+                "argv": list(argv),
+                "env": dict(env),
+                "cwd": cwd,
+                "phase": phase,
+                "cancelled": cancel_event.is_set(),
+            }
+        )
+        emit(
+            {
+                "kind": "committed",
+                "text": "Serving org/model",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-run-build"], resume_from="live")
+    try:
+        started = await client.call(
+            "run_build",
+            {
+                "job_id": "job-run-build",
+                "build": "run-build",
+                "argv": ["serve", "org/model", "--port", "8000"],
+            },
+        )
+        progress = await _next_event(events, event_name="job_progress")
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert started == {
+        "job_id": "job-run-build",
+        "kind": "run_build",
+        "status": "running",
+    }
+    assert progress["text"] == "Serving org/model"
+    assert done["ok"] is True
+    assert done["detail"] == "build command exited 0"
+    assert command_calls == [
+        {
+            "argv": [
+                str(build_dir / "bin" / "vllm"),
+                "serve",
+                "org/model",
+                "--port",
+                "8000",
+            ],
+            "env": {
+                **command_calls[0]["env"],
+                "VIRTUAL_ENV": str(build_dir / "venv"),
+            },
+            "cwd": build_dir,
+            "phase": "RUNNING",
+            "cancelled": False,
+        }
+    ]
+    env = command_calls[0]["env"]
+    assert isinstance(env, dict)
+    assert str(venv_bin) == str(env["PATH"]).split(os.pathsep)[0]
+    assert "PATH_PREPEND" not in env
+
+
+@pytest.mark.asyncio
+async def test_agent_repair_build_regenerates_standalone_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01REPAIR"
+    venv_bin = build_dir / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "vllm").write_text("#!/bin/sh\necho 'vLLM 0.11.2'\n", encoding="utf-8")
+    (venv_bin / "python").write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    (venv_bin / "activate").write_text("# activate\n", encoding="utf-8")
+    (venv_bin / "vllm").chmod(0o755)
+    (venv_bin / "python").chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01REPAIR",
+                "label": "repair-me",
+                "status": "broken",
+                "install": {"method": "pip"},
+                "resolved": {"vllm": "0.11.2"},
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                    "activate": "activate",
+                    "run_script": "run.sh",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_run_build_verify_command(argv: list[str]) -> dict[str, object]:
+        if argv[-2:] == ["-c", "import vllm; print(vllm.__version__)"]:
+            return {"ok": True, "returncode": 0, "output": "0.11.2"}
+        if argv[-1] == "--version":
+            return {"ok": True, "returncode": 0, "output": "vLLM 0.11.2"}
+        if argv[-2:] == ["pip", "freeze"]:
+            return {"ok": True, "returncode": 0, "output": "vllm==0.11.2"}
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(
+        build_registry_module,
+        "_run_build_verify_command",
+        fake_run_build_verify_command,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        repaired = await client.call("repair_build", {"build": "repair-me"})
+    finally:
+        await client.disconnect()
+
+    assert repaired["ok"] is True
+    assert repaired["detail"] == "build repaired"
+    assert repaired["status"] == "ready"
+    assert (build_dir / "bin" / "vllm").resolve() == (venv_bin / "vllm").resolve()
+    assert not (build_dir / "bin" / "python").is_symlink()
+    assert (build_dir / "run.sh").stat().st_mode & 0o111
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "ready"
+    assert manifest["verify"]["ok"] is True
 
 
 @pytest.mark.asyncio
@@ -4428,6 +4717,49 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
     assert verified["entry"]["integrity"]["total_bytes"] == (
         len(b"{}") + len(b"weights") + len(b"{}")
     )
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        verified = await client.call(
+            "verify_model", {"model_ref": "01LOCAL", "deep": "true"}
+        )
+    finally:
+        await client.disconnect()
+
+    entry_id = _assert_minted_model_entry(adopted["entry"], ignored="01LOCAL")
+    assert verified["entry_id"] == entry_id
+    assert verified["ok"] is True
+    assert verified["deep"] is True
+    assert verified["cache_state"] == "cached"
+    assert verified["detail"] == "local model deep verified"
+    integrity = verified["entry"]["integrity"]
+    assert integrity["strategy"] == "local_files_sha256"
+    assert integrity["deep"] is True
+    assert sorted(integrity["blob_hashes"]) == [
+        "config.json",
+        "model.safetensors",
+        "tokenizer.json",
+    ]
     json.dumps(verified)
 
 
@@ -7583,6 +7915,51 @@ async def test_agent_download_model_job_streams_by_job_id() -> None:
     assert done["ok"] is True
     assert done["detail"] == "model cached"
     json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_download_url_model_reports_launch_time_only(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_url = "https://models.example/Qwen/example-q4.gguf"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-url-model"], resume_from="live")
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01URL",
+                "display_name": "url-gguf",
+                "source": "url",
+                "url": model_url,
+            },
+        )
+        await client.call(
+            "download_model",
+            {"job_id": "job-url-model", "model_ref": "url-gguf"},
+        )
+        seen_progress: list[str] = []
+        while True:
+            event = await anext(events)
+            if event.get("event") == "job_progress":
+                seen_progress.append(str(event.get("text") or ""))
+                continue
+            if event.get("event") == "job_done":
+                done = event
+                break
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01URL")
+    assert "URL model is launch-time-only" in seen_progress
+    assert done["ok"] is True
+    assert done["detail"] == "url model is launch-time-only; no pre-download needed"
+    assert done["entry_id"] == entry_id
+    assert done["cache_state"] == "remote_only"
+    assert done["entry"]["source"] == "url"
     json.dumps(done)
 
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine.command_builder import ENGINE_VALUE_FIELDS
@@ -42,6 +44,14 @@ class FlagManagerScreen(ModalScreen):
         color: {TEXT};
     }}
 
+    #flag-manager-editor {{
+        width: 1fr;
+    }}
+
+    #flag-manager-value {{
+        margin-bottom: 1;
+    }}
+
     #flag-manager-footer {{
         margin-top: 1;
         color: #8ba4ae;
@@ -51,7 +61,7 @@ class FlagManagerScreen(ModalScreen):
     BINDINGS = [
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
-        ("d", "reset_default", "Reset"),
+        Binding("d", "reset_default", "Reset", priority=True),
         ("ctrl+s", "save", "Save"),
         ("escape", "cancel", "Close"),
     ]
@@ -62,14 +72,19 @@ class FlagManagerScreen(ModalScreen):
         *,
         preview: str,
         metadata: dict[str, Any] | None = None,
+        preview_resolver: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         super().__init__(id="flag-manager")
         self.config = config
         self.preview = preview
         self.metadata = dict(metadata or {})
+        self.warnings: list[str] = []
+        self.preview_resolver = preview_resolver
         self.engine_updates: dict[str, object | None] = {}
         self.modeled = _modeled_flags(config, self.metadata)
         self.selected_index = 0
+        self._preview_revision = 0
+        self._updating_value_input = False
         self.passthrough, self.unknown = _partition_extra_args(
             config.extra_args,
             known_flags=_known_flags(self.metadata),
@@ -79,21 +94,32 @@ class FlagManagerScreen(ModalScreen):
         with Vertical(id="flag-manager-panel"):
             with Horizontal():
                 yield Static(self._render_list(), id="flag-manager-list")
-                yield Static(self._render_detail(), id="flag-manager-detail")
+                with Vertical(id="flag-manager-editor"):
+                    yield Input(
+                        value=self._selected_value(),
+                        placeholder="Flag value",
+                        id="flag-manager-value",
+                    )
+                    yield Static(self._render_detail(), id="flag-manager-detail")
             yield Static(
-                "↑↓ Select   d Reset-to-default   Ctrl+S Save   Esc Close",
+                "↑↓ Select   edit value   d Reset-to-default   Ctrl+S Save   Esc Close",
                 id="flag-manager-footer",
             )
+
+    def on_mount(self) -> None:
+        self.call_later(lambda: self.set_focus(None))
 
     def action_previous(self) -> None:
         if self.modeled:
             self.selected_index = max(0, self.selected_index - 1)
             self._refresh()
+            self._refresh_value_input()
 
     def action_next(self) -> None:
         if self.modeled:
             self.selected_index = min(len(self.modeled) - 1, self.selected_index + 1)
             self._refresh()
+            self._refresh_value_input()
 
     def action_reset_default(self) -> None:
         if not self.modeled:
@@ -105,6 +131,8 @@ class FlagManagerScreen(ModalScreen):
         else:
             self.selected_index = 0
         self._refresh()
+        self._refresh_value_input()
+        self._queue_preview_refresh()
 
     def action_save(self) -> None:
         self.dismiss(
@@ -122,6 +150,78 @@ class FlagManagerScreen(ModalScreen):
     def _refresh(self) -> None:
         self.query_one("#flag-manager-list", Static).update(self._render_list())
         self.query_one("#flag-manager-detail", Static).update(self._render_detail())
+
+    def _refresh_value_input(self) -> None:
+        try:
+            value_input = self.query_one("#flag-manager-value", Input)
+        except Exception:
+            return
+        self._updating_value_input = True
+        try:
+            value_input.value = self._selected_value()
+        finally:
+            self._updating_value_input = False
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "flag-manager-value":
+            return
+        if self._updating_value_input:
+            return
+        item = self._selected_item()
+        if item is None:
+            return
+        value = event.value.strip()
+        if (
+            item["field"] not in self.engine_updates
+            and value == str(item.get("value") or "")
+        ):
+            return
+        item["value"] = value
+        self.engine_updates[item["field"]] = value
+        self._refresh()
+        self._queue_preview_refresh()
+
+    def _selected_item(self) -> dict[str, str] | None:
+        if not self.modeled:
+            return None
+        return self.modeled[self.selected_index]
+
+    def _selected_value(self) -> str:
+        item = self._selected_item()
+        return "" if item is None else str(item.get("value") or "")
+
+    def _queue_preview_refresh(self) -> None:
+        if self.preview_resolver is None:
+            return
+        self._preview_revision += 1
+        revision = self._preview_revision
+        self.run_worker(
+            self._refresh_preview(revision),
+            name="flag-preview",
+            group="flag-preview",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _refresh_preview(self, revision: int) -> None:
+        if self.preview_resolver is None:
+            return
+        result = await self.preview_resolver(
+            {
+                "name": self.config.name,
+                "engine": dict(self.engine_updates),
+                "extra_args": list(self.config.extra_args),
+            }
+        )
+        if revision != self._preview_revision:
+            return
+        self.preview = str(result.get("preview") or "")
+        warnings = result.get("warnings")
+        self.warnings = [str(item) for item in warnings] if isinstance(warnings, list) else []
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            self.metadata = {**self.metadata, **metadata}
+        self._refresh()
 
     def _render_list(self) -> str:
         lines = [
@@ -161,8 +261,8 @@ class FlagManagerScreen(ModalScreen):
             lines.extend(self.preview.splitlines())
         else:
             lines.append("Preview unavailable")
-        warnings = self.metadata.get("warnings")
-        if isinstance(warnings, list) and warnings:
+        warnings = self.warnings
+        if warnings:
             lines.append("")
             lines.append(f"warnings {len(warnings)}")
             lines.extend(f"- {item}" for item in warnings)

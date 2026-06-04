@@ -111,6 +111,9 @@ class RecordingConfigAgent:
         if method == "preview":
             name = str((params or {}).get("name"))
             return {"preview": f"cwd=/agent\nvllm serve org/{name}", "warnings": []}
+        if method == "preflight":
+            self.calls.append((method, params))
+            return {"ok": True, "failures": []}
         raise AssertionError(f"unexpected method: {method}")
 
     def discover_detached_runs(self, runs_dirs):
@@ -119,17 +122,20 @@ class RecordingConfigAgent:
 
 class RecordingLaunchPrepareAgent(RecordingConfigAgent):
     def handle(self, method: str, params: dict[str, str] | None = None):
-        if method == "prepare_launch":
+        if method == "preflight":
             self.calls.append((method, params))
-            raise TargetCallError(
-                "preflight-failed",
-                "agent-side missing model",
-                {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"},
-            )
+            return {
+                "ok": False,
+                "failures": [
+                    {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"}
+                ],
+            }
+        if method == "prepare_launch":
+            raise AssertionError("prepare_launch should not run after preflight failure")
         return super().handle(method, params)
 
 
-_TARGET_CONFIG_METHODS = {"list_configs", "preview", "prepare_launch"}
+_TARGET_CONFIG_METHODS = {"list_configs", "preview", "preflight", "prepare_launch"}
 
 
 def _delegate_config_target_call(agent, method: str, params):
@@ -1546,12 +1552,15 @@ async def test_tui_launch_preparation_runs_through_target_client(
             self.calls.append((method, params))
             if method in {"list_configs", "preview"}:
                 return RecordingConfigAgent().handle(method, params)
+            if method == "preflight":
+                return {
+                    "ok": False,
+                    "failures": [
+                        {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"}
+                    ],
+                }
             if method == "prepare_launch":
-                raise TargetCallError(
-                    "preflight-failed",
-                    "agent-side missing model",
-                    {"kind": "MODEL_NOT_FOUND", "detail": "agent-side missing model"},
-                )
+                raise AssertionError("prepare_launch should not run after preflight failure")
             if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
@@ -1572,7 +1581,7 @@ async def test_tui_launch_preparation_runs_through_target_client(
         assert app.fsm.error_kind is ErrorKind.MODEL_NOT_FOUND
         assert "agent-side missing model" in app.error_text
         assert client_instances[0].calls[-1] == (
-            "prepare_launch",
+            "preflight",
             {"name": "alpha", "configs_dir": str(config_dir)},
         )
 
@@ -3910,6 +3919,109 @@ async def test_flag_manager_reset_modeled_flag_saves_to_config(
 
 
 @pytest.mark.asyncio
+async def test_flag_manager_editing_modeled_flag_refreshes_agent_preview(
+    config_dir: Path,
+) -> None:
+    class TargetClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object] | None]] = []
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "list_configs",
+                    "preview",
+                    "update_config_flags",
+                    "gpu",
+                    "discover_runs",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/flags-edit.yaml",
+                            "name": "flags-edit",
+                            "model": "org/model",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "flags-edit",
+                                "model": "org/model",
+                                "engine": {"tensor_parallel_size": 2},
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                engine = params.get("engine") if isinstance(params, dict) else None
+                tensor_parallel_size = (
+                    engine.get("tensor_parallel_size")
+                    if isinstance(engine, dict)
+                    else 2
+                )
+                return {
+                    "preview": (
+                        "cwd=/agent\n"
+                        f"vllm serve org/model --tensor-parallel-size {tensor_parallel_size}"
+                    ),
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": ["--tensor-parallel-size"],
+                        "flag_map": {"tensor_parallel_size": "--tensor-parallel-size"},
+                    },
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("flag manager should not subscribe")
+
+    target_client = TargetClient()
+    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+
+        value_input = app.screen.query_one("#flag-manager-value", Input)
+        value_input.value = "4"
+        await _wait_for_condition(
+            lambda: "--tensor-parallel-size 4"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "flag manager preview did not refresh with edited value",
+        )
+
+    preview_calls = [
+        params
+        for method, params in target_client.calls
+        if method == "preview" and isinstance(params, dict)
+    ]
+    assert any(
+        isinstance(params.get("engine"), dict)
+        and params["engine"].get("tensor_parallel_size") == "4"
+        for params in preview_calls
+    )
+
+
+@pytest.mark.asyncio
 async def test_select_config_with_profile_gate_failure_shows_preview_error(
     config_dir: Path,
 ) -> None:
@@ -4956,6 +5068,107 @@ async def test_model_manager_opens_model_catalog_from_target_client(
         assert "repo: meta-llama/Llama-3.1-8B-Instruct" in detail
         assert "revision: main → abc123" in detail
         assert "files: 7 safetensors" in detail
+
+
+@pytest.mark.asyncio
+async def test_model_manager_marks_url_models_launch_time_only(
+    config_dir: Path,
+) -> None:
+    class ModelTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "list_configs",
+                    "preview",
+                    "list_models",
+                    "download_model",
+                    "gpu",
+                    "discover_runs",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/modelable.yaml",
+                            "name": "modelable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "modelable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "01URL",
+                            "display_name": "url-gguf",
+                            "source": "url",
+                            "url": "https://models.example/Qwen/example-q4.gguf",
+                            "quant_format": "gguf",
+                            "cache_state": "remote_only",
+                            "files": {},
+                        },
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method == "download_model":
+                raise AssertionError("URL model should not start a download job")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("URL model manager should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=ModelTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open",
+        )
+        detail = str(app.screen.query_one("#model-manager-detail", Static).content)
+        assert "download: launch-time-only" in detail
+
+        await pilot.press("d")
+        await _wait_for_condition(
+            lambda: "launch-time-only" in app.error_text,
+            "URL model download was not blocked with launch-time-only guidance",
+        )
 
 
 @pytest.mark.asyncio

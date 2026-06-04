@@ -140,7 +140,9 @@ def _pin_model_locked(params: dict[str, Any], path: Path) -> dict[str, Any]:
     return {"entry": _model_payload(entry)}
 
 
-def verify_model(reference: str, registry_path: str | Path | None = None) -> dict[str, Any]:
+def verify_model(
+    reference: str, registry_path: str | Path | None = None, *, deep: bool = False
+) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()
         if registry_path is not None
@@ -149,16 +151,16 @@ def verify_model(reference: str, registry_path: str | Path | None = None) -> dic
     entry_id = _entry_id_for_reference(path, reference)
     with _entry_lock(path, entry_id):
         with _registry_lock(path):
-            return _verify_model_locked(reference, path)
+            return _verify_model_locked(reference, path, deep=deep)
 
 
-def _verify_model_locked(reference: str, path: Path) -> dict[str, Any]:
+def _verify_model_locked(reference: str, path: Path, *, deep: bool = False) -> dict[str, Any]:
     registry = _load_registry_for_write(path)
     entry = _entry_for_reference(registry, reference)
     if entry.get("source") == "local_path":
-        result = _verify_local_model_entry(entry)
+        result = _verify_local_model_entry(entry, deep=deep)
     else:
-        result = _verify_metadata_model_entry(entry)
+        result = _verify_metadata_model_entry(entry, deep=deep)
     _write_registry_atomic(path, registry)
     return result
 
@@ -1242,7 +1244,7 @@ def _verified_local_model_path(value: str) -> Path:
     return path
 
 
-def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
+def _verify_local_model_entry(entry: dict[str, Any], *, deep: bool = False) -> dict[str, Any]:
     entry_id = str(entry.get("entry_id") or "")
     local_path = Path(str(entry.get("local_path") or "")).expanduser()
     status = _local_model_status(local_path)
@@ -1258,7 +1260,7 @@ def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
         current_files_sha256 = current_integrity["files_sha256"]
         if expected_files_sha256 and expected_files_sha256 != current_files_sha256:
             entry["cache_state"] = "partial"
-            return {
+            payload = {
                 "entry_id": entry_id,
                 "ok": False,
                 "reason": "integrity-mismatch",
@@ -1274,6 +1276,11 @@ def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
                 },
                 "entry": _model_payload(entry),
             }
+            if deep:
+                payload["deep"] = True
+            return payload
+        if deep:
+            current_integrity["deep"] = True
         entry["files"] = _local_model_files_payload(local_path)
         entry["integrity"] = current_integrity
     payload = {
@@ -1283,12 +1290,16 @@ def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "detail": str(status["detail"]),
         "entry": _model_payload(entry),
     }
+    if deep:
+        payload["deep"] = True
+        if payload["ok"]:
+            payload["detail"] = "local model deep verified"
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
 
 
-def _verify_metadata_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
+def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -> dict[str, Any]:
     entry_id = str(entry.get("entry_id") or "")
     status = _verify_hf_model_status(entry)
     entry["cache_state"] = status["cache_state"]
@@ -1299,6 +1310,8 @@ def _verify_metadata_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "detail": str(status["detail"]),
         "entry": _model_payload(entry),
     }
+    if deep:
+        payload["deep"] = True
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload

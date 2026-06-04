@@ -610,6 +610,56 @@ def test_cli_build_adopt_passes_external_venv_to_agent(
     assert result.output == "adopted build\t01ADOPTED\texternal-nightly\n"
 
 
+def test_cli_build_adopt_copy_passes_copy_flag_to_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    venv_dir = tmp_path / "venv"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "build_id": "01ADOPTED",
+            "label": "external-nightly",
+            "status": "adopted",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "adopt",
+            str(venv_dir),
+            "--label",
+            "external-nightly",
+            "--copy",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "adopt_build",
+            {
+                "label": "external-nightly",
+                "venv_path": str(venv_dir),
+                "copy": "true",
+            },
+            "blackbird",
+        )
+    ]
+    assert result.output == "adopted build\t01ADOPTED\texternal-nightly\n"
+
+
 def test_cli_build_adopt_allows_agent_generated_build_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -712,6 +762,146 @@ def test_cli_build_verify_prints_agent_result(
     assert result.exit_code == 0, result.output
     assert calls == [("verify_build", {"build": "01BUILD"}, "blackbird")]
     assert result.output == "OK\t01BUILD\tready\tbuild verified\n"
+
+
+def test_cli_build_run_streams_target_local_build_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeUuid:
+        hex = "job-build-run"
+
+    class FakeEvents:
+        def __init__(self) -> None:
+            self._events = iter(
+                [
+                    {
+                        "event": "job_progress",
+                        "job_id": "job-build-run",
+                        "kind": "committed",
+                        "text": "Serving org/model",
+                        "level": "INFO",
+                    },
+                    {
+                        "event": "job_done",
+                        "job_id": "job-build-run",
+                        "ok": True,
+                        "detail": "build command exited 0",
+                    },
+                ]
+            )
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+            self.events = FakeEvents()
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "run_build":
+                return {
+                    "job_id": params["job_id"],
+                    "kind": "run_build",
+                    "status": "running",
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((run_ids, resume_from))
+            return self.events
+
+    target_client = FakeTargetClient()
+    monkeypatch.setattr(cli_module.uuid, "uuid4", lambda: FakeUuid())
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target_name: target_client,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "build",
+            "run",
+            "nightly-cu130",
+            "--target",
+            "blackbird",
+            "--",
+            "serve",
+            "org/model",
+            "--port",
+            "8000",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert target_client.subscribe_calls == [(["job-build-run"], "live")]
+    assert target_client.calls == [
+        (
+            "run_build",
+            {
+                "job_id": "job-build-run",
+                "build": "nightly-cu130",
+                "argv": ["serve", "org/model", "--port", "8000"],
+            },
+        )
+    ]
+    assert target_client.events.closed is True
+    assert result.output.splitlines() == [
+        "Serving org/model",
+        "DONE\tjob-build-run\tbuild command exited 0",
+    ]
+
+
+def test_cli_build_repair_prints_agent_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "build_id": "01BUILD",
+            "ok": True,
+            "status": "ready",
+            "detail": "build repaired",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "repair", "01BUILD", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("repair_build", {"build": "01BUILD"}, "blackbird")]
+    assert result.output == "OK\t01BUILD\tready\tbuild repaired\n"
 
 
 def test_cli_build_remove_requires_yes(
@@ -1409,6 +1599,40 @@ def test_cli_model_verify_prints_agent_result(
     assert result.output == "OK\t01MODEL\tcached\tmodel metadata is cached\n"
 
 
+def test_cli_model_verify_deep_passes_deep_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry_id": "01MODEL",
+            "ok": True,
+            "cache_state": "cached",
+            "detail": "model deep verified",
+            "deep": True,
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "verify", "01MODEL", "--deep", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ("verify_model", {"model_ref": "01MODEL", "deep": "true"}, "blackbird")
+    ]
+    assert result.output == "OK\t01MODEL\tcached\tmodel deep verified\n"
+
+
 def test_cli_model_remove_requires_yes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1632,6 +1856,104 @@ def test_cli_model_download_streams_job_events(
         "Resolving model",
         "DONE\tjob-model-1\tmodel cached",
     ]
+
+
+def test_cli_model_download_json_outputs_final_job_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeUuid:
+        hex = "job-model-json"
+
+    class FakeEvents:
+        def __init__(self) -> None:
+            self.closed = False
+            self._events = iter(
+                [
+                    {
+                        "event": "job_progress",
+                        "job_id": "job-model-json",
+                        "kind": "committed",
+                        "text": "Resolving model",
+                        "level": "INFO",
+                    },
+                    {
+                        "event": "job_done",
+                        "job_id": "job-model-json",
+                        "ok": True,
+                        "detail": "model cached",
+                        "entry_id": "01MODEL",
+                    },
+                ]
+            )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.events = FakeEvents()
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            return {
+                "job_id": params["job_id"],
+                "kind": "download_model",
+                "status": "running",
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["job-model-json"]
+            assert resume_from == "live"
+            return self.events
+
+    target_client = FakeTargetClient()
+    monkeypatch.setattr(cli_module.uuid, "uuid4", lambda: FakeUuid())
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target_name: target_client,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "download",
+            "01MODEL",
+            "--target",
+            "blackbird",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert target_client.calls == [
+        ("download_model", {"job_id": "job-model-json", "model_ref": "01MODEL"})
+    ]
+    assert json.loads(result.output) == {
+        "detail": "model cached",
+        "entry_id": "01MODEL",
+        "event": "job_done",
+        "job_id": "job-model-json",
+        "ok": True,
+    }
+    assert target_client.events.closed is True
 
 
 def test_cli_model_download_passes_allow_and_ignore_patterns(

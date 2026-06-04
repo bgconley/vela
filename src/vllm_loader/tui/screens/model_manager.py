@@ -95,6 +95,15 @@ class ModelManagerScreen(ModalScreen):
         if model is None:
             self.dismiss(None)
             return
+        if _is_url_model(model):
+            self.dismiss(
+                {
+                    "action": "download_unavailable",
+                    "label": _model_label(model),
+                    "reason": "launch-time-only",
+                }
+            )
+            return
         self.dismiss(_model_action_payload("download", model))
 
     def action_verify(self) -> None:
@@ -154,6 +163,9 @@ class ModelManagerScreen(ModalScreen):
             f"cache: {model.get('cache_state') or 'unknown'}",
             f"files: {_files_label(files)}",
         ]
+        if _is_url_model(model):
+            lines.append("download: launch-time-only")
+            lines.append(f"url: {model.get('url') or '-'}")
         return "\n".join(lines)
 
     def _selected_model(self) -> dict[str, Any] | None:
@@ -176,6 +188,10 @@ def _model_action_payload(action: str, model: dict[str, Any]) -> dict[str, Any]:
         "model_ref": _model_reference(model),
         "label": _model_label(model),
     }
+
+
+def _is_url_model(model: dict[str, Any]) -> bool:
+    return str(model.get("source") or "") == "url"
 
 
 def _initial_pin_text(model: dict[str, Any]) -> str:

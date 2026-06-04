@@ -11,7 +11,7 @@ import signal
 import subprocess
 import sys
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +34,7 @@ from vllm_loader.engine.build_registry import (
     mint_build_id,
     record_build_ref,
     remove_build,
+    repair_build,
     resolve_build_handoff,
     select_build,
     verify_build,
@@ -111,7 +112,9 @@ AGENT_CAPABILITIES = [
     "inspect_build",
     "select_build",
     "verify_build",
+    "repair_build",
     "remove_build",
+    "run_build",
     "list_models",
     "pin_model",
     "refresh_models",
@@ -349,8 +352,12 @@ class LocalAgent:
             return self._select_build(payload)
         if method == "verify_build":
             return self._verify_build(payload)
+        if method == "repair_build":
+            return self._repair_build(payload)
         if method == "remove_build":
             return self._remove_build(payload)
+        if method == "run_build":
+            return self._run_build(payload)
         if method == "list_models":
             return self._list_models(payload)
         if method == "pin_model":
@@ -610,6 +617,31 @@ class LocalAgent:
         self, cfg: ModelConfig, params: dict[str, Any]
     ) -> ModelConfig:
         payload = cfg.model_dump(mode="python")
+        engine_updates = params.get("engine")
+        if engine_updates is not None:
+            if not isinstance(engine_updates, dict):
+                raise TargetCallError(
+                    "invalid-params",
+                    "engine overrides must be a mapping",
+                )
+            engine = dict(payload.get("engine") or {})
+            for key, value in engine_updates.items():
+                field = str(key)
+                if value is None:
+                    engine.pop(field, None)
+                else:
+                    engine[field] = value
+            payload["engine"] = engine
+        if "extra_args" in params:
+            extra_args = params.get("extra_args")
+            if not isinstance(extra_args, list) or not all(
+                isinstance(item, str) for item in extra_args
+            ):
+                raise TargetCallError(
+                    "invalid-params",
+                    "extra_args overrides must be a list of strings",
+                )
+            payload["extra_args"] = list(extra_args)
         build_ref = _optional_param_str(params.get("build_id")) or _optional_param_str(
             params.get("build")
         )
@@ -1115,6 +1147,15 @@ class LocalAgent:
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
+    def _repair_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        reference = params.get("build")
+        if not isinstance(reference, str) or not reference.strip():
+            raise TargetCallError("invalid-params", "repair_build requires build")
+        try:
+            return repair_build(reference, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
     def _remove_build(self, params: dict[str, Any]) -> dict[str, Any]:
         reference = params.get("build")
         if not isinstance(reference, str) or not reference.strip():
@@ -1186,7 +1227,11 @@ class LocalAgent:
         if not isinstance(reference, str) or not reference.strip():
             raise TargetCallError("invalid-params", "verify_model requires model_ref")
         try:
-            return verify_model(reference, self._models_registry_path)
+            return verify_model(
+                reference,
+                self._models_registry_path,
+                deep=_param_bool(params.get("deep")),
+            )
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
@@ -1262,6 +1307,9 @@ class LocalAgent:
 
     async def _download_model(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("download_model", params, self._model_job_runner)
+
+    async def _run_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        return await self._start_job("run_build", params, self._run_build_job_runner)
 
     async def _cancel_job(self, params: dict[str, Any]) -> dict[str, Any]:
         job_id = _job_id_param(params)
@@ -1594,6 +1642,7 @@ class LocalAgent:
                 "vllm_version": params.get("vllm_version"),
                 "vllm_version_profile": params.get("vllm_version_profile"),
                 "notes": params.get("notes"),
+                "copy": params.get("copy"),
             }
             adopt_params = {
                 key: value for key, value in adopt_params.items() if value is not None
@@ -1645,6 +1694,62 @@ class LocalAgent:
             "detail": f"create_build method is not implemented: {method or 'unknown'}",
         }
 
+    async def _run_build_job_runner(
+        self,
+        params: dict[str, Any],
+        emit: JobProgressEmitter,
+        cancel_event: asyncio.Event,
+    ) -> dict[str, Any]:
+        build_ref = _optional_param_str(params.get("build"))
+        if build_ref is None:
+            return {
+                "ok": False,
+                "error_kind": "invalid-params",
+                "detail": "run_build requires build",
+            }
+        argv = params.get("argv")
+        if not isinstance(argv, list) or not all(isinstance(item, str) for item in argv):
+            return {
+                "ok": False,
+                "error_kind": "invalid-params",
+                "detail": "run_build requires argv as a list of strings",
+            }
+        try:
+            handoff = resolve_build_handoff(build_ref, self._builds_root)
+        except BuildRegistryError as exc:
+            result = {
+                "ok": False,
+                "error_kind": exc.code,
+                "detail": exc.message,
+            }
+            result.update(exc.details)
+            return result
+        if handoff is None:
+            return {
+                "ok": False,
+                "error_kind": "build-not-found",
+                "detail": f"unknown build: {build_ref}",
+                "build": build_ref,
+            }
+        env = _env_with_build_overlay(os.environ, handoff.env_overlay)
+        command = [str(handoff.executable), *argv]
+        returncode = await _build_subprocess_exec(
+            command,
+            env=env,
+            cwd=handoff.executable.parent.parent,
+            emit=emit,
+            phase="RUNNING",
+            cancel_event=cancel_event,
+        )
+        return {
+            "ok": returncode == 0,
+            "detail": f"build command exited {returncode}",
+            "build_id": handoff.build_id,
+            "label": handoff.label,
+            "returncode": returncode,
+            **({} if returncode == 0 else {"error_kind": "process-exited"}),
+        }
+
     async def _default_model_job_runner(
         self,
         params: dict[str, Any],
@@ -1689,6 +1794,22 @@ class LocalAgent:
 
         entry = verified.get("entry") if isinstance(verified.get("entry"), dict) else {}
         source = str(entry.get("source") or "")
+        if source == "url":
+            emit(
+                {
+                    "kind": "committed",
+                    "text": "URL model is launch-time-only",
+                    "level": "INFO",
+                    "phase": "READY",
+                }
+            )
+            return {
+                "ok": True,
+                "detail": "url model is launch-time-only; no pre-download needed",
+                "entry_id": verified.get("entry_id"),
+                "cache_state": "remote_only",
+                "entry": entry,
+            }
         if source == "hf_repo":
             repo_id = str(entry.get("repo_id") or model_ref)
             allow_patterns = _optional_str_list(params.get("allow_patterns"))
@@ -2658,6 +2779,25 @@ def _env_overrides(value: object) -> dict[str, str]:
         key, env_value = text.split("=", 1)
         if key:
             env[key] = env_value
+    return env
+
+
+def _env_with_build_overlay(
+    base_env: Mapping[str, str], overlay: Mapping[str, str]
+) -> dict[str, str]:
+    env = dict(base_env)
+    virtual_env = overlay.get("VIRTUAL_ENV")
+    if virtual_env:
+        env["VIRTUAL_ENV"] = str(virtual_env)
+    path_prepend = overlay.get("PATH_PREPEND")
+    if path_prepend:
+        existing_path = env.get("PATH", "")
+        env["PATH"] = (
+            f"{path_prepend}{os.pathsep}{existing_path}"
+            if existing_path
+            else str(path_prepend)
+        )
+    env.pop("PATH_PREPEND", None)
     return env
 
 

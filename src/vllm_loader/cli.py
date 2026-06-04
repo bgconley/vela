@@ -323,6 +323,10 @@ def build_adopt(
         typer.Option("--vllm-version-profile", help="vLLM version profile label."),
     ] = None,
     notes: Annotated[str | None, typer.Option("--notes", help="Operator notes.")] = None,
+    copy: Annotated[
+        bool,
+        typer.Option("--copy", help="Copy the external venv into the build directory."),
+    ] = False,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
     json_output: Annotated[
         bool,
@@ -336,6 +340,7 @@ def build_adopt(
         vllm_version=vllm_version,
         vllm_version_profile=vllm_version_profile,
         notes=notes,
+        copy="true" if copy else None,
     )
     try:
         result = _agent_call("adopt_build", params, target_name=target)
@@ -405,6 +410,63 @@ def build_verify(
             ]
         )
     )
+
+
+@build_app.command("repair")
+def build_repair(
+    build: Annotated[str, typer.Argument(help="Build id or label to repair.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable repair result."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "repair_build",
+            {"build": build},
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    verdict = "OK" if result.get("ok") else "FAIL"
+    typer.echo(
+        "\t".join(
+            [
+                verdict,
+                str(result.get("build_id") or build),
+                str(result.get("status") or "unknown"),
+                str(result.get("detail") or ""),
+            ]
+        )
+    )
+
+
+@build_app.command(
+    "run",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def build_run(
+    ctx: typer.Context,
+    build: Annotated[str, typer.Argument(help="Build id or label to run.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+) -> None:
+    argv = list(ctx.args)
+    if argv and argv[0] == "--":
+        argv = argv[1:]
+    if not argv:
+        typer.echo("ERROR: provide the build command after --", err=True)
+        raise typer.Exit(2)
+    client = _target_client_for_name_or_exit(target)
+    params: dict[str, object] = {
+        "job_id": uuid.uuid4().hex,
+        "build": build,
+        "argv": argv,
+    }
+    raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "run_build", params)))
 
 
 @build_app.command("remove")
@@ -701,15 +763,20 @@ def model_pin(
 def model_verify(
     model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    deep: Annotated[
+        bool,
+        typer.Option("--deep", help="Run deep content-hash verification."),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable verification result."),
     ] = False,
 ) -> None:
+    params = _agent_params(model_ref=model_ref, deep="true" if deep else None)
     try:
         result = _agent_call(
             "verify_model",
-            {"model_ref": model_ref},
+            params,
             target_name=target,
         )
     except TargetCallError as exc:
@@ -746,6 +813,10 @@ def model_download(
         typer.Option("--ignore", help="Ignore-pattern passed to Hugging Face download."),
     ] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit final job result as machine-readable JSON."),
+    ] = False,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
     params: dict[str, object] = {
@@ -758,7 +829,16 @@ def model_download(
         params["allow_patterns"] = list(allow_patterns)
     if ignore_patterns:
         params["ignore_patterns"] = list(ignore_patterns)
-    raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "download_model", params)))
+    raise typer.Exit(
+        asyncio.run(
+            _run_agent_job_cli(
+                client,
+                "download_model",
+                params,
+                json_output=json_output,
+            )
+        )
+    )
 
 
 @model_app.command("remove")
@@ -1315,6 +1395,8 @@ async def _run_agent_job_cli(
     client: TargetClient,
     method: str,
     params: dict[str, Any],
+    *,
+    json_output: bool = False,
 ) -> int:
     job_id = str(params["job_id"])
     await client.connect()
@@ -1325,23 +1407,32 @@ async def _run_agent_job_cli(
         except TargetCallError as exc:
             _echo_target_error_or_exit(exc)
             return 2
-        return await _echo_job_event_stream_until_done(events, job_id)
+        return await _echo_job_event_stream_until_done(
+            events, job_id, json_output=json_output
+        )
     finally:
         await events.aclose()
         await client.disconnect()
 
 
-async def _echo_job_event_stream_until_done(events, job_id: str) -> int:
+async def _echo_job_event_stream_until_done(
+    events, job_id: str, *, json_output: bool = False
+) -> int:
     async for event in events:
         if event.get("job_id") != job_id:
             continue
         if event.get("event") == "job_progress":
+            if json_output:
+                continue
             text = event.get("text")
             if isinstance(text, str) and text:
                 typer.echo(text)
             continue
         if event.get("event") != "job_done":
             continue
+        if json_output:
+            _echo_json(dict(event))
+            return 0 if event.get("ok") else 2
         detail = str(event.get("detail") or "")
         if event.get("ok"):
             typer.echo(f"DONE\t{job_id}\t{detail}")

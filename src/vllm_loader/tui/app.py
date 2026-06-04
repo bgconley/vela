@@ -1008,6 +1008,7 @@ class VllmLoaderApp(App):
                 self.current_config,
                 preview=self.selected_config_preview,
                 metadata=self.selected_config_metadata,
+                preview_resolver=self._preview_flag_manager_draft,
             ),
             callback=self._handle_flag_manager_selection,
         )
@@ -1068,6 +1069,35 @@ class VllmLoaderApp(App):
             await self._refresh_selected_config_preview()
         self._refresh_chrome()
         self.notify(f"Saved flags: {name}")
+
+    async def _preview_flag_manager_draft(
+        self, selection: dict[str, Any]
+    ) -> dict[str, Any]:
+        name = _optional_str(selection.get("name"))
+        if name is None:
+            return {
+                "preview": "Preview unavailable: missing config name",
+                "warnings": [],
+                "metadata": {},
+            }
+        params: dict[str, Any] = self._agent_params(
+            name=name,
+            configs_dir=self.configs_dir,
+        )
+        engine = selection.get("engine")
+        if isinstance(engine, dict):
+            params["engine"] = dict(engine)
+        extra_args = selection.get("extra_args")
+        if isinstance(extra_args, list):
+            params["extra_args"] = list(extra_args)
+        try:
+            return await self._target_call("preview", params)
+        except TargetCallError as exc:
+            return {
+                "preview": f"Preview unavailable: {exc}",
+                "warnings": [],
+                "metadata": {},
+            }
 
     def _handle_build_manager_selection(self, selection: object) -> None:
         if not selection:
@@ -1273,6 +1303,13 @@ class VllmLoaderApp(App):
                 exclusive=True,
                 exit_on_error=False,
             )
+            return
+        if action == "download_unavailable":
+            label = _optional_str(selection.get("label")) or "model"
+            self._set_error_text(
+                f"{label} is launch-time-only; vLLM resolves the URL at launch."
+            )
+            self.notify(f"{label} is launch-time-only", severity="warning")
             return
         model_ref = _optional_str(selection.get("model_ref"))
         if model_ref is None:
@@ -2980,6 +3017,9 @@ class VllmLoaderApp(App):
         self.fsm = PhaseFSM(bundled_profile("current"))
         self._set_phase(Phase.STARTING)
         try:
+            preflight = await self._preflight_from_agent(cfg.name)
+            if not self._handle_preflight_result(preflight):
+                return
             prepared = await self._prepare_launch_from_agent(cfg.name)
         except TargetCallError as exc:
             self._handle_launch_agent_error(exc)
@@ -3074,6 +3114,34 @@ class VllmLoaderApp(App):
         self.fsm.health_error(ErrorKind.CONFIG_INVALID, str(exc))
         self._set_error_banner(ErrorKind.CONFIG_INVALID)
         self._set_phase(self.fsm.phase)
+
+    async def _preflight_from_agent(self, name: str) -> dict[str, Any]:
+        return await self._target_call(
+            "preflight",
+            self._agent_params(
+                name=name,
+                configs_dir=self.configs_dir,
+                **self._launch_overrides,
+            ),
+        )
+
+    def _handle_preflight_result(self, result: dict[str, Any]) -> bool:
+        if bool(result.get("ok")):
+            return True
+        failures = result.get("failures")
+        failure = failures[0] if isinstance(failures, list) and failures else {}
+        kind = _error_kind_from_agent_payload(
+            failure.get("kind") if isinstance(failure, dict) else None
+        )
+        detail = (
+            str(failure.get("detail") or "Launch preflight failed")
+            if isinstance(failure, dict)
+            else "Launch preflight failed"
+        )
+        self.fsm.health_error(kind, detail)
+        self._set_error_banner(kind)
+        self._set_phase(self.fsm.phase)
+        return False
 
     async def _prepare_launch_from_agent(self, name: str) -> dict[str, Any]:
         return await self._target_call(
