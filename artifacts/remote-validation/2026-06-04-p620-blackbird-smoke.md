@@ -149,3 +149,43 @@ Still not covered by this follow-up:
 
 - A new real vLLM build install.
 - The full P620-to-Blackbird Qwen launch smoke on commit `f493067`.
+
+## Current-Commit P620 to Blackbird Qwen Smoke
+
+Commit validated: `1c6c0aa`
+
+Pre-run checks:
+
+```text
+P620 repo: 1c6c0aa
+blackbird	ok	agent=0.1.0	protocol=1
+Blackbird repo: 1c6c0aa
+GPU unavailable=False note=
+GPU 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition mem=2/97887MiB util=0
+```
+
+Command:
+
+```bash
+ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
+  -o BatchMode=yes bgconley@10.25.0.50 \
+  'set -euo pipefail; cd /home/bgconley/repos/lab-tui;
+   timeout 2700 /home/bgconley/venvs/lab-tui/bin/vllm-loader smoke-tui \
+     qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird'
+```
+
+Output:
+
+```text
+READY http://10.25.0.51:18003 models=qwen36-27b-fp8-kvfp8-rp6000
+```
+
+Post-run checks:
+
+```text
+blackbird	ok	agent=0.1.0	protocol=1
+running pid=70725 socket=/run/user/1000/vllm-loader/agent.sock
+```
+
+Blackbird `docker ps` produced no active container rows after the smoke,
+consistent with the normal TUI stop flow cleaning up the foreground wrapper.
