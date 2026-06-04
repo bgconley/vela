@@ -14,7 +14,7 @@ from vllm_loader.tui.theme import ACCENT, SURFACE_ALT, TEXT
 @dataclass(frozen=True)
 class TargetManagerRequest:
     action: str
-    target_name: str
+    target_name: str | None = None
 
 
 class TargetManagerScreen(ModalScreen):
@@ -48,6 +48,8 @@ class TargetManagerScreen(ModalScreen):
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
         ("enter", "accept", "Select"),
+        ("n", "new", "New"),
+        ("e", "edit", "Edit"),
         ("R", "reconnect", "Reconnect"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
@@ -99,6 +101,16 @@ class TargetManagerScreen(ModalScreen):
     def action_reconnect(self) -> None:
         self.app.action_reconnect()
         self._refresh()
+
+    def action_new(self) -> None:
+        self.dismiss(TargetManagerRequest("new"))
+
+    def action_edit(self) -> None:
+        target = self._selected_target()
+        if target is None:
+            self.dismiss(None)
+            return
+        self.dismiss(TargetManagerRequest("edit", target.name))
 
     def action_remove(self) -> None:
         target = self._selected_target()

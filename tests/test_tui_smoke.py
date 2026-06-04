@@ -587,6 +587,188 @@ async def test_target_manager_selection_switches_target_and_refreshes_configs(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_add_persists_new_target(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    targets = [TargetConfig(name="local")]
+    saved_targets: list[TargetConfig] = []
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return list(targets)
+
+        def by_name(self, name: str) -> TargetConfig:
+            for target in targets:
+                if target.name == name:
+                    return target
+            raise KeyError(name)
+
+    class QuietTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target add should not subscribe")
+
+    def fake_upsert_target_file(target: TargetConfig) -> Path:
+        saved_targets.append(target)
+        targets[:] = [item for item in targets if item.name != target.name]
+        targets.append(target)
+        return Path("/agent/targets.yaml")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "upsert_target_file",
+        fake_upsert_target_file,
+        raising=False,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=QuietTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "target-edit",
+            "target add form did not open",
+        )
+        app.screen.query_one("#target-edit-input", Input).value = (
+            "name=blackbird transport=ssh host=bgconley@10.25.0.51 "
+            "workdir=/tank/repos/lab-tui venv=/tank/venvs/lab-tui"
+        )
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: app.screen.id == "target-manager",
+            "target manager did not reopen after add",
+        )
+
+        assert [target.name for target in saved_targets] == ["blackbird"]
+        saved = saved_targets[0]
+        assert saved.transport is TransportKind.SSH
+        assert saved.host == "bgconley@10.25.0.51"
+        assert saved.workdir == Path("/tank/repos/lab-tui")
+        assert saved.venv == Path("/tank/venvs/lab-tui")
+        target_list = str(app.screen.query_one("#target-manager-list", Static).content)
+        assert "blackbird  ssh  bgconley@10.25.0.51" in target_list
+
+
+@pytest.mark.asyncio
+async def test_target_manager_edit_persists_selected_target(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+    targets = [TargetConfig(name="local"), blackbird]
+    saved_targets: list[TargetConfig] = []
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return list(targets)
+
+        def by_name(self, name: str) -> TargetConfig:
+            for target in targets:
+                if target.name == name:
+                    return target
+            raise KeyError(name)
+
+    class QuietTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target edit should not subscribe")
+
+    def fake_upsert_target_file(target: TargetConfig) -> Path:
+        saved_targets.append(target)
+        targets[:] = [item for item in targets if item.name != target.name]
+        targets.append(target)
+        return Path("/agent/targets.yaml")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "upsert_target_file",
+        fake_upsert_target_file,
+        raising=False,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=QuietTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.press("down")
+        await pilot.press("e")
+        await _wait_for_condition(
+            lambda: app.screen.id == "target-edit",
+            "target edit form did not open",
+        )
+        form = app.screen.query_one("#target-edit-input", Input)
+        assert "name=blackbird" in form.value
+        form.value = "name=blackbird transport=ssh host=bgconley@10.25.0.52"
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: app.screen.id == "target-manager",
+            "target manager did not reopen after edit",
+        )
+
+        assert [target.host for target in saved_targets] == ["bgconley@10.25.0.52"]
+        target_list = str(app.screen.query_one("#target-manager-list", Static).content)
+        assert "blackbird  ssh  bgconley@10.25.0.52" in target_list
+
+
+@pytest.mark.asyncio
 async def test_target_manager_remove_confirms_and_updates_registry(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

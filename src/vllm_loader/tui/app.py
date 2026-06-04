@@ -30,6 +30,7 @@ from vllm_loader.config.targets import (
     TransportKind,
     load_targets_file,
     remove_target_file,
+    upsert_target_file,
 )
 from vllm_loader.engine.command_builder import CommandBuildResult
 from vllm_loader.engine.log_sink import LogRecord, level_for_line
@@ -65,6 +66,7 @@ from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
 from vllm_loader.tui.screens.model_manager import ModelManagerScreen
 from vllm_loader.tui.screens.pin_model import PinModelScreen
+from vllm_loader.tui.screens.target_edit import TargetEditScreen
 from vllm_loader.tui.screens.target_manager import (
     TargetManagerRequest,
     TargetManagerScreen,
@@ -842,7 +844,11 @@ class VllmLoaderApp(App):
         self, selection: str | TargetManagerRequest | None
     ) -> None:
         if isinstance(selection, TargetManagerRequest):
-            if selection.action == "remove":
+            if selection.action == "new":
+                self._open_target_edit(None)
+            elif selection.action == "edit" and selection.target_name is not None:
+                self._open_target_edit(selection.target_name)
+            elif selection.action == "remove" and selection.target_name is not None:
                 self._confirm_remove_target(selection.target_name)
             return
         target_name = selection
@@ -865,6 +871,34 @@ class VllmLoaderApp(App):
             exclusive=True,
             exit_on_error=False,
         )
+
+    def _open_target_edit(self, target_name: str | None) -> None:
+        if target_name is None:
+            self.push_screen(TargetEditScreen(), callback=self._handle_target_edit)
+            return
+        if target_name == "local":
+            self._set_error_text("The local target is implicit and cannot be edited")
+            return
+        try:
+            target = load_targets_file().by_name(target_name)
+        except Exception as exc:
+            self._set_error_text(f"Unable to edit target: {exc}", style=f"bold {BAD}")
+            return
+        self.push_screen(TargetEditScreen(target), callback=self._handle_target_edit)
+
+    def _handle_target_edit(self, target: TargetConfig | None) -> None:
+        if target is None:
+            self.action_targets()
+            return
+        try:
+            upsert_target_file(target)
+        except ValueError as exc:
+            self._set_error_text(f"Unable to save target: {exc}", style=f"bold {BAD}")
+            return
+        self.notify(f"Saved target: {target.name}")
+        if target.name == self.target_name:
+            self._target_config = target
+        self.action_targets()
 
     def _confirm_remove_target(self, target_name: str) -> None:
         if target_name == "local":
