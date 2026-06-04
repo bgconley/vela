@@ -46,7 +46,7 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("Adopt Build", id="adopt-build-title")
             yield Input(
                 placeholder=(
-                    "build_id=01ADOPTED label=external venv_path=/agent/venvs/vllm"
+                    "label=external venv_path=/agent/venvs/vllm"
                 ),
                 id="adopt-build-input",
             )
@@ -68,7 +68,7 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
 def _parse_adopt_build_params(value: str) -> dict[str, Any]:
     tokens = [token.strip() for token in value.split() if token.strip()]
     if not tokens:
-        raise ValueError("Enter build_id and venv_path")
+        raise ValueError("Enter venv_path=<path>")
     params: dict[str, Any] = {}
     for token in tokens:
         if "=" not in token:
@@ -79,8 +79,6 @@ def _parse_adopt_build_params(value: str) -> dict[str, Any]:
         if not key or not raw_value:
             raise ValueError("Build fields must use key=value")
         params[key] = raw_value
-    if not params.get("build_id"):
-        raise ValueError("Enter build_id=<id>")
     if not params.get("venv_path"):
         raise ValueError("Enter venv_path=<path>")
     return params

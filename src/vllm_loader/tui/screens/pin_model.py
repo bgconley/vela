@@ -48,8 +48,7 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
             yield Input(
                 value=self.initial,
                 placeholder=(
-                    "entry_id=01MODEL repo_id=org/model display_name=name "
-                    "revision=main commit_sha=abc123"
+                    "repo_id=org/model display_name=name revision=main commit_sha=abc123"
                 ),
                 id="pin-model-input",
             )
@@ -85,9 +84,6 @@ def _parse_model_pin_params(value: str) -> dict[str, Any]:
             params[key] = raw_value.lower() in {"1", "true", "yes", "on"}
         else:
             params[key] = raw_value
-    if not params.get("entry_id"):
-        raise ValueError("Enter entry_id=<id>")
     if not params.get("repo_id") and not params.get("local_path"):
         raise ValueError("Enter repo_id=<repo> or local_path=<path>")
     return params
-
