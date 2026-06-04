@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from vllm_loader.engine.ids import mint_ulid
+from vllm_loader.engine.sidecar import verify_sidecar_from_system
 
 
 @dataclass(frozen=True)
@@ -233,6 +235,36 @@ def build_reference_aliases(reference: str, root: str | Path | None = None) -> s
     return aliases
 
 
+def record_build_ref(
+    build_id: str,
+    run_id: str,
+    sidecar_path: str | Path,
+    *,
+    pid: int,
+    process_create_time: float,
+    root: str | Path | None = None,
+) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        manifest, build_dir = _manifest_for_reference(builds_root, build_id)
+        actual_build_id = str(manifest["build_id"])
+        with _build_lock(build_dir):
+            ref_path = build_dir / "refs" / _build_ref_filename(run_id)
+            payload = {
+                "schema_version": 1,
+                "run_id": run_id,
+                "sidecar_path": str(Path(sidecar_path)),
+                "pid": int(pid),
+                "process_create_time": float(process_create_time),
+            }
+            _write_json_atomic(ref_path, payload)
+            return {
+                "build_id": actual_build_id,
+                "run_id": run_id,
+                "ref_path": str(ref_path),
+            }
+
+
 def remove_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
     with _registry_lock(builds_root):
@@ -241,26 +273,43 @@ def remove_build(reference: str, root: str | Path | None = None) -> dict[str, An
 
 def _remove_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
     manifest, build_dir = _manifest_for_reference(builds_root, reference)
-    build_id = str(manifest["build_id"])
-    if build_id == _active_build_id(builds_root):
-        raise BuildRegistryError(
-            "resource-in-use",
-            "build is the active default",
-            {"build": reference, "reason": "active-build", "build_id": build_id},
-        )
-    if not _is_agent_owned_build_dir(builds_root, build_dir):
-        raise BuildRegistryError(
-            "invalid-config",
-            "build path is outside the agent build registry",
-            {"build": reference, "reason": "outside-build-root", "path": str(build_dir)},
-        )
-    shutil.rmtree(build_dir)
-    return {
-        "build_id": build_id,
-        "label": str(manifest.get("label") or ""),
-        "removed": True,
-        "removed_path": str(build_dir),
-    }
+    with _build_lock(build_dir):
+        build_id = str(manifest["build_id"])
+        if build_id == _active_build_id(builds_root):
+            raise BuildRegistryError(
+                "resource-in-use",
+                "build is the active default",
+                {"build": reference, "reason": "active-build", "build_id": build_id},
+            )
+        if not _is_agent_owned_build_dir(builds_root, build_dir):
+            raise BuildRegistryError(
+                "invalid-config",
+                "build path is outside the agent build registry",
+                {
+                    "build": reference,
+                    "reason": "outside-build-root",
+                    "path": str(build_dir),
+                },
+            )
+        live_refs = _verified_live_build_refs(build_dir)
+        if live_refs:
+            raise BuildRegistryError(
+                "resource-in-use",
+                "build is used by a live run",
+                {
+                    "build": reference,
+                    "reason": "build-ref",
+                    "build_id": build_id,
+                    "refs": live_refs,
+                },
+            )
+        shutil.rmtree(build_dir)
+        return {
+            "build_id": build_id,
+            "label": str(manifest.get("label") or ""),
+            "removed": True,
+            "removed_path": str(build_dir),
+        }
 
 
 def list_builds(root: str | Path | None = None) -> dict[str, Any]:
@@ -655,6 +704,68 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 def _registry_lock(root: Path) -> _ExclusiveFileLock:
     return _ExclusiveFileLock(root / "builds.lock")
+
+
+def _build_lock(build_dir: Path) -> _ExclusiveFileLock:
+    return _ExclusiveFileLock(build_dir / "build.lock")
+
+
+def _verified_live_build_refs(build_dir: Path) -> list[dict[str, Any]]:
+    refs_dir = build_dir / "refs"
+    if not refs_dir.exists():
+        return []
+    live_refs: list[dict[str, Any]] = []
+    for ref_path in sorted(refs_dir.glob("*.ref")):
+        ref = _load_build_ref(ref_path)
+        sidecar_path = _optional_str(ref.get("sidecar_path")) if ref is not None else None
+        if sidecar_path is None:
+            _unlink_ref(ref_path)
+            continue
+        try:
+            live = bool(verify_sidecar_from_system(sidecar_path))
+        except Exception:
+            live = False
+        if live:
+            live_refs.append(_build_ref_payload(ref, sidecar_path))
+        else:
+            _unlink_ref(ref_path)
+    return live_refs
+
+
+def _load_build_ref(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _build_ref_payload(ref: dict[str, Any], sidecar_path: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "run_id": str(ref.get("run_id") or ""),
+        "sidecar_path": sidecar_path,
+    }
+    pid = ref.get("pid")
+    if isinstance(pid, int):
+        payload["pid"] = pid
+    process_create_time = ref.get("process_create_time")
+    if isinstance(process_create_time, int | float):
+        payload["process_create_time"] = float(process_create_time)
+    return payload
+
+
+def _build_ref_filename(run_id: str) -> str:
+    safe = "".join(
+        char if char.isalnum() or char in "._-" else "_" for char in str(run_id)
+    ).strip("._")
+    if not safe:
+        safe = sha256(str(run_id).encode("utf-8")).hexdigest()
+    return f"{safe}.ref"
+
+
+def _unlink_ref(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.unlink()
 
 
 class _ExclusiveFileLock:

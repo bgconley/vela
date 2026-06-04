@@ -1433,6 +1433,100 @@ async def test_local_agent_starts_detached_run_from_prepared_launch(
 
 
 @pytest.mark.asyncio
+async def test_local_agent_records_build_ref_for_detached_launch(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01REFBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01REFBUILD",
+                "label": "ref-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "build-ref.yaml",
+        f"""
+        name: build-ref
+        model: fake/model
+        command:
+          build: ref-build
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    sidecar_path = tmp_path / "runs" / "run-1.json"
+    manifest_path = tmp_path / "runs" / "run-1.manifest.json"
+    log_path = tmp_path / "runs" / "run-1.run.log"
+
+    def fake_start_detached(cfg, build, **_kwargs):
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("", encoding="utf-8")
+        Manifest.from_active_log(log_path).write_atomic(manifest_path)
+        Sidecar(
+            run_id="run-1",
+            config_name=cfg.name,
+            command_argv=list(build.argv),
+            command_hash="sha256:abc",
+            pid=123,
+            pgid=123,
+            process_create_time=1.0,
+            executable=str(build.argv[0]),
+            cwd=str(build.cwd),
+            launch_mode=cfg.launch.mode.value,
+            host=cfg.server.host,
+            port=cfg.server.port,
+            served_model_names=[cfg.served_model_name]
+            if cfg.served_model_name
+            else [],
+            exposure=cfg.server.exposure.value,
+            manifest_path=str(manifest_path),
+            config_snapshot=cfg.model_dump(mode="json"),
+        ).write_atomic(sidecar_path)
+        return DetachedLaunch(
+            run_id="run-1",
+            supervisor_pid=123,
+            sidecar_path=sidecar_path,
+            manifest_path=manifest_path,
+            log_path=log_path,
+        )
+
+    monkeypatch.setattr(local_agent_module, "start_detached", fake_start_detached)
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+
+    try:
+        await client.call("launch", {"name": "build-ref", "configs_dir": str(config_dir)})
+    finally:
+        await client.disconnect()
+
+    ref = json.loads((build_dir / "refs" / "run-1.ref").read_text(encoding="utf-8"))
+    assert ref == {
+        "pid": 123,
+        "process_create_time": 1.0,
+        "run_id": "run-1",
+        "schema_version": 1,
+        "sidecar_path": str(sidecar_path),
+    }
+
+
+@pytest.mark.asyncio
 async def test_target_client_detached_launch_can_reattach_by_run_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2660,6 +2754,185 @@ async def test_agent_removes_unpinned_build_from_agent_owned_registry(
     assert not build_dir.exists()
     assert listed["builds"] == []
     json.dumps(removed)
+
+
+def test_build_remove_takes_registry_and_build_locks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01LOCKREMOVE"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01LOCKREMOVE",
+                "label": "lock-remove",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    flock_calls: list[tuple[str, int]] = []
+
+    def fake_flock(handle: object, operation: int) -> None:
+        flock_calls.append((str(getattr(handle, "name", "")), operation))
+
+    monkeypatch.setattr(
+        build_registry_module,
+        "fcntl",
+        SimpleNamespace(LOCK_EX=fcntl.LOCK_EX, LOCK_UN=fcntl.LOCK_UN, flock=fake_flock),
+        raising=False,
+    )
+
+    removed = build_registry_module.remove_build("lock-remove", builds_root)
+
+    assert removed["build_id"] == "01LOCKREMOVE"
+    assert flock_calls == [
+        (str(builds_root / "builds.lock"), fcntl.LOCK_EX),
+        (str(build_dir / "build.lock"), fcntl.LOCK_EX),
+        (str(build_dir / "build.lock"), fcntl.LOCK_UN),
+        (str(builds_root / "builds.lock"), fcntl.LOCK_UN),
+    ]
+
+
+def test_build_remove_refuses_verified_live_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01LIVEREF"
+    bin_dir = build_dir / "bin"
+    refs_dir = build_dir / "refs"
+    bin_dir.mkdir(parents=True)
+    refs_dir.mkdir()
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01LIVEREF",
+                "label": "live-ref",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sidecar_path = tmp_path / "runs" / "run-live.json"
+    ref_path = refs_dir / "run-live.ref"
+    ref_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-live",
+                "sidecar_path": str(sidecar_path),
+                "pid": 123,
+                "process_create_time": 1.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        build_registry_module,
+        "verify_sidecar_from_system",
+        lambda path: Path(path) == sidecar_path,
+        raising=False,
+    )
+
+    with pytest.raises(build_registry_module.BuildRegistryError) as exc_info:
+        build_registry_module.remove_build("live-ref", builds_root)
+
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "build-ref"
+    assert exc_info.value.details["build_id"] == "01LIVEREF"
+    assert exc_info.value.details["refs"] == [
+        {
+            "run_id": "run-live",
+            "sidecar_path": str(sidecar_path),
+            "pid": 123,
+            "process_create_time": 1.0,
+        }
+    ]
+    assert build_dir.exists()
+    assert ref_path.exists()
+
+
+def test_build_remove_gc_stale_ref_after_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01STALEREF"
+    bin_dir = build_dir / "bin"
+    refs_dir = build_dir / "refs"
+    bin_dir.mkdir(parents=True)
+    refs_dir.mkdir()
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01STALEREF",
+                "label": "stale-ref",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sidecar_path = tmp_path / "runs" / "run-stale.json"
+    ref_path = refs_dir / "run-stale.ref"
+    ref_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-stale",
+                "sidecar_path": str(sidecar_path),
+                "pid": 123,
+                "process_create_time": 1.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    verified: list[Path] = []
+
+    def fake_verify(path: Path | str) -> bool:
+        verified.append(Path(path))
+        return False
+
+    monkeypatch.setattr(
+        build_registry_module,
+        "verify_sidecar_from_system",
+        fake_verify,
+        raising=False,
+    )
+
+    removed = build_registry_module.remove_build("stale-ref", builds_root)
+
+    assert removed["build_id"] == "01STALEREF"
+    assert verified == [sidecar_path]
+    assert not build_dir.exists()
+    assert not ref_path.exists()
 
 
 @pytest.mark.asyncio

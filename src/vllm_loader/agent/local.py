@@ -29,6 +29,7 @@ from vllm_loader.engine.build_registry import (
     default_builds_root,
     inspect_build,
     list_builds,
+    record_build_ref,
     remove_build,
     resolve_build_handoff,
     select_build,
@@ -612,6 +613,7 @@ class LocalAgent:
         self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
         loaded_run = self._load_detached_run(launch.sidecar_path, verify=False)
         loaded_run.config = cfg
+        self._record_build_ref(prepared, loaded_run)
         return {
             "run_id": launch.run_id,
             "launch_mode": requested_launch_mode,
@@ -699,6 +701,30 @@ class LocalAgent:
                 f"Command not found: {command}",
                 {"command": command, "fallback": build.argv[0]},
             ) from exc
+
+    def _record_build_ref(
+        self, prepared: dict[str, Any], run: LocalDetachedRun
+    ) -> None:
+        build_payload = prepared.get("build")
+        if not isinstance(build_payload, dict):
+            return
+        metadata = build_payload.get("metadata")
+        if not isinstance(metadata, dict):
+            return
+        build_id = _metadata_str(metadata.get("build_id"))
+        if build_id is None:
+            return
+        try:
+            record_build_ref(
+                build_id,
+                run.run_id,
+                run.sidecar_path,
+                pid=run.sidecar.pid,
+                process_create_time=run.sidecar.process_create_time,
+                root=self._builds_root,
+            )
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
     def _load_detached_run(
         self, sidecar_path: Path | str, *, verify: bool
