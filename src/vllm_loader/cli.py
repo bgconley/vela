@@ -886,11 +886,43 @@ def smoke_tui_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    build_id: Annotated[
+        str | None,
+        typer.Option("--build-id", help="Target build id or label override."),
+    ] = None,
+    model_ref: Annotated[
+        str | None,
+        typer.Option("--model-ref", help="Target model entry/display override."),
+    ] = None,
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Model revision override."),
+    ] = None,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
-    prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
+    overrides = _launch_override_params(
+        build_id=build_id,
+        model_ref=model_ref,
+        revision=revision,
+    )
+    prepared = _prepare_launch_with_client_or_exit(
+        client,
+        name,
+        configs_dir,
+        **overrides,
+    )
     cfg = ModelConfig.model_validate(prepared["config"])
-    raise typer.Exit(asyncio.run(_smoke_tui_config_cli(cfg.name, configs_dir, target)))
+    helper_overrides = _agent_params(**overrides)
+    raise typer.Exit(
+        asyncio.run(
+            _smoke_tui_config_cli(
+                cfg.name,
+                configs_dir,
+                target,
+                **helper_overrides,
+            )
+        )
+    )
 
 
 def _echo_warnings(warnings) -> None:
@@ -1281,9 +1313,23 @@ async def _smoke_config_cli(
 
 
 async def _smoke_tui_config_cli(
-    name: str, configs_dir: Path | None, target_name: str = "local"
+    name: str,
+    configs_dir: Path | None,
+    target_name: str = "local",
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> int:
-    tui = VllmLoaderApp(configs_dir=configs_dir, target_name=target_name)
+    tui = VllmLoaderApp(
+        configs_dir=configs_dir,
+        target_name=target_name,
+        launch_overrides=_launch_override_params(
+            build_id=build_id,
+            model_ref=model_ref,
+            revision=revision,
+        ),
+    )
     try:
         async with tui.run_test(size=(120, 40)) as pilot:
             await pilot.pause()

@@ -556,9 +556,15 @@ class VllmLoaderApp(App):
         target_name: str = "local",
         target_ping_interval_seconds: float | None = 30.0,
         target_ping_timeout_seconds: float = 15.0,
+        launch_overrides: dict[str, str | None] | None = None,
     ) -> None:
         super().__init__()
         self.configs_dir = Path(configs_dir) if configs_dir is not None else None
+        self._launch_overrides = {
+            key: str(value)
+            for key, value in (launch_overrides or {}).items()
+            if value is not None
+        }
         self.target_name = target_name
         target_config = TargetConfig(name="local")
         if target_client is None:
@@ -2977,6 +2983,7 @@ class VllmLoaderApp(App):
                     self._launch_agent_params(
                         name=cfg.name,
                         configs_dir=self.configs_dir,
+                        **self._launch_overrides,
                     ),
                 )
             except TargetCallError as exc:
@@ -2990,6 +2997,7 @@ class VllmLoaderApp(App):
                 self._launch_agent_params(
                     name=cfg.name,
                     configs_dir=self.configs_dir,
+                    **self._launch_overrides,
                 ),
             )
         except TargetCallError as exc:
@@ -3057,7 +3065,11 @@ class VllmLoaderApp(App):
     async def _prepare_launch_from_agent(self, name: str) -> dict[str, Any]:
         return await self._target_call(
             "prepare_launch",
-            self._agent_params(name=name, configs_dir=self.configs_dir),
+            self._agent_params(
+                name=name,
+                configs_dir=self.configs_dir,
+                **self._launch_overrides,
+            ),
         )
 
     def _handle_launch_agent_error(self, exc: TargetCallError) -> None:

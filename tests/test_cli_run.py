@@ -1993,6 +1993,131 @@ def test_cli_smoke_tui_prepares_through_target_client(
     assert smoke_calls == [("agent-tui", config_dir, "blackbird")]
 
 
+def test_cli_smoke_tui_passes_build_model_revision_overrides(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "agent-tui-override.yaml",
+        f"""
+        name: agent-tui-override
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        """,
+    )
+    client_instances: list[object] = []
+    smoke_calls: list[
+        tuple[str, Path | None, str, str | None, str | None, str | None]
+    ] = []
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "prepare_launch":
+                return {
+                    "config": {
+                        "name": "agent-tui-override",
+                        "model": "fake/model",
+                        "command": {
+                            "entrypoint": "serve",
+                            "executable": str(executable),
+                        },
+                    },
+                    "build": {
+                        "argv": [str(executable)],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+    async def fake_smoke_tui(
+        name: str,
+        configs_dir: Path | None,
+        target_name: str = "local",
+        *,
+        build_id: str | None = None,
+        model_ref: str | None = None,
+        revision: str | None = None,
+    ) -> int:
+        smoke_calls.append(
+            (name, configs_dir, target_name, build_id, model_ref, revision)
+        )
+        return 0
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(),
+    )
+    monkeypatch.setattr(cli_module, "_smoke_tui_config_cli", fake_smoke_tui)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.smoke_tui_config(
+            "agent-tui-override",
+            configs_dir=config_dir,
+            target="blackbird",
+            build_id="01BUILD",
+            model_ref="01MODEL",
+            revision="abc123",
+        )
+
+    assert exc_info.value.exit_code == 0
+    assert client_instances[0].calls == [
+        (
+            "prepare_launch",
+            {
+                "name": "agent-tui-override",
+                "configs_dir": str(config_dir),
+                "build_id": "01BUILD",
+                "model_ref": "01MODEL",
+                "revision": "abc123",
+            },
+        )
+    ]
+    assert smoke_calls == [
+        ("agent-tui-override", config_dir, "blackbird", "01BUILD", "01MODEL", "abc123")
+    ]
+
+
 @pytest.mark.parametrize("command", ["preview", "run"])
 def test_cli_reports_unknown_config_name_without_traceback(config_dir: Path, command: str) -> None:
     write_yaml(

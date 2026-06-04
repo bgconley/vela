@@ -1683,6 +1683,114 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
 
 
 @pytest.mark.asyncio
+async def test_tui_launch_passes_build_model_revision_overrides(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    class OverrideLaunchAgent(RecordingConfigAgent):
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {"name": "alpha", "model": "org/alpha"},
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "agent-profile"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+    class FakeTargetClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method == "launch":
+                return {
+                    "run_id": "run-override",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "health":
+                return {
+                    "run_id": "run-override",
+                    "ready": True,
+                    "detail": "ready from target client",
+                    "models": ["served"],
+                    "error_kind": None,
+                }
+            if method == "wait":
+                return {"run_id": "run-override", "returncode": 0, "intentional": False}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-override",
+                "returncode": 0,
+                "intentional": False,
+                "phase": Phase.STOPPED.value,
+                "seq": 1,
+                "ts": "2026-06-03T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-override"]
+            assert resume_from == "live"
+            return self._events()
+
+    agent = OverrideLaunchAgent()
+    target_client = FakeTargetClient(agent)
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=target_client,
+        launch_overrides={
+            "build_id": "01BUILD",
+            "model_ref": "01MODEL",
+            "revision": "abc123",
+        },
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._run_selected_config()
+
+    assert agent.calls[-1] == (
+        "prepare_launch",
+        {
+            "name": "alpha",
+            "configs_dir": str(config_dir),
+            "build_id": "01BUILD",
+            "model_ref": "01MODEL",
+            "revision": "abc123",
+        },
+    )
+    launch_call = next(call for call in target_client.calls if call[0] == "launch")
+    assert launch_call[1]["name"] == "alpha"
+    assert launch_call[1]["configs_dir"] == str(config_dir)
+    assert launch_call[1]["build_id"] == "01BUILD"
+    assert launch_call[1]["model_ref"] == "01MODEL"
+    assert launch_call[1]["revision"] == "abc123"
+    assert launch_call[1]["run_id"]
+
+
+@pytest.mark.asyncio
 async def test_tui_attached_launch_uses_target_client_stream(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
