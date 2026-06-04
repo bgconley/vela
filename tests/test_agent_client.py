@@ -5026,6 +5026,39 @@ def test_pip_build_fallback_bootstraps_pip_without_ensurepip(tmp_path: Path) -> 
     ]
 
 
+def test_managed_build_resolved_versions_uses_profile_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    venv_path = tmp_path / "build" / "venv"
+    probes: list[list[str]] = []
+
+    def fake_run_build_probe(argv: list[str], _failure_message: str) -> str:
+        probes.append(argv)
+        if argv[:2] == [str(venv_path / "bin" / "python"), "-c"]:
+            return "0.11.0"
+        if argv == [str(venv_path / "bin" / "vllm"), "--version"]:
+            return "vllm 0.11.0"
+        if argv == [str(venv_path / "bin" / "python"), "--version"]:
+            return "Python 3.12.7"
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "_run_build_probe",
+        fake_run_build_probe,
+        raising=False,
+    )
+
+    resolved = local_agent_module._managed_build_resolved_versions(venv_path)
+
+    assert resolved == {
+        "vllm": "0.11.0",
+        "vllm_version_profile": "0.11.0",
+        "python": "3.12.7",
+    }
+    assert len(probes) == 3
+
+
 @pytest.mark.asyncio
 async def test_agent_create_build_pip_job_prefers_uv_when_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

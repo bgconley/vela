@@ -2225,7 +2225,7 @@ def _managed_build_resolved_versions(venv_path: Path) -> dict[str, str]:
     profile = select_profile(import_version)
     return {
         "vllm": import_version,
-        "vllm_version_profile": profile.name,
+        "vllm_version_profile": profile.version,
         "python": python_version.replace("Python ", "", 1),
     }
 
