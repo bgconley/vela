@@ -760,11 +760,29 @@ def preview(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    build_id: Annotated[
+        str | None,
+        typer.Option("--build-id", help="Target build id or label override."),
+    ] = None,
+    model_ref: Annotated[
+        str | None,
+        typer.Option("--model-ref", help="Target model entry/display override."),
+    ] = None,
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Model revision override."),
+    ] = None,
 ) -> None:
     try:
         result = _agent_call(
             "preview",
-            _agent_params(name=name, configs_dir=configs_dir),
+            _agent_params(
+                name=name,
+                configs_dir=configs_dir,
+                build_id=build_id,
+                model_ref=model_ref,
+                revision=revision,
+            ),
             target_name=target,
         )
     except TargetCallError as exc:
@@ -781,27 +799,51 @@ def run_config(
         bool, typer.Option("--preview", help="Print command instead of launching.")
     ] = False,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    build_id: Annotated[
+        str | None,
+        typer.Option("--build-id", help="Target build id or label override."),
+    ] = None,
+    model_ref: Annotated[
+        str | None,
+        typer.Option("--model-ref", help="Target model entry/display override."),
+    ] = None,
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Model revision override."),
+    ] = None,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
+    overrides = _launch_override_params(
+        build_id=build_id,
+        model_ref=model_ref,
+        revision=revision,
+    )
     if preview_only:
         try:
             result = _target_call(
                 client,
                 "preview",
-                _agent_params(name=name, configs_dir=configs_dir),
+                _agent_params(name=name, configs_dir=configs_dir, **overrides),
             )
         except TargetCallError as exc:
             _echo_target_error_or_exit(exc, fallback_name=name)
         typer.echo(result["preview"])
         _echo_warnings(result.get("warnings", []))
         return
-    prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
+    prepared = _prepare_launch_with_client_or_exit(
+        client,
+        name,
+        configs_dir,
+        **overrides,
+    )
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        asyncio.run(_run_detached_cli(client, name, configs_dir, prepared))
+        asyncio.run(_run_detached_cli(client, name, configs_dir, prepared, **overrides))
         return
 
-    raise typer.Exit(asyncio.run(_run_attached_cli(client, name, configs_dir, prepared)))
+    raise typer.Exit(
+        asyncio.run(_run_attached_cli(client, name, configs_dir, prepared, **overrides))
+    )
 
 
 @app.command("smoke")
@@ -809,10 +851,34 @@ def smoke_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    build_id: Annotated[
+        str | None,
+        typer.Option("--build-id", help="Target build id or label override."),
+    ] = None,
+    model_ref: Annotated[
+        str | None,
+        typer.Option("--model-ref", help="Target model entry/display override."),
+    ] = None,
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Model revision override."),
+    ] = None,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
-    prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
-    raise typer.Exit(asyncio.run(_smoke_config_cli(client, prepared, name, configs_dir)))
+    overrides = _launch_override_params(
+        build_id=build_id,
+        model_ref=model_ref,
+        revision=revision,
+    )
+    prepared = _prepare_launch_with_client_or_exit(
+        client,
+        name,
+        configs_dir,
+        **overrides,
+    )
+    raise typer.Exit(
+        asyncio.run(_smoke_config_cli(client, prepared, name, configs_dir, **overrides))
+    )
 
 
 @app.command("smoke-tui")
@@ -847,13 +913,25 @@ def _format_inspect_value(value: object) -> str:
 
 
 def _prepare_launch_with_client_or_exit(
-    client: TargetClient, name: str, configs_dir: Path | None
+    client: TargetClient,
+    name: str,
+    configs_dir: Path | None,
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> dict[str, Any]:
     try:
         return _target_call(
             client,
             "prepare_launch",
-            _agent_params(name=name, configs_dir=configs_dir),
+            _agent_params(
+                name=name,
+                configs_dir=configs_dir,
+                build_id=build_id,
+                model_ref=model_ref,
+                revision=revision,
+            ),
         )
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, fallback_name=name)
@@ -861,6 +939,19 @@ def _prepare_launch_with_client_or_exit(
 
 def _agent_params(**values) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if value is not None}
+
+
+def _launch_override_params(
+    *,
+    build_id: str | None,
+    model_ref: str | None,
+    revision: str | None,
+) -> dict[str, str | None]:
+    return {
+        "build_id": build_id,
+        "model_ref": model_ref,
+        "revision": revision,
+    }
 
 
 def _format_bytes(value: object) -> str:
@@ -993,6 +1084,10 @@ async def _run_attached_cli(
     name: str,
     configs_dir: Path | None,
     prepared: dict[str, Any],
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> int:
     await client.connect()
     interrupt_event = _install_sigint_event()
@@ -1000,7 +1095,13 @@ async def _run_attached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _launch_agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(
+                    name=name,
+                    configs_dir=configs_dir,
+                    build_id=build_id,
+                    model_ref=model_ref,
+                    revision=revision,
+                ),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
@@ -1070,13 +1171,23 @@ async def _run_detached_cli(
     name: str,
     configs_dir: Path | None,
     prepared: dict[str, Any],
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> None:
     await client.connect()
     try:
         try:
             launch = await client.call(
                 "launch",
-                _launch_agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(
+                    name=name,
+                    configs_dir=configs_dir,
+                    build_id=build_id,
+                    model_ref=model_ref,
+                    revision=revision,
+                ),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
@@ -1142,11 +1253,31 @@ async def _smoke_config_cli(
     prepared: dict[str, Any],
     name: str,
     configs_dir: Path | None,
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
-        return await _smoke_detached_cli(client, prepared, name, configs_dir)
-    return await _smoke_attached_cli(client, prepared, name, configs_dir)
+        return await _smoke_detached_cli(
+            client,
+            prepared,
+            name,
+            configs_dir,
+            build_id=build_id,
+            model_ref=model_ref,
+            revision=revision,
+        )
+    return await _smoke_attached_cli(
+        client,
+        prepared,
+        name,
+        configs_dir,
+        build_id=build_id,
+        model_ref=model_ref,
+        revision=revision,
+    )
 
 
 async def _smoke_tui_config_cli(
@@ -1213,6 +1344,10 @@ async def _smoke_attached_cli(
     prepared: dict[str, Any],
     name: str,
     configs_dir: Path | None,
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
     await client.connect()
@@ -1220,7 +1355,13 @@ async def _smoke_attached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _launch_agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(
+                    name=name,
+                    configs_dir=configs_dir,
+                    build_id=build_id,
+                    model_ref=model_ref,
+                    revision=revision,
+                ),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
@@ -1257,6 +1398,10 @@ async def _smoke_detached_cli(
     prepared: dict[str, Any],
     name: str,
     configs_dir: Path | None,
+    *,
+    build_id: str | None = None,
+    model_ref: str | None = None,
+    revision: str | None = None,
 ) -> int:
     cfg = ModelConfig.model_validate(prepared["config"])
     await client.connect()
@@ -1264,7 +1409,13 @@ async def _smoke_detached_cli(
         try:
             launch = await client.call(
                 "launch",
-                _launch_agent_params(name=name, configs_dir=configs_dir),
+                _launch_agent_params(
+                    name=name,
+                    configs_dir=configs_dir,
+                    build_id=build_id,
+                    model_ref=model_ref,
+                    revision=revision,
+                ),
             )
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))

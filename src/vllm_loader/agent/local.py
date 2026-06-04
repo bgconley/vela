@@ -544,12 +544,10 @@ class LocalAgent:
         return payload
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
-        name = params.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise TargetCallError("invalid-params", "preview requires config name")
+        name = _config_name_param(params, method="preview")
         registry = load_registry(_configs_dir(params))
         self._remember_registry_runs_dirs(registry)
-        cfg = _config_by_name(registry, name)
+        cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         try:
             result = self._build_command_for_config(cfg)
         except VllmProfileError as exc:
@@ -564,7 +562,7 @@ class LocalAgent:
         name = _config_name_param(params, method="prepare_launch")
         registry = load_registry(_configs_dir(params))
         self._remember_registry_runs_dirs(registry)
-        cfg = _config_by_name(registry, name)
+        cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         self._remember_run_config(cfg)
         try:
             preparation = self._prepare_command_for_config(
@@ -590,7 +588,7 @@ class LocalAgent:
         name = _config_name_param(params, method="preflight")
         registry = load_registry(_configs_dir(params))
         self._remember_registry_runs_dirs(registry)
-        cfg = _config_by_name(registry, name)
+        cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         self._remember_run_config(cfg)
         try:
             preparation = self._prepare_command_for_config(
@@ -608,6 +606,26 @@ class LocalAgent:
         )
         return {"ok": failure is None, "failures": failures}
 
+    def _config_with_request_overrides(
+        self, cfg: ModelConfig, params: dict[str, Any]
+    ) -> ModelConfig:
+        payload = cfg.model_dump(mode="python")
+        build_ref = _optional_param_str(params.get("build_id")) or _optional_param_str(
+            params.get("build")
+        )
+        if build_ref is not None:
+            command = dict(payload.get("command") or {})
+            command["build"] = build_ref
+            command["executable"] = None
+            payload["command"] = command
+        model_ref = _optional_param_str(params.get("model_ref"))
+        if model_ref is not None:
+            payload["model_ref"] = model_ref
+        revision = _optional_param_str(params.get("revision"))
+        if revision is not None:
+            payload["revision"] = revision
+        return ModelConfig.model_validate(payload)
+
     def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
         return self._prepare_command_for_config(cfg).result
 
@@ -619,11 +637,14 @@ class LocalAgent:
         )
         result = self._build_command_for_resolved_config(resolved_cfg)
         if model_handoff is not None:
+            model_metadata = model_handoff.metadata()
+            if resolved_cfg.revision is not None:
+                model_metadata["model_revision"] = resolved_cfg.revision
             result = replace(
                 result,
                 metadata={
                     **result.metadata,
-                    **model_handoff.metadata(),
+                    **model_metadata,
                 },
             )
         return LocalCommandPreparation(result=result, preflight_config=resolved_cfg)
@@ -682,7 +703,7 @@ class LocalAgent:
         resolved_cfg = cfg.model_copy(
             update={
                 "model": handoff.model_arg,
-                "revision": handoff.revision or cfg.revision,
+                "revision": cfg.revision or handoff.revision,
                 "extra_args": extra_args,
             }
         )

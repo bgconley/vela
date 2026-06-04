@@ -191,6 +191,52 @@ def test_cli_preview_target_option_uses_selected_target_from_registry(
     ]
 
 
+def test_cli_preview_passes_build_model_revision_overrides(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, str], str]] = []
+
+    def fake_agent_call(method: str, params: dict[str, str], *, target_name: str = "local"):
+        calls.append((method, params, target_name))
+        return {"preview": "override-preview", "warnings": []}
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "preview",
+            "remote-cfg",
+            "--configs-dir",
+            str(tmp_path),
+            "--target",
+            "blackbird",
+            "--build-id",
+            "01BUILD",
+            "--model-ref",
+            "01MODEL",
+            "--revision",
+            "abc123",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "override-preview\n"
+    assert calls == [
+        (
+            "preview",
+            {
+                "name": "remote-cfg",
+                "configs_dir": str(tmp_path),
+                "build_id": "01BUILD",
+                "model_ref": "01MODEL",
+                "revision": "abc123",
+            },
+            "blackbird",
+        )
+    ]
+
+
 def test_cli_build_list_uses_selected_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2270,6 +2316,128 @@ def test_cli_run_detached_launches_through_target_client(
     assert launch_call[1]["run_id"]
 
 
+def test_cli_run_attached_passes_build_model_revision_overrides(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "agent-override.yaml",
+        f"""
+        name: agent-override
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        """,
+    )
+    client_instances: list[object] = []
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, str]]] = []
+            self.connected = False
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "prepare_launch":
+                return {
+                    "config": {
+                        "name": "agent-override",
+                        "model": "fake/model",
+                        "command": {"entrypoint": "serve", "executable": str(executable)},
+                    },
+                    "build": {
+                        "argv": [str(executable)],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            if method == "launch":
+                return {
+                    "run_id": "run-override",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "wait":
+                return {
+                    "run_id": "run-override",
+                    "returncode": 0,
+                    "intentional": False,
+                }
+            raise AssertionError(f"unexpected call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "run-override",
+                "returncode": 0,
+                "intentional": False,
+                "phase": "STOPPED",
+                "seq": 1,
+                "ts": "2026-06-03T00:00:01Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-override"]
+            assert resume_from == "live"
+            return self._events()
+
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(),
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.run_config(
+            "agent-override",
+            configs_dir=config_dir,
+            build_id="01BUILD",
+            model_ref="01MODEL",
+            revision="abc123",
+        )
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 0
+    assert captured.err == ""
+    assert len(client_instances) == 1
+    assert client_instances[0].calls[0] == (
+        "prepare_launch",
+        {
+            "name": "agent-override",
+            "configs_dir": str(config_dir),
+            "build_id": "01BUILD",
+            "model_ref": "01MODEL",
+            "revision": "abc123",
+        },
+    )
+    launch_call = client_instances[0].calls[1]
+    assert launch_call[0] == "launch"
+    assert launch_call[1]["name"] == "agent-override"
+    assert launch_call[1]["configs_dir"] == str(config_dir)
+    assert launch_call[1]["build_id"] == "01BUILD"
+    assert launch_call[1]["model_ref"] == "01MODEL"
+    assert launch_call[1]["revision"] == "abc123"
+    assert launch_call[1]["run_id"]
+
+
 def test_cli_smoke_attached_uses_target_client(
     config_dir: Path,
     tmp_path: Path,
@@ -2420,6 +2588,122 @@ def test_cli_smoke_attached_uses_target_client(
     ) in client_instances[0].calls
     assert len(client_instances[0].calls) == 5
     assert client_instances[0].connected is False
+
+
+def test_cli_smoke_attached_passes_build_model_revision_overrides(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    executable = tmp_path / "child.py"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    executable.chmod(0o755)
+    write_yaml(
+        config_dir / "smoke-override.yaml",
+        f"""
+        name: smoke-override
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {executable}
+        server:
+          host: 127.0.0.1
+          port: 8123
+        """,
+    )
+    client_instances: list[object] = []
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.connected = False
+            client_instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "prepare_launch":
+                return {
+                    "config": {
+                        "name": "smoke-override",
+                        "model": "fake/model",
+                        "command": {"entrypoint": "serve", "executable": str(executable)},
+                        "server": {"host": "127.0.0.1", "port": 8123},
+                    },
+                    "build": {
+                        "argv": [str(executable)],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            if method == "launch":
+                return {
+                    "run_id": "run-override",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "health":
+                return {
+                    "run_id": "run-override",
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["served"],
+                    "error_kind": None,
+                    "reachable_url": "http://10.25.0.51:18123",
+                }
+            if method == "stop":
+                return {"run_id": "run-override", "signaled": True}
+            if method == "wait":
+                return {"run_id": "run-override", "returncode": 0, "intentional": True}
+            raise AssertionError(f"unexpected call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: FakeTargetClient(),
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module.smoke_config(
+            "smoke-override",
+            configs_dir=config_dir,
+            build_id="01BUILD",
+            model_ref="01MODEL",
+            revision="abc123",
+        )
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 0
+    assert "READY http://10.25.0.51:18123 models=served" in captured.out
+    assert len(client_instances) == 1
+    assert client_instances[0].calls[0] == (
+        "prepare_launch",
+        {
+            "name": "smoke-override",
+            "configs_dir": str(config_dir),
+            "build_id": "01BUILD",
+            "model_ref": "01MODEL",
+            "revision": "abc123",
+        },
+    )
+    launch_call = client_instances[0].calls[1]
+    assert launch_call[0] == "launch"
+    assert launch_call[1]["name"] == "smoke-override"
+    assert launch_call[1]["configs_dir"] == str(config_dir)
+    assert launch_call[1]["build_id"] == "01BUILD"
+    assert launch_call[1]["model_ref"] == "01MODEL"
+    assert launch_call[1]["revision"] == "abc123"
+    assert launch_call[1]["run_id"]
 
 
 def test_cli_smoke_detached_uses_target_client(

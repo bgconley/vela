@@ -3590,6 +3590,72 @@ async def test_agent_prepare_launch_resolves_pinned_build_handoff(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_uses_request_build_id_override(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    default_dir = builds_root / "01DEFAULTBUILD"
+    override_dir = builds_root / "01OVERRIDEBUILD"
+    for build_dir, label in (
+        (default_dir, "default-build"),
+        (override_dir, "override-build"),
+    ):
+        bin_dir = build_dir / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+        (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+        (bin_dir / "vllm").chmod(0o755)
+        (bin_dir / "python").chmod(0o755)
+        (build_dir / "build.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "build_id": build_dir.name,
+                    "label": label,
+                    "status": "ready",
+                    "paths": {
+                        "root": str(build_dir),
+                        "venv": "venv",
+                        "executable": "bin/vllm",
+                        "python": "bin/python",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+    write_yaml(
+        config_dir / "build-override.yaml",
+        """
+        name: build-override
+        model: org/model
+        command:
+          build: default-build
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch",
+            {
+                "name": "build-override",
+                "configs_dir": str(config_dir),
+                "build_id": "01OVERRIDEBUILD",
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    build = prepared["build"]
+    assert build["argv"][:3] == [str(override_dir / "bin" / "vllm"), "serve", "org/model"]
+    assert build["metadata"]["build_id"] == "01OVERRIDEBUILD"
+    assert build["metadata"]["build_label"] == "override-build"
+    assert prepared["config"]["command"]["build"] == "01OVERRIDEBUILD"
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_build_python_for_module_entrypoint(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -5121,6 +5187,66 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     assert metadata["model_gated"] is True
     assert prepared["config"]["model"] == "meta-llama/Llama-3.1-8B-Instruct"
     assert prepared["config"]["model_ref"] == "01MODEL"
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-requested",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "model-override.yaml",
+        """
+        name: model-override
+        model: meta-llama/Llama-3.1-8B-Instruct
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch",
+            {
+                "name": "model-override",
+                "configs_dir": str(config_dir),
+                "model_ref": "01MODEL",
+                "revision": "release-v2",
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    argv = prepared["build"]["argv"]
+    metadata = prepared["build"]["metadata"]
+    assert argv[:3] == ["vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct"]
+    assert argv[argv.index("--revision") + 1] == "release-v2"
+    assert metadata["model_ref"] == "01MODEL"
+    assert metadata["model_entry_id"] == "01MODEL"
+    assert metadata["model_display_name"] == "llama-requested"
+    assert metadata["model_revision"] == "release-v2"
+    assert prepared["config"]["model_ref"] == "01MODEL"
+    assert prepared["config"]["revision"] == "release-v2"
     json.dumps(prepared)
 
 
