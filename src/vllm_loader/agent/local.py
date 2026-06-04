@@ -721,7 +721,7 @@ class LocalAgent:
         params = params or {}
         if params.get("sub_id") is not None and not params.get("emit_event"):
             return self._start_gpu_stream(params)
-        payload = _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+        payload = await self._gpu_payload_from_sampler()
         if params.get("emit_event"):
             sub_id = params.get("sub_id")
             event_payload = dict(payload)
@@ -745,7 +745,7 @@ class LocalAgent:
     async def _run_gpu_stream(self, sub_id: str, interval: float) -> None:
         try:
             while True:
-                payload = _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+                payload = await self._gpu_payload_from_sampler()
                 event_payload = dict(payload)
                 event_payload["sub_id"] = sub_id
                 self._publish_event(AgentEvent("gpu", "__agent__", event_payload))
@@ -754,6 +754,18 @@ class LocalAgent:
             current_task = asyncio.current_task()
             if self._gpu_stream_tasks.get(sub_id) is current_task:
                 self._gpu_stream_tasks.pop(sub_id, None)
+
+    async def _gpu_payload_from_sampler(self) -> dict[str, Any]:
+        try:
+            return _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+        except Exception as exc:
+            return _gpu_poll_payload(
+                GpuPollResult(
+                    [],
+                    note=f"GPU stats unavailable: {exc}",
+                    unavailable=True,
+                )
+            )
 
     def _list_builds(self) -> dict[str, Any]:
         return list_builds(self._builds_root)

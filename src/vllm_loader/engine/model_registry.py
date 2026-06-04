@@ -240,37 +240,37 @@ def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         else default_models_registry_path()
     )
     skipped: list[dict[str, str]] = []
-    if not path.exists():
-        return {
-            "models": [],
-            "default_cache": "hf",
-            "app_download_dir": None,
-            "skipped": skipped,
-        }
-
-    try:
-        registry = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {
-            "models": [],
-            "default_cache": "hf",
-            "app_download_dir": None,
-            "skipped": [{"entry_id": "", "reason": "invalid-json"}],
-        }
-    except OSError:
-        return {
-            "models": [],
-            "default_cache": "hf",
-            "app_download_dir": None,
-            "skipped": [{"entry_id": "", "reason": "unreadable"}],
-        }
-    if not isinstance(registry, dict):
-        return {
-            "models": [],
-            "default_cache": "hf",
-            "app_download_dir": None,
-            "skipped": [{"entry_id": "", "reason": "invalid-registry"}],
-        }
+    registry: dict[str, Any] = {
+        "schema_version": 1,
+        "default_cache": "hf",
+        "app_download_dir": None,
+        "entries": [],
+    }
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {
+                "models": [],
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "skipped": [{"entry_id": "", "reason": "invalid-json"}],
+            }
+        except OSError:
+            return {
+                "models": [],
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "skipped": [{"entry_id": "", "reason": "unreadable"}],
+            }
+        if not isinstance(loaded, dict):
+            return {
+                "models": [],
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "skipped": [{"entry_id": "", "reason": "invalid-registry"}],
+            }
+        registry = loaded
 
     models: list[dict[str, Any]] = []
     entries = registry.get("entries") or []
@@ -286,6 +286,7 @@ def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
             skipped.append({"entry_id": "", "reason": "missing-entry-id"})
             continue
         models.append(_model_payload(entry))
+    _merge_hf_cache_models(models)
 
     return {
         "models": models,
@@ -293,6 +294,143 @@ def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         "app_download_dir": _optional_str(registry.get("app_download_dir")),
         "skipped": skipped,
     }
+
+
+def _merge_hf_cache_models(models: list[dict[str, Any]]) -> None:
+    commit_index: dict[tuple[str, str], int] = {}
+    revision_index: dict[tuple[str, str], int] = {}
+    for index, model in enumerate(models):
+        if model.get("source") != "hf_repo":
+            continue
+        repo_id = model.get("repo_id")
+        if not isinstance(repo_id, str) or not repo_id:
+            continue
+        commit_sha = model.get("commit_sha")
+        if isinstance(commit_sha, str) and commit_sha:
+            commit_index[(repo_id, commit_sha)] = index
+        revision = model.get("revision")
+        if isinstance(revision, str) and revision:
+            revision_index[(repo_id, revision)] = index
+
+    for scanned in _cached_model_entries_from_hf_scan():
+        payload = _model_payload(scanned)
+        repo_id = payload.get("repo_id")
+        commit_sha = payload.get("commit_sha")
+        revision = payload.get("revision")
+        index = None
+        if isinstance(repo_id, str) and isinstance(commit_sha, str):
+            index = commit_index.get((repo_id, commit_sha))
+        if index is None and isinstance(repo_id, str) and isinstance(revision, str):
+            index = revision_index.get((repo_id, revision))
+        if index is None:
+            index = len(models)
+            models.append(payload)
+            if isinstance(repo_id, str) and isinstance(commit_sha, str):
+                commit_index[(repo_id, commit_sha)] = index
+            if isinstance(repo_id, str) and isinstance(revision, str):
+                revision_index[(repo_id, revision)] = index
+            continue
+        existing = models[index]
+        existing["cache_state"] = "cached"
+        existing["files"] = payload["files"]
+        existing["size_bytes"] = payload["size_bytes"]
+        if not existing.get("commit_sha"):
+            existing["commit_sha"] = payload["commit_sha"]
+        if not existing.get("revision"):
+            existing["revision"] = payload["revision"]
+
+
+def _cached_model_entries_from_hf_scan() -> list[dict[str, Any]]:
+    cache_info = _scan_hf_cache_info()
+    if cache_info is None:
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for repo in getattr(cache_info, "repos", ()) or ():
+        repo_type = _optional_str(getattr(repo, "repo_type", "model")) or "model"
+        if repo_type != "model":
+            continue
+        repo_id = _optional_str(getattr(repo, "repo_id", None))
+        if not repo_id:
+            continue
+        for revision in getattr(repo, "revisions", ()) or ():
+            commit_sha = _optional_str(getattr(revision, "commit_hash", None))
+            if not commit_sha:
+                continue
+            refs = sorted(
+                str(ref)
+                for ref in (getattr(revision, "refs", ()) or ())
+                if str(ref)
+            )
+            files = list(getattr(revision, "files", ()) or ())
+            size_bytes = _safe_int(getattr(revision, "size_on_disk", 0))
+            entry_id = f"{repo_id}@{commit_sha[:12]}"
+            entries.append(
+                {
+                    "entry_id": entry_id,
+                    "display_name": repo_id,
+                    "source": "hf_repo",
+                    "repo_id": repo_id,
+                    "revision": refs[0] if refs else commit_sha,
+                    "commit_sha": commit_sha,
+                    "local_path": None,
+                    "url": None,
+                    "quant_format": "none",
+                    "tokenizer": None,
+                    "files": _hf_cache_files_payload(files, size_bytes),
+                    "size_bytes": size_bytes,
+                    "cache_state": "cached",
+                    "gated": False,
+                    "token_required": False,
+                    "created_at": None,
+                    "last_used_at": None,
+                    "notes": "",
+                }
+            )
+    return entries
+
+
+def _scan_hf_cache_info() -> object | None:
+    try:
+        from huggingface_hub import scan_cache_dir
+    except ImportError:
+        return None
+    try:
+        return scan_cache_dir()
+    except Exception:
+        return None
+
+
+def _hf_cache_files_payload(files: list[object], total_size: int) -> dict[str, Any]:
+    file_names = [
+        str(getattr(file_info, "file_name", "") or "")
+        for file_info in files
+        if str(getattr(file_info, "file_name", "") or "")
+    ]
+    counted_size = sum(_safe_int(getattr(file_info, "size_on_disk", 0)) for file_info in files)
+    return {
+        "count": len(file_names),
+        "total_bytes": total_size or counted_size,
+        "weights_format": _weights_format_from_names(file_names),
+    }
+
+
+def _weights_format_from_names(names: list[str]) -> str:
+    suffixes = {Path(name).suffix for name in names}
+    if ".safetensors" in suffixes:
+        return "safetensors"
+    if ".gguf" in suffixes:
+        return "gguf"
+    if ".bin" in suffixes:
+        return "bin"
+    return "unknown"
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _load_registry_or_raise(path: Path, reference: str) -> dict[str, Any]:

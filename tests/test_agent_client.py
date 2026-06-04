@@ -7,6 +7,7 @@ import socket
 import sys
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import write_yaml
@@ -14,6 +15,7 @@ from conftest import write_yaml
 from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.engine import model_registry as model_registry_module
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import DetachedLaunch
 from vllm_loader.engine.sidecar import Manifest, Sidecar
@@ -62,6 +64,16 @@ async def _next_event(events, *, event_name: str) -> dict:
         event = await anext(events)
         if event.get("event") == event_name:
             return event
+
+
+@pytest.fixture(autouse=True)
+def _isolate_hf_cache_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: None,
+        raising=False,
+    )
 
 
 def test_target_client_requires_lifecycle_capabilities() -> None:
@@ -693,6 +705,89 @@ async def test_subprocess_target_client_demuxes_run_events(
     event_spool = tmp_path / "runs" / "rpc-run.events.ndjson"
     assert "Loading checkpoint shards" not in durable_log.read_text(encoding="utf-8")
     assert "Loading checkpoint shards" in event_spool.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_fans_out_concurrent_subscriptions(
+    tmp_path: Path,
+) -> None:
+    bridge = tmp_path / "fake_bridge.py"
+    bridge.write_text(
+        "\n".join(
+            [
+                "import json",
+                "import sys",
+                "for line in sys.stdin:",
+                "    frame = json.loads(line)",
+                "    request_id = frame.get('id')",
+                "    method = frame.get('method')",
+                "    params = frame.get('params') or {}",
+                "    if method == 'handshake':",
+                "        result = {",
+                "            'protocol_version': params.get('protocol_version', 1),",
+                "            'target': 'fake',",
+                "            'capabilities': params.get('capabilities', []),",
+                "            'agent_version': 'test',",
+                "            'daemon_pid': 123,",
+                "            'daemon_start_ts': '2026-06-03T00:00:00Z',",
+                "            'host_info': {},",
+                "        }",
+                "        print(json.dumps({'id': request_id, 'result': result}), flush=True)",
+                "    elif method == 'subscribe':",
+                "        print(json.dumps({'id': request_id, 'result': "
+                "{'sub_id': params.get('sub_id')}}), flush=True)",
+                "    elif method == 'emit_run':",
+                "        print(json.dumps({",
+                "            'event': 'log',",
+                "            'run_id': 'run-1',",
+                "            'kind': 'committed',",
+                "            'text': 'INFO run line',",
+                "            'level': 'INFO',",
+                "            'seq': 1,",
+                "            'ts': '2026-06-03T00:00:01Z',",
+                "            'mono': 1.0,",
+                "        }), flush=True)",
+                "        print(json.dumps({",
+                "            'event': 'gpu',",
+                "            'run_id': '__agent__',",
+                "            'sub_id': 'gpu-panel',",
+                "            'samples': [],",
+                "            'note': '',",
+                "            'unavailable': False,",
+                "            'seq': 2,",
+                "            'ts': '2026-06-03T00:00:02Z',",
+                "            'mono': 2.0,",
+                "        }), flush=True)",
+                "        print(json.dumps({'id': request_id, 'result': {}}), flush=True)",
+                "    elif method == 'unsubscribe':",
+                "        print(json.dumps({'id': request_id, 'result': "
+                "{'sub_id': params.get('sub_id')}}), flush=True)",
+                "    else:",
+                "        print(json.dumps({'id': request_id, 'result': {}}), flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = _subprocess_target_client_class()([sys.executable, str(bridge)])
+
+    await client.connect()
+    gpu_events = client.subscribe(["__agent__"], resume_from="live")
+    run_events = client.subscribe(["run-1"], resume_from="live")
+    try:
+        gpu_task = asyncio.create_task(gpu_events.__anext__())
+        await client.call("emit_run", {})
+        gpu_event = await asyncio.wait_for(gpu_task, timeout=2)
+        run_event = await asyncio.wait_for(run_events.__anext__(), timeout=2)
+    finally:
+        await gpu_events.aclose()
+        await run_events.aclose()
+        await client.disconnect()
+
+    assert gpu_event["event"] == "gpu"
+    assert gpu_event["run_id"] == "__agent__"
+    assert run_event["event"] == "log"
+    assert run_event["run_id"] == "run-1"
+    assert run_event["text"] == "INFO run line"
 
 
 @pytest.mark.asyncio
@@ -2507,6 +2602,104 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
         {"entry_id": "", "reason": "missing-entry-id"},
         {"entry_id": "", "reason": "invalid-entry"},
     ]
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01PINNED",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "awq",
+                        "tokenizer": None,
+                        "files": {},
+                        "size_bytes": 0,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "pinned for repro",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_files = (
+        SimpleNamespace(file_name="config.json", size_on_disk=10),
+        SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+        SimpleNamespace(file_name="tokenizer.json", size_on_disk=20),
+    )
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=130,
+        files=fake_files,
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        result = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert result["models"] == [
+        {
+            "entry_id": "01PINNED",
+            "display_name": "llama-pin",
+            "source": "hf_repo",
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+            "commit_sha": "abc123",
+            "local_path": None,
+            "url": None,
+            "quant_format": "awq",
+            "tokenizer": None,
+            "files": {
+                "count": 3,
+                "total_bytes": 130,
+                "weights_format": "safetensors",
+            },
+            "size_bytes": 130,
+            "cache_state": "cached",
+            "gated": False,
+            "token_required": False,
+            "created_at": "2026-06-02T14:03:11Z",
+            "last_used_at": None,
+            "notes": "pinned for repro",
+        }
+    ]
+    assert result["skipped"] == []
     json.dumps(result)
 
 

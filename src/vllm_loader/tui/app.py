@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import time
@@ -680,13 +681,7 @@ class VllmLoaderApp(App):
         self._apply_responsive_layout(self.size.width)
         self._clear_progress()
         self.run_worker(
-            self._sample_gpu_panel_once(),
-            name="gpu-initial",
-            group="gpu-initial",
-            exit_on_error=False,
-        )
-        self.run_worker(
-            self._poll_gpu_panel(),
+            self._stream_gpu_panel(),
             name="gpu",
             group="monitoring",
             exclusive=True,
@@ -3151,26 +3146,35 @@ class VllmLoaderApp(App):
         except OSError:
             return
 
-    async def _poll_gpu_panel(self) -> None:
-        while True:
-            await asyncio.sleep(self._gpu_interval_seconds)
-            await self._sample_gpu_panel_once()
-
-    async def _sample_gpu_panel_once(self) -> None:
+    async def _stream_gpu_panel(self) -> None:
+        events = None
+        stream_started = False
         try:
-            result = _gpu_poll_result_from_agent_payload(
-                await self._target_call(
-                    "gpu",
-                    {"emit_event": True, "sub_id": "gpu-panel"},
-                )
+            await self._ensure_target_client_connected()
+            events = self._target_client.subscribe(["__agent__"], resume_from="live")
+            await self._target_client.call(
+                "gpu",
+                {"sub_id": "gpu-panel", "interval_s": self._gpu_interval_seconds},
             )
+            stream_started = True
+            async for event in events:
+                if event.get("event") != "gpu" or event.get("sub_id") != "gpu-panel":
+                    continue
+                self._post_wire_event_message(event)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             self.post_message(GpuStatsUnavailable(f"GPU stats unavailable: {exc}"))
             return
-        if result.unavailable:
-            self.post_message(GpuStatsUnavailable(result.note or "GPU stats unavailable"))
-            return
-        self.post_message(GpuStatsUpdated(result))
+        finally:
+            if events is not None:
+                aclose = getattr(events, "aclose", None)
+                if aclose is not None:
+                    with contextlib.suppress(Exception):
+                        await aclose()
+            if stream_started:
+                with contextlib.suppress(Exception):
+                    await self._target_client.call("unsubscribe", {"sub_id": "gpu-panel"})
 
     def _render_gpu_panel(self, result: GpuPollResult) -> None:
         try:

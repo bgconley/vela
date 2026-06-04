@@ -32,7 +32,9 @@ class SubprocessTargetClient:
         self._connected = False
         self._request_seq = 0
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
-        self._events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._event_subscribers: dict[
+            str, tuple[set[str], asyncio.Queue[dict[str, Any]]]
+        ] = {}
         self._subscription_tasks: set[asyncio.Task[dict[str, Any]]] = set()
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
@@ -142,6 +144,8 @@ class SubprocessTargetClient:
         resume_from: object = "live",
     ) -> AsyncIterator[dict[str, Any]]:
         sub_id = uuid.uuid4().hex
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._event_subscribers[sub_id] = (set(run_ids), queue)
         subscribe_task = asyncio.create_task(
             self.call(
                 "subscribe",
@@ -162,12 +166,10 @@ class SubprocessTargetClient:
                 result = await subscribe_task
                 active_sub_id = str(result.get("sub_id") or sub_id)
                 subscribed = True
-                selected = set(run_ids)
                 while True:
-                    event = await self._events.get()
-                    if event_matches_subscription(event, selected):
-                        yield event
+                    yield await queue.get()
             finally:
+                self._event_subscribers.pop(sub_id, None)
                 if not subscribe_task.done():
                     subscribe_task.cancel()
                     with contextlib.suppress(Exception):
@@ -191,7 +193,7 @@ class SubprocessTargetClient:
                     self._resolve_response(frame)
                     continue
                 if "event" in frame:
-                    await self._events.put(frame)
+                    self._publish_event(frame)
         finally:
             self._connected = False
             self._fail_pending(_agent_unreachable_error("target agent process exited"))
@@ -213,6 +215,11 @@ class SubprocessTargetClient:
             return
         result = frame.get("result")
         future.set_result(result if isinstance(result, dict) else {})
+
+    def _publish_event(self, event: dict[str, Any]) -> None:
+        for selected, queue in list(self._event_subscribers.values()):
+            if event_matches_subscription(event, selected):
+                queue.put_nowait(event)
 
     def _fail_pending(self, exc: Exception) -> None:
         for future in self._pending.values():

@@ -2659,6 +2659,8 @@ async def test_tui_gpu_sampling_runs_through_target_client(
             self.agent = agent
             self.connected = False
             self.calls: list[tuple[str, dict[str, object] | None]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+            self.events: asyncio.Queue[dict[str, object]] = asyncio.Queue()
             client_instances.append(self)
 
         async def connect(self) -> None:
@@ -2671,30 +2673,47 @@ async def test_tui_gpu_sampling_runs_through_target_client(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
-            if method in {"gpu", "sample_gpus"}:
-                return {
-                    "samples": [
-                        {
-                            "visible_index": 0,
-                            "uuid": "GPU-a",
-                            "name": "A100",
-                            "memory_used_mb": 1024,
-                            "memory_total_mb": 81920,
-                            "utilization_percent": 25,
-                            "temperature_c": 42,
-                            "power_w": 110,
-                            "mig_instance_id": None,
-                        }
-                    ],
-                    "note": "",
-                    "unavailable": False,
-                }
+            if method == "gpu":
+                await self.events.put(
+                    {
+                        "event": "gpu",
+                        "run_id": "__agent__",
+                        "sub_id": "gpu-panel",
+                        "seq": 1,
+                        "ts": "2026-06-03T00:00:00+00:00",
+                        "mono": 1.0,
+                        "samples": [
+                            {
+                                "visible_index": 0,
+                                "uuid": "GPU-a",
+                                "name": "A100",
+                                "memory_used_mb": 1024,
+                                "memory_total_mb": 81920,
+                                "utilization_percent": 25,
+                                "temperature_c": 42,
+                                "power_w": 110,
+                                "mig_instance_id": None,
+                            }
+                        ],
+                        "note": "",
+                        "unavailable": False,
+                    }
+                )
+                return {"sub_id": str(params["sub_id"])}
+            if method == "unsubscribe":
+                return {"sub_id": str(params["sub_id"])}
             if method == "discover_runs":
                 return {"runs": []}
             raise AssertionError(f"unexpected target client call: {method}")
 
-        def subscribe(self, *_args, **_kwargs):
-            raise AssertionError("GPU sampling should not subscribe")
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((list(run_ids), resume_from))
+
+            async def events():
+                while True:
+                    yield await self.events.get()
+
+            return events()
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
@@ -2702,15 +2721,25 @@ async def test_tui_gpu_sampling_runs_through_target_client(
         gpu_interval_seconds=60,
     )
 
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await app._sample_gpu_panel_once()
-        await pilot.pause()
+    async with app.run_test():
+        await _wait_for_condition(
+            lambda: any(method == "gpu" for method, _params in client_instances[0].calls),
+            "GPU stream was not started",
+        )
+        await _wait_for_condition(
+            lambda: "A100" in app.gpu_panel_text,
+            "GPU push event was not rendered",
+        )
 
+        assert client_instances[0].subscribe_calls == [(["__agent__"], "live")]
+        assert (
+            "gpu",
+            {"sub_id": "gpu-panel", "interval_s": 60},
+        ) in client_instances[0].calls
         assert (
             "gpu",
             {"emit_event": True, "sub_id": "gpu-panel"},
-        ) in client_instances[0].calls
+        ) not in client_instances[0].calls
         assert "A100" in app.gpu_panel_text
 
 
@@ -3517,6 +3546,13 @@ async def test_build_manager_create_build_streams_job_events(
 
         def subscribe(self, run_ids, *, resume_from="live"):
             self.subscribe_calls.append((list(run_ids), resume_from))
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
             return self.events
 
     target_client = BuildTargetClient()
@@ -3560,7 +3596,7 @@ async def test_build_manager_create_build_streams_job_events(
                 "channel": "cu130",
             }
         ]
-        assert target_client.subscribe_calls == [([job_id], "live")]
+        assert ([job_id], "live") in target_client.subscribe_calls
 
 
 @pytest.mark.asyncio
@@ -4249,6 +4285,13 @@ async def test_model_manager_download_streams_job_events(
 
         def subscribe(self, run_ids, *, resume_from="live"):
             self.subscribe_calls.append((list(run_ids), resume_from))
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
             return self.events
 
     target_client = ModelTargetClient()
@@ -4279,7 +4322,7 @@ async def test_model_manager_download_streams_job_events(
         assert target_client.download_calls == [
             {"job_id": job_id, "model_ref": "01MODEL"}
         ]
-        assert target_client.subscribe_calls == [([job_id], "live")]
+        assert ([job_id], "live") in target_client.subscribe_calls
 
 
 @pytest.mark.asyncio
