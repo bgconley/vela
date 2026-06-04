@@ -1125,6 +1125,16 @@ class VllmLoaderApp(App):
                         exclusive=True,
                         exit_on_error=False,
                     )
+            elif action == "repair_build":
+                build = _optional_str(selection.get("build"))
+                if build is not None:
+                    self.run_worker(
+                        self._repair_build(build),
+                        name="build-repair",
+                        group="build-manager",
+                        exclusive=True,
+                        exit_on_error=False,
+                    )
             elif action == "remove_build":
                 self._confirm_remove_build(selection)
             return
@@ -1160,6 +1170,20 @@ class VllmLoaderApp(App):
         label = _optional_str(result.get("label")) or build
         status = _optional_str(result.get("status")) or "verified"
         self.notify(f"Verified build: {label} ({status})")
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
+
+    async def _repair_build(self, build: str) -> None:
+        try:
+            result = await self._target_call("repair_build", {"build": build})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to repair build: {exc}", style=f"bold {BAD}")
+            return
+        label = _optional_str(result.get("label")) or build
+        detail = _optional_str(result.get("detail")) or _optional_str(result.get("status"))
+        suffix = f" ({detail})" if detail else ""
+        self.notify(f"Repaired build: {label}{suffix}")
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()

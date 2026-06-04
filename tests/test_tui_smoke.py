@@ -4843,6 +4843,106 @@ async def test_build_manager_verifies_build_through_target_client(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_repairs_build_through_target_client(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.repair_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "repair-me",
+                        "build_status": "broken",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": None,
+                    "builds": [
+                        {
+                            "build_id": "01BROKEN",
+                            "label": "repair-me",
+                            "status": "broken",
+                            "default": False,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        }
+                    ],
+                    "skipped": [],
+                }
+            if method == "repair_build":
+                self.repair_calls.append(dict(params))
+                return {
+                    "build_id": "01BROKEN",
+                    "label": "repair-me",
+                    "status": "ready",
+                    "ok": True,
+                    "detail": "build repaired",
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build repair should not subscribe")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        await pilot.press("r")
+
+        await _wait_for_condition(
+            lambda: target_client.repair_calls == [{"build": "repair-me"}],
+            "build repair was not requested",
+        )
+
+
+@pytest.mark.asyncio
 async def test_build_manager_remove_confirms_and_calls_target_client(
     config_dir: Path,
 ) -> None:
