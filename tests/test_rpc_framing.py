@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -114,7 +115,7 @@ async def test_stdio_writer_coalesces_backpressured_progress_events() -> None:
 
 @pytest.mark.asyncio
 async def test_subprocess_target_client_requires_connection() -> None:
-    client = SubprocessTargetClient(["python", "-c", "pass"])
+    client = SubprocessTargetClient([sys.executable, "-c", "pass"])
 
     with pytest.raises(RuntimeError, match="not connected"):
         await client.call("handshake")
@@ -133,7 +134,7 @@ async def test_subprocess_target_client_reports_command_startup_failure() -> Non
 
 @pytest.mark.asyncio
 async def test_subprocess_target_client_reports_bridge_exit_before_response() -> None:
-    client = SubprocessTargetClient(["python", "-c", ""])
+    client = SubprocessTargetClient([sys.executable, "-c", ""])
 
     with pytest.raises(TargetCallError) as exc_info:
         await client.connect()
