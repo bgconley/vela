@@ -417,7 +417,10 @@ def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         if not isinstance(entry_id, str) or not entry_id:
             skipped.append({"entry_id": "", "reason": "missing-entry-id"})
             continue
-        models.append(_model_payload(entry))
+        try:
+            models.append(_model_payload(entry))
+        except (TypeError, ValueError):
+            skipped.append({"entry_id": entry_id, "reason": "invalid-entry"})
     _merge_hf_cache_models(models)
 
     return {

@@ -2563,6 +2563,11 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
                         "notes": "pinned for repro",
                     },
                     {"display_name": "missing identity"},
+                    {
+                        "entry_id": "01BROKEN",
+                        "display_name": "broken metadata",
+                        "size_bytes": "not-a-number",
+                    },
                     "not-a-record",
                 ],
             }
@@ -2607,6 +2612,7 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
     ]
     assert result["skipped"] == [
         {"entry_id": "", "reason": "missing-entry-id"},
+        {"entry_id": "01BROKEN", "reason": "invalid-entry"},
         {"entry_id": "", "reason": "invalid-entry"},
     ]
     json.dumps(result)
