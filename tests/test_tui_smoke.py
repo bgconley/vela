@@ -4602,6 +4602,8 @@ async def test_build_manager_create_build_streams_job_events(
             "create build screen did not open",
         )
         assert not app.screen.query("#create-build-build-id")
+        uv_note = str(app.screen.query_one("#create-build-uv-note", Static).content)
+        assert "Nightly and commit require uv on the target" in uv_note
         app.screen.query_one("#create-build-method", Select).value = "nightly"
         app.screen.query_one("#create-build-label", Input).value = "nvfp4"
         app.screen.query_one("#create-build-channel", Input).value = "cu130"

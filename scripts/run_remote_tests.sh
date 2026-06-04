@@ -28,6 +28,7 @@ Optional real artifact validation is enabled by local environment variables:
   - VLLM_LOADER_REMOTE_MODEL_ID defaults to remote-smoke-model
   - VLLM_LOADER_REMOTE_MODEL_REF downloads an existing pinned entry instead
   - VLLM_LOADER_REMOTE_MODEL_REVISION optionally pins/downloads a revision
+  - VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG runs real-model resume/restart validation
   - VLLM_LOADER_REMOTE_ARTIFACT=1 writes a dated Markdown validation record
   - VLLM_LOADER_REMOTE_ARTIFACT_DIR overrides artifacts/remote-validation
   - VLLM_LOADER_REMOTE_ARTIFACT_NAME writes a deterministic artifact filename
@@ -58,6 +59,7 @@ remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
 remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
 remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
 remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:-}"
+remote_real_resume_config="${VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG:-}"
 artifact_enabled="${VLLM_LOADER_REMOTE_ARTIFACT:-}"
 artifact_dir="${VLLM_LOADER_REMOTE_ARTIFACT_DIR:-}"
 artifact_name="${VLLM_LOADER_REMOTE_ARTIFACT_NAME:-}"
@@ -84,6 +86,9 @@ if [[ -n "$remote_target" ]]; then
 fi
 if [[ -n "$remote_pytest_args" ]]; then
   remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_PYTEST_ARGS=$remote_pytest_args")")
+fi
+if [[ -n "$remote_real_resume_config" ]]; then
+  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=$remote_real_resume_config")")
 fi
 if [[ ${#remote_env[@]} -gt 0 ]]; then
   ssh_cmd+=(env "${remote_env[@]}")
@@ -149,6 +154,7 @@ remote_model_ref="$(_remote_arg_or_empty "${11:-}")"
 remote_model_revision="$(_remote_arg_or_empty "${12:-}")"
 remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
 remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:--q}"
+remote_real_resume_config="${VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG:-}"
 read -r -a pytest_args <<< "$remote_pytest_args"
 target_args=()
 if [[ -n "$remote_target" ]]; then
@@ -625,6 +631,14 @@ if [[ -n "$remote_model_ref" ]]; then
   "$venv_bin/vllm-loader" model verify "$remote_model_ref" "${target_args[@]}"
 fi
 
+if [[ -n "$remote_real_resume_config" ]]; then
+  echo "== Real model resume/daemon restart =="
+  "$venv_python" scripts/real_model_resume_check.py \
+    "$remote_real_resume_config" \
+    "${target_args[@]}" \
+    --timeout "$remote_timeout"
+fi
+
 if [[ -n "$real_config" ]]; then
   "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"
   timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config" "${target_args[@]}"
@@ -668,6 +682,11 @@ if [[ "$artifact_enabled" == "1" ]]; then
       echo "- Real config: \`$real_config\`"
     else
       echo "- Real config: _(none)_"
+    fi
+    if [[ -n "$remote_real_resume_config" ]]; then
+      echo "- Real resume validation: \`$remote_real_resume_config\`"
+    else
+      echo "- Real resume validation: _(not requested)_"
     fi
     if [[ -n "$remote_build_spec" ]]; then
       echo "- Build validation: \`$remote_build_method $remote_build_spec\` as \`$remote_build_label\`"

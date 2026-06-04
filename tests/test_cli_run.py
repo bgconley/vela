@@ -420,6 +420,14 @@ def test_cli_build_add_streams_job_events(
     ]
 
 
+def test_cli_build_add_help_surfaces_uv_requirement() -> None:
+    result = CliRunner().invoke(cli_module.app, ["build", "add", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "nightly/commit require" in result.output
+    assert "uv on the target" in result.output
+
+
 def test_cli_build_add_git_passes_precompiled_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

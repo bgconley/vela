@@ -230,7 +230,16 @@ def build_list(
 
 @build_app.command("add")
 def build_add(
-    method: Annotated[str, typer.Option("--method", help="Build install method.")],
+    method: Annotated[
+        str,
+        typer.Option(
+            "--method",
+            help=(
+                "Build install method; nightly/commit require uv on the target, "
+                "while pip/wheel/git can fall back to pip."
+            ),
+        ),
+    ],
     label: Annotated[str | None, typer.Option("--label", help="Build label.")] = None,
     channel: Annotated[
         str | None,

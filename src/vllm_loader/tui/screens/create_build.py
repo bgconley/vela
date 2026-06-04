@@ -35,6 +35,11 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
         color: {TEXT};
     }}
 
+    #create-build-uv-note {{
+        margin-top: 1;
+        color: {TEXT};
+    }}
+
     #create-build-error {{
         margin-top: 1;
         color: {BAD};
@@ -61,6 +66,11 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
                 allow_blank=False,
                 value="nightly",
                 id="create-build-method",
+            )
+            yield Static(
+                "Nightly and commit require uv on the target; pip, wheel, and git "
+                "can fall back to pip.",
+                id="create-build-uv-note",
             )
             yield Static("Label", classes="create-build-field-label")
             yield Input(

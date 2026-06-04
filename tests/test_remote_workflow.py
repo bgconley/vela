@@ -110,7 +110,11 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
         "vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird"
         in docs
     )
-    assert "artifacts/remote-validation/2026-06-04-p620-blackbird-smoke.md" in docs
+    assert (
+        "artifacts/remote-validation/2026-06-04-p620-blackbird-eb2a116-remote-validation.md"
+        in docs
+    )
+    assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in docs
 
 
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:
@@ -236,6 +240,52 @@ def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> N
     ]
     for snippet in expected_snippets:
         assert snippet in remote_script
+
+
+def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_TARGET="blackbird",
+        VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG="qwen-real",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/lab-tui"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    assert args[:5] == [
+        "p620-controller",
+        "env",
+        "VLLM_LOADER_REMOTE_TARGET=blackbird",
+        "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=qwen-real",
+        "bash",
+    ]
+    assert "== Real model resume/daemon restart ==" in remote_script
+    assert '"$venv_python" scripts/real_model_resume_check.py' in remote_script
+    assert '"$remote_real_resume_config"' in remote_script
 
 
 def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
@@ -461,6 +511,17 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert workflow.exists()
     text = workflow.read_text(encoding="utf-8")
     assert "workflow_dispatch:" in text
+    assert "schedule:" in text
+    assert "concurrency:" in text
+    assert "runner_label" in text
+    assert 'default: "self-hosted"' in text
+    assert "remote_target" in text
+    assert "real_resume_config" in text
+    assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in text
+    assert "VLLM_LOADER_REMOTE_TARGET" in text
+    assert "ssh-agent -s" in text
+    assert "ssh-add \"$key_path\"" in text
+    assert "VLLM_LOADER_SSH_OPTS=-A -i $key_path" in text
     assert "scripts/run_remote_tests.sh" in text
     assert "VLLM_LOADER_REMOTE_ARTIFACT_DIR" in text
     assert "actions/upload-artifact" in text

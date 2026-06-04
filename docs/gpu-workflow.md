@@ -123,12 +123,28 @@ VLLM_LOADER_REMOTE_MODEL_REVISION=main \
   scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
-The same lane is available as the manual GitHub Actions workflow
-`Remote Validation`. It runs `scripts/run_remote_tests.sh` instead of grepping
-for script text, and uploads the generated Markdown under the
-`remote-validation-artifacts` artifact. Use a self-hosted runner or SSH/network
-setup that can reach the GPU host; if the runner needs a private key, store it
-as the `VLLM_LOADER_REMOTE_SSH_KEY` secret.
+The same lane is available as the GitHub Actions workflow `Remote Validation`.
+It runs `scripts/run_remote_tests.sh` instead of grepping for script text and
+uploads the generated Markdown under `remote-validation-artifacts`. The workflow
+supports manual dispatch and a nightly schedule on a self-hosted runner. It has
+a concurrency group so the validation lane does not double-book the Blackwell.
+Use the `full` profile for Qwen smoke plus real resume/restart validation, and
+the `fast` profile for build/model proof without the long Qwen/resume pass. If
+the runner needs a private key, store it as the `VLLM_LOADER_REMOTE_SSH_KEY`
+secret. Keep this workflow restricted to trusted branches/tags/manual use; do
+not run untrusted fork PR code on a GPU host with lab-network access.
+
+To cover the final real-model reconnect surface, set
+`VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake config. The script
+launches that config through the selected target, disconnects and resumes by log
+cursor, restarts the target daemon while the model is still live, rediscovers
+and reattaches the run, verifies health, then stops it:
+
+```bash
+VLLM_LOADER_REMOTE_TARGET=blackbird \
+VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=qwen36-27b-fp8-kvfp8-rp6000-blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui
+```
 
 Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
 controller host is `620-01` (`10.25.0.50`), and the GPU/agent target is
@@ -165,8 +181,8 @@ The remote command invokes
 `vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
 from P620.
 
-The 2026-06-04 validation record is in
-`artifacts/remote-validation/2026-06-04-p620-blackbird-smoke.md`.
+The latest P620-to-Blackbird validation record is in
+`artifacts/remote-validation/2026-06-04-p620-blackbird-eb2a116-remote-validation.md`.
 
 Direct Mac to Blackbird validation is still useful for host-local checks:
 
