@@ -64,6 +64,8 @@ class TargetManagerScreen(ModalScreen):
         connection_detail: str = "",
         agent_info: dict[str, object] | None = None,
         last_seen: str | None = None,
+        active_runs: list[dict[str, object]] | None = None,
+        gpu_summary: str | None = None,
     ) -> None:
         super().__init__(id="target-manager")
         self.targets = registry.targets
@@ -72,6 +74,8 @@ class TargetManagerScreen(ModalScreen):
         self.connection_detail = connection_detail
         self.agent_info = dict(agent_info or {})
         self.last_seen = last_seen
+        self.active_runs = [dict(run) for run in active_runs or []]
+        self.gpu_summary = gpu_summary
         self.selected_index = self._active_index()
 
     def compose(self) -> ComposeResult:
@@ -161,6 +165,7 @@ class TargetManagerScreen(ModalScreen):
             if self.connection_detail:
                 lines.append(f"detail: {self.connection_detail}")
             lines.extend(_agent_detail_lines(self.agent_info, self.last_seen))
+            lines.extend(_runtime_detail_lines(self.active_runs, self.gpu_summary))
         else:
             lines.append("connection: inactive")
         return "\n".join(lines)
@@ -217,6 +222,44 @@ def _agent_capabilities(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return sorted(str(item) for item in value if isinstance(item, str) and item)
+
+
+def _runtime_detail_lines(
+    active_runs: list[dict[str, object]], gpu_summary: str | None
+) -> list[str]:
+    lines = [_active_runs_line(active_runs)]
+    gpu = _gpu_summary_line(gpu_summary)
+    if gpu is not None:
+        lines.append(f"gpu: {gpu}")
+    return lines
+
+
+def _active_runs_line(active_runs: list[dict[str, object]]) -> str:
+    labels = [
+        label
+        for label in (
+            _optional_agent_str(run.get("config_name"))
+            or _optional_agent_str(run.get("run_id"))
+            for run in active_runs
+        )
+        if label is not None
+    ]
+    if not labels:
+        return f"active_runs: {len(active_runs)}"
+    visible = labels[:3]
+    if len(labels) > len(visible):
+        visible.append(f"+{len(labels) - len(visible)}")
+    return f"active_runs: {len(active_runs)} ({', '.join(visible)})"
+
+
+def _gpu_summary_line(value: str | None) -> str | None:
+    if value is None:
+        return None
+    for line in value.splitlines():
+        text = line.strip()
+        if text:
+            return text
+    return None
 
 
 def _optional_agent_str(value: object) -> str | None:

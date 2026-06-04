@@ -447,7 +447,12 @@ async def test_target_manager_screen_opens_from_binding(
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
-                return {"runs": []}
+                return {
+                    "runs": [
+                        {"run_id": "run-alpha", "config_name": "alpha"},
+                        {"run_id": "run-beta", "config_name": "beta"},
+                    ]
+                }
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -468,6 +473,11 @@ async def test_target_manager_screen_opens_from_binding(
 
     async with app.run_test(size=(144, 45)) as pilot:
         await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_condition(
+            lambda: len(app.detached_run_summaries) == 2,
+            "detached runs were not discovered",
+        )
+        app.gpu_panel_text = "0 A100 1024/81920MB 25%"
         await pilot.press("t")
         await pilot.pause()
 
@@ -484,6 +494,8 @@ async def test_target_manager_screen_opens_from_binding(
         assert "controller: 0.9.0-controller" in detail
         assert "protocol: 1" in detail
         assert "capabilities: gpu, health, list_configs, prepare_launch, preview" in detail
+        assert "active_runs: 2 (alpha, beta)" in detail
+        assert "gpu: 0 A100 1024/81920MB 25%" in detail
         assert "last_seen:" in detail
 
 

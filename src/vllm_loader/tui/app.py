@@ -840,6 +840,8 @@ class VllmLoaderApp(App):
                 connection_detail=self.target_connection_detail,
                 agent_info=self._target_agent_info,
                 last_seen=self._target_last_seen_at,
+                active_runs=self.detached_run_summaries,
+                gpu_summary=self.gpu_panel_text,
             ),
             callback=self._handle_target_manager_selection,
         )
