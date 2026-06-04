@@ -271,6 +271,7 @@ def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         entries = []
 
     refreshed = 0
+    cached_hf_payloads = [_model_payload(entry) for entry in _cached_model_entries_from_hf_scan()]
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -280,6 +281,14 @@ def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         if entry.get("source") == "local_path":
             _verify_local_model_entry(entry)
             refreshed += 1
+        elif entry.get("source") == "hf_repo":
+            cached = _matching_hf_payload_for_entry(entry, cached_hf_payloads)
+            if cached is not None:
+                _apply_cached_model_payload(entry, cached)
+                refreshed += 1
+            elif str(entry.get("cache_state") or "") == "cached":
+                entry["cache_state"] = "missing"
+                refreshed += 1
 
     registry["schema_version"] = 1
     registry["default_cache"] = str(registry.get("default_cache") or "hf")
@@ -478,6 +487,27 @@ def _matching_hf_cache_payload(
         if payload.get("revision") == revision_or_commit:
             return payload
     return fallback if not revision_or_commit else None
+
+
+def _matching_hf_payload_for_entry(
+    entry: dict[str, Any], payloads: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    repo_id = _optional_str(entry.get("repo_id"))
+    if repo_id is None:
+        return None
+    commit_sha = _optional_str(entry.get("commit_sha"))
+    revision = _optional_str(entry.get("revision"))
+    fallback: dict[str, Any] | None = None
+    for payload in payloads:
+        if payload.get("repo_id") != repo_id:
+            continue
+        if fallback is None:
+            fallback = payload
+        if commit_sha is not None and payload.get("commit_sha") == commit_sha:
+            return payload
+        if revision is not None and payload.get("revision") == revision:
+            return payload
+    return fallback if commit_sha is None and revision is None else None
 
 
 def _apply_cached_model_payload(entry: dict[str, Any], payload: dict[str, Any]) -> None:

@@ -2988,6 +2988,102 @@ async def test_agent_refresh_reconciles_local_model_entries(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_agent_refresh_reconciles_hf_pin_from_cache_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=130,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+            SimpleNamespace(file_name="tokenizer.json", size_on_disk=20),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "cache_state": "remote_only",
+            },
+        )
+        refreshed = await client.call("refresh_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    [entry] = registry["entries"]
+    assert refreshed["refreshed"] == 1
+    assert refreshed["models"][0]["entry_id"] == "01REMOTE"
+    assert refreshed["models"][0]["cache_state"] == "cached"
+    assert refreshed["models"][0]["commit_sha"] == "abc123"
+    assert refreshed["models"][0]["files"]["total_bytes"] == 130
+    assert entry["cache_state"] == "cached"
+    assert entry["commit_sha"] == "abc123"
+    assert entry["files"]["weights_format"] == "safetensors"
+    json.dumps(refreshed)
+
+
+@pytest.mark.asyncio
+async def test_agent_refresh_marks_missing_hf_cache_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=()),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+        refreshed = await client.call("refresh_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    [entry] = registry["entries"]
+    assert refreshed["refreshed"] == 1
+    assert refreshed["models"][0]["entry_id"] == "01REMOTE"
+    assert refreshed["models"][0]["cache_state"] == "missing"
+    assert entry["cache_state"] == "missing"
+    json.dumps(refreshed)
+
+
+@pytest.mark.asyncio
 async def test_agent_removes_unpinned_local_model_metadata(
     config_dir: Path, tmp_path: Path
 ) -> None:
