@@ -299,6 +299,9 @@ def _scrub_config_snapshot(
     cfg: ModelConfig, *, secrets: list[str] | tuple[str, ...] = ()
 ) -> dict:
     snapshot = cfg.model_dump(mode="json")
+    command = snapshot.get("command")
+    if isinstance(command, dict) and command.get("cwd") is None:
+        command.pop("cwd", None)
     if isinstance(snapshot.get("server"), dict):
         snapshot["server"]["api_key"] = None
     env = snapshot.get("env")

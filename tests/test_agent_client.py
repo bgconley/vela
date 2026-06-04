@@ -935,6 +935,35 @@ async def test_local_agent_preview_matches_existing_command_shape(config_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_local_agent_prepare_launch_uses_command_cwd_for_relative_model(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    work_dir = tmp_path / "serve-root"
+    model_dir = work_dir / "relative-model"
+    model_dir.mkdir(parents=True)
+    write_yaml(
+        config_dir / "cwd-local.yaml",
+        f"""
+        name: cwd-local
+        model: relative-model
+        command:
+          cwd: {work_dir}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    result = await client.call(
+        "prepare_launch",
+        {"name": "cwd-local", "configs_dir": str(config_dir)},
+    )
+
+    assert result["build"]["cwd"] == str(work_dir)
+    assert result["build"]["preview"].startswith(f"cwd={work_dir}\n")
+    assert result["build"]["argv"][:3] == ["vllm", "serve", "relative-model"]
+
+
+@pytest.mark.asyncio
 async def test_local_agent_preview_reports_unknown_config(config_dir: Path) -> None:
     client = InProcessTargetClient(LocalAgent())
 

@@ -158,7 +158,7 @@ def test_stop_escalation_waits_after_final_sigkill(monkeypatch: pytest.MonkeyPat
     assert proc.wait_calls == [0.1, 0.2, 0.2]
 
 
-def test_config_snapshot_scrubs_generic_secret_patterns() -> None:
+def test_config_snapshot_scrubs_generic_secret_patterns(tmp_path: Path) -> None:
     cfg = ModelConfig.model_validate(
         {
             "name": "metadata",
@@ -180,6 +180,7 @@ def test_config_snapshot_scrubs_generic_secret_patterns() -> None:
     text = json.dumps(snapshot, ensure_ascii=False)
 
     assert snapshot["server"]["api_key"] is None
+    assert "cwd" not in snapshot["command"]
     assert snapshot["env"] == {"SAFE_ENV": "kept"}
     assert "sk-config-secret" not in text
     assert "hf_config_secret" not in text
@@ -188,6 +189,12 @@ def test_config_snapshot_scrubs_generic_secret_patterns() -> None:
     assert "hf_extra_secret" not in text
     assert "Authorization: Bearer ••••" in text
     assert "••••" in text
+
+    explicit_cwd = _scrub_config_snapshot(
+        cfg.model_copy(update={"command": cfg.command.model_copy(update={"cwd": tmp_path})}),
+        secrets=[],
+    )
+    assert explicit_cwd["command"]["cwd"] == str(tmp_path)
 
 
 def test_detached_launch_uses_requested_run_id(

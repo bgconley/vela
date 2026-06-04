@@ -68,6 +68,16 @@ def test_revision_pin_is_emitted_for_standalone_model_handoff() -> None:
     assert result.argv[:5] == ["vllm", "serve", "org/model", "--revision", "abc123"]
 
 
+def test_command_cwd_controls_preview_and_result(tmp_path: Path) -> None:
+    work_dir = tmp_path / "serve-root"
+    model_cfg = cfg({"command": {"cwd": str(work_dir)}})
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert result.cwd == work_dir
+    assert result.preview.startswith(f"cwd={work_dir}\n")
+
+
 def test_exact_argv_env_for_module_entrypoint() -> None:
     model_cfg = cfg({"command": {"entrypoint": "module"}})
 

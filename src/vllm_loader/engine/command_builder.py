@@ -41,7 +41,7 @@ def build_command(
     cfg: ModelConfig, profile: VllmProfile | None = None, *, cwd: Path | None = None
 ) -> CommandBuildResult:
     profile = profile or select_profile_for_config(cfg)
-    cwd = cwd or Path.cwd()
+    cwd = _command_cwd(cfg, cwd)
     warnings = list(profile.soft_validate(cfg))
     argv = _base_argv(cfg)
 
@@ -86,6 +86,14 @@ def build_command(
         metadata=metadata,
         preview=preview,
     )
+
+
+def _command_cwd(cfg: ModelConfig, cwd: Path | None) -> Path:
+    path = Path(cwd).expanduser() if cwd is not None else cfg.command.cwd
+    if path is None:
+        return Path.cwd()
+    path = Path(path).expanduser()
+    return path if path.is_absolute() else Path.cwd() / path
 
 
 def _base_argv(cfg: ModelConfig) -> list[str]:

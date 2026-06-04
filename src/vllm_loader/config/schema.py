@@ -33,6 +33,7 @@ class CommandConfig(BaseModel):
     entrypoint: EntryPoint = EntryPoint.SERVE
     executable: str | None = None
     build: str | None = None
+    cwd: Path | None = None
 
     @model_validator(mode="after")
     def executable_and_build_are_mutually_exclusive(self) -> CommandConfig:
