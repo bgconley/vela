@@ -4249,6 +4249,7 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
         fake_build_subprocess_exec,
         raising=False,
     )
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
     monkeypatch.setattr(
         local_agent_module,
         "_managed_build_resolved_versions",
@@ -4345,6 +4346,236 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
         ],
     ]
     json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_pip_job_prefers_uv_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    uv_path = "/opt/bin/uv"
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        command_calls.append(list(argv))
+        if argv[:2] == [uv_path, "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: uv_path, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        lambda _venv_path: {
+            "vllm": "0.11.2",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        },
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-uv-pip"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-uv-pip",
+                "method": "pip",
+                "build_id": "01UVPIP",
+                "label": "uv-stable",
+                "spec": "vllm==0.11.2",
+                "python": "3.12",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01UVPIP"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is True
+    assert manifest["install"]["installer"] == "uv"
+    assert manifest["install"]["provenance"]["torch_backend"] == "auto"
+    assert command_calls == [
+        [uv_path, "venv", "--python", "3.12", str(build_dir / "venv")],
+        [
+            uv_path,
+            "pip",
+            "install",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            "vllm==0.11.2",
+            "--torch-backend=auto",
+        ],
+    ]
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_nightly_requires_uv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-nightly-no-uv"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-nightly-no-uv",
+                "method": "nightly",
+                "build_id": "01NIGHTLY",
+                "label": "nightly-cu130",
+                "channel": "cu130",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert done["ok"] is False
+    assert done["error_kind"] == "feature-unavailable"
+    assert done["reason"] == "uv-required"
+    assert "requires uv" in done["detail"]
+    assert not (builds_root / "01NIGHTLY").exists()
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_nightly_uses_uv_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    uv_path = "/opt/bin/uv"
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        command_calls.append(list(argv))
+        if argv[:2] == [uv_path, "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: uv_path, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        lambda _venv_path: {
+            "vllm": "0.17.0.dev",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        },
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-nightly"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-nightly",
+                "method": "nightly",
+                "build_id": "01NIGHTLY",
+                "label": "nightly-cu130",
+                "channel": "cu130",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01NIGHTLY"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is True
+    assert manifest["install"]["method"] == "nightly"
+    assert manifest["install"]["installer"] == "uv"
+    assert manifest["install"]["provenance"]["nightly_channel"] == "cu130"
+    assert manifest["install"]["provenance"]["index_url"] == (
+        "https://wheels.vllm.ai/nightly/cu130"
+    )
+    assert command_calls == [
+        [uv_path, "venv", str(build_dir / "venv")],
+        [
+            uv_path,
+            "pip",
+            "install",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            "-U",
+            "vllm",
+            "--torch-backend=auto",
+            "--extra-index-url",
+            "https://wheels.vllm.ai/nightly/cu130",
+        ],
+    ]
     json.dumps(done)
 
 

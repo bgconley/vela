@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -133,6 +134,16 @@ JOB_SECRET_ENV_MARKERS = (
     "CREDENTIAL",
 )
 URL_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+")
+VLLM_NIGHTLY_INDEX_BASE = "https://wheels.vllm.ai/nightly"
+
+
+@dataclass(frozen=True)
+class BuildInstallRequest:
+    method: str
+    installer: str
+    provenance: dict[str, Any]
+    venv_argv: list[str]
+    install_argv: list[str]
 
 
 @dataclass
@@ -1060,18 +1071,26 @@ class LocalAgent:
     ) -> dict[str, Any]:
         build_id = _optional_param_str(params.get("build_id")) or _job_id_param(params)
         label = _optional_param_str(params.get("label")) or build_id
-        pip_spec = _optional_param_str(params.get("spec"))
-        if pip_spec is None:
-            return {
-                "ok": False,
-                "error_kind": "invalid-params",
-                "detail": "create_build method=pip requires spec",
-                "build_id": build_id,
-            }
+        method = str(params.get("method") or "pip").strip().lower()
         build_dir = self._builds_root / build_id
         venv_path = build_dir / "venv"
         env_overrides = _env_overrides(params.get("env"))
         job_secrets = _job_secret_values(params, env_overrides)
+        try:
+            install_request = _build_install_request(
+                method,
+                params,
+                venv_path=venv_path,
+            )
+        except BuildRegistryError as exc:
+            result = {
+                "ok": False,
+                "error_kind": exc.code,
+                "detail": exc.message,
+                "build_id": build_id,
+            }
+            result.update(exc.details)
+            return result
         if build_dir.exists():
             return {
                 "ok": False,
@@ -1118,16 +1137,16 @@ class LocalAgent:
             emit(payload)
 
         install_payload: dict[str, Any] = {
-            "method": "pip",
-            "installer": "pip",
+            "method": install_request.method,
+            "installer": install_request.installer,
             "python_requested": _optional_param_str(params.get("python")),
-            "provenance": {
-                "pip_spec": pip_spec,
-                "env_overrides": _scrub_job_payload(
-                    dict(env_overrides),
-                    secrets=job_secrets,
-                ),
-            },
+            "provenance": _scrub_job_payload(
+                {
+                    **install_request.provenance,
+                    "env_overrides": dict(env_overrides),
+                },
+                secrets=job_secrets,
+            ),
             "exit_code": None,
         }
         try:
@@ -1143,7 +1162,7 @@ class LocalAgent:
             )
             env = {**os.environ, **env_overrides}
             venv_exit = await _build_subprocess_exec(
-                [sys.executable, "-m", "venv", str(venv_path)],
+                install_request.venv_argv,
                 env=env,
                 cwd=build_dir,
                 emit=emit_install,
@@ -1161,13 +1180,7 @@ class LocalAgent:
                     exit_code=venv_exit,
                 )
             install_exit = await _build_subprocess_exec(
-                [
-                    str(venv_path / "bin" / "python"),
-                    "-m",
-                    "pip",
-                    "install",
-                    pip_spec,
-                ],
+                install_request.install_argv,
                 env=env,
                 cwd=build_dir,
                 emit=emit_install,
@@ -1245,7 +1258,7 @@ class LocalAgent:
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
         method = str(params.get("method") or "").strip().lower()
-        if method == "pip":
+        if method in {"pip", "nightly"}:
             return await self._run_pip_build_job(params, emit, _cancel_event)
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
             adopt_params = {
@@ -2172,6 +2185,137 @@ def _env_overrides(value: object) -> dict[str, str]:
         if key:
             env[key] = env_value
     return env
+
+
+def _build_install_request(
+    method: str,
+    params: dict[str, Any],
+    *,
+    venv_path: Path,
+) -> BuildInstallRequest:
+    python_requested = _optional_param_str(params.get("python"))
+    uv_path = _find_uv_executable()
+    if method == "pip":
+        pip_spec = _optional_param_str(params.get("spec"))
+        if pip_spec is None:
+            raise BuildRegistryError(
+                "invalid-params",
+                "create_build method=pip requires spec",
+                {"reason": "missing-spec"},
+            )
+        return _pip_install_request(
+            pip_spec,
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+        )
+    if method == "nightly":
+        if uv_path is None:
+            raise BuildRegistryError(
+                "feature-unavailable",
+                "create_build method=nightly requires uv",
+                {"reason": "uv-required", "method": "nightly"},
+            )
+        channel = _optional_param_str(
+            params.get("channel")
+            or params.get("nightly_channel")
+            or params.get("variant")
+        )
+        index_url = _nightly_index_url(channel)
+        return _uv_install_request(
+            method="nightly",
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+            install_args=[
+                "-U",
+                "vllm",
+                "--torch-backend=auto",
+                "--extra-index-url",
+                index_url,
+            ],
+            provenance={
+                "pip_spec": None,
+                "nightly_channel": channel,
+                "index_url": index_url,
+                "torch_backend": "auto",
+            },
+        )
+    raise BuildRegistryError(
+        "feature-unavailable",
+        f"create_build method is not implemented: {method or 'unknown'}",
+        {"method": method or "unknown"},
+    )
+
+
+def _pip_install_request(
+    pip_spec: str,
+    *,
+    uv_path: str | None,
+    python_requested: str | None,
+    venv_path: Path,
+) -> BuildInstallRequest:
+    if uv_path is not None:
+        return _uv_install_request(
+            method="pip",
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+            install_args=[pip_spec, "--torch-backend=auto"],
+            provenance={"pip_spec": pip_spec, "torch_backend": "auto"},
+        )
+    return BuildInstallRequest(
+        method="pip",
+        installer="pip",
+        provenance={"pip_spec": pip_spec},
+        venv_argv=[sys.executable, "-m", "venv", str(venv_path)],
+        install_argv=[
+            str(venv_path / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            pip_spec,
+        ],
+    )
+
+
+def _uv_install_request(
+    *,
+    method: str,
+    uv_path: str,
+    python_requested: str | None,
+    venv_path: Path,
+    install_args: list[str],
+    provenance: dict[str, Any],
+) -> BuildInstallRequest:
+    venv_argv = [uv_path, "venv"]
+    if python_requested is not None:
+        venv_argv.extend(["--python", python_requested])
+    venv_argv.append(str(venv_path))
+    return BuildInstallRequest(
+        method=method,
+        installer="uv",
+        provenance=provenance,
+        venv_argv=venv_argv,
+        install_argv=[
+            uv_path,
+            "pip",
+            "install",
+            "--python",
+            str(venv_path / "bin" / "python"),
+            *install_args,
+        ],
+    )
+
+
+def _nightly_index_url(channel: str | None) -> str:
+    if channel is None:
+        return VLLM_NIGHTLY_INDEX_BASE
+    return f"{VLLM_NIGHTLY_INDEX_BASE}/{channel.strip('/')}"
+
+
+def _find_uv_executable() -> str | None:
+    return shutil.which("uv")
 
 
 def _job_secret_values(
