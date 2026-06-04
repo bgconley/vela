@@ -2268,6 +2268,8 @@ async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> 
             "label": "nightly-cu130",
             "status": "ready",
             "default": True,
+            "in_use": False,
+            "live_refs": [],
             "install": {
                 "method": "nightly",
                 "installer": "uv",
@@ -2297,6 +2299,71 @@ async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> 
         }
     ]
     assert result["skipped"] == [{"build_id": "BROKEN", "reason": "invalid-json"}]
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_agent_lists_builds_with_verified_live_refs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01LIVEBUILD"
+    refs_dir = build_dir / "refs"
+    refs_dir.mkdir(parents=True)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01LIVEBUILD",
+                "label": "live-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sidecar_path = tmp_path / "runs" / "run-live.json"
+    (refs_dir / "run-live.ref").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-live",
+                "sidecar_path": str(sidecar_path),
+                "pid": 123,
+                "process_create_time": 1.5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        build_registry_module,
+        "verify_sidecar_from_system",
+        lambda path: Path(path) == sidecar_path,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        result = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    [build] = result["builds"]
+    assert build["in_use"] is True
+    assert build["live_refs"] == [
+        {
+            "run_id": "run-live",
+            "sidecar_path": str(sidecar_path),
+            "pid": 123,
+            "process_create_time": 1.5,
+        }
+    ]
     json.dumps(result)
 
 

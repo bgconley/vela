@@ -128,8 +128,10 @@ class BuildManagerScreen(ModalScreen):
             marker = ">" if index == self.selected_index else " "
             status = str(build.get("status") or "unknown")
             active = "  ● active" if build.get("default") else ""
+            in_use = "  🔒 in use" if _live_refs(build) else ""
             lines.append(
-                f"{marker} {_build_status_dot(status)} {_build_label(build)}  {status}{active}"
+                f"{marker} {_build_status_dot(status)} {_build_label(build)}  "
+                f"{status}{active}{in_use}"
             )
         return "\n".join(lines)
 
@@ -145,6 +147,7 @@ class BuildManagerScreen(ModalScreen):
             f"label: {_build_label(build)}",
             f"build_id: {build.get('build_id') or '-'}",
             f"status: {build.get('status') or 'unknown'}",
+            f"in_use: {_in_use_detail(build)}",
             f"vllm: {resolved.get('vllm') or '-'}",
             f"cuda: {resolved.get('cuda') or '-'}",
             f"executable: {paths.get('executable') or '-'}",
@@ -169,6 +172,30 @@ def _build_reference(build: dict[str, Any]) -> str:
 
 def _build_label(build: dict[str, Any]) -> str:
     return str(build.get("label") or build.get("build_id") or "unnamed-build")
+
+
+def _live_refs(build: dict[str, Any]) -> list[dict[str, Any]]:
+    refs = build.get("live_refs")
+    if not isinstance(refs, list):
+        return []
+    return [dict(item) for item in refs if isinstance(item, dict)]
+
+
+def _in_use_detail(build: dict[str, Any]) -> str:
+    refs = _live_refs(build)
+    if not refs:
+        return "no"
+    labels = [
+        str(ref.get("run_id"))
+        for ref in refs
+        if isinstance(ref.get("run_id"), str) and ref.get("run_id")
+    ]
+    visible = ", ".join(labels[:3])
+    if len(labels) > 3:
+        visible = f"{visible}, +{len(labels) - 3}" if visible else f"+{len(labels) - 3}"
+    suffix = f" ({visible})" if visible else ""
+    noun = "run" if len(refs) == 1 else "runs"
+    return f"{len(refs)} live {noun}{suffix}"
 
 
 def _build_action_payload(action: str, build: dict[str, Any]) -> dict[str, Any]:

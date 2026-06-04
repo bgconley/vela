@@ -3900,6 +3900,98 @@ async def test_build_manager_selects_build_through_target_client(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "live-build",
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": "01LIVE",
+                    "builds": [
+                        {
+                            "build_id": "01LIVE",
+                            "label": "live-build",
+                            "status": "ready",
+                            "default": True,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                            "in_use": True,
+                            "live_refs": [
+                                {
+                                    "run_id": "run-live",
+                                    "sidecar_path": "/agent/runs/run-live.json",
+                                }
+                            ],
+                        }
+                    ],
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build manager live-ref test should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=BuildTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        build_list = str(app.screen.query_one("#build-manager-list", Static).content)
+        detail = str(app.screen.query_one("#build-manager-detail", Static).content)
+        assert "live-build  ready  ● active  🔒 in use" in build_list
+        assert "in_use: 1 live run (run-live)" in detail
+
+
+@pytest.mark.asyncio
 async def test_build_manager_create_build_streams_job_events(
     config_dir: Path,
 ) -> None:

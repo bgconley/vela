@@ -139,8 +139,14 @@ def _verify_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
 
 def inspect_build(reference: str, root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
-    manifest, _build_dir = _manifest_for_reference(builds_root, reference)
-    return {"manifest": _build_payload(manifest, _active_build_id(builds_root))}
+    manifest, build_dir = _manifest_for_reference(builds_root, reference)
+    return {
+        "manifest": _build_payload(
+            manifest,
+            _active_build_id(builds_root),
+            build_dir=build_dir,
+        )
+    }
 
 
 def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[str, Any]:
@@ -337,7 +343,7 @@ def list_builds(root: str | Path | None = None) -> dict[str, Any]:
         if not isinstance(build_id, str) or not build_id:
             skipped.append({"build_id": build_dir.name, "reason": "missing-build-id"})
             continue
-        builds.append(_build_payload(manifest, default_build_id))
+        builds.append(_build_payload(manifest, default_build_id, build_dir=build_dir))
 
     return {"builds": builds, "default_build_id": default_build_id, "skipped": skipped}
 
@@ -665,7 +671,12 @@ def _is_agent_owned_build_dir(root: Path, build_dir: Path) -> bool:
         return False
 
 
-def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> dict[str, Any]:
+def _build_payload(
+    manifest: dict[str, Any],
+    default_build_id: str | None,
+    *,
+    build_dir: Path | None = None,
+) -> dict[str, Any]:
     build_id = str(manifest["build_id"])
     payload = {
         "build_id": build_id,
@@ -685,6 +696,10 @@ def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> di
     integrity = _dict_or_empty(manifest.get("integrity"))
     if integrity:
         payload["integrity"] = integrity
+    if build_dir is not None:
+        live_refs = _verified_live_build_refs(build_dir)
+        payload["in_use"] = bool(live_refs)
+        payload["live_refs"] = live_refs
     return payload
 
 
