@@ -3757,6 +3757,95 @@ async def test_flag_manager_opens_from_binding_and_partitions_flags(
 
 
 @pytest.mark.asyncio
+async def test_flag_manager_uses_agent_flag_map_for_modeled_flags(
+    config_dir: Path,
+) -> None:
+    class TargetClient:
+        connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "list_configs",
+                    "preview",
+                    "update_config_flags",
+                    "gpu",
+                    "discover_runs",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/flags.yaml",
+                            "name": "flags",
+                            "model": "org/model",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "flags",
+                                "model": "org/model",
+                                "engine": {"tensor_parallel_size": 2},
+                                "extra_args": [
+                                    "--remote-known",
+                                    "value",
+                                    "--local-only",
+                                    "value",
+                                ],
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": (
+                        "cwd=/agent\n"
+                        "vllm serve org/model --tp-remote 2 --remote-known value"
+                    ),
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": ["--tp-remote", "--remote-known"],
+                        "flag_map": {"tensor_parallel_size": "--tp-remote"},
+                    },
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("flag manager should not subscribe")
+
+    app = VllmLoaderApp(configs_dir=config_dir, target_client=TargetClient())
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await _wait_for_condition(
+            lambda: "--tp-remote" in app.selected_config_preview,
+            "agent preview metadata was not loaded",
+        )
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+
+        flag_list = str(app.screen.query_one("#flag-manager-list", Static).content)
+        assert "tp-remote = 2" in flag_list
+        assert "tensor-parallel-size = 2" not in flag_list
+        assert "--remote-known value" in flag_list
+        assert "--local-only value" in flag_list
+
+
+@pytest.mark.asyncio
 async def test_flag_manager_reset_modeled_flag_saves_to_config(
     config_dir: Path,
     tmp_path: Path,

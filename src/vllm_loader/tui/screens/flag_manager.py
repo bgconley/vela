@@ -68,7 +68,7 @@ class FlagManagerScreen(ModalScreen):
         self.preview = preview
         self.metadata = dict(metadata or {})
         self.engine_updates: dict[str, object | None] = {}
-        self.modeled = _modeled_flags(config)
+        self.modeled = _modeled_flags(config, self.metadata)
         self.selected_index = 0
         self.passthrough, self.unknown = _partition_extra_args(
             config.extra_args,
@@ -169,14 +169,23 @@ class FlagManagerScreen(ModalScreen):
         return "\n".join(lines)
 
 
-def _modeled_flags(config: ModelConfig) -> list[dict[str, str]]:
-    profile = bundled_profile(config.vllm.version_profile or "current")
+def _modeled_flags(config: ModelConfig, metadata: dict[str, Any]) -> list[dict[str, str]]:
+    flag_map = _flag_map(metadata)
+    profile = (
+        None
+        if flag_map is not None
+        else bundled_profile(config.vllm.version_profile or "current")
+    )
     rows: list[dict[str, str]] = []
     for field_name in ENGINE_VALUE_FIELDS:
         value = getattr(config.engine, field_name)
         if value is None:
             continue
-        flag = profile.flag_for(field_name)
+        flag = (
+            flag_map.get(field_name)
+            if flag_map is not None
+            else profile.flag_for(field_name)
+        )
         if flag is None:
             continue
         rows.append(
@@ -189,7 +198,11 @@ def _modeled_flags(config: ModelConfig) -> list[dict[str, str]]:
             }
         )
     if config.engine.enforce_eager is True:
-        flag = profile.flag_for("enforce_eager")
+        flag = (
+            flag_map.get("enforce_eager")
+            if flag_map is not None
+            else profile.flag_for("enforce_eager")
+        )
         if flag is not None:
             rows.append(
                 {
@@ -201,6 +214,21 @@ def _modeled_flags(config: ModelConfig) -> list[dict[str, str]]:
                 }
             )
     return rows
+
+
+def _flag_map(metadata: dict[str, Any]) -> dict[str, str] | None:
+    value = metadata.get("flag_map")
+    if not isinstance(value, dict):
+        return None
+    flags = {
+        str(field): str(flag)
+        for field, flag in value.items()
+        if isinstance(field, str)
+        and isinstance(flag, str)
+        and field
+        and flag.startswith("--")
+    }
+    return flags or None
 
 
 def _partition_extra_args(
