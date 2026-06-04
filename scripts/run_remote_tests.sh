@@ -6,7 +6,7 @@ usage() {
 Usage:
   scripts/run_remote_tests.sh USER@GPU_HOST /absolute/remote/path [real-config-name]
 
-Runs the GPU-box validation flow after scripts/rsync_to_gpu.sh.
+Runs the GPU-box validation flow after local commit/push; the GPU node pulls from git.
 
 The default flow is safe on machines without vLLM/GPU access:
   - install editable dev package
@@ -105,6 +105,9 @@ if [[ "$remote_python" == "auto" ]]; then
 fi
 
 cd "$remote_path"
+echo "== Remote git pull =="
+git -C "$remote_path" rev-parse --is-inside-work-tree >/dev/null
+git -C "$remote_path" pull --ff-only origin main
 venv_python="$remote_venv/bin/python"
 venv_bin="$remote_venv/bin"
 if [[ ! -x "$venv_python" ]]; then

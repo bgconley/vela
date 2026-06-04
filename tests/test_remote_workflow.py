@@ -8,6 +8,7 @@ from pathlib import Path
 def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
+    assert "after local commit/push; the GPU node pulls from git" in script
     assert "sample_gpus" in script
     assert "vllm --version" in script
     assert "vllm serve --help" in script
@@ -19,9 +20,22 @@ def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     assert "install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON" in script
 
 
+def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    pull_command = 'git -C "$remote_path" pull --ff-only origin main'
+    install_command = '"$venv_python" -m pip install -e ".[dev]"'
+    assert pull_command in script
+    assert script.index(pull_command) < script.index(install_command)
+
+
 def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 
+    assert "commit locally" in docs
+    assert "git push origin main" in docs
+    assert "git pull --ff-only origin main" in docs
+    assert "rsync_to_gpu.sh" not in docs
     assert "qwen36-27b-fp8-kvfp8-rp6000-blackbird" in docs
     assert "10.25.0.51" in docs
     assert "RTX PRO 6000 Blackwell" in docs

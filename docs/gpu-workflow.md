@@ -4,22 +4,25 @@ This project is expected to be authored on a Mac and exercised for real vLLM
 runtime behavior on GPU boxes. Local Mac validation should stay no-GPU and
 no-vLLM by default.
 
-## 1. Sync the tree
+## 1. Publish the tree
 
 ```bash
-scripts/rsync_to_gpu.sh USER@GPU_HOST:/tank/repos/lab-tui
+git status --short
+git add -A
+git commit -m "describe the validation change"
+git push origin main
 ```
 
-The sync excludes virtualenvs, caches, build products, run logs, and `.git`.
-Machine-specific secrets should stay on the GPU host. Do not put `HF_TOKEN` or
-API keys in example configs.
+Before any new GPU-node test, commit locally and push the commit to the remote.
+The GPU host should be a normal clone of this repo; `scripts/run_remote_tests.sh`
+runs `git pull --ff-only origin main` on the GPU node before it installs the
+editable package or starts validation. Machine-specific secrets should stay on
+the GPU host. Do not put `HF_TOKEN` or API keys in example configs.
 
-If the GPU host needs a specific SSH key or options, use the same option string
-for sync and validation:
+If the GPU host needs a specific SSH key or options, set them for validation:
 
 ```bash
 export VLLM_LOADER_SSH_OPTS="-i /path/to/gpu_key -o BatchMode=yes"
-scripts/rsync_to_gpu.sh USER@GPU_HOST:/tank/repos/lab-tui
 ```
 
 ## 2. Run remote validation
@@ -55,7 +58,7 @@ That interpreter must be able to create a pip-enabled venv; otherwise install
 `python3-venv`/`ensurepip` support or point `VLLM_LOADER_REMOTE_PYTHON` at a
 prepared environment.
 
-Real vLLM validation with a named config already present in the synced
+Real vLLM validation with a named config already present in the committed
 `configs/` directory or the host's configured config directory:
 
 ```bash
@@ -90,7 +93,7 @@ Preferred future real smoke target: `blackbird` (`10.25.0.51`) with the
 `RTX PRO 6000 Blackwell Max-Q` GPU and Qwen3.6 27B FP8:
 
 ```bash
-scripts/rsync_to_gpu.sh bgconley@10.25.0.51:/home/bgconley/repos/lab-tui
+git push origin main
 VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
   scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
