@@ -225,12 +225,24 @@ def _model_status_dot(model: dict[str, Any]) -> str:
 
 
 def _size_label(model: dict[str, Any]) -> str:
-    try:
-        size = int(model.get("size_bytes") or 0)
-    except (TypeError, ValueError):
-        size = 0
+    unique = _size_value(model.get("unique_size_bytes"))
+    nominal = _size_value(model.get("nominal_size_bytes"))
+    if unique > 0 and nominal > 0 and nominal != unique:
+        return f"{_gb_label(unique)} unique / {_gb_label(nominal)} nominal"
+    size = unique or nominal or _size_value(model.get("size_bytes"))
     if size <= 0:
         return "--"
+    return _gb_label(size)
+
+
+def _size_value(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _gb_label(size: int) -> str:
     return f"{size / 1_000_000_000:.1f} GB"
 
 

@@ -4551,6 +4551,8 @@ async def test_model_manager_opens_model_catalog_from_target_client(
                             "cache_state": "cached",
                             "gated": True,
                             "size_bytes": 16_060_530_000,
+                            "unique_size_bytes": 2_100_000_000,
+                            "nominal_size_bytes": 16_060_530_000,
                             "files": {"count": 7, "weights_format": "safetensors"},
                         },
                         {
@@ -4597,7 +4599,7 @@ async def test_model_manager_opens_model_catalog_from_target_client(
 
         model_list = str(app.screen.query_one("#model-manager-list", Static).content)
         detail = str(app.screen.query_one("#model-manager-detail", Static).content)
-        assert "> ● llama-pin  awq  16.1 GB @abc123 🔒" in model_list
+        assert "> ● llama-pin  awq  2.1 GB unique / 16.1 GB nominal @abc123 🔒" in model_list
         assert "  ○ qwen-remote  bf16  -- @main" in model_list
         assert "repo: meta-llama/Llama-3.1-8B-Instruct" in detail
         assert "revision: main → abc123" in detail

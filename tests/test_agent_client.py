@@ -3621,9 +3621,13 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
             "files": {
                 "count": 3,
                 "total_bytes": 130,
+                "unique_bytes": 130,
+                "nominal_bytes": 130,
                 "weights_format": "safetensors",
             },
             "size_bytes": 130,
+            "unique_size_bytes": 130,
+            "nominal_size_bytes": 130,
             "cache_state": "cached",
             "gated": False,
             "token_required": False,
@@ -7146,8 +7150,12 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     assert done["entry"]["files"] == {
         "count": 3,
         "total_bytes": 130,
+        "unique_bytes": 130,
+        "nominal_bytes": 130,
         "weights_format": "safetensors",
     }
+    assert done["entry"]["unique_size_bytes"] == 130
+    assert done["entry"]["nominal_size_bytes"] == 130
     tqdm_class = snapshot_calls[0].pop("tqdm_class")
     assert isinstance(tqdm_class, type)
     assert snapshot_calls == [

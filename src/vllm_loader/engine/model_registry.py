@@ -71,6 +71,8 @@ MODEL_ENTRY_FIELDS = (
     "tokenizer",
     "files",
     "size_bytes",
+    "unique_size_bytes",
+    "nominal_size_bytes",
     "cache_state",
     "gated",
     "token_required",
@@ -542,6 +544,8 @@ def _merge_hf_cache_models(models: list[dict[str, Any]]) -> None:
         existing["cache_state"] = "cached"
         existing["files"] = payload["files"]
         existing["size_bytes"] = payload["size_bytes"]
+        existing["unique_size_bytes"] = payload.get("unique_size_bytes")
+        existing["nominal_size_bytes"] = payload.get("nominal_size_bytes")
         if not existing.get("commit_sha"):
             existing["commit_sha"] = payload["commit_sha"]
         if not existing.get("revision"):
@@ -590,6 +594,8 @@ def _apply_cached_model_payload(entry: dict[str, Any], payload: dict[str, Any]) 
     entry["cache_state"] = "cached"
     entry["files"] = dict(payload.get("files")) if isinstance(payload.get("files"), dict) else {}
     entry["size_bytes"] = int(payload.get("size_bytes") or 0)
+    entry["unique_size_bytes"] = int(payload.get("unique_size_bytes") or 0)
+    entry["nominal_size_bytes"] = int(payload.get("nominal_size_bytes") or 0)
     if payload.get("commit_sha"):
         entry["commit_sha"] = payload["commit_sha"]
     if not entry.get("revision") and payload.get("revision"):
@@ -629,7 +635,8 @@ def _cached_model_entries_from_cache_info(cache_info: object) -> list[dict[str, 
                 if str(ref)
             )
             files = list(getattr(revision, "files", ()) or ())
-            size_bytes = _safe_int(getattr(revision, "size_on_disk", 0))
+            unique_size_bytes = _safe_int(getattr(revision, "size_on_disk", 0))
+            nominal_size_bytes = _hf_cache_nominal_size(files)
             entry_id = f"{repo_id}@{commit_sha[:12]}"
             entries.append(
                 {
@@ -643,8 +650,14 @@ def _cached_model_entries_from_cache_info(cache_info: object) -> list[dict[str, 
                     "url": None,
                     "quant_format": "none",
                     "tokenizer": None,
-                    "files": _hf_cache_files_payload(files, size_bytes),
-                    "size_bytes": size_bytes,
+                    "files": _hf_cache_files_payload(
+                        files,
+                        unique_size_bytes=unique_size_bytes,
+                        nominal_size_bytes=nominal_size_bytes,
+                    ),
+                    "size_bytes": unique_size_bytes,
+                    "unique_size_bytes": unique_size_bytes,
+                    "nominal_size_bytes": nominal_size_bytes,
                     "cache_state": "cached",
                     "gated": False,
                     "token_required": False,
@@ -833,16 +846,23 @@ def _classify_snapshot_download_error(exc: Exception) -> str:
     return "model-download-failed"
 
 
-def _hf_cache_files_payload(files: list[object], total_size: int) -> dict[str, Any]:
+def _hf_cache_nominal_size(files: list[object]) -> int:
+    return sum(_safe_int(getattr(file_info, "size_on_disk", 0)) for file_info in files)
+
+
+def _hf_cache_files_payload(
+    files: list[object], *, unique_size_bytes: int, nominal_size_bytes: int
+) -> dict[str, Any]:
     file_names = [
         str(getattr(file_info, "file_name", "") or "")
         for file_info in files
         if str(getattr(file_info, "file_name", "") or "")
     ]
-    counted_size = sum(_safe_int(getattr(file_info, "size_on_disk", 0)) for file_info in files)
     return {
         "count": len(file_names),
-        "total_bytes": total_size or counted_size,
+        "total_bytes": unique_size_bytes or nominal_size_bytes,
+        "unique_bytes": unique_size_bytes,
+        "nominal_bytes": nominal_size_bytes,
         "weights_format": _weights_format_from_names(file_names),
     }
 
@@ -1427,6 +1447,9 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
             payload[field] = bool(value)
         elif field == "size_bytes":
             payload[field] = int(value or 0)
+        elif field in {"unique_size_bytes", "nominal_size_bytes"}:
+            if value is not None:
+                payload[field] = int(value or 0)
         else:
             payload[field] = _optional_str(value)
     return payload
