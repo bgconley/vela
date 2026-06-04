@@ -314,6 +314,20 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert '"$remote_real_resume_config"' in remote_script
 
 
+def test_remote_validation_runs_real_config_before_real_resume() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    real_config_block = (
+        'if [[ -n "$real_config" ]]; then\n'
+        '  "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"'
+    )
+    real_resume_block = (
+        'if [[ -n "$remote_real_resume_config" ]]; then\n'
+        '  echo "== Real model resume/daemon restart =="'
+    )
+    assert script.index(real_config_block) < script.index(real_resume_block)
+
+
 def test_remote_validation_passes_real_build_and_model_to_resume_check(
     tmp_path: Path,
 ) -> None:

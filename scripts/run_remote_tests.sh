@@ -631,6 +631,11 @@ if [[ -n "$remote_model_ref" ]]; then
   "$venv_bin/vllm-loader" model verify "$remote_model_ref" "${target_args[@]}"
 fi
 
+if [[ -n "$real_config" ]]; then
+  "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"
+  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config" "${target_args[@]}"
+fi
+
 if [[ -n "$remote_real_resume_config" ]]; then
   echo "== Real model resume/daemon restart =="
   real_resume_args=("$remote_real_resume_config" "${target_args[@]}" --timeout "$remote_timeout")
@@ -644,11 +649,6 @@ if [[ -n "$remote_real_resume_config" ]]; then
     real_resume_args+=(--revision "$remote_model_revision")
   fi
   "$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}"
-fi
-
-if [[ -n "$real_config" ]]; then
-  "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"
-  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config" "${target_args[@]}"
 fi
 REMOTE
 }
