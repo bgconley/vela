@@ -138,6 +138,10 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
         "artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md"
         in docs
     )
+    assert (
+        "artifacts/remote-validation/2026-06-04T20-34-19Z-bgconley-10.25.0.50-remote-validation.md"
+        in docs
+    )
     assert "GitHub Actions run `26976430928`" in docs
     assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in docs
 

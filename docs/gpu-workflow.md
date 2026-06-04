@@ -213,6 +213,10 @@ The latest P620-to-Blackbird validation records are:
   runner. It covers the managed vLLM build install, tiny HF model pin/download,
   Qwen3.6 27B FP8 `smoke-tui`, and real model resume/daemon restart pass
   through the Blackbird target.
+- `artifacts/remote-validation/2026-06-04T20-34-19Z-bgconley-10.25.0.50-remote-validation.md`
+  from the P620 validation host at commit `d90ec83`. It covers the opt-in
+  no-token gated Hugging Face auth probe against `meta-llama/Llama-2-7b-hf`,
+  with the normal agent `download_model` job ending in `GATED_MODEL_AUTH_OK`.
 
 Direct Mac to Blackbird validation is still useful for host-local checks:
 

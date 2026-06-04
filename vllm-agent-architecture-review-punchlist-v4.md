@@ -27,6 +27,10 @@ items:
   `artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
   covers real build install, tiny HF model pin/download, Qwen3.6 27B FP8
   `smoke-tui`, and real model resume/daemon restart.
+- The older gated-model validation caveat is now separately covered by
+  `artifacts/remote-validation/2026-06-04T20-34-19Z-bgconley-10.25.0.50-remote-validation.md`,
+  generated at commit `d90ec83`. It runs an isolated no-token agent probe
+  against `meta-llama/Llama-2-7b-hf` and records `GATED_MODEL_AUTH_OK`.
 
 ---
 
@@ -60,7 +64,8 @@ push, and one shared GPU needs a concurrency guard plus trusted-code hygiene.
 **What's not yet true.**
 - Nothing required for v4 validation remains open. Ongoing hygiene: keep the
   P620 runner online, keep the SSH secret current, and let the nightly/manual
-  lane refresh the artifact cadence.
+  lane refresh the artifact cadence. The physical laptop-sleep scenario remains
+  a manual environmental drill rather than an automated CI gate.
 
 **Important nuance (don't over-fix).** Auto-gating a real GPU run on every commit is **not realistic** for a lab tool (slow, costly, and contends with research use). The stronger target is scheduled/manual self-hosted proof with a concurrency guard, plus an optional `fast` profile for cheaper build/model validation.
 
