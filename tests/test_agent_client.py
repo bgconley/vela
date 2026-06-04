@@ -3914,7 +3914,7 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
 
 @pytest.mark.asyncio
 async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
     model_url = "https://models.example/Qwen/example-q4.gguf"
@@ -3935,10 +3935,12 @@ async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
         listed = await client.call("list_models")
         write_yaml(
             config_dir / "url-model.yaml",
-            """
+            f"""
             name: url-model
             model: org/placeholder
             model_ref: url-gguf
+            server:
+              port: {unused_tcp_port}
             """,
         )
         prepared = await client.call(
