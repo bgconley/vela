@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +27,7 @@ class AgentDaemon:
     socket_path: Path
     identity_path: Path
     server: asyncio.Server
+    active_connections: Callable[[], int]
 
     def close(self) -> None:
         self.server.close()
@@ -179,7 +182,17 @@ async def start_agent_daemon(
     resolved_socket_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if socket_path is None or not parent_exists:
         resolved_socket_path.parent.chmod(0o700)
-    server = await serve_unix_socket_agent(agent or LocalAgent(), resolved_socket_path)
+    connection_count = 0
+
+    def set_connection_count(count: int) -> None:
+        nonlocal connection_count
+        connection_count = count
+
+    server = await serve_unix_socket_agent(
+        agent or LocalAgent(),
+        resolved_socket_path,
+        on_connection_count_changed=set_connection_count,
+    )
     resolved_socket_path.chmod(0o600)
     identity_path = agent_identity_path(resolved_socket_path)
     _write_agent_identity(identity_path, resolved_socket_path)
@@ -187,6 +200,7 @@ async def start_agent_daemon(
         socket_path=resolved_socket_path,
         identity_path=identity_path,
         server=server,
+        active_connections=lambda: connection_count,
     )
 
 
@@ -194,8 +208,10 @@ async def run_agent_daemon(
     agent: LocalAgent | None = None,
     *,
     socket_path: str | Path | None = None,
+    idle_timeout_seconds: float | None = None,
 ) -> None:
-    daemon = await start_agent_daemon(agent, socket_path=socket_path)
+    resolved_agent = agent or LocalAgent()
+    daemon = await start_agent_daemon(resolved_agent, socket_path=socket_path)
     stop_requested = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
@@ -203,13 +219,42 @@ async def run_agent_daemon(
             loop.add_signal_handler(signum, stop_requested.set)
         except NotImplementedError:
             pass
+    idle_task: asyncio.Task[None] | None = None
+    if idle_timeout_seconds is not None:
+        idle_task = asyncio.create_task(
+            _stop_after_idle_timeout(
+                daemon,
+                resolved_agent,
+                idle_timeout_seconds=idle_timeout_seconds,
+                stop_requested=stop_requested,
+            )
+        )
     try:
         await stop_requested.wait()
     finally:
+        if idle_task is not None:
+            idle_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await idle_task
         daemon.close()
         await daemon.wait_closed()
         daemon.socket_path.unlink(missing_ok=True)
         daemon.identity_path.unlink(missing_ok=True)
+
+
+async def _stop_after_idle_timeout(
+    daemon: AgentDaemon,
+    agent: LocalAgent,
+    *,
+    idle_timeout_seconds: float,
+    stop_requested: asyncio.Event,
+) -> None:
+    timeout = max(0.0, idle_timeout_seconds)
+    while not stop_requested.is_set():
+        await asyncio.sleep(timeout or 0.1)
+        if daemon.active_connections() == 0 and not agent.has_active_runs():
+            stop_requested.set()
+            return
 
 
 def _write_agent_identity(identity_path: Path, socket_path: Path) -> None:

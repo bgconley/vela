@@ -1350,10 +1350,17 @@ def agent_run(
         Path | None,
         typer.Option("--socket", help="Unix socket path for the foreground agent daemon."),
     ] = None,
+    idle_timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--idle-timeout",
+            help="Exit after this many idle seconds with no connections or active runs.",
+        ),
+    ] = None,
 ) -> None:
     from vllm_loader.agent.daemon import run_agent_daemon
 
-    asyncio.run(run_agent_daemon(socket_path=socket_path))
+    asyncio.run(run_agent_daemon(socket_path=socket_path, idle_timeout_seconds=idle_timeout))
 
 
 @agent_app.command("start")

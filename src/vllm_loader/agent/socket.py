@@ -5,6 +5,7 @@ import os
 import socket as stdlib_socket
 import struct
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO
 
@@ -15,22 +16,34 @@ from vllm_loader.agent.stdio import _stdio_streams, serve_agent_stream
 async def serve_unix_socket_agent(
     agent: LocalAgent,
     socket_path: str | Path,
+    *,
+    on_connection_count_changed: Callable[[int], None] | None = None,
 ) -> asyncio.Server:
     path = Path(socket_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
+    active_connections = 0
 
     async def handle_connection(
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        nonlocal active_connections
         try:
             verify_same_user_peer(writer)
         except PermissionError:
             writer.close()
             await writer.wait_closed()
             return
-        await serve_agent_stream(agent, reader, writer)
+        active_connections += 1
+        if on_connection_count_changed is not None:
+            on_connection_count_changed(active_connections)
+        try:
+            await serve_agent_stream(agent, reader, writer)
+        finally:
+            active_connections -= 1
+            if on_connection_count_changed is not None:
+                on_connection_count_changed(active_connections)
 
     return await asyncio.start_unix_server(handle_connection, path=str(path))
 

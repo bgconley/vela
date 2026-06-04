@@ -653,6 +653,20 @@ class LocalAgent:
             return _detached_run_alive(detached)
         return False
 
+    def has_active_runs(self) -> bool:
+        for run_id in self._detached_runs:
+            if self.is_run_alive(run_id):
+                return True
+        for run_id, sidecar_path in self._detached_sidecar_paths.items():
+            if run_id in self._detached_runs:
+                continue
+            try:
+                if verify_sidecar_from_system(sidecar_path):
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _request_stop_signal(
         self,
         run_id: str,

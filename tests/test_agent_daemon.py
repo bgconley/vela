@@ -42,6 +42,14 @@ def _agent_run_socket_command(socket_path: Path) -> list[str]:
     ]
 
 
+def _agent_run_idle_socket_command(socket_path: Path, idle_timeout: float) -> list[str]:
+    return [
+        *_agent_run_socket_command(socket_path),
+        "--idle-timeout",
+        str(idle_timeout),
+    ]
+
+
 def _agent_start_json_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
@@ -384,6 +392,33 @@ async def test_agent_run_foreground_command_serves_socket_daemon() -> None:
         assert connected["daemon_pid"] == process.pid
     finally:
         await client.disconnect()
+        await _terminate_process(process)
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+        if socket_path.parent.exists():
+            socket_path.parent.rmdir()
+
+
+@pytest.mark.asyncio
+async def test_agent_run_foreground_command_exits_after_idle_timeout() -> None:
+    from vllm_loader.agent.daemon import agent_identity_path
+
+    socket_path = _short_socket_path()
+    identity_path = agent_identity_path(socket_path)
+    process = await asyncio.create_subprocess_exec(
+        *_agent_run_idle_socket_command(socket_path, 0.1),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        await _wait_for_identity_file(identity_path, process)
+
+        await asyncio.wait_for(process.wait(), timeout=2)
+
+        assert process.returncode == 0
+        assert not socket_path.exists()
+        assert not identity_path.exists()
+    finally:
         await _terminate_process(process)
         socket_path.unlink(missing_ok=True)
         identity_path.unlink(missing_ok=True)
