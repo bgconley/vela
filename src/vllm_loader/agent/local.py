@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import platform
+import re
 import signal
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from vllm_loader import __version__
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
@@ -60,6 +62,7 @@ from vllm_loader.engine.profile import (
     select_profile,
     select_profile_for_config,
 )
+from vllm_loader.engine.redaction import scrub_text as scrub_secret_text
 from vllm_loader.engine.sidecar import (
     Manifest,
     Sidecar,
@@ -120,6 +123,16 @@ JobRunner = Callable[
     [dict[str, Any], JobProgressEmitter, asyncio.Event],
     Awaitable[dict[str, Any]],
 ]
+JOB_SECRET_ENV_MARKERS = (
+    "TOKEN",
+    "KEY",
+    "SECRET",
+    "AUTH",
+    "PASSWORD",
+    "PASS",
+    "CREDENTIAL",
+)
+URL_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+")
 
 
 @dataclass
@@ -1015,9 +1028,11 @@ class LocalAgent:
         cancel_event: asyncio.Event,
     ) -> None:
         job = self._jobs[job_id]
+        job_secrets = _job_secret_values(params, _env_overrides(params.get("env")))
 
         def emit(payload: dict[str, Any]) -> None:
-            self._publish_event(AgentEvent("job_progress", job_id, dict(payload)))
+            safe_payload = _scrub_job_payload(dict(payload), secrets=job_secrets)
+            self._publish_event(AgentEvent("job_progress", job_id, safe_payload))
 
         try:
             result = await runner(params, emit, cancel_event)
@@ -1033,8 +1048,9 @@ class LocalAgent:
             }
         else:
             job.status = "succeeded" if bool(result.get("ok")) else "failed"
-        job.result = dict(result)
-        self._publish_event(AgentEvent("job_done", job_id, dict(result)))
+        safe_result = _scrub_job_payload(dict(result), secrets=job_secrets)
+        job.result = safe_result
+        self._publish_event(AgentEvent("job_done", job_id, safe_result))
 
     async def _run_pip_build_job(
         self,
@@ -1055,6 +1071,7 @@ class LocalAgent:
         build_dir = self._builds_root / build_id
         venv_path = build_dir / "venv"
         env_overrides = _env_overrides(params.get("env"))
+        job_secrets = _job_secret_values(params, env_overrides)
         if build_dir.exists():
             return {
                 "ok": False,
@@ -1073,12 +1090,31 @@ class LocalAgent:
             }
         )
         build_dir.mkdir(parents=True)
-        log_sink = LogSink(build_dir / "install.log", secrets=[])
+        current_log_payload: dict[str, Any] = {}
+
+        def emit_log_record(record: LogRecord) -> None:
+            payload = dict(current_log_payload)
+            payload["kind"] = record.kind
+            payload["text"] = record.text
+            payload["level"] = record.level or payload.get("level")
+            emit(payload)
+
+        log_sink = LogSink(
+            build_dir / "install.log",
+            secrets=job_secrets,
+            emit=emit_log_record,
+        )
 
         def emit_install(payload: dict[str, Any]) -> None:
+            nonlocal current_log_payload
             text = _optional_param_str(payload.get("text"))
             if text is not None:
+                current_log_payload = {
+                    key: value for key, value in payload.items() if key != "text"
+                }
                 log_sink.feed((text + "\n").encode("utf-8"))
+                current_log_payload = {}
+                return
             emit(payload)
 
         install_payload: dict[str, Any] = {
@@ -1087,7 +1123,10 @@ class LocalAgent:
             "python_requested": _optional_param_str(params.get("python")),
             "provenance": {
                 "pip_spec": pip_spec,
-                "env_overrides": dict(env_overrides),
+                "env_overrides": _scrub_job_payload(
+                    dict(env_overrides),
+                    secrets=job_secrets,
+                ),
             },
             "exit_code": None,
         }
@@ -2133,6 +2172,112 @@ def _env_overrides(value: object) -> dict[str, str]:
         if key:
             env[key] = env_value
     return env
+
+
+def _job_secret_values(
+    params: dict[str, Any], env_overrides: dict[str, str]
+) -> list[str]:
+    secrets: list[str] = []
+    _collect_job_param_secret_values(params, secrets)
+    for mapping in (env_overrides, os.environ):
+        for key, value in mapping.items():
+            text = _optional_param_str(value)
+            if text is None:
+                continue
+            if _job_secret_key(key):
+                _append_secret_value(secrets, text)
+            _append_url_userinfo_secrets(secrets, text)
+    return secrets
+
+
+def _collect_job_param_secret_values(value: object, secrets: list[str], key: str = "") -> None:
+    if isinstance(value, dict):
+        for item_key, item_value in value.items():
+            item_key_text = str(item_key)
+            if _job_secret_key(item_key_text):
+                for text in _iter_string_values(item_value):
+                    _append_secret_value(secrets, text)
+            _collect_job_param_secret_values(item_value, secrets, item_key_text)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_job_param_secret_values(item, secrets, key)
+        return
+    text = _optional_param_str(value)
+    if text is None:
+        return
+    if _job_secret_key(key):
+        _append_secret_value(secrets, text)
+    _append_url_userinfo_secrets(secrets, text)
+
+
+def _iter_string_values(value: object) -> list[str]:
+    if isinstance(value, dict):
+        strings: list[str] = []
+        for item in value.values():
+            strings.extend(_iter_string_values(item))
+        return strings
+    if isinstance(value, list):
+        strings = []
+        for item in value:
+            strings.extend(_iter_string_values(item))
+        return strings
+    text = _optional_param_str(value)
+    return [text] if text is not None else []
+
+
+def _job_secret_key(key: str) -> bool:
+    upper = key.upper()
+    return any(marker in upper for marker in JOB_SECRET_ENV_MARKERS)
+
+
+def _append_url_userinfo_secrets(secrets: list[str], text: str) -> None:
+    for match in URL_TEXT_RE.finditer(text):
+        url = match.group(0).rstrip(".,;)]}")
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            continue
+        if "@" not in parsed.netloc:
+            continue
+        raw_userinfo = parsed.netloc.rsplit("@", 1)[0]
+        _append_secret_value(secrets, raw_userinfo)
+        decoded_userinfo = unquote(raw_userinfo)
+        _append_secret_value(secrets, decoded_userinfo)
+        if ":" in decoded_userinfo:
+            _append_secret_value(secrets, decoded_userinfo.split(":", 1)[1])
+        try:
+            password = parsed.password
+        except ValueError:
+            password = None
+        if password is not None:
+            _append_secret_value(secrets, password)
+            _append_secret_value(secrets, unquote(password))
+
+
+def _append_secret_value(secrets: list[str], value: object) -> None:
+    text = _optional_param_str(value)
+    if text is None or len(text) < 4:
+        return
+    if text.lower() in {"true", "false", "none", "null"}:
+        return
+    if text not in secrets:
+        secrets.append(text)
+
+
+def _scrub_job_payload(value: Any, *, secrets: list[str]) -> Any:
+    if isinstance(value, str):
+        return scrub_secret_text(value, secrets=secrets)
+    if isinstance(value, list):
+        return [_scrub_job_payload(item, secrets=secrets) for item in value]
+    if isinstance(value, tuple):
+        return [_scrub_job_payload(item, secrets=secrets) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _scrub_job_payload(item, secrets=secrets)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _configs_pinning_model(registry: ConfigRegistry, aliases: set[str]) -> list[str]:

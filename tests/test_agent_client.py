@@ -4349,6 +4349,95 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
 
 
 @pytest.mark.asyncio
+async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    index_url = "https://user:build-token-12345@packages.example/simple"
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        text = f"{phase}: pip output from {index_url}"
+        emit({"kind": "committed", "text": text, "level": "INFO", "phase": phase})
+        return 0
+
+    def fake_resolve_versions(_venv_path: Path) -> dict[str, str]:
+        return {
+            "vllm": "0.11.2",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        }
+
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        fake_resolve_versions,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-scrub"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-scrub",
+                "method": "pip",
+                "build_id": "01SCRUB",
+                "spec": "vllm==0.11.2",
+                "env": [f"PIP_INDEX_URL={index_url}"],
+            },
+        )
+        progress = []
+        done = None
+        for _ in range(6):
+            event = await asyncio.wait_for(events.__anext__(), timeout=2)
+            if event.get("event") == "job_done":
+                done = event
+                break
+            progress.append(event)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert done is not None
+    build_dir = builds_root / "01SCRUB"
+    log_text = (build_dir / "install.log").read_text(encoding="utf-8")
+    wire_text = json.dumps({"progress": progress, "done": done}, ensure_ascii=False)
+    manifest_text = (build_dir / "build.json").read_text(encoding="utf-8")
+    assert "build-token-12345" not in wire_text
+    assert "build-token-12345" not in log_text
+    assert "build-token-12345" not in manifest_text
+    assert "••••" in wire_text
+    assert "••••" in log_text
+    assert done["ok"] is True
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_create_build_pip_job_marks_failed_when_verify_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4477,6 +4566,45 @@ async def test_agent_download_model_job_streams_by_job_id() -> None:
     assert done["ok"] is True
     assert done["detail"] == "model cached"
     json.dumps(progress)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_download_model_job_scrubs_progress_before_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF_TOKEN", "model-token-12345")
+
+    async def model_job_runner(_params, emit, _cancel_event) -> dict[str, object]:
+        emit(
+            {
+                "kind": "committed",
+                "text": "Downloading with token model-token-12345",
+                "level": "INFO",
+                "phase": "DOWNLOADING",
+            }
+        )
+        return {"ok": True, "detail": "model-token-12345 finished"}
+
+    client = InProcessTargetClient(LocalAgent(model_job_runner=model_job_runner))
+    await client.connect()
+    events = client.subscribe(["job-model-scrub"], resume_from="live")
+    try:
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-scrub", "model_ref": "01MODEL"},
+        )
+        progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    wire_text = json.dumps({"progress": progress, "done": done}, ensure_ascii=False)
+    assert "model-token-12345" not in wire_text
+    assert "••••" in wire_text
+    assert progress["text"] == "Downloading with token ••••"
+    assert done["detail"] == "•••• finished"
     json.dumps(done)
 
 
