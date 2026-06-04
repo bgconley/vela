@@ -51,6 +51,14 @@ remote_model_id="${VLLM_LOADER_REMOTE_MODEL_ID:-remote-smoke-model}"
 remote_model_repo="${VLLM_LOADER_REMOTE_MODEL_REPO:-}"
 remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
 remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
+empty_arg="__VLLM_LOADER_EMPTY__"
+append_remote_arg() {
+  if [[ -n "$1" ]]; then
+    ssh_cmd+=("$1")
+  else
+    ssh_cmd+=("$empty_arg")
+  fi
+}
 ssh_cmd=(ssh)
 if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
@@ -62,34 +70,50 @@ if [[ -n "$real_config" ]]; then
 fi
 if [[ -n "$remote_build_spec" || -n "$remote_model_repo" || -n "$remote_model_ref" ]]; then
   if [[ -z "$real_config" ]]; then
-    ssh_cmd+=("")
+    append_remote_arg ""
   fi
-  ssh_cmd+=(
-    "$remote_build_method"
-    "$remote_build_spec"
-    "$remote_build_label"
-    "$remote_model_id"
-    "$remote_model_repo"
-    "$remote_model_ref"
-    "$remote_model_revision"
-  )
+  append_remote_arg "$remote_build_method"
+  append_remote_arg "$remote_build_spec"
+  append_remote_arg "$remote_build_label"
+  append_remote_arg "$remote_model_id"
+  append_remote_arg "$remote_model_repo"
+  append_remote_arg "$remote_model_ref"
+  append_remote_arg "$remote_model_revision"
 fi
 
 "${ssh_cmd[@]}" <<'REMOTE'
 set -euo pipefail
 
+empty_arg="__VLLM_LOADER_EMPTY__"
+_remote_arg_or_empty() {
+  if [[ "${1:-}" == "$empty_arg" ]]; then
+    printf ''
+  else
+    printf '%s' "${1:-}"
+  fi
+}
+
 remote_path="$1"
 remote_timeout="$2"
 remote_python="${3:-auto}"
 remote_venv="${4:-/tank/venvs/lab-tui}"
-real_config="${5:-}"
-remote_build_method="${6:-pip}"
-remote_build_spec="${7:-}"
-remote_build_label="${8:-remote-smoke-build}"
-remote_model_id="${9:-remote-smoke-model}"
-remote_model_repo="${10:-}"
-remote_model_ref="${11:-}"
-remote_model_revision="${12:-}"
+real_config="$(_remote_arg_or_empty "${5:-}")"
+remote_build_method="$(_remote_arg_or_empty "${6:-pip}")"
+remote_build_spec="$(_remote_arg_or_empty "${7:-}")"
+remote_build_label="$(_remote_arg_or_empty "${8:-remote-smoke-build}")"
+remote_model_id="$(_remote_arg_or_empty "${9:-remote-smoke-model}")"
+remote_model_repo="$(_remote_arg_or_empty "${10:-}")"
+remote_model_ref="$(_remote_arg_or_empty "${11:-}")"
+remote_model_revision="$(_remote_arg_or_empty "${12:-}")"
+if [[ -z "$remote_build_method" ]]; then
+  remote_build_method="pip"
+fi
+if [[ -z "$remote_build_label" ]]; then
+  remote_build_label="remote-smoke-build"
+fi
+if [[ -z "$remote_model_id" ]]; then
+  remote_model_id="remote-smoke-model"
+fi
 
 if [[ "$remote_python" == "auto" ]]; then
   if [[ -x /tank/preproc/venv/bin/python ]]; then
