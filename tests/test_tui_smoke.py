@@ -7738,6 +7738,7 @@ async def test_loaded_detached_log_classified_error_shows_named_banner(
 async def test_fake_child_launch_streams_logs_and_stop_works(config_dir: Path) -> None:
     port = _free_port()
     script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    src_path = Path.cwd() / "src"
     write_yaml(
         config_dir / "fake.yaml",
         f"""
@@ -7749,6 +7750,8 @@ async def test_fake_child_launch_streams_logs_and_stop_works(config_dir: Path) -
         server:
           host: 127.0.0.1
           port: {port}
+        env:
+          PYTHONPATH: "{src_path}"
         launch:
           health:
             interval_seconds: 0.05
@@ -7814,6 +7817,7 @@ async def test_force_kill_running_attached_server_is_intentional_stop(
 ) -> None:
     port = _free_port()
     script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    src_path = Path.cwd() / "src"
     write_yaml(
         config_dir / "fake.yaml",
         f"""
@@ -7825,6 +7829,8 @@ async def test_force_kill_running_attached_server_is_intentional_stop(
         server:
           host: 127.0.0.1
           port: {port}
+        env:
+          PYTHONPATH: "{src_path}"
         launch:
           health:
             interval_seconds: 0.05
