@@ -4633,6 +4633,57 @@ async def test_agent_refuses_to_force_remove_model_used_by_live_run(
 
 
 @pytest.mark.asyncio
+async def test_agent_ignores_unverified_sidecar_when_removing_model(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+    sidecar_path = tmp_path / "runs" / "dead-model.json"
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "load_sidecar",
+        lambda path: (_ for _ in ()).throw(AssertionError("unverified sidecar loaded")),
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01DEADSIDECAR",
+                "display_name": "dead-sidecar-model",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        removed = await client.call(
+            "remove_model",
+            {
+                "model_ref": "dead-sidecar-model",
+                "configs_dir": str(config_dir),
+            },
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert removed["entry_id"] == "01DEADSIDECAR"
+    assert removed["entry"]["display_name"] == "dead-sidecar-model"
+    assert removed["source"] == "hf_repo"
+    assert removed["removed_weights"] is False
+    assert listed["models"] == []
+    assert registry["entries"] == []
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
