@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.agent.stdio import _handle_frame
+from vllm_loader.agent.stdio import _handle_frame, _PrioritizedFrameWriter
 from vllm_loader.monitoring.gpu import GpuPollResult
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
 from vllm_loader.transport.rpc_errors import rpc_error_payload
 from vllm_loader.transport.socket import (
     _target_call_error_from_payload as socket_error_from_payload,
 )
-from vllm_loader.transport.subprocess import SubprocessTargetClient
+from vllm_loader.transport.subprocess import (
+    SubprocessTargetClient,
+)
 from vllm_loader.transport.subprocess import (
     _target_call_error_from_payload as subprocess_error_from_payload,
 )
@@ -33,6 +37,41 @@ def test_ndjson_frame_rejects_oversized_payload() -> None:
 def test_ndjson_frame_rejects_non_object_payload() -> None:
     with pytest.raises(NdjsonFrameError, match="object"):
         decode_frame(b'["not", "an", "object"]\n')
+
+
+@pytest.mark.asyncio
+async def test_stdio_writer_prioritizes_response_over_buffered_events() -> None:
+    class PausedDrainWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.drain_calls = 0
+            self.first_drain_started = asyncio.Event()
+            self.release_first_drain = asyncio.Event()
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            self.drain_calls += 1
+            if self.drain_calls == 1:
+                self.first_drain_started.set()
+                await self.release_first_drain.wait()
+
+    sink = PausedDrainWriter()
+    writer = _PrioritizedFrameWriter(sink)
+    await writer.write({"event": "log", "seq": 1})
+    await asyncio.wait_for(sink.first_drain_started.wait(), timeout=2)
+
+    await writer.write({"event": "log", "seq": 2})
+    await writer.write({"id": "stop-1", "result": {"signaled": True}})
+    sink.release_first_drain.set()
+    await writer.close()
+
+    assert sink.frames == [
+        {"event": "log", "seq": 1},
+        {"id": "stop-1", "result": {"signaled": True}},
+        {"event": "log", "seq": 2},
+    ]
 
 
 @pytest.mark.asyncio

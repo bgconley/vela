@@ -31,14 +31,12 @@ async def serve_agent_stream(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
-    write_lock = asyncio.Lock()
+    frame_writer = _PrioritizedFrameWriter(writer)
     handler_tasks: set[asyncio.Task[None]] = set()
     subscription_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def write_frame(frame: dict[str, Any]) -> None:
-        async with write_lock:
-            writer.write(encode_frame(frame))
-            await writer.drain()
+        await frame_writer.write(frame)
 
     try:
         while line := await reader.readline():
@@ -57,6 +55,7 @@ async def serve_agent_stream(
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        await frame_writer.close()
         writer.close()
         await writer.wait_closed()
 
@@ -172,6 +171,39 @@ async def _stream_events(
         aclose = getattr(events, "aclose", None)
         if callable(aclose):
             await aclose()
+
+
+class _PrioritizedFrameWriter:
+    def __init__(self, writer: asyncio.StreamWriter) -> None:
+        self._writer = writer
+        self._queue: asyncio.PriorityQueue[tuple[int, int, dict[str, Any]]] = (
+            asyncio.PriorityQueue()
+        )
+        self._sequence = 0
+        self._task = asyncio.create_task(self._drain())
+
+    async def write(self, frame: dict[str, Any]) -> None:
+        self._sequence += 1
+        await self._queue.put((_frame_priority(frame), self._sequence, frame))
+
+    async def close(self) -> None:
+        await self._queue.join()
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+
+    async def _drain(self) -> None:
+        while True:
+            _priority, _sequence, frame = await self._queue.get()
+            try:
+                self._writer.write(encode_frame(frame))
+                await self._writer.drain()
+            finally:
+                self._queue.task_done()
+
+
+def _frame_priority(frame: dict[str, Any]) -> int:
+    return 0 if "id" in frame else 1
 
 
 async def _stdio_streams(
