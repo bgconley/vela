@@ -96,11 +96,13 @@ def test_target_client_requires_lifecycle_capabilities() -> None:
     assert set(REQUIRED_AGENT_CAPABILITIES) >= {
         "list_configs",
         "preview",
+        "preflight",
         "prepare_launch",
         "launch",
         "wait",
         "stop",
         "kill",
+        "restart",
         "gpu",
         "health",
         "status",
@@ -334,6 +336,8 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert result["target"] == "local"
     assert "list_configs" in result["capabilities"]
     assert "preview" in result["capabilities"]
+    assert "preflight" in result["capabilities"]
+    assert "restart" in result["capabilities"]
     assert "gpu" in result["capabilities"]
     assert "health" in result["capabilities"]
     assert "status" in result["capabilities"]
@@ -1114,6 +1118,97 @@ async def test_local_agent_prepare_launch_reports_preflight_failure(
     assert exc_info.value.code == "preflight-failed"
     assert exc_info.value.details["kind"] == "MODEL_NOT_FOUND"
     assert str(missing_model) in exc_info.value.details["detail"]
+
+
+@pytest.mark.asyncio
+async def test_local_agent_preflight_reports_structured_failures_without_launching(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    missing_model = tmp_path / "missing-model"
+    write_yaml(
+        config_dir / "missing-preflight.yaml",
+        f"""
+        name: missing-preflight
+        model: {missing_model}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {"config_name": "missing-preflight", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["failures"][0]["kind"] == "MODEL_NOT_FOUND"
+    assert str(missing_model) in result["failures"][0]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_local_agent_restart_rpc_stops_waits_and_launches_new_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = LocalAgent()
+    calls: list[tuple[str, object]] = []
+
+    def fake_stop(params: dict[str, object]) -> dict[str, object]:
+        calls.append(("stop", dict(params)))
+        return {"run_id": params["run_id"], "signaled": True}
+
+    async def fake_wait(run_id: str) -> dict[str, object]:
+        calls.append(("wait", run_id))
+        return {"run_id": run_id, "phase": "STOPPED"}
+
+    def fake_launch(params: dict[str, object]) -> dict[str, object]:
+        calls.append(("launch", dict(params)))
+        return {
+            "run_id": params["run_id"],
+            "launch_mode": "attached",
+            "status": "started",
+        }
+
+    monkeypatch.setattr(agent, "_stop", fake_stop)
+    monkeypatch.setattr(agent, "_await_run_exit_payload", fake_wait)
+    monkeypatch.setattr(agent, "_launch", fake_launch)
+    client = InProcessTargetClient(agent)
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "restart",
+            {
+                "run_id": "old-run",
+                "new_run_id": "new-run",
+                "config_name": "serve-qwen",
+                "configs_dir": "/agent/configs",
+                "interrupt_timeout": 1,
+                "terminate_timeout": 2,
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["new_run_id"] == "new-run"
+    assert result["status"] == "started"
+    assert calls == [
+        (
+            "stop",
+            {"run_id": "old-run", "interrupt_timeout": 1, "terminate_timeout": 2},
+        ),
+        ("wait", "old-run"),
+        (
+            "launch",
+            {
+                "run_id": "new-run",
+                "name": "serve-qwen",
+                "configs_dir": "/agent/configs",
+            },
+        ),
+    ]
 
 
 @pytest.mark.asyncio

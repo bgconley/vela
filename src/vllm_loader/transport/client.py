@@ -8,11 +8,13 @@ from vllm_loader import __version__
 REQUIRED_AGENT_CAPABILITIES = (
     "list_configs",
     "preview",
+    "preflight",
     "prepare_launch",
     "launch",
     "wait",
     "stop",
     "kill",
+    "restart",
     "gpu",
     "status",
     "health",

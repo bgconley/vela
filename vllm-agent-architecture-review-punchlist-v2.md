@@ -38,6 +38,11 @@ history, but the current tree has closed the load-bearing gaps it identified:
 - **PA7 follow-up closed in this pass:** stdio response priority now also
   coalesces backpressured transient progress frames, and build/model/flag entry
   points are gated against missing target capabilities.
+- **Agent method-surface follow-up closed:** standalone `preflight` and
+  `restart` are now negotiated capabilities and `handle()`-dispatched RPC
+  verbs. `preflight` returns serializable `{ok, failures}` data; `restart`
+  performs agent-side stop/wait/launch using only run/config ids and
+  controller-minted `new_run_id`.
 
 Remaining work should be treated as incremental polish or new validation scope,
 not as the original P1-P4 safety/functionality blockers.

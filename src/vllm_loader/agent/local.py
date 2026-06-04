@@ -89,11 +89,13 @@ AGENT_CAPABILITIES = [
     "list_configs",
     "update_config_flags",
     "preview",
+    "preflight",
     "prepare_launch",
     "launch",
     "wait",
     "stop",
     "kill",
+    "restart",
     "gpu",
     "status",
     "health",
@@ -313,6 +315,8 @@ class LocalAgent:
             return self._update_config_flags(payload)
         if method == "preview":
             return self._preview(payload)
+        if method == "preflight":
+            return self._preflight(payload)
         if method == "prepare_launch":
             return self._prepare_launch(payload)
         if method == "launch":
@@ -323,6 +327,8 @@ class LocalAgent:
             return self._stop(payload)
         if method == "kill":
             return self._kill(payload)
+        if method == "restart":
+            return self._restart(payload)
         if method == "status":
             return self._status(payload)
         if method in {"health", "probe_until_ready"}:
@@ -555,9 +561,7 @@ class LocalAgent:
         }
 
     def _prepare_launch(self, params: dict[str, Any]) -> dict[str, Any]:
-        name = params.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise TargetCallError("invalid-params", "prepare_launch requires config name")
+        name = _config_name_param(params, method="prepare_launch")
         registry = load_registry(_configs_dir(params))
         self._remember_registry_runs_dirs(registry)
         cfg = _config_by_name(registry, name)
@@ -581,6 +585,28 @@ class LocalAgent:
             "build": _build_payload(result),
             "preflight": None,
         }
+
+    def _preflight(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = _config_name_param(params, method="preflight")
+        registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
+        cfg = _config_by_name(registry, name)
+        self._remember_run_config(cfg)
+        try:
+            preparation = self._prepare_command_for_config(
+                cfg, validate_model_handoff=True
+            )
+        except VllmProfileError as exc:
+            raise TargetCallError("profile-error", str(exc)) from exc
+        failure = check_launch_preflight(
+            preparation.preflight_config, cwd=preparation.result.cwd
+        )
+        failures = (
+            [{"kind": failure.kind.value, "detail": failure.detail}]
+            if failure is not None
+            else []
+        )
+        return {"ok": failure is None, "failures": failures}
 
     def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
         return self._prepare_command_for_config(cfg).result
@@ -713,6 +739,43 @@ class LocalAgent:
         run_id = _run_id_param(params)
         self._request_kill_signal(run_id)
         return {"run_id": run_id, "signaled": True}
+
+    async def _restart(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        new_run_id_value = params.get("new_run_id")
+        if not isinstance(new_run_id_value, str) or not new_run_id_value.strip():
+            raise TargetCallError("invalid-params", "new_run_id is required")
+        new_run_id = new_run_id_value.strip()
+        config_name = _config_name_param(params, method="restart")
+        stop_params: dict[str, Any] = {"run_id": run_id}
+        for key in ("interrupt_timeout", "terminate_timeout"):
+            if key in params:
+                stop_params[key] = params[key]
+        stop_result = self._stop(stop_params)
+        wait_result = await self._await_run_exit_payload(run_id)
+        launch_params = {
+            key: value
+            for key, value in params.items()
+            if key
+            not in {
+                "run_id",
+                "new_run_id",
+                "config_name",
+                "interrupt_timeout",
+                "terminate_timeout",
+            }
+        }
+        launch_params["name"] = config_name
+        launch_params["run_id"] = new_run_id
+        launch_result = self._launch(launch_params)
+        return {
+            "run_id": run_id,
+            "new_run_id": str(launch_result.get("run_id") or new_run_id),
+            "status": str(launch_result.get("status") or "started"),
+            "stop": stop_result,
+            "wait": wait_result,
+            "launch": launch_result,
+        }
 
     async def _probe_until_ready(self, params: dict[str, Any]) -> dict[str, Any]:
         run_id = _run_id_param(params)
@@ -3366,6 +3429,13 @@ def _run_id_param(params: dict[str, Any]) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TargetCallError("invalid-params", "run_id is required")
     return value
+
+
+def _config_name_param(params: dict[str, Any], *, method: str) -> str:
+    value = params.get("name", params.get("config_name"))
+    if not isinstance(value, str) or not value.strip():
+        raise TargetCallError("invalid-params", f"{method} requires config name")
+    return value.strip()
 
 
 def _job_id_param(params: dict[str, Any]) -> str:
