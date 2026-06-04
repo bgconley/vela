@@ -179,10 +179,11 @@ Details are in [docs/agent-rpc.md](docs/agent-rpc.md).
 
 The preferred architecture smoke is P620-01 controller (`10.25.0.50`) to
 Blackbird agent (`10.25.0.51`) with the Qwen3.6 27B FP8 Docker stack. The latest
-repeatable artifacts are
-`artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-build-model-resume.md`
-and
-`artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-qwen-smoke.md`.
+repeatable artifact is
+`artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`.
+It was produced by the self-hosted GitHub Actions `Remote Validation` lane and
+covers real vLLM build install, tiny HF model pin/download, Qwen3.6 27B FP8
+`smoke-tui`, and real-model resume/daemon restart.
 
 The fallback 620-01 host-local lane covers the Qwen3-32B FP8 lab surface. Treat
 these as tested lab surfaces; when bumping vLLM, rerun the remote validation

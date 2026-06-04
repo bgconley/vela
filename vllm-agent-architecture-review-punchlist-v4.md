@@ -20,12 +20,13 @@ items:
 - **V4-P3 build edges are now closed.** Git-source builds fall back to Python
   venv plus pip when `uv` is absent, nightly/commit still correctly require
   `uv`, and the CLI/TUI surfaces that requirement before users start the job.
-- **V4-P1 is narrowed to live GitHub runner proof.** Manual P620 controller to
-  Blackbird agent validation produced current in-tree artifacts covering real
-  build install, tiny HF model pin/download, real model resume/daemon restart,
-  and Qwen3.6 27B FP8 `smoke-tui`. The remaining proof is a live execution of
-  `.github/workflows/remote-validation.yml` on the trusted self-hosted runner
-  path with the configured secret/concurrency setup.
+- **V4-P1 is now closed by live GitHub runner proof.** P620 is registered as
+  the trusted self-hosted runner, the repo has `VLLM_LOADER_REMOTE_SSH_KEY`
+  configured, and GitHub Actions run `26976430928` executed the full
+  P620-to-Blackbird lane at commit `5e000fa`. The in-tree artifact
+  `artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
+  covers real build install, tiny HF model pin/download, Qwen3.6 27B FP8
+  `smoke-tui`, and real model resume/daemon restart.
 
 ---
 
@@ -54,10 +55,12 @@ a theoretical stretch. The right cadence is still **better proof cadence, not
 gate every commit**: a 30-60 minute Qwen/build/model run is too heavy for every
 push, and one shared GPU needs a concurrency guard plus trusted-code hygiene.
 
-**What's true now (good).** `scripts/run_remote_tests.sh` is a genuinely repeatable lane that *executes* a real `vllm` build install + real HF download + real Qwen `smoke-tui` against the GPU host and writes dated, commit-pinned artifacts. Fresh P620 controller → Blackbird target artifacts exist at HEAD `b085610`: `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-build-model-resume.md` covers managed build install, tiny HF model pin/download, and real model resume/daemon restart; `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-qwen-smoke.md` covers Qwen3.6 27B FP8 `smoke-tui`. A `.github/workflows/remote-validation.yml` lane is wired for manual dispatch, nightly self-hosted execution, fast/full profiles, and concurrency guarding. **[Opus-verified]**
+**What's true now (closed).** `scripts/run_remote_tests.sh` is a genuinely repeatable lane that *executes* a real `vllm` build install + real HF download + real Qwen `smoke-tui` against the GPU host and writes dated, commit-pinned artifacts. P620 is registered as the trusted self-hosted runner (`p620-01-vllm-loader`) with LAN/SSH reach to Blackbird. GitHub Actions run `26976430928` executed the full self-hosted lane at commit `5e000fa`: `artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md` covers managed build install, tiny HF model pin/download, Qwen3.6 27B FP8 `smoke-tui`, and real model resume/daemon restart. The workflow remains manual/scheduled with a concurrency guard and fast/full profiles.
 
 **What's not yet true.**
-- **Workflow still needs live runner proof:** the YAML now targets self-hosted scheduled/manual real-hardware validation, but the actual GitHub Actions self-hosted runner/secret/concurrency path still needs a live run. The manual P620→Blackbird path is proven at HEAD.
+- Nothing required for v4 validation remains open. Ongoing hygiene: keep the
+  P620 runner online, keep the SSH secret current, and let the nightly/manual
+  lane refresh the artifact cadence.
 
 **Important nuance (don't over-fix).** Auto-gating a real GPU run on every commit is **not realistic** for a lab tool (slow, costly, and contends with research use). The stronger target is scheduled/manual self-hosted proof with a concurrency guard, plus an optional `fast` profile for cheaper build/model validation.
 
@@ -99,4 +102,4 @@ push, and one shared GPU needs a concurrency guard plus trusted-code hygiene.
 
 ## Definition of done (v4)
 
-**Done = V4-P1 (fresh at-HEAD artifact + one real-model resume) + V4-P2 (real docs).** V4-P3 is minor polish. At that point the architecture is built, proven current against real hardware, and documented — a shippable v1. The remaining work is **validation hygiene and writing, not engineering.**
+**Done = V4-P1 (fresh at-HEAD artifact + one real-model resume) + V4-P2 (real docs).** V4-P3 is minor polish. At this point those items are closed: the architecture is built, proven current against real hardware, and documented. The remaining work is routine validation hygiene, not v1 architecture implementation.

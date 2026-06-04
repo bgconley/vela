@@ -191,11 +191,11 @@ from P620.
 
 The latest P620-to-Blackbird validation records are:
 
-- `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-build-model-resume.md`
-  for the managed vLLM build install, tiny HF model pin/download, and real
-  model resume/daemon restart pass.
-- `artifacts/remote-validation/2026-06-04-p620-blackbird-b085610-qwen-smoke.md`
-  for the Qwen3.6 27B FP8 `smoke-tui` pass through the Blackbird target.
+- `artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
+  from GitHub Actions run `26976430928`, produced by the P620 self-hosted
+  runner. It covers the managed vLLM build install, tiny HF model pin/download,
+  Qwen3.6 27B FP8 `smoke-tui`, and real model resume/daemon restart pass
+  through the Blackbird target.
 
 Direct Mac to Blackbird validation is still useful for host-local checks:
 
