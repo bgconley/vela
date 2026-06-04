@@ -3522,10 +3522,44 @@ async def test_agent_download_model_job_verifies_cached_model_entry(
 
 
 @pytest.mark.asyncio
-async def test_agent_download_model_job_reports_uncached_remote_entry(
-    tmp_path: Path,
+async def test_agent_download_model_job_downloads_uncached_hf_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    snapshot_calls: list[dict[str, object]] = []
+
+    def fake_snapshot_download(**kwargs: object) -> str:
+        snapshot_calls.append(dict(kwargs))
+        return str(tmp_path / "hf-cache" / "snapshots" / "abc123")
+
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=130,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+            SimpleNamespace(file_name="tokenizer.json", size_on_disk=20),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        fake_snapshot_download,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
@@ -3537,13 +3571,20 @@ async def test_agent_download_model_job_reports_uncached_remote_entry(
                 "entry_id": "01REMOTE",
                 "display_name": "llama-remote",
                 "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
             },
         )
         result = await client.call(
             "download_model",
-            {"job_id": "job-model-remote", "model_ref": "01REMOTE"},
+            {
+                "job_id": "job-model-remote",
+                "model_ref": "01REMOTE",
+                "allow_patterns": ["*.safetensors", "*.json"],
+                "ignore_patterns": ["*.msgpack"],
+            },
         )
         progress = await asyncio.wait_for(events.__anext__(), timeout=2)
+        downloading = await asyncio.wait_for(events.__anext__(), timeout=2)
         done = await asyncio.wait_for(events.__anext__(), timeout=2)
     finally:
         await events.aclose()
@@ -3556,14 +3597,35 @@ async def test_agent_download_model_job_reports_uncached_remote_entry(
     }
     assert progress["event"] == "job_progress"
     assert progress["text"] == "Resolving model"
+    assert downloading["event"] == "job_progress"
+    assert downloading["text"] == "Downloading model meta-llama/Llama-3.1-8B-Instruct"
     assert done["event"] == "job_done"
     assert done["job_id"] == "job-model-remote"
-    assert done["ok"] is False
-    assert done["error_kind"] == "feature-unavailable"
+    assert done["ok"] is True
+    assert done["detail"] == "model cached"
     assert done["entry_id"] == "01REMOTE"
-    assert done["cache_state"] == "remote_only"
-    assert "not implemented" in done["detail"]
+    assert done["cache_state"] == "cached"
+    assert done["entry"]["commit_sha"] == "abc123"
+    assert done["entry"]["files"] == {
+        "count": 3,
+        "total_bytes": 130,
+        "weights_format": "safetensors",
+    }
+    assert snapshot_calls == [
+        {
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+            "allow_patterns": ["*.safetensors", "*.json"],
+            "ignore_patterns": ["*.msgpack"],
+        }
+    ]
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    [entry] = registry["entries"]
+    assert entry["cache_state"] == "cached"
+    assert entry["commit_sha"] == "abc123"
+    assert entry["files"]["total_bytes"] == 130
     json.dumps(progress)
+    json.dumps(downloading)
     json.dumps(done)
 
 

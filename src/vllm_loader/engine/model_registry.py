@@ -138,6 +138,88 @@ def verify_model(reference: str, registry_path: str | Path | None = None) -> dic
     return result
 
 
+def download_hf_model(
+    reference: str,
+    registry_path: str | Path | None = None,
+    *,
+    revision: str | None = None,
+    allow_patterns: list[str] | None = None,
+    ignore_patterns: list[str] | None = None,
+) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_for_write(path)
+    entry = _entry_for_reference(registry, reference)
+    if entry.get("source") != "hf_repo":
+        raise ModelRegistryError(
+            "invalid-config",
+            f"model {reference} is not a Hugging Face repo entry",
+            {"model_ref": reference, "source": _optional_str(entry.get("source"))},
+        )
+
+    repo_id = _required_str(entry, "repo_id", reference)
+    selected_revision = (
+        _optional_str(revision)
+        or _optional_str(entry.get("commit_sha"))
+        or _optional_str(entry.get("revision"))
+    )
+    download_kwargs: dict[str, Any] = {"repo_id": repo_id}
+    if selected_revision:
+        download_kwargs["revision"] = selected_revision
+    if allow_patterns is not None:
+        download_kwargs["allow_patterns"] = allow_patterns
+        entry["allow_patterns"] = list(allow_patterns)
+    if ignore_patterns is not None:
+        download_kwargs["ignore_patterns"] = ignore_patterns
+        entry["ignore_patterns"] = list(ignore_patterns)
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        download_kwargs["token"] = token
+
+    try:
+        snapshot_path = _snapshot_download(**download_kwargs)
+    except ImportError as exc:
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "huggingface_hub is required to download remote models",
+            {"model_ref": reference, "repo_id": repo_id},
+        ) from exc
+    except Exception as exc:
+        raise ModelRegistryError(
+            "model-not-found",
+            f"unable to download model {repo_id}: {exc}",
+            {"model_ref": reference, "repo_id": repo_id},
+        ) from exc
+
+    cached = _matching_hf_cache_payload(repo_id, selected_revision)
+    if cached is None:
+        raise ModelRegistryError(
+            "model-not-found",
+            f"downloaded model {repo_id} was not found in the Hugging Face cache",
+            {
+                "model_ref": reference,
+                "repo_id": repo_id,
+                "snapshot_path": str(snapshot_path),
+            },
+        )
+    _apply_cached_model_payload(entry, cached)
+    registry["schema_version"] = 1
+    registry["default_cache"] = str(registry.get("default_cache") or "hf")
+    registry.setdefault("app_download_dir", None)
+    _write_registry_atomic(path, registry)
+    return {
+        "entry_id": str(entry.get("entry_id") or ""),
+        "ok": True,
+        "cache_state": "cached",
+        "detail": "model cached",
+        "snapshot_path": str(snapshot_path),
+        "entry": _model_payload(entry),
+    }
+
+
 def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()
@@ -340,6 +422,33 @@ def _merge_hf_cache_models(models: list[dict[str, Any]]) -> None:
             existing["revision"] = payload["revision"]
 
 
+def _matching_hf_cache_payload(
+    repo_id: str, revision_or_commit: str | None
+) -> dict[str, Any] | None:
+    fallback: dict[str, Any] | None = None
+    for entry in _cached_model_entries_from_hf_scan():
+        payload = _model_payload(entry)
+        if payload.get("repo_id") != repo_id:
+            continue
+        if fallback is None:
+            fallback = payload
+        if payload.get("commit_sha") == revision_or_commit:
+            return payload
+        if payload.get("revision") == revision_or_commit:
+            return payload
+    return fallback if not revision_or_commit else None
+
+
+def _apply_cached_model_payload(entry: dict[str, Any], payload: dict[str, Any]) -> None:
+    entry["cache_state"] = "cached"
+    entry["files"] = dict(payload.get("files")) if isinstance(payload.get("files"), dict) else {}
+    entry["size_bytes"] = int(payload.get("size_bytes") or 0)
+    if payload.get("commit_sha"):
+        entry["commit_sha"] = payload["commit_sha"]
+    if not entry.get("revision") and payload.get("revision"):
+        entry["revision"] = payload["revision"]
+
+
 def _cached_model_entries_from_hf_scan() -> list[dict[str, Any]]:
     cache_info = _scan_hf_cache_info()
     if cache_info is None:
@@ -399,6 +508,12 @@ def _scan_hf_cache_info() -> object | None:
         return scan_cache_dir()
     except Exception:
         return None
+
+
+def _snapshot_download(**kwargs: Any) -> str:
+    from huggingface_hub import snapshot_download
+
+    return str(snapshot_download(**kwargs))
 
 
 def _hf_cache_files_payload(files: list[object], total_size: int) -> dict[str, Any]:

@@ -35,6 +35,7 @@ from vllm_loader.engine.model_registry import (
     ModelHandoff,
     ModelRegistryError,
     default_models_registry_path,
+    download_hf_model,
     inspect_model,
     list_models,
     model_reference_aliases,
@@ -1067,6 +1068,42 @@ class LocalAgent:
 
         entry = verified.get("entry") if isinstance(verified.get("entry"), dict) else {}
         source = str(entry.get("source") or "")
+        if source == "hf_repo":
+            repo_id = str(entry.get("repo_id") or model_ref)
+            emit(
+                {
+                    "kind": "committed",
+                    "text": f"Downloading model {repo_id}",
+                    "level": "INFO",
+                    "phase": "DOWNLOADING",
+                }
+            )
+            try:
+                downloaded = await asyncio.to_thread(
+                    download_hf_model,
+                    model_ref,
+                    self._models_registry_path,
+                    revision=_optional_param_str(params.get("revision")),
+                    allow_patterns=_optional_str_list(params.get("allow_patterns")),
+                    ignore_patterns=_optional_str_list(params.get("ignore_patterns")),
+                )
+            except ModelRegistryError as exc:
+                result = {
+                    "ok": False,
+                    "error_kind": exc.code,
+                    "detail": exc.message,
+                }
+                result.update(exc.details)
+                return result
+            return {
+                "ok": True,
+                "detail": "model cached",
+                "entry_id": downloaded.get("entry_id"),
+                "cache_state": downloaded.get("cache_state"),
+                "entry": downloaded.get("entry"),
+                "snapshot_path": downloaded.get("snapshot_path"),
+            }
+
         error_kind = "invalid-config" if source == "local_path" else "feature-unavailable"
         detail = str(verified.get("detail") or "model is not cached")
         if error_kind == "feature-unavailable":
@@ -1637,6 +1674,23 @@ def _extra_args_with_model_handoff(
 
 def _extra_args_include_tokenizer(extra_args: list[str]) -> bool:
     return any(arg == "--tokenizer" or arg.startswith("--tokenizer=") for arg in extra_args)
+
+
+def _optional_param_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_str_list(value: object) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, list):
+        return None
+    return [str(item) for item in value if str(item)]
 
 
 def _event_stream_id(event: dict[str, Any]) -> str | None:
