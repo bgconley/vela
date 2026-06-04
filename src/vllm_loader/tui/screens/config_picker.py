@@ -6,8 +6,6 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from vllm_loader.config.loader import ConfigRegistry, ValidConfig
-from vllm_loader.engine.command_builder import build_command
-from vllm_loader.engine.profile import VllmProfileError, select_profile_for_config
 from vllm_loader.tui.theme import ACCENT, SURFACE_ALT
 
 
@@ -44,9 +42,12 @@ class ConfigPickerScreen(ModalScreen):
         ("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, registry: ConfigRegistry) -> None:
+    def __init__(
+        self, registry: ConfigRegistry, preview_cache: dict[str, str] | None = None
+    ) -> None:
         super().__init__(id="config-picker")
         self.registry = registry
+        self.preview_cache = {} if preview_cache is None else preview_cache
         self.selected_index = 0
         self.summary = ""
         self.filter_text = ""
@@ -118,12 +119,7 @@ class ConfigPickerScreen(ModalScreen):
         configs = self._filtered_valid()
         if not configs:
             return ""
-        cfg = configs[self.selected_index].config
-        try:
-            profile = select_profile_for_config(cfg)
-            return build_command(cfg, profile).preview
-        except VllmProfileError as exc:
-            return f"Preview unavailable: {exc}"
+        return self.preview_cache.get(configs[self.selected_index].config.name, "")
 
     def _filtered_valid(self) -> list[ValidConfig]:
         if not self.filter_text.strip():

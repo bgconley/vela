@@ -38,6 +38,7 @@ from vllm_loader.monitoring.health import HealthEvent
 from vllm_loader.transport.inprocess import InProcessTargetClient
 from vllm_loader.tui import app as tui_app_module
 from vllm_loader.tui.app import VllmLoaderApp
+from vllm_loader.tui.screens import config_picker as config_picker_module
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 
 
@@ -3542,6 +3543,72 @@ async def test_config_picker_shows_masked_preview_for_selected_config(
         assert "HF_TOKEN='••••'" in app.screen.summary
         assert "sk-live-secret" not in app.screen.summary
         assert "hf_private_token" not in app.screen.summary
+
+
+@pytest.mark.asyncio
+async def test_config_picker_uses_agent_preview_without_controller_profile(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class TargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/alpha.yaml",
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "target": None,
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/alpha --agent-preview",
+                    "warnings": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("config picker preview should not subscribe")
+
+    def refuse_controller_profile(_cfg):
+        raise AssertionError("Config picker should use agent preview cache")
+
+    monkeypatch.setattr(
+        config_picker_module,
+        "select_profile_for_config",
+        refuse_controller_profile,
+        raising=False,
+    )
+    app = VllmLoaderApp(configs_dir=config_dir, target_client=TargetClient())
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await _wait_for_condition(
+            lambda: "--agent-preview" in app.selected_config_preview,
+            "agent preview was not cached",
+        )
+        await pilot.press("c")
+        await pilot.pause()
+
+        assert "Resolved command" in app.screen.summary
+        assert "vllm serve org/alpha --agent-preview" in app.screen.summary
 
 
 @pytest.mark.asyncio

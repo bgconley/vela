@@ -606,6 +606,7 @@ class VllmLoaderApp(App):
         self.config_summary = ""
         self.selected_config_preview = ""
         self.selected_config_metadata: dict[str, Any] = {}
+        self._config_preview_cache: dict[str, str] = {}
         self.paused = False
         self.wrap = False
         self.filter_text = ""
@@ -1524,6 +1525,7 @@ class VllmLoaderApp(App):
         self.current_config = None
         self.selected_config_preview = ""
         self.selected_config_metadata = {}
+        self._config_preview_cache.clear()
         self.current_run_id = None
         self.reattached_run_id = None
         self.fsm = PhaseFSM(bundled_profile("current"))
@@ -1729,7 +1731,12 @@ class VllmLoaderApp(App):
         self.action_load()
 
     def action_config_picker(self) -> None:
-        self.push_screen(ConfigPickerScreen(self.registry))
+        self.push_screen(
+            ConfigPickerScreen(
+                self.registry,
+                preview_cache=self._config_preview_cache,
+            )
+        )
 
     def action_search(self) -> None:
         self.push_screen(
@@ -2312,10 +2319,16 @@ class VllmLoaderApp(App):
                 self._agent_params(name=self.current_config.name, configs_dir=self.configs_dir),
             )
             self.selected_config_preview = str(result["preview"])
+            self._config_preview_cache[self.current_config.name] = (
+                self.selected_config_preview
+            )
             metadata = result.get("metadata")
             self.selected_config_metadata = dict(metadata) if isinstance(metadata, dict) else {}
         except TargetCallError as exc:
             self.selected_config_preview = f"Preview unavailable: {exc}"
+            self._config_preview_cache[self.current_config.name] = (
+                self.selected_config_preview
+            )
             self.selected_config_metadata = {}
         self.config_summary = self._render_config_summary_plain()
         try:
