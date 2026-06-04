@@ -2360,6 +2360,136 @@ async def test_agent_refuses_to_remove_build_pinned_by_config(
 
 
 @pytest.mark.asyncio
+async def test_agent_refuses_to_remove_build_used_by_live_run(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01LIVEBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    vllm_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01LIVEBUILD",
+                "label": "live-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+    sidecar_path = tmp_path / "runs" / "live-build.json"
+    live_sidecar = Sidecar(
+        run_id="run-live-build",
+        config_name="live-config",
+        command_argv=[str(vllm_bin), "serve", "org/model"],
+        command_hash="sha256:test",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable=str(vllm_bin),
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["org/model"],
+        exposure="local",
+        manifest_path=str(tmp_path / "runs" / "live-build.manifest.json"),
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: live_sidecar)
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "remove_build",
+                {"build": "live-build", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "live-run"
+    assert exc_info.value.details["build"] == "live-build"
+    assert exc_info.value.details["run_id"] == "run-live-build"
+    assert exc_info.value.details["config_name"] == "live-config"
+    assert build_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_agent_ignores_unverified_sidecar_when_removing_build(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01DEADSIDECAR"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01DEADSIDECAR",
+                "label": "dead-sidecar-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+    sidecar_path = tmp_path / "runs" / "dead-sidecar.json"
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "load_sidecar",
+        lambda path: (_ for _ in ()).throw(AssertionError("unverified sidecar loaded")),
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        removed = await client.call(
+            "remove_build",
+            {"build": "dead-sidecar-build", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert removed["build_id"] == "01DEADSIDECAR"
+    assert removed["removed"] is True
+    assert not build_dir.exists()
+
+
+@pytest.mark.asyncio
 async def test_agent_refuses_to_remove_active_default_build(tmp_path: Path) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
     build_dir = builds_root / "01ACTIVEBUILD"
@@ -3374,6 +3504,85 @@ async def test_agent_force_removes_model_pinned_by_config(
     assert listed["models"] == []
     assert registry["entries"] == []
     json.dumps(removed)
+
+
+@pytest.mark.asyncio
+async def test_agent_refuses_to_force_remove_model_used_by_live_run(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+    sidecar_path = tmp_path / "runs" / "live-model.json"
+    live_sidecar = Sidecar(
+        run_id="run-live-model",
+        config_name="live-config",
+        command_argv=[
+            "/opt/vllm/bin/vllm",
+            "serve",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "--revision",
+            "abc123",
+        ],
+        command_hash="sha256:test",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/opt/vllm/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8000,
+        served_model_names=["llama-live"],
+        exposure="local",
+        manifest_path=str(tmp_path / "runs" / "live-model.manifest.json"),
+        config_snapshot={
+            "name": "live-config",
+            "model": "meta-llama/Llama-3.1-8B-Instruct",
+            "model_ref": "01REMOTE",
+            "revision": "abc123",
+        },
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: live_sidecar)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "remote_only",
+            },
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "remove_model",
+                {
+                    "model_ref": "llama-remote",
+                    "configs_dir": str(config_dir),
+                    "force": True,
+                },
+            )
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert exc_info.value.code == "resource-in-use"
+    assert exc_info.value.details["reason"] == "live-run"
+    assert exc_info.value.details["model_ref"] == "llama-remote"
+    assert exc_info.value.details["run_id"] == "run-live-model"
+    assert exc_info.value.details["config_name"] == "live-config"
+    assert registry["entries"][0]["entry_id"] == "01REMOTE"
 
 
 @pytest.mark.asyncio

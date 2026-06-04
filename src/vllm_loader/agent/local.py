@@ -836,9 +836,11 @@ class LocalAgent:
             raise TargetCallError("invalid-params", "remove_build requires build")
         try:
             aliases = build_reference_aliases(reference, self._builds_root)
+            inspected = inspect_build(reference, self._builds_root)
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
-        pinned_configs = _configs_pinning_build(_configs_dir(params), aliases)
+        config_registry = self._load_config_registry(_configs_dir(params))
+        pinned_configs = _configs_pinning_build(config_registry, aliases)
         if pinned_configs:
             raise TargetCallError(
                 "resource-in-use",
@@ -848,6 +850,17 @@ class LocalAgent:
                     "reason": "config-pin",
                     "configs": pinned_configs,
                 },
+            )
+        sidecar = _sidecar_using_build(inspected["manifest"], self._verified_live_sidecars())
+        if sidecar is not None:
+            raise TargetCallError(
+                "resource-in-use",
+                "build is used by a live run",
+                _live_run_resource_details(
+                    sidecar,
+                    resource_key="build",
+                    resource_value=reference,
+                ),
             )
         try:
             return remove_build(reference, self._builds_root)
@@ -893,10 +906,12 @@ class LocalAgent:
             raise TargetCallError("invalid-params", "remove_model requires model_ref")
         try:
             aliases = model_reference_aliases(reference, self._models_registry_path)
+            inspected = inspect_model(reference, self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
         force = _param_bool(params.get("force"))
-        pinned_configs = _configs_pinning_model(_configs_dir(params), aliases)
+        config_registry = self._load_config_registry(_configs_dir(params))
+        pinned_configs = _configs_pinning_model(config_registry, aliases)
         if pinned_configs and not force:
             raise TargetCallError(
                 "resource-in-use",
@@ -907,10 +922,46 @@ class LocalAgent:
                     "configs": pinned_configs,
                 },
             )
+        sidecar = _sidecar_using_model(
+            inspected["entry"],
+            aliases,
+            self._verified_live_sidecars(),
+        )
+        if sidecar is not None:
+            raise TargetCallError(
+                "resource-in-use",
+                "model is used by a live run",
+                _live_run_resource_details(
+                    sidecar,
+                    resource_key="model_ref",
+                    resource_value=reference,
+                ),
+            )
         try:
             return remove_model(reference, self._models_registry_path)
         except ModelRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _load_config_registry(self, configs_dir: Path | None) -> ConfigRegistry:
+        registry = load_registry(configs_dir)
+        self._remember_registry_runs_dirs(registry)
+        return registry
+
+    def _verified_live_sidecars(self) -> list[Sidecar]:
+        paths = list(discover_active_sidecars(sorted(self._known_runs_dirs)))
+        paths.extend(self._detached_sidecar_paths.values())
+        verified: list[Sidecar] = []
+        seen: set[Path] = set()
+        for path in sorted((Path(item) for item in paths), key=str):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                if verify_sidecar_from_system(path):
+                    verified.append(load_sidecar(path))
+            except Exception:
+                continue
+        return verified
 
     async def _create_build(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("create_build", params, self._build_job_runner)
@@ -2084,8 +2135,7 @@ def _env_overrides(value: object) -> dict[str, str]:
     return env
 
 
-def _configs_pinning_model(configs_dir: Path | None, aliases: set[str]) -> list[str]:
-    registry = load_registry(configs_dir)
+def _configs_pinning_model(registry: ConfigRegistry, aliases: set[str]) -> list[str]:
     pinned = [
         item.config.name
         for item in registry.valid
@@ -2094,14 +2144,181 @@ def _configs_pinning_model(configs_dir: Path | None, aliases: set[str]) -> list[
     return sorted(pinned)
 
 
-def _configs_pinning_build(configs_dir: Path | None, aliases: set[str]) -> list[str]:
-    registry = load_registry(configs_dir)
+def _configs_pinning_build(registry: ConfigRegistry, aliases: set[str]) -> list[str]:
     pinned = [
         item.config.name
         for item in registry.valid
         if item.config.command.build is not None and item.config.command.build in aliases
     ]
     return sorted(pinned)
+
+
+def _sidecar_using_build(manifest: dict[str, Any], sidecars: list[Sidecar]) -> Sidecar | None:
+    candidates = _build_executable_path_keys(manifest)
+    if not candidates:
+        return None
+    for sidecar in sidecars:
+        if candidates.intersection(_sidecar_executable_path_keys(sidecar)):
+            return sidecar
+    return None
+
+
+def _build_executable_path_keys(manifest: dict[str, Any]) -> set[str]:
+    paths = _dict_or_empty(manifest.get("paths"))
+    root_value = _optional_param_str(paths.get("root"))
+    if root_value is None:
+        return set()
+    root = Path(root_value).expanduser()
+    keys: set[str] = set()
+    for value in (paths.get("executable"), paths.get("python")):
+        text = _optional_param_str(value)
+        if text is not None:
+            keys.add(_path_key(text, base=root))
+    return keys
+
+
+def _sidecar_executable_path_keys(sidecar: Sidecar) -> set[str]:
+    base = Path(sidecar.cwd).expanduser() if sidecar.cwd else None
+    keys: set[str] = set()
+    executable = _optional_param_str(sidecar.executable)
+    if executable is not None:
+        keys.add(_path_key(executable, base=base))
+    if sidecar.command_argv:
+        keys.add(_path_key(sidecar.command_argv[0], base=base))
+    return keys
+
+
+def _sidecar_using_model(
+    entry: dict[str, Any], aliases: set[str], sidecars: list[Sidecar]
+) -> Sidecar | None:
+    for sidecar in sidecars:
+        if _sidecar_matches_model(sidecar, entry, aliases):
+            return sidecar
+    return None
+
+
+def _sidecar_matches_model(
+    sidecar: Sidecar, entry: dict[str, Any], aliases: set[str]
+) -> bool:
+    snapshot = _dict_or_empty(sidecar.config_snapshot)
+    snapshot_model_ref = _optional_param_str(snapshot.get("model_ref"))
+    if snapshot_model_ref is not None and snapshot_model_ref in aliases:
+        return True
+
+    source = _optional_param_str(entry.get("source"))
+    if source == "local_path":
+        return _sidecar_matches_local_model(sidecar, entry, snapshot)
+    if source == "hf_repo":
+        return _sidecar_matches_hf_model(sidecar, entry, snapshot)
+    return False
+
+
+def _sidecar_matches_local_model(
+    sidecar: Sidecar, entry: dict[str, Any], snapshot: dict[str, Any]
+) -> bool:
+    local_path = _optional_param_str(entry.get("local_path"))
+    if local_path is None:
+        return False
+    target = _path_key(local_path)
+    for value in (
+        snapshot.get("model"),
+        snapshot.get("local_path"),
+        _argv_model_value(sidecar.command_argv),
+    ):
+        text = _optional_param_str(value)
+        if text is not None and _path_key(text, base=Path(sidecar.cwd)) == target:
+            return True
+    return False
+
+
+def _sidecar_matches_hf_model(
+    sidecar: Sidecar, entry: dict[str, Any], snapshot: dict[str, Any]
+) -> bool:
+    repo_id = _optional_param_str(entry.get("repo_id"))
+    if repo_id is None:
+        return False
+    model_values = {
+        value
+        for value in (
+            _optional_param_str(snapshot.get("model")),
+            _optional_param_str(snapshot.get("repo_id")),
+            _argv_model_value(sidecar.command_argv),
+        )
+        if value is not None
+    }
+    if repo_id not in model_values:
+        return False
+    target_revisions = {
+        value
+        for value in (
+            _optional_param_str(entry.get("commit_sha")),
+            _optional_param_str(entry.get("revision")),
+        )
+        if value is not None
+    }
+    sidecar_revisions = {
+        value
+        for value in (
+            _optional_param_str(snapshot.get("revision")),
+            _argv_revision_value(sidecar.command_argv),
+        )
+        if value is not None
+    }
+    return not target_revisions or not sidecar_revisions or bool(
+        target_revisions.intersection(sidecar_revisions)
+    )
+
+
+def _argv_model_value(argv: list[str]) -> str | None:
+    option_value = _argv_option_value(argv, {"--model"})
+    if option_value is not None:
+        return option_value
+    for index, item in enumerate(argv[:-1]):
+        if item == "serve":
+            candidate = argv[index + 1]
+            if candidate and not candidate.startswith("-"):
+                return candidate
+    return None
+
+
+def _argv_revision_value(argv: list[str]) -> str | None:
+    return _argv_option_value(argv, {"--revision", "--model-revision"})
+
+
+def _argv_option_value(argv: list[str], options: set[str]) -> str | None:
+    for index, item in enumerate(argv):
+        if item in options and index + 1 < len(argv):
+            return argv[index + 1]
+        for option in options:
+            prefix = option + "="
+            if item.startswith(prefix):
+                return item[len(prefix) :]
+    return None
+
+
+def _live_run_resource_details(
+    sidecar: Sidecar, *, resource_key: str, resource_value: str
+) -> dict[str, Any]:
+    return {
+        resource_key: resource_value,
+        "reason": "live-run",
+        "run_id": sidecar.run_id,
+        "config_name": sidecar.config_name,
+    }
+
+
+def _dict_or_empty(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _path_key(value: str, *, base: Path | None = None) -> str:
+    path = Path(value).expanduser()
+    if base is not None and not path.is_absolute():
+        path = base / path
+    try:
+        return str(path.resolve(strict=False))
+    except OSError:
+        return str(path.absolute())
 
 
 def _manifest_has_rotated_inode(manifest: Manifest, inode: int) -> bool:
