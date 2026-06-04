@@ -2091,8 +2091,12 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
-    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
     (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
@@ -2139,8 +2143,13 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     )
     assert manifest["status"] == "adopted"
     assert manifest["install"]["method"] == "adopt"
+    assert manifest["integrity"]["executable_sha256"] == _sha256_uri(
+        vllm_bin.read_bytes()
+    )
+    assert manifest["integrity"]["freeze_sha256"] == _sha256_uri(b"0.17.0.dev")
     assert inspected["manifest"]["build_id"] == "01ADOPTED"
     assert inspected["manifest"]["resolved"]["vllm"] == "0.17.0.dev"
+    assert inspected["manifest"]["verify"]["ok"] is True
     json.dumps(adopted)
     json.dumps(inspected)
 
@@ -2170,6 +2179,42 @@ async def test_agent_rejects_invalid_external_build_adoption(tmp_path: Path) -> 
     assert exc_info.value.code == "invalid-config"
     assert exc_info.value.details["reason"] == "missing-executable"
     assert not (builds_root / "01BROKEN" / "build.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_external_build_adoption_when_vllm_probe_fails(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "probe-broken"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\nexit 42\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "adopt_build",
+                {
+                    "build_id": "01PROBEBROKEN",
+                    "label": "probe-broken",
+                    "venv_path": str(venv_dir),
+                },
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.details["reason"] == "vllm-version-probe-failed"
+    assert not (builds_root / "01PROBEBROKEN" / "build.json").exists()
 
 
 @pytest.mark.asyncio
@@ -4188,8 +4233,12 @@ async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
-    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
     await client.connect()
@@ -4230,6 +4279,9 @@ async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
     assert done["detail"] == "build adopted"
     assert done["build_id"] == "01ADOPTED"
     assert manifest["status"] == "adopted"
+    assert manifest["integrity"]["executable_sha256"] == _sha256_uri(
+        vllm_bin.read_bytes()
+    )
     assert manifest["paths"]["root"] == str(builds_root / "01ADOPTED")
     assert manifest["paths"]["executable"] == "bin/vllm"
     assert (builds_root / "01ADOPTED" / "bin" / "vllm").resolve() == (
@@ -4292,8 +4344,12 @@ async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
     venv_dir = tmp_path / "external" / "generated-build-id"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
-    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
-    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
     await client.connect()
@@ -4329,6 +4385,9 @@ async def test_agent_create_build_adopt_job_defaults_build_id_from_job_id(
     assert done["build_id"] == "job-build-generated-id"
     assert manifest["build_id"] == "job-build-generated-id"
     assert manifest["status"] == "adopted"
+    assert manifest["integrity"]["executable_sha256"] == _sha256_uri(
+        vllm_bin.read_bytes()
+    )
     json.dumps(progress)
     json.dumps(done)
 

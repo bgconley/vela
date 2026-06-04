@@ -155,8 +155,6 @@ def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[
             {"reason": "artifact-write-failed", "build": build_id, "path": str(build_dir)},
         ) from exc
 
-    build_executable = build_dir / "bin" / "vllm"
-    build_python = build_dir / "venv" / "bin" / "python"
     now = _utc_now()
     manifest: dict[str, Any] = {
         "schema_version": 1,
@@ -183,14 +181,15 @@ def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[
         "last_used_at": None,
         "notes": str(params.get("notes") or ""),
     }
-    verify_payload = {
-        "checked_at": now,
-        "ok": True,
-        "reason": None,
-        "executable": str(build_executable),
-        "python": str(build_python),
-    }
-    manifest["verify"] = verify_payload
+    verify_result = _verify_build_manifest(manifest, build_dir)
+    if not verify_result.get("ok"):
+        shutil.rmtree(build_dir, ignore_errors=True)
+        reason = str(verify_result.get("reason") or "adopt-verify-failed")
+        raise BuildRegistryError(
+            "invalid-config",
+            f"external build verification failed: {reason}",
+            {"reason": reason, "venv_path": str(venv_path), "build": build_id},
+        )
     _write_json_atomic(build_dir / "build.json", manifest)
     return {
         "build_id": build_id,
