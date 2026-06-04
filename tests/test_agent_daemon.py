@@ -94,6 +94,23 @@ def _agent_restart_json_command(socket_path: Path) -> list[str]:
     ]
 
 
+def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:
+    service_path = Path(__file__).parents[1] / "packaging" / "systemd" / (
+        "vllm-loader-agent.service"
+    )
+
+    service = service_path.read_text(encoding="utf-8")
+
+    assert "[Unit]" in service
+    assert "Description=vLLM Loader target agent daemon" in service
+    assert "[Service]" in service
+    assert "Type=simple" in service
+    assert "ExecStart=vllm-loader agent run" in service
+    assert "Restart=on-failure" in service
+    assert "[Install]" in service
+    assert "WantedBy=default.target" in service
+
+
 @pytest.mark.asyncio
 async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
     from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
