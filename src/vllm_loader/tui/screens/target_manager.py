@@ -62,12 +62,16 @@ class TargetManagerScreen(ModalScreen):
         active_target: str,
         connection_state: str,
         connection_detail: str = "",
+        agent_info: dict[str, object] | None = None,
+        last_seen: str | None = None,
     ) -> None:
         super().__init__(id="target-manager")
         self.targets = registry.targets
         self.active_target = active_target
         self.connection_state = connection_state
         self.connection_detail = connection_detail
+        self.agent_info = dict(agent_info or {})
+        self.last_seen = last_seen
         self.selected_index = self._active_index()
 
     def compose(self) -> ComposeResult:
@@ -156,6 +160,7 @@ class TargetManagerScreen(ModalScreen):
             lines.append(f"connection: {self.connection_state}")
             if self.connection_detail:
                 lines.append(f"detail: {self.connection_detail}")
+            lines.extend(_agent_detail_lines(self.agent_info, self.last_seen))
         else:
             lines.append("connection: inactive")
         return "\n".join(lines)
@@ -185,3 +190,37 @@ def _connection_dot(state: str) -> str:
 
 def _path_or_dash(value: object | None) -> str:
     return str(value) if value is not None else "-"
+
+
+def _agent_detail_lines(agent_info: dict[str, object], last_seen: str | None) -> list[str]:
+    lines: list[str] = []
+    agent_version = _optional_agent_str(agent_info.get("agent_version"))
+    controller_version = _optional_agent_str(agent_info.get("controller_version"))
+    protocol_version = _optional_agent_str(
+        agent_info.get("agent_protocol_version") or agent_info.get("protocol_version")
+    )
+    capabilities = _agent_capabilities(agent_info.get("capabilities"))
+    if agent_version is not None:
+        lines.append(f"agent: {agent_version}")
+    if controller_version is not None:
+        lines.append(f"controller: {controller_version}")
+    if protocol_version is not None:
+        lines.append(f"protocol: {protocol_version}")
+    if capabilities:
+        lines.append(f"capabilities: {', '.join(capabilities)}")
+    if last_seen:
+        lines.append(f"last_seen: {last_seen}")
+    return lines
+
+
+def _agent_capabilities(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return sorted(str(item) for item in value if isinstance(item, str) and item)
+
+
+def _optional_agent_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None

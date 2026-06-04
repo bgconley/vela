@@ -420,8 +420,23 @@ async def test_target_manager_screen_opens_from_binding(
         def __init__(self) -> None:
             self.connected = False
 
-        async def connect(self) -> None:
+        async def connect(self) -> dict[str, object]:
             self.connected = True
+            return {
+                "agent_version": "0.9.0-agent",
+                "controller_version": "0.9.0-controller",
+                "agent_protocol_version": 1,
+                "protocol_version": 1,
+                "target": "blackbird",
+                "daemon_start_ts": "2026-06-03T00:00:00Z",
+                "capabilities": [
+                    "list_configs",
+                    "preview",
+                    "prepare_launch",
+                    "gpu",
+                    "health",
+                ],
+            }
 
         async def disconnect(self) -> None:
             self.connected = False
@@ -465,6 +480,11 @@ async def test_target_manager_screen_opens_from_binding(
         assert "workdir: /tank/repos/lab-tui" in detail
         assert "venv: /tank/venvs/lab-tui" in detail
         assert "connection: connected" in detail
+        assert "agent: 0.9.0-agent" in detail
+        assert "controller: 0.9.0-controller" in detail
+        assert "protocol: 1" in detail
+        assert "capabilities: gpu, health, list_configs, prepare_launch, preview" in detail
+        assert "last_seen:" in detail
 
 
 @pytest.mark.asyncio

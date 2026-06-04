@@ -574,6 +574,8 @@ class VllmLoaderApp(App):
         self.target_connection_state = "disconnected"
         self.target_connection_detail = ""
         self.target_agent_restarted = False
+        self._target_agent_info: dict[str, Any] = {}
+        self._target_last_seen_at: str | None = None
         self._target_has_connected_once = False
         self._target_daemon_start_ts: str | None = None
         self._target_last_event_seq_by_run: dict[str, int] = {}
@@ -836,6 +838,8 @@ class VllmLoaderApp(App):
                 active_target=self.target_name,
                 connection_state=self.target_connection_state,
                 connection_detail=self.target_connection_detail,
+                agent_info=self._target_agent_info,
+                last_seen=self._target_last_seen_at,
             ),
             callback=self._handle_target_manager_selection,
         )
@@ -1390,6 +1394,8 @@ class VllmLoaderApp(App):
         self.target_connection_state = "disconnected"
         self.target_connection_detail = ""
         self.target_agent_restarted = False
+        self._target_agent_info = {}
+        self._target_last_seen_at = None
         self._target_has_connected_once = False
         self._target_daemon_start_ts = None
         self._target_last_event_seq_by_run.clear()
@@ -2203,6 +2209,8 @@ class VllmLoaderApp(App):
                 )
                 raise
             if isinstance(agent_info, dict):
+                self._target_agent_info = dict(agent_info)
+                self._target_last_seen_at = _target_seen_timestamp(agent_info)
                 daemon_start_ts = agent_info.get("daemon_start_ts")
                 if isinstance(daemon_start_ts, str) and daemon_start_ts:
                     previous_daemon_start_ts = self._target_daemon_start_ts
@@ -2279,7 +2287,7 @@ class VllmLoaderApp(App):
     async def _target_keepalive_once(self) -> None:
         try:
             await self._ensure_target_client_connected()
-            await asyncio.wait_for(
+            ping = await asyncio.wait_for(
                 self._target_client.ping(),
                 timeout=self._target_ping_timeout_seconds,
             )
@@ -2288,6 +2296,8 @@ class VllmLoaderApp(App):
         except Exception as exc:
             await self._mark_target_disconnected(str(exc))
         else:
+            if isinstance(ping, dict):
+                self._target_last_seen_at = _target_seen_timestamp(ping)
             self.target_connection_state = "connected"
             self.target_connection_detail = ""
             self._refresh_chrome()
@@ -3362,3 +3372,10 @@ class VllmLoaderApp(App):
         if ratio >= 0.75:
             return WARN
         return GOOD
+
+
+def _target_seen_timestamp(payload: dict[str, Any]) -> str:
+    ts = payload.get("ts")
+    if isinstance(ts, str) and ts:
+        return ts
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
