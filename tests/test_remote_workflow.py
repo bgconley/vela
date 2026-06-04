@@ -5,6 +5,15 @@ import subprocess
 from pathlib import Path
 
 
+def _script_test_env(**overrides: str) -> dict[str, str]:
+    env = dict(os.environ)
+    for key in list(env):
+        if key.startswith("VLLM_LOADER_REMOTE_") or key == "VLLM_LOADER_SSH_OPTS":
+            env.pop(key, None)
+    env.update(overrides)
+    return env
+
+
 def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
@@ -120,12 +129,11 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_TIMEOUT": "2400",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_TIMEOUT="2400",
+    )
 
     result = subprocess.run(
         [
@@ -178,15 +186,14 @@ def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> N
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_TARGET": "blackbird",
-        "VLLM_LOADER_REMOTE_BUILD_SPEC": "vllm==0.11.2",
-        "VLLM_LOADER_REMOTE_MODEL_ID": "real-model-smoke",
-        "VLLM_LOADER_REMOTE_MODEL_REPO": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_TARGET="blackbird",
+        VLLM_LOADER_REMOTE_BUILD_SPEC="vllm==0.11.2",
+        VLLM_LOADER_REMOTE_MODEL_ID="real-model-smoke",
+        VLLM_LOADER_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
+    )
 
     result = subprocess.run(
         [
@@ -248,12 +255,11 @@ def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
     )
     ssh.chmod(0o755)
     pytest_args = "-q tests/test_remote_workflow.py -k target_nested"
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_PYTEST_ARGS": pytest_args,
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_PYTEST_ARGS=pytest_args,
+    )
 
     result = subprocess.run(
         ["bash", "scripts/run_remote_tests.sh", "controller-host", "/srv/lab-tui"],
@@ -295,16 +301,15 @@ def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path)
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_BUILD_SPEC": "vllm==0.11.2",
-        "VLLM_LOADER_REMOTE_BUILD_LABEL": "real-build-smoke",
-        "VLLM_LOADER_REMOTE_MODEL_ID": "real-model-smoke",
-        "VLLM_LOADER_REMOTE_MODEL_REPO": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-        "VLLM_LOADER_REMOTE_MODEL_REVISION": "main",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_BUILD_SPEC="vllm==0.11.2",
+        VLLM_LOADER_REMOTE_BUILD_LABEL="real-build-smoke",
+        VLLM_LOADER_REMOTE_MODEL_ID="real-model-smoke",
+        VLLM_LOADER_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        VLLM_LOADER_REMOTE_MODEL_REVISION="main",
+    )
 
     result = subprocess.run(
         ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
@@ -361,13 +366,12 @@ def test_remote_validation_writes_dated_artifact(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_ARTIFACT_DIR": str(artifact_dir),
-        "VLLM_LOADER_REMOTE_ARTIFACT_NAME": "2026-06-04-gpu-host-smoke.md",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_ARTIFACT_DIR=str(artifact_dir),
+        VLLM_LOADER_REMOTE_ARTIFACT_NAME="2026-06-04-gpu-host-smoke.md",
+    )
 
     result = subprocess.run(
         [
@@ -414,13 +418,12 @@ def test_remote_validation_model_only_uses_nonempty_ssh_placeholders(
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_MODEL_ID": "real-model-smoke",
-        "VLLM_LOADER_REMOTE_MODEL_REPO": "sshleifer/tiny-gpt2",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_MODEL_ID="real-model-smoke",
+        VLLM_LOADER_REMOTE_MODEL_REPO="sshleifer/tiny-gpt2",
+    )
 
     result = subprocess.run(
         ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
@@ -480,12 +483,11 @@ def test_remote_validation_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> N
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_SSH_OPTS": "-i /tmp/gpu-key -o BatchMode=yes",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_SSH_OPTS="-i /tmp/gpu-key -o BatchMode=yes",
+    )
 
     subprocess.run(
         ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
@@ -516,12 +518,11 @@ def test_remote_validation_accepts_zfs_venv_override(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     ssh.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SSH_CAPTURE": str(capture),
-        "VLLM_LOADER_REMOTE_VENV": "/tank/venvs/custom-lab-tui",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_VENV="/tank/venvs/custom-lab-tui",
+    )
 
     subprocess.run(
         ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
@@ -550,12 +551,11 @@ def test_rsync_to_gpu_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     rsync.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "RSYNC_CAPTURE": str(capture),
-        "VLLM_LOADER_SSH_OPTS": "-i /tmp/gpu-key -o BatchMode=yes",
-    }
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        RSYNC_CAPTURE=str(capture),
+        VLLM_LOADER_SSH_OPTS="-i /tmp/gpu-key -o BatchMode=yes",
+    )
 
     subprocess.run(
         ["bash", "scripts/rsync_to_gpu.sh", "gpu-host:/srv/lab-tui"],
