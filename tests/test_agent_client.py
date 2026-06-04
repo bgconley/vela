@@ -3591,7 +3591,7 @@ async def test_agent_prepare_launch_resolves_pinned_build_handoff(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_uses_request_build_id_override(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
     default_dir = builds_root / "01DEFAULTBUILD"
@@ -3625,9 +3625,11 @@ async def test_agent_prepare_launch_uses_request_build_id_override(
         )
     write_yaml(
         config_dir / "build-override.yaml",
-        """
+        f"""
         name: build-override
         model: org/model
+        server:
+          port: {unused_tcp_port}
         command:
           build: default-build
         """,
@@ -5192,7 +5194,7 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
@@ -5216,9 +5218,11 @@ async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override
     )
     write_yaml(
         config_dir / "model-override.yaml",
-        """
+        f"""
         name: model-override
         model: meta-llama/Llama-3.1-8B-Instruct
+        server:
+          port: {unused_tcp_port}
         """,
     )
 
