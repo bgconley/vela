@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from vllm_loader.engine.ids import mint_ulid
 
@@ -31,6 +32,7 @@ class ModelHandoff:
     tokenizer: str | None
     repo_id: str | None
     local_path: str | None
+    url: str | None
     commit_sha: str | None
     cache_state: str | None
     gated: bool
@@ -51,6 +53,8 @@ class ModelHandoff:
             payload["model_repo_id"] = self.repo_id
         if self.local_path is not None:
             payload["model_local_path"] = self.local_path
+        if self.url is not None:
+            payload["model_url"] = self.url
         if self.commit_sha is not None:
             payload["model_commit_sha"] = self.commit_sha
         if self.tokenizer is not None:
@@ -1009,12 +1013,17 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
     tokenizer = _optional_str(entry.get("tokenizer"))
     repo_id: str | None = None
     local_path: str | None = None
+    url: str | None = None
     if source == "hf_repo":
         repo_id = _required_str(entry, "repo_id", reference)
         model_arg = repo_id
     elif source == "local_path":
         local_path = str(Path(_required_str(entry, "local_path", reference)).expanduser())
         model_arg = local_path
+        revision = None
+    elif source == "url":
+        url = _required_str(entry, "url", reference)
+        model_arg = url
         revision = None
     else:
         raise ModelRegistryError(
@@ -1032,6 +1041,7 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
         tokenizer=tokenizer,
         repo_id=repo_id,
         local_path=local_path,
+        url=url,
         commit_sha=_optional_str(entry.get("commit_sha")),
         cache_state=_optional_str(entry.get("cache_state")),
         gated=bool(entry.get("gated")),
@@ -1051,6 +1061,8 @@ def _pin_entry_from_params(
     source = str(effective_params.get("source") or "hf_repo")
     if source == "local_path":
         return _local_path_entry_from_params(effective_params, entry_id, now)
+    if source == "url":
+        return _url_entry_from_params(effective_params, entry_id, now)
     if source != "hf_repo":
         raise ModelRegistryError(
             "invalid-config",
@@ -1150,6 +1162,52 @@ def _local_path_entry_from_params(
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
     }
+
+
+def _url_entry_from_params(
+    params: dict[str, Any], entry_id: str, now: str
+) -> dict[str, Any]:
+    url = _validated_model_url(_required_param(params, "url"))
+    display_name = _optional_str(params.get("display_name")) or _model_url_basename(url)
+    return {
+        "entry_id": entry_id,
+        "display_name": display_name or entry_id,
+        "aliases": _model_aliases(params, entry_id),
+        "source": "url",
+        "repo_id": None,
+        "revision": None,
+        "commit_sha": None,
+        "local_path": None,
+        "url": url,
+        "quant_format": _optional_str(params.get("quant_format")) or "none",
+        "tokenizer": _optional_str(params.get("tokenizer")),
+        "files": {},
+        "size_bytes": 0,
+        "cache_state": _optional_str(params.get("cache_state")) or "remote_only",
+        "gated": bool(params.get("gated")),
+        "token_required": bool(params.get("token_required")),
+        "created_at": _optional_str(params.get("created_at")) or now,
+        "last_used_at": _optional_str(params.get("last_used_at")),
+        "notes": str(params.get("notes") or ""),
+    }
+
+
+def _validated_model_url(value: str) -> str:
+    url = str(value).strip()
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ModelRegistryError(
+            "invalid-config",
+            f"invalid model URL: {value}",
+            {"reason": "invalid-url", "url": value},
+        )
+    return url
+
+
+def _model_url_basename(url: str) -> str:
+    parsed = urlsplit(url)
+    name = Path(parsed.path).name
+    return name or parsed.netloc
 
 
 def _verified_local_model_path(value: str) -> Path:

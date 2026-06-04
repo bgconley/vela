@@ -3913,6 +3913,58 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
 
 
 @pytest.mark.asyncio
+async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_url = "https://models.example/Qwen/example-q4.gguf"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "source": "url",
+                "url": model_url,
+                "display_name": "url-gguf",
+                "quant_format": "gguf",
+                "tokenizer": "Qwen/example-tokenizer",
+            },
+        )
+        listed = await client.call("list_models")
+        write_yaml(
+            config_dir / "url-model.yaml",
+            """
+            name: url-model
+            model: org/placeholder
+            model_ref: url-gguf
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch",
+            {"name": "url-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    entry = pinned["entry"]
+    assert entry["source"] == "url"
+    assert entry["url"] == model_url
+    assert entry["repo_id"] is None
+    assert entry["local_path"] is None
+    assert entry["cache_state"] == "remote_only"
+    assert listed["models"] == [entry]
+    assert prepared["config"]["model"] == "org/placeholder"
+    assert prepared["config"]["model_ref"] == "url-gguf"
+    assert prepared["build"]["argv"][:3] == ["vllm", "serve", model_url]
+    assert "--tokenizer" in prepared["build"]["argv"]
+    assert prepared["build"]["metadata"]["model_source"] == "url"
+    assert prepared["build"]["metadata"]["model_url"] == model_url
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
 async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
 

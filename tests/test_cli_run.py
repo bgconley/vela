@@ -1014,6 +1014,58 @@ def test_cli_model_pin_uses_repo_argument_and_generated_entry_id(
     ]
 
 
+def test_cli_model_pin_url_source_passes_url_to_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+    model_url = "https://models.example/Qwen/example-q4.gguf"
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01URLMODEL",
+                "display_name": "url-gguf",
+                "source": "url",
+                "url": model_url,
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "pin",
+            "url-gguf",
+            "--url",
+            model_url,
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "url": model_url,
+                "display_name": "url-gguf",
+                "source": "url",
+            },
+            "blackbird",
+        )
+    ]
+    assert result.output == "pinned model\t01URLMODEL\turl-gguf\n"
+
+
 def test_cli_model_verify_prints_agent_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

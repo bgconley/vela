@@ -582,7 +582,8 @@ def model_pin(
         str,
         typer.Argument(
             help=(
-                "Hugging Face repo id, or a legacy entry id when --repo-id is supplied."
+                "Hugging Face repo id, URL display name, or legacy entry id when "
+                "--repo-id is supplied."
             )
         ),
     ],
@@ -607,23 +608,33 @@ def model_pin(
         Path | None,
         typer.Option("--local-path", help="Adopt a local model directory."),
     ] = None,
+    url: Annotated[str | None, typer.Option("--url", help="Remote model URL.")] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable pin result."),
     ] = False,
 ) -> None:
-    selected_repo_id = repo_id or repo_or_entry
     del entry_id
-    selected_display_name = display_name or (repo_or_entry if repo_id is not None else None)
-    params = _agent_params(
-        repo_id=selected_repo_id,
-        display_name=selected_display_name,
-        revision=revision,
-        commit_sha=commit_sha,
-        local_path=local_path,
-    )
-    if local_path is not None:
+    if url is not None:
+        params = _agent_params(
+            url=url,
+            display_name=display_name or repo_or_entry,
+        )
+        params["source"] = "url"
+    else:
+        selected_repo_id = repo_id or repo_or_entry
+        selected_display_name = display_name or (
+            repo_or_entry if repo_id is not None else None
+        )
+        params = _agent_params(
+            repo_id=selected_repo_id,
+            display_name=selected_display_name,
+            revision=revision,
+            commit_sha=commit_sha,
+            local_path=local_path,
+        )
+    if local_path is not None and url is None:
         params["source"] = "local_path"
     try:
         result = _agent_call("pin_model", params, target_name=target)
