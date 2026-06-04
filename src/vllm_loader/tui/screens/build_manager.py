@@ -140,6 +140,7 @@ class BuildManagerScreen(ModalScreen):
         build = self._selected_build()
         if build is None:
             return "No build selected"
+        install = _dict_or_empty(build.get("install"))
         resolved = _dict_or_empty(build.get("resolved"))
         paths = _dict_or_empty(build.get("paths"))
         lines = [
@@ -148,6 +149,7 @@ class BuildManagerScreen(ModalScreen):
             f"label: {_build_label(build)}",
             f"build_id: {build.get('build_id') or '-'}",
             f"status: {build.get('status') or 'unknown'}",
+            f"source: {_build_source_detail(install)}",
             f"in_use: {_in_use_detail(build)}",
             f"used_by_configs: {_config_ref_detail(build)}",
             f"vllm: {resolved.get('vllm') or '-'}",
@@ -235,6 +237,33 @@ def _config_ref_detail(build: dict[str, Any]) -> str:
         visible = f"{visible}, +{len(refs) - 3}" if visible else f"+{len(refs) - 3}"
     suffix = f" ({visible})" if visible else ""
     return f"{count}{suffix}"
+
+
+def _build_source_detail(install: dict[str, Any]) -> str:
+    method = _optional_build_str(install.get("method"))
+    source = _optional_build_str(install.get("source"))
+    if source is None:
+        provenance = _dict_or_empty(install.get("provenance"))
+        source = (
+            _optional_build_str(provenance.get("nightly_channel"))
+            or _optional_build_str(provenance.get("commit"))
+            or _optional_build_str(provenance.get("url"))
+            or _optional_build_str(provenance.get("path"))
+        )
+    if method is None and source is None:
+        return "-"
+    if method is None:
+        return source or "-"
+    if source is None:
+        return method
+    return f"{method}/{source}"
+
+
+def _optional_build_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
 
 
 def _build_action_payload(action: str, build: dict[str, Any]) -> dict[str, Any]:

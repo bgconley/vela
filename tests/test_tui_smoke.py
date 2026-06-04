@@ -3949,6 +3949,10 @@ async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
                             "label": "live-build",
                             "status": "ready",
                             "default": True,
+                            "install": {
+                                "method": "nightly",
+                                "source": "cu130",
+                            },
                             "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
                             "paths": {"executable": "bin/vllm"},
                             "in_use": True,
@@ -3990,6 +3994,7 @@ async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
         build_list = str(app.screen.query_one("#build-manager-list", Static).content)
         detail = str(app.screen.query_one("#build-manager-detail", Static).content)
         assert "live-build  ready  ● active  🔒 in use  ⇩ used by 2 configs" in build_list
+        assert "source: nightly/cu130" in detail
         assert "in_use: 1 live run (run-live)" in detail
         assert "used_by_configs: 2 (buildable, canary)" in detail
 
