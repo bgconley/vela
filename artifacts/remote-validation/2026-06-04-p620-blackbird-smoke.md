@@ -108,3 +108,44 @@ Not covered in this run:
 - Laptop sleep or SSH reconnect gap-free resume.
 - Agent daemon restart while a run is live.
 - A new build install or model download started during this specific run.
+
+## Follow-up Validation: Registry ID Fix Commit
+
+Commit validated: `f493067`
+
+After the model-entry identity fix, both remote hosts pulled `origin/main`.
+
+P620 controller checks:
+
+```text
+blackbird	ok	agent=0.1.0	protocol=1
+55 passed, 178 deselected in 2.40s
+```
+
+The broader P620 `-k model` slice was intentionally narrowed because four
+prepare-launch tests are sensitive to host port `127.0.0.1:8000`, which was
+already occupied on P620. The port-safe model-registry/CLI/TUI slice passed.
+
+Blackbird direct validation:
+
+```text
+521 passed in 86.57s (0:01:26)
+DAEMON_RESTART_LIVE_RUN_OK run_id=daemon-restart-7f6b7294a47c47f8940185a9adf67cc1 port=54781 url=http://127.0.0.1:54781 returncode=0
+DISCONNECT_RECONNECT_RESUME_OK run_id=disconnect-reconnect-fd4c91a03a5e4eecafb2dd3e8b1046ac first_seq=1 resume_inode=29097993 resume_offset=34 url=http://127.0.0.1:51951 returncode=0
+pinned model	01KT96YKEY13YX7SBHQMHJAS2M	remote-smoke-tiny-current-20260604073848
+DONE	c4d5b2cd1afa4706a9574afeb1e507dc	model cached
+OK	01KT96YKEY13YX7SBHQMHJAS2M	cached	model metadata is cached
+```
+
+This follow-up covered:
+
+- Current commit pull/install on Blackbird.
+- Full no-GPU suite and Ruff on Blackbird.
+- Agent daemon restart while a fake detached run stayed live.
+- Disconnect/reconnect log replay from a durable log cursor.
+- Real Hugging Face tiny-model pin, download, and verify through the agent.
+
+Still not covered by this follow-up:
+
+- A new real vLLM build install.
+- The full P620-to-Blackbird Qwen launch smoke on commit `f493067`.
