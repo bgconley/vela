@@ -719,14 +719,27 @@ def model_download(
         str | None,
         typer.Option("--revision", help="Revision override for the download job."),
     ] = None,
+    allow_patterns: Annotated[
+        list[str] | None,
+        typer.Option("--allow", help="Allow-pattern passed to Hugging Face download."),
+    ] = None,
+    ignore_patterns: Annotated[
+        list[str] | None,
+        typer.Option("--ignore", help="Ignore-pattern passed to Hugging Face download."),
+    ] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
     client = _target_client_for_name_or_exit(target)
-    params = _agent_params(
-        job_id=uuid.uuid4().hex,
-        model_ref=model_ref,
-        revision=revision,
-    )
+    params: dict[str, object] = {
+        "job_id": uuid.uuid4().hex,
+        "model_ref": model_ref,
+    }
+    if revision is not None:
+        params["revision"] = revision
+    if allow_patterns:
+        params["allow_patterns"] = list(allow_patterns)
+    if ignore_patterns:
+        params["ignore_patterns"] = list(ignore_patterns)
     raise typer.Exit(asyncio.run(_run_agent_job_cli(client, "download_model", params)))
 
 

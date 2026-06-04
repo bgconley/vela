@@ -1383,6 +1383,99 @@ def test_cli_model_download_streams_job_events(
     ]
 
 
+def test_cli_model_download_passes_allow_and_ignore_patterns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeUuid:
+        hex = "job-model-patterns"
+
+    class FakeEvents:
+        def __init__(self) -> None:
+            self.closed = False
+            self._events = iter(
+                [
+                    {
+                        "event": "job_done",
+                        "job_id": "job-model-patterns",
+                        "ok": True,
+                        "detail": "model cached",
+                    }
+                ]
+            )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.events = FakeEvents()
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            return {
+                "job_id": params["job_id"],
+                "kind": "download_model",
+                "status": "running",
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            return self.events
+
+    target_client = FakeTargetClient()
+    monkeypatch.setattr(cli_module.uuid, "uuid4", lambda: FakeUuid())
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target_name: target_client,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "download",
+            "01MODEL",
+            "--allow",
+            "*.safetensors",
+            "--allow",
+            "*.json",
+            "--ignore",
+            "*.msgpack",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert target_client.calls == [
+        (
+            "download_model",
+            {
+                "job_id": "job-model-patterns",
+                "model_ref": "01MODEL",
+                "allow_patterns": ["*.safetensors", "*.json"],
+                "ignore_patterns": ["*.msgpack"],
+            },
+        )
+    ]
+
+
 def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatch) -> None:
     blackbird = TargetConfig(
         name="blackbird",
