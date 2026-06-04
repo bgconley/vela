@@ -3631,6 +3631,74 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "expected_kind"),
+    [
+        ("GatedRepoError: Cannot access gated repo; 403 Client Error", "gated-auth"),
+        ("RevisionNotFoundError: revision main does not exist", "revision-not-found"),
+        ("OSError: [Errno 28] No space left on device", "disk-full"),
+        ("ConnectionError: timed out while downloading", "network"),
+        ("Hash mismatch while validating downloaded blob", "integrity-mismatch"),
+    ],
+)
+async def test_agent_download_model_job_classifies_snapshot_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    message: str,
+    expected_kind: str,
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    def failing_snapshot_download(**_kwargs: object) -> str:
+        raise RuntimeError(message)
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        failing_snapshot_download,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-failure"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-failure", "model_ref": "01REMOTE"},
+        )
+        resolving = await asyncio.wait_for(events.__anext__(), timeout=2)
+        downloading = await asyncio.wait_for(events.__anext__(), timeout=2)
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    [entry] = registry["entries"]
+    assert resolving["text"] == "Resolving model"
+    assert downloading["text"] == "Downloading model meta-llama/Llama-3.1-8B-Instruct"
+    assert done["event"] == "job_done"
+    assert done["ok"] is False
+    assert done["error_kind"] == expected_kind
+    assert done["model_ref"] == "01REMOTE"
+    assert done["repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
+    assert done["revision"] == "main"
+    assert entry["cache_state"] == "partial"
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_cancelled_model_download_marks_entry_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

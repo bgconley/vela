@@ -194,10 +194,11 @@ def download_hf_model(
             {"model_ref": reference, "repo_id": repo_id},
         ) from exc
     except Exception as exc:
-        raise ModelRegistryError(
-            "model-not-found",
-            f"unable to download model {repo_id}: {exc}",
-            {"model_ref": reference, "repo_id": repo_id},
+        raise _snapshot_download_error(
+            exc,
+            model_ref=reference,
+            repo_id=repo_id,
+            revision=selected_revision,
         ) from exc
 
     cached = _matching_hf_cache_payload(repo_id, selected_revision)
@@ -552,6 +553,96 @@ def _snapshot_download(**kwargs: Any) -> str:
     from huggingface_hub import snapshot_download
 
     return str(snapshot_download(**kwargs))
+
+
+def _snapshot_download_error(
+    exc: Exception,
+    *,
+    model_ref: str,
+    repo_id: str,
+    revision: str | None,
+) -> ModelRegistryError:
+    kind = _classify_snapshot_download_error(exc)
+    details: dict[str, Any] = {
+        "model_ref": model_ref,
+        "repo_id": repo_id,
+    }
+    if revision is not None:
+        details["revision"] = revision
+    if kind == "gated-auth":
+        message = (
+            f"Hugging Face access denied for {repo_id}; accept the model license "
+            "and set HF_TOKEN if required"
+        )
+    elif kind == "revision-not-found":
+        selected = revision or "requested revision"
+        message = f"Hugging Face revision not found for {repo_id}: {selected}"
+    elif kind == "disk-full":
+        message = f"not enough disk space to download {repo_id}"
+    elif kind == "network":
+        message = f"network error downloading {repo_id}: {exc}"
+    elif kind == "integrity-mismatch":
+        message = f"integrity mismatch while downloading {repo_id}: {exc}"
+    else:
+        message = f"unable to download model {repo_id}: {exc}"
+    return ModelRegistryError(kind, message, details)
+
+
+def _classify_snapshot_download_error(exc: Exception) -> str:
+    text = f"{type(exc).__module__}.{type(exc).__name__} {exc}".lower()
+    if any(
+        marker in text
+        for marker in (
+            "gatedrepoerror",
+            "gated repo",
+            "access denied",
+            "unauthorized",
+            "forbidden",
+            "401",
+            "403",
+        )
+    ):
+        return "gated-auth"
+    if "revisionnotfound" in text or (
+        "revision" in text and ("not found" in text or "does not exist" in text)
+    ):
+        return "revision-not-found"
+    if any(
+        marker in text
+        for marker in (
+            "errno 28",
+            "no space left",
+            "disk full",
+            "not enough space",
+        )
+    ):
+        return "disk-full"
+    if any(
+        marker in text
+        for marker in (
+            "hash mismatch",
+            "integrity",
+            "checksum",
+            "sha256",
+            "etag mismatch",
+        )
+    ):
+        return "integrity-mismatch"
+    if any(
+        marker in text
+        for marker in (
+            "connection",
+            "connect timeout",
+            "read timeout",
+            "timed out",
+            "timeout",
+            "network",
+            "temporarily unavailable",
+            "max retries",
+        )
+    ):
+        return "network"
+    return "model-download-failed"
 
 
 def _hf_cache_files_payload(files: list[object], total_size: int) -> dict[str, Any]:
