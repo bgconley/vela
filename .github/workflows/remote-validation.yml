@@ -80,6 +80,8 @@ jobs:
       VLLM_LOADER_REMOTE_VENV: ${{ github.event.inputs.remote_venv || vars.VLLM_LOADER_REMOTE_VENV || '/home/bgconley/venvs/lab-tui' }}
       VLLM_LOADER_REMOTE_TARGET: ${{ github.event.inputs.remote_target || vars.VLLM_LOADER_REMOTE_TARGET || 'blackbird' }}
       VLLM_LOADER_REMOTE_BUILD_SPEC: ${{ github.event.inputs.build_spec || vars.VLLM_LOADER_REMOTE_BUILD_SPEC || 'vllm==0.11.2' }}
+      VLLM_LOADER_REMOTE_BUILD_LABEL: ${{ vars.VLLM_LOADER_REMOTE_BUILD_LABEL || format('gha-{0}-{1}-build', github.run_id, github.run_attempt) }}
+      VLLM_LOADER_REMOTE_MODEL_ID: ${{ vars.VLLM_LOADER_REMOTE_MODEL_ID || format('gha-{0}-{1}-model', github.run_id, github.run_attempt) }}
       VLLM_LOADER_REMOTE_MODEL_REPO: ${{ github.event.inputs.model_repo || vars.VLLM_LOADER_REMOTE_MODEL_REPO || 'hf-internal-testing/tiny-random-LlamaForCausalLM' }}
       VLLM_LOADER_REMOTE_MODEL_REVISION: ${{ github.event.inputs.model_revision || vars.VLLM_LOADER_REMOTE_MODEL_REVISION || 'main' }}
       VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG: ${{ github.event.inputs.real_resume_config || vars.VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG || 'tiny-random-llama-detached-blackbird' }}

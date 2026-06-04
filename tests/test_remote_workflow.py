@@ -49,6 +49,17 @@ def test_remote_validation_workflow_uses_remote_safe_pytest_slice() -> None:
     assert "tests/test_targets.py" in workflow
 
 
+def test_remote_validation_workflow_mints_unique_build_and_model_labels() -> None:
+    workflow = Path(".github/workflows/remote-validation.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "VLLM_LOADER_REMOTE_BUILD_LABEL" in workflow
+    assert "VLLM_LOADER_REMOTE_MODEL_ID" in workflow
+    assert "github.run_id" in workflow
+    assert "github.run_attempt" in workflow
+
+
 def test_remote_validation_restarts_daemon_after_install() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
