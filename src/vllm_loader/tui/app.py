@@ -305,6 +305,8 @@ def _message_from_wire_event(
         detail = str(payload.get("detail") or "")
         if bool(payload.get("ok")):
             return ProgressUpdated(detail or "Job complete")
+        if str(payload.get("error_kind") or "") == "cancelled":
+            return ProgressUpdated(detail or "Job cancelled")
         return EngineError(
             _error_kind_from_agent_payload(payload.get("error_kind")),
             detail or "Job failed",
@@ -613,6 +615,8 @@ class VllmLoaderApp(App):
         self._pending_build_remove: dict[str, str] | None = None
         self._pending_model_remove: dict[str, str] | None = None
         self._pending_target_remove: dict[str, str] | None = None
+        self._active_job_id: str | None = None
+        self._active_job_label: str = ""
         self._log_flush_scheduled = False
         self.last_copied_url: str | None = None
         self.reattached_run_id: str | None = None
@@ -1416,6 +1420,8 @@ class VllmLoaderApp(App):
         incomplete_label: str,
     ) -> None:
         job_id = str(params["job_id"])
+        self._active_job_id = job_id
+        self._active_job_label = incomplete_label
         await self._ensure_target_client_connected()
         events = self._target_client.subscribe([job_id], resume_from="live")
         try:
@@ -1433,6 +1439,9 @@ class VllmLoaderApp(App):
                 incomplete_label=incomplete_label,
             )
         finally:
+            if self._active_job_id == job_id:
+                self._active_job_id = None
+                self._active_job_label = ""
             aclose = getattr(events, "aclose", None)
             if aclose is not None:
                 await aclose()
@@ -1557,6 +1566,16 @@ class VllmLoaderApp(App):
         self.run_worker(self._run_selected_config(), name="load", group="engine", exclusive=True)
 
     def action_stop(self) -> None:
+        if self._active_job_id is not None:
+            job_id = self._active_job_id
+            self.run_worker(
+                self._cancel_target_job(job_id),
+                name="job-cancel",
+                group="job-cancel",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
         if self._target_control_blocked("stop"):
             return
         if self.reattached_run_id is not None:
@@ -1581,6 +1600,16 @@ class VllmLoaderApp(App):
             return
         self._set_phase(Phase.STOPPED)
         self._write_log("INFO stop requested")
+
+    async def _cancel_target_job(self, job_id: str) -> None:
+        try:
+            await self._target_call("cancel_job", {"job_id": job_id})
+        except TargetCallError as exc:
+            label = self._active_job_label or "job"
+            self._set_error_text(f"Unable to cancel {label}: {exc}", style=f"bold {BAD}")
+            return
+        label = self._active_job_label or "job"
+        self.notify(f"Cancelled {label}")
 
     def action_kill(self) -> None:
         if self._target_control_blocked("kill"):

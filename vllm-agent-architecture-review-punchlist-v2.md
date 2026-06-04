@@ -19,7 +19,8 @@ history, but the current tree has closed the load-bearing gaps it identified:
 - **P2/P3 closed:** build `pip`/`uv` install jobs and model download jobs stream
   through the agent, support cancellation/partial state, inject op-time
   `HF_TOKEN` where needed, and scrub job output before both the wire and
-  durable job logs.
+  durable job logs. The TUI's universal `s` Stop binding cancels an in-flight
+  build/model job via `cancel_job`.
 - **P4 closed for the current done gate:** remote validation is recorded in
   `artifacts/remote-validation/2026-06-04-p620-blackbird-smoke.md`, including
   P620-01 controller to Blackbird agent handshake/list/preview/Qwen smoke,
