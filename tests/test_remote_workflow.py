@@ -288,6 +288,17 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert '"$remote_real_resume_config"' in remote_script
 
 
+def test_real_model_resume_check_discovers_run_before_reconnect_reattach() -> None:
+    script = Path("scripts/real_model_resume_check.py").read_text(encoding="utf-8")
+
+    reconnect_marker = "await asyncio.sleep(5.0)"
+    reconnect_at = script.index(reconnect_marker)
+    discover = 'await client.call("discover_runs", discover_params)'
+    reattach = 'await client.call("reattach", {"run_id": run_id})'
+
+    assert script.index(discover, reconnect_at) < script.index(reattach, reconnect_at)
+
+
 def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

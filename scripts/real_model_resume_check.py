@@ -199,6 +199,8 @@ async def _run(config_name: str, *, target_name: str, timeout: float) -> None:
     events = None
     await client.connect()
     try:
+        discover_params = {"runs_dirs": runs_dirs} if runs_dirs else {}
+        await client.call("discover_runs", discover_params)
         await client.call("reattach", {"run_id": run_id})
         cursor = {
             "log_inode": int(first_log["log_inode"]),
