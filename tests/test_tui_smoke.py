@@ -4146,6 +4146,7 @@ async def test_build_manager_create_build_streams_job_events(
             lambda: app.screen.id == "create-build",
             "create build screen did not open",
         )
+        assert not app.screen.query("#create-build-build-id")
         app.screen.query_one("#create-build-method", Select).value = "nightly"
         app.screen.query_one("#create-build-label", Input).value = "nvfp4"
         app.screen.query_one("#create-build-channel", Input).value = "cu130"

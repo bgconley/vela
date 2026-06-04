@@ -459,7 +459,6 @@ def test_cli_build_adopt_passes_external_venv_to_agent(
         (
             "adopt_build",
             {
-                "build_id": "01ADOPTED",
                 "label": "external-nightly",
                 "venv_path": str(venv_dir),
                 "vllm_version": "0.17.0.dev",

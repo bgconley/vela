@@ -97,11 +97,6 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
                 placeholder="/agent/wheels/vllm.whl",
                 id="create-build-path",
             )
-            yield Static("Build id", classes="create-build-field-label")
-            yield Input(
-                placeholder="optional; registry mints one when blank",
-                id="create-build-build-id",
-            )
             yield Static("Environment", classes="create-build-field-label")
             yield Input(
                 placeholder="KEY=value OTHER=value",
@@ -132,7 +127,6 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
         method = self.query_one("#create-build-method", Select).value
         params: dict[str, Any] = {"method": str(method or "").strip()}
         fields = {
-            "build_id": self._field_value("#create-build-build-id"),
             "label": self._field_value("#create-build-label"),
             "spec": self._field_value("#create-build-spec"),
             "channel": self._field_value("#create-build-channel"),

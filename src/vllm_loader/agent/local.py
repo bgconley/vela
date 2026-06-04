@@ -31,6 +31,7 @@ from vllm_loader.engine.build_registry import (
     default_builds_root,
     inspect_build,
     list_builds,
+    mint_build_id,
     record_build_ref,
     remove_build,
     resolve_build_handoff,
@@ -38,7 +39,6 @@ from vllm_loader.engine.build_registry import (
     verify_build,
 )
 from vllm_loader.engine.command_builder import CommandBuildResult, build_command
-from vllm_loader.engine.ids import mint_ulid
 from vllm_loader.engine.log_sink import LogRecord, LogSink, level_for_line
 from vllm_loader.engine.model_registry import (
     ModelHandoff,
@@ -1253,9 +1253,10 @@ class LocalAgent:
         emit: JobProgressEmitter,
         cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
-        build_id = _optional_param_str(params.get("build_id")) or mint_ulid()
+        requested_build_id = _optional_param_str(params.get("build_id"))
+        build_id = mint_build_id(self._builds_root)
         params["build_id"] = build_id
-        label = _optional_param_str(params.get("label")) or build_id
+        label = _optional_param_str(params.get("label")) or requested_build_id or build_id
         method = str(params.get("method") or "pip").strip().lower()
         build_dir = self._builds_root / build_id
         venv_path = build_dir / "venv"
@@ -1497,9 +1498,9 @@ class LocalAgent:
         if method in {"pip", "nightly", "commit", "wheel", "git"}:
             return await self._run_pip_build_job(params, emit, _cancel_event)
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
+            requested_build_id = _optional_param_str(params.get("build_id"))
             adopt_params = {
-                "build_id": params.get("build_id") or mint_ulid(),
-                "label": params.get("label"),
+                "label": params.get("label") or requested_build_id,
                 "venv_path": params.get("venv_path") or params.get("path"),
                 "vllm_version": params.get("vllm_version"),
                 "vllm_version_profile": params.get("vllm_version_profile"),

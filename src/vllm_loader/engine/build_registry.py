@@ -637,10 +637,11 @@ def _required_param(params: dict[str, Any], field: str) -> str:
     return value
 
 
-def _build_id_from_params(params: dict[str, Any], builds_root: Path) -> str:
-    explicit = _optional_str(params.get("build_id"))
-    if explicit:
-        return explicit
+def _build_id_from_params(_params: dict[str, Any], builds_root: Path) -> str:
+    return mint_build_id(builds_root)
+
+
+def mint_build_id(builds_root: Path) -> str:
     for _attempt in range(16):
         candidate = mint_ulid()
         if not (builds_root / candidate).exists():

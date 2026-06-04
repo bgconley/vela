@@ -2498,10 +2498,10 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     finally:
         await client.disconnect()
 
-    build_dir = builds_root / "01ADOPTED"
+    build_dir = _assert_minted_build_dir(builds_root, adopted, ignored="01ADOPTED")
     manifest_path = build_dir / "build.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert adopted["build_id"] == "01ADOPTED"
+    assert adopted["build_id"] == build_dir.name
     assert adopted["label"] == "external-nightly"
     assert adopted["status"] == "adopted"
     assert adopted["manifest"]["paths"] == {
@@ -2528,7 +2528,7 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
         vllm_bin.read_bytes()
     )
     assert manifest["integrity"]["freeze_sha256"] == _sha256_uri(b"0.17.0.dev")
-    assert inspected["manifest"]["build_id"] == "01ADOPTED"
+    assert inspected["manifest"]["build_id"] == build_dir.name
     assert inspected["manifest"]["resolved"]["vllm"] == "0.17.0.dev"
     assert inspected["manifest"]["verify"]["ok"] is True
     json.dumps(adopted)
@@ -2572,6 +2572,43 @@ async def test_agent_adopts_external_build_with_registry_minted_id(
     assert manifest["build_id"] == build_id
     assert listed["builds"][0]["build_id"] == build_id
     assert build_id != "external-nightly"
+    json.dumps(adopted)
+
+
+@pytest.mark.asyncio
+async def test_agent_adopt_build_ignores_caller_supplied_build_id(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "caller-id"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.17.0.dev'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.17.0.dev'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "adopt_build",
+            {
+                "build_id": "01CALLER",
+                "label": "caller-id",
+                "venv_path": str(venv_dir),
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    build_id = _assert_ulid(adopted["build_id"])
+    assert build_id != "01CALLER"
+    assert not (builds_root / "01CALLER").exists()
+    assert (builds_root / build_id / "build.json").exists()
+    assert adopted["label"] == "caller-id"
     json.dumps(adopted)
 
 
@@ -2905,6 +2942,19 @@ def _assert_ulid(value: object) -> str:
     assert isinstance(value, str)
     assert re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", value)
     return value
+
+
+def _assert_minted_build_dir(
+    builds_root: Path,
+    payload: dict[str, object],
+    *,
+    ignored: str | None = None,
+) -> Path:
+    build_id = _assert_ulid(payload["build_id"])
+    if ignored is not None:
+        assert build_id != ignored
+        assert not (builds_root / ignored).exists()
+    return builds_root / build_id
 
 
 @pytest.mark.asyncio
@@ -5338,9 +5388,8 @@ async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
         await events.aclose()
         await client.disconnect()
 
-    manifest = json.loads(
-        (builds_root / "01ADOPTED" / "build.json").read_text(encoding="utf-8")
-    )
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01ADOPTED")
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert result == {
         "job_id": "job-build-adopt-1",
         "kind": "create_build",
@@ -5353,16 +5402,14 @@ async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
     assert done["job_id"] == "job-build-adopt-1"
     assert done["ok"] is True
     assert done["detail"] == "build adopted"
-    assert done["build_id"] == "01ADOPTED"
+    assert done["build_id"] == build_dir.name
     assert manifest["status"] == "adopted"
     assert manifest["integrity"]["executable_sha256"] == _sha256_uri(
         vllm_bin.read_bytes()
     )
-    assert manifest["paths"]["root"] == str(builds_root / "01ADOPTED")
+    assert manifest["paths"]["root"] == str(build_dir)
     assert manifest["paths"]["executable"] == "bin/vllm"
-    assert (builds_root / "01ADOPTED" / "bin" / "vllm").resolve() == (
-        venv_dir / "bin" / "vllm"
-    )
+    assert (build_dir / "bin" / "vllm").resolve() == (venv_dir / "bin" / "vllm")
     json.dumps(progress)
     json.dumps(done)
 
@@ -5473,6 +5520,7 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
 ) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
     command_calls: list[list[str]] = []
+    command_cwds: list[Path] = []
 
     async def fake_build_subprocess_exec(
         argv: list[str],
@@ -5484,8 +5532,9 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
         cancel_event: asyncio.Event,
     ) -> int:
         command_calls.append(list(argv))
+        command_cwds.append(cwd)
         assert env["VLLM_USE_PRECOMPILED"] == "1"
-        assert cwd == builds_root / "01PIP"
+        assert cwd.parent == builds_root
         assert cancel_event.is_set() is False
         if argv[1:3] == ["-m", "venv"]:
             venv_dir = Path(argv[-1])
@@ -5554,14 +5603,16 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01PIP"
+    assert done is not None
+    build_id = _assert_ulid(done["build_id"])
+    assert build_id != "01PIP"
+    build_dir = builds_root / build_id
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert result == {
         "job_id": "job-build-pip",
         "kind": "create_build",
         "status": "running",
     }
-    assert done is not None
     assert [event["event"] for event in progress] == ["job_progress"] * 5
     assert progress[0]["text"] == "Creating build stable-cu124"
     assert progress[-1]["text"] == "Verifying build stable-cu124"
@@ -5569,7 +5620,6 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
     assert done["job_id"] == "job-build-pip"
     assert done["ok"] is True
     assert done["detail"] == "build ready"
-    assert done["build_id"] == "01PIP"
     assert done["label"] == "stable-cu124"
     assert done["status"] == "ready"
     assert done["manifest"]["paths"]["root"] == str(build_dir)
@@ -5603,6 +5653,7 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
     ).resolve()
     assert (build_dir / "run.sh").stat().st_mode & 0o111
     assert (build_dir / "install.log").stat().st_mode & 0o077 == 0
+    assert command_cwds == [build_dir, build_dir, build_dir]
     assert command_calls == [
         [sys.executable, "-m", "venv", "--without-pip", str(build_dir / "venv")],
         [
@@ -5812,7 +5863,7 @@ async def test_agent_create_build_pip_job_prefers_uv_when_available(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01UVPIP"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01UVPIP")
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is True
     assert manifest["install"]["installer"] == "uv"
@@ -5940,7 +5991,7 @@ async def test_agent_create_build_nightly_uses_uv_index(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01NIGHTLY"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01NIGHTLY")
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is True
     assert manifest["install"]["method"] == "nightly"
@@ -6077,7 +6128,7 @@ async def test_agent_create_build_commit_uses_uv_commit_index(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01COMMIT"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01COMMIT")
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     index_url = f"https://wheels.vllm.ai/{commit_sha}/cu130"
     assert done["ok"] is True
@@ -6220,7 +6271,7 @@ async def test_agent_create_build_wheel_uses_uv_with_extra_index(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01WHEEL"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01WHEEL")
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is True
     assert manifest["install"]["method"] == "wheel"
@@ -6319,7 +6370,7 @@ async def test_agent_create_build_wheel_falls_back_to_pip(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01WHEELPIP"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01WHEELPIP")
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is True
     assert manifest["install"]["method"] == "wheel"
@@ -6464,7 +6515,7 @@ async def test_agent_create_build_git_clones_and_installs_with_uv(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01GIT"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01GIT")
     source_dir = build_dir / "source"
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is True
@@ -6566,7 +6617,7 @@ async def test_agent_create_build_git_falls_back_to_pip(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01GITPIP"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01GITPIP")
     source_dir = build_dir / "source"
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is True
@@ -6676,7 +6727,7 @@ async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
         await client.disconnect()
 
     assert done is not None
-    build_dir = builds_root / "01SCRUB"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01SCRUB")
     log_text = (build_dir / "install.log").read_text(encoding="utf-8")
     wire_text = json.dumps({"progress": progress, "done": done}, ensure_ascii=False)
     manifest_text = (build_dir / "build.json").read_text(encoding="utf-8")
@@ -6761,13 +6812,13 @@ async def test_agent_create_build_pip_job_marks_failed_when_verify_fails(
         await events.aclose()
         await client.disconnect()
 
-    build_dir = builds_root / "01VERIFYFAIL"
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01VERIFYFAIL")
     manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is False
     assert done["error_kind"] == "invalid-config"
     assert done["detail"] == "vLLM import failed"
     assert done["reason"] == "vllm-import-failed"
-    assert done["build_id"] == "01VERIFYFAIL"
+    assert done["build_id"] == build_dir.name
     assert done["status"] == "failed"
     assert manifest["status"] == "failed"
     assert manifest["install"]["exit_code"] == 0
@@ -6933,7 +6984,8 @@ async def test_agent_create_build_pip_cancel_marks_failed_manifest(
         await events.aclose()
         await client.disconnect()
 
-    manifest = json.loads((builds_root / "01CANCEL" / "build.json").read_text())
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01CANCEL")
+    manifest = json.loads((build_dir / "build.json").read_text())
     assert cancel_result == {
         "job_id": "job-build-cancel",
         "cancelled": True,
@@ -6943,7 +6995,7 @@ async def test_agent_create_build_pip_cancel_marks_failed_manifest(
     assert done["ok"] is False
     assert done["error_kind"] == "cancelled"
     assert done["detail"] == "build install cancelled"
-    assert done["build_id"] == "01CANCEL"
+    assert done["build_id"] == build_dir.name
     assert done["status"] == "failed"
     assert manifest["status"] == "failed"
     assert manifest["install"]["exit_code"] == 130
@@ -7041,9 +7093,8 @@ async def test_agent_create_build_pip_job_classifies_install_failures(
         await events.aclose()
         await client.disconnect()
 
-    manifest = json.loads(
-        (builds_root / "01INSTALLFAIL" / "build.json").read_text(encoding="utf-8")
-    )
+    build_dir = _assert_minted_build_dir(builds_root, done, ignored="01INSTALLFAIL")
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
     assert done["ok"] is False
     assert done["error_kind"] == expected_kind
     assert done["status"] == "failed"

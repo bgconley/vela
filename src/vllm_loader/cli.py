@@ -306,7 +306,7 @@ def build_adopt(
     venv_path: Annotated[Path, typer.Argument(help="External vLLM virtualenv to adopt.")],
     build_id: Annotated[
         str | None,
-        typer.Option("--build-id", help="Stable build id; generated when omitted."),
+        typer.Option("--build-id", help="Deprecated; ignored. Build ids are minted."),
     ] = None,
     label: Annotated[str | None, typer.Option("--label", help="Build label.")] = None,
     vllm_version: Annotated[
@@ -324,8 +324,8 @@ def build_adopt(
         typer.Option("--json", help="Emit machine-readable adoption result."),
     ] = False,
 ) -> None:
+    del build_id
     params = _agent_params(
-        build_id=build_id,
         label=label,
         venv_path=venv_path,
         vllm_version=vllm_version,
