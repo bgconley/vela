@@ -4257,18 +4257,18 @@ async def test_build_manager_adopts_external_venv_through_target_client(
             lambda: app.screen.id == "adopt-build",
             "adopt build screen did not open",
         )
-        app.screen.query_one("#adopt-build-input", Input).value = (
-            "build_id=01ADOPTED label=external-nightly "
-            "venv_path=/agent/venvs/vllm-nightly "
-            "vllm_version=0.17.0.dev vllm_version_profile=current"
+        app.screen.query_one("#adopt-build-label", Input).value = "external-nightly"
+        app.screen.query_one("#adopt-build-venv-path", Input).value = (
+            "/agent/venvs/vllm-nightly"
         )
+        app.screen.query_one("#adopt-build-vllm-version", Input).value = "0.17.0.dev"
+        app.screen.query_one("#adopt-build-vllm-version-profile", Input).value = "current"
         await pilot.press("enter")
 
         await _wait_for_condition(
             lambda: target_client.adopt_calls
             == [
                 {
-                    "build_id": "01ADOPTED",
                     "label": "external-nightly",
                     "venv_path": "/agent/venvs/vllm-nightly",
                     "vllm_version": "0.17.0.dev",

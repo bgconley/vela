@@ -30,6 +30,11 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
         text-style: bold;
     }}
 
+    .adopt-build-field-label {{
+        margin-top: 1;
+        color: {TEXT};
+    }}
+
     #adopt-build-error {{
         margin-top: 1;
         color: {BAD};
@@ -44,25 +49,57 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="adopt-build-panel"):
             yield Static("Adopt Build", id="adopt-build-title")
+            yield Static("Label", classes="adopt-build-field-label")
             yield Input(
-                placeholder=(
-                    "label=external venv_path=/agent/venvs/vllm"
-                ),
-                id="adopt-build-input",
+                placeholder="external-nightly",
+                id="adopt-build-label",
+            )
+            yield Static("Venv path", classes="adopt-build-field-label")
+            yield Input(
+                placeholder="/agent/venvs/vllm-nightly",
+                id="adopt-build-venv-path",
+            )
+            yield Static("vLLM version", classes="adopt-build-field-label")
+            yield Input(
+                placeholder="0.17.0.dev",
+                id="adopt-build-vllm-version",
+            )
+            yield Static("Version profile", classes="adopt-build-field-label")
+            yield Input(
+                placeholder="current",
+                id="adopt-build-vllm-version-profile",
             )
             yield Static("", id="adopt-build-error")
 
     def on_mount(self) -> None:
-        self.query_one("#adopt-build-input", Input).focus()
+        self.query_one("#adopt-build-label", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
         try:
-            self.dismiss(_parse_adopt_build_params(event.value))
+            self.dismiss(self._collect_adopt_build_params())
         except ValueError as exc:
             self.query_one("#adopt-build-error", Static).update(str(exc))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def _field_value(self, selector: str) -> str:
+        return self.query_one(selector, Input).value.strip()
+
+    def _collect_adopt_build_params(self) -> dict[str, Any]:
+        params = {
+            "label": self._field_value("#adopt-build-label"),
+            "venv_path": self._field_value("#adopt-build-venv-path"),
+            "vllm_version": self._field_value("#adopt-build-vllm-version"),
+            "vllm_version_profile": self._field_value(
+                "#adopt-build-vllm-version-profile"
+            ),
+        }
+        cleaned = {key: value for key, value in params.items() if value}
+        if not cleaned.get("venv_path"):
+            raise ValueError("Enter venv_path=<path>")
+        return cleaned
 
 
 def _parse_adopt_build_params(value: str) -> dict[str, Any]:
