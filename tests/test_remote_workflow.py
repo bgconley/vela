@@ -29,6 +29,17 @@ def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
     assert script.index(pull_command) < script.index(install_command)
 
 
+def test_remote_validation_restarts_daemon_after_install() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    install_command = '"$venv_python" -m pip install -e ".[dev]"'
+    restart_command = '"$venv_bin/vllm-loader" agent restart'
+    list_command = '"$venv_bin/vllm-loader" list'
+    assert restart_command in script
+    assert script.index(install_command) < script.index(restart_command)
+    assert script.index(restart_command) < script.index(list_command)
+
+
 def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 

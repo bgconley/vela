@@ -124,6 +124,8 @@ if ! "$venv_python" -m pip --version >/dev/null 2>&1; then
 fi
 export PATH="$venv_bin:$PATH"
 "$venv_python" -m pip install -e ".[dev]"
+echo "== Remote agent restart =="
+"$venv_bin/vllm-loader" agent restart
 echo "== Remote host =="
 hostname
 "$venv_python" - <<'PY'
