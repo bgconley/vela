@@ -243,6 +243,10 @@ def build_add(
     url: Annotated[str | None, typer.Option("--url", help="Git repository URL.")] = None,
     ref: Annotated[str | None, typer.Option("--ref", help="Git ref.")] = None,
     path: Annotated[Path | None, typer.Option("--path", help="Wheel or venv path.")] = None,
+    precompiled: Annotated[
+        bool,
+        typer.Option("--precompiled", help="Use precompiled vLLM extensions for git builds."),
+    ] = False,
     env: Annotated[
         list[str] | None,
         typer.Option("--env", help="Build environment override KEY=VALUE."),
@@ -263,6 +267,7 @@ def build_add(
         "url": url,
         "ref": ref,
         "path": str(path) if path is not None else None,
+        "precompiled": "true" if precompiled else None,
     }.items():
         if value is not None:
             params[key] = value
