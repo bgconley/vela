@@ -3792,6 +3792,115 @@ async def test_agent_pin_model_takes_registry_lock(
     ]
 
 
+def test_model_verify_takes_entry_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+    model_registry_module.pin_model(
+        {
+            "entry_id": "01LOCAL",
+            "source": "local_path",
+            "local_path": str(model_dir),
+        },
+        registry_path,
+    )
+    flock_calls: list[tuple[str, int]] = []
+
+    def fake_flock(handle: object, operation: int) -> None:
+        flock_calls.append((str(getattr(handle, "name", "")), operation))
+
+    monkeypatch.setattr(
+        model_registry_module,
+        "fcntl",
+        SimpleNamespace(LOCK_EX=fcntl.LOCK_EX, LOCK_UN=fcntl.LOCK_UN, flock=fake_flock),
+        raising=False,
+    )
+
+    verified = model_registry_module.verify_model("01LOCAL", registry_path)
+
+    entry_lock = registry_path.parent / "locks" / "01LOCAL.lock"
+    assert verified["ok"] is True
+    assert (str(entry_lock), fcntl.LOCK_EX) in flock_calls
+    assert (str(entry_lock), fcntl.LOCK_UN) in flock_calls
+
+
+def test_model_download_holds_entry_lock_during_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_registry_module.pin_model(
+        {
+            "entry_id": "01REMOTE",
+            "display_name": "llama-remote",
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+        },
+        registry_path,
+    )
+    active_locks: set[str] = set()
+    flock_calls: list[tuple[str, int]] = []
+    entry_lock = registry_path.parent / "locks" / "01REMOTE.lock"
+    registry_lock = registry_path.parent / "registry.lock"
+
+    def fake_flock(handle: object, operation: int) -> None:
+        path = str(getattr(handle, "name", ""))
+        flock_calls.append((path, operation))
+        if operation == fcntl.LOCK_EX:
+            active_locks.add(path)
+        elif operation == fcntl.LOCK_UN:
+            active_locks.discard(path)
+
+    def fake_snapshot_download(**_kwargs: object) -> str:
+        assert str(entry_lock) in active_locks
+        assert str(registry_lock) not in active_locks
+        return str(tmp_path / "hf-cache" / "snapshots" / "abc123")
+
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=130,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+            SimpleNamespace(file_name="tokenizer.json", size_on_disk=20),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "fcntl",
+        SimpleNamespace(LOCK_EX=fcntl.LOCK_EX, LOCK_UN=fcntl.LOCK_UN, flock=fake_flock),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        fake_snapshot_download,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    downloaded = model_registry_module.download_hf_model("01REMOTE", registry_path)
+
+    assert downloaded["ok"] is True
+    assert (str(entry_lock), fcntl.LOCK_EX) in flock_calls
+    assert (str(entry_lock), fcntl.LOCK_UN) in flock_calls
+
+
 @pytest.mark.asyncio
 async def test_agent_adopts_local_model_path_for_launch_handoff(
     config_dir: Path, tmp_path: Path

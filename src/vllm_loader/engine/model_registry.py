@@ -141,8 +141,10 @@ def verify_model(reference: str, registry_path: str | Path | None = None) -> dic
         if registry_path is not None
         else default_models_registry_path()
     )
-    with _registry_lock(path):
-        return _verify_model_locked(reference, path)
+    entry_id = _entry_id_for_reference(path, reference)
+    with _entry_lock(path, entry_id):
+        with _registry_lock(path):
+            return _verify_model_locked(reference, path)
 
 
 def _verify_model_locked(reference: str, path: Path) -> dict[str, Any]:
@@ -170,63 +172,65 @@ def download_hf_model(
         if registry_path is not None
         else default_models_registry_path()
     )
-    with _registry_lock(path):
-        download_kwargs, repo_id, selected_revision = _prepare_hf_model_download(
-            reference,
-            path,
-            revision=revision,
-            allow_patterns=allow_patterns,
-            ignore_patterns=ignore_patterns,
-            progress_callback=progress_callback,
-        )
+    entry_id = _entry_id_for_reference(path, reference)
+    with _entry_lock(path, entry_id):
+        with _registry_lock(path):
+            download_kwargs, repo_id, selected_revision = _prepare_hf_model_download(
+                reference,
+                path,
+                revision=revision,
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
+                progress_callback=progress_callback,
+            )
 
-    try:
-        snapshot_path = _snapshot_download(**download_kwargs)
-    except ModelRegistryError:
-        raise
-    except ImportError as exc:
-        raise ModelRegistryError(
-            "feature-unavailable",
-            "huggingface_hub is required to download remote models",
-            {"model_ref": reference, "repo_id": repo_id},
-        ) from exc
-    except Exception as exc:
-        raise _snapshot_download_error(
-            exc,
-            model_ref=reference,
-            repo_id=repo_id,
-            revision=selected_revision,
-        ) from exc
+        try:
+            snapshot_path = _snapshot_download(**download_kwargs)
+        except ModelRegistryError:
+            raise
+        except ImportError as exc:
+            raise ModelRegistryError(
+                "feature-unavailable",
+                "huggingface_hub is required to download remote models",
+                {"model_ref": reference, "repo_id": repo_id},
+            ) from exc
+        except Exception as exc:
+            raise _snapshot_download_error(
+                exc,
+                model_ref=reference,
+                repo_id=repo_id,
+                revision=selected_revision,
+            ) from exc
 
-    cached = _matching_hf_cache_payload(repo_id, selected_revision)
-    if cached is None:
-        raise ModelRegistryError(
-            "model-not-found",
-            f"downloaded model {repo_id} was not found in the Hugging Face cache",
-            {
-                "model_ref": reference,
-                "repo_id": repo_id,
-                "snapshot_path": str(snapshot_path),
-            },
-        )
-    with _registry_lock(path):
-        registry = _load_registry_for_write(path)
-        entry = _entry_for_reference(registry, reference)
-        _apply_cached_model_payload(entry, cached)
-        registry["schema_version"] = 1
-        registry["default_cache"] = str(registry.get("default_cache") or "hf")
-        registry.setdefault("app_download_dir", None)
-        _write_registry_atomic(path, registry)
-        entry_id = str(entry.get("entry_id") or "")
-        entry_payload = _model_payload(entry)
-    return {
-        "entry_id": entry_id,
-        "ok": True,
-        "cache_state": "cached",
-        "detail": "model cached",
-        "snapshot_path": str(snapshot_path),
-        "entry": entry_payload,
-    }
+        cached = _matching_hf_cache_payload(repo_id, selected_revision)
+        if cached is None:
+            raise ModelRegistryError(
+                "model-not-found",
+                f"downloaded model {repo_id} was not found in the Hugging Face cache",
+                {
+                    "model_ref": reference,
+                    "repo_id": repo_id,
+                    "snapshot_path": str(snapshot_path),
+                },
+            )
+        with _registry_lock(path):
+            registry = _load_registry_for_write(path)
+            entry = _entry_for_reference(registry, reference)
+            _apply_cached_model_payload(entry, cached)
+            registry["schema_version"] = 1
+            registry["default_cache"] = str(registry.get("default_cache") or "hf")
+            registry.setdefault("app_download_dir", None)
+            _write_registry_atomic(path, registry)
+            entry_id = str(entry.get("entry_id") or "")
+            entry_payload = _model_payload(entry)
+        return {
+            "entry_id": entry_id,
+            "ok": True,
+            "cache_state": "cached",
+            "detail": "model cached",
+            "snapshot_path": str(snapshot_path),
+            "entry": entry_payload,
+        }
 
 
 def _prepare_hf_model_download(
@@ -406,8 +410,10 @@ def remove_model(reference: str, registry_path: str | Path | None = None) -> dic
         if registry_path is not None
         else default_models_registry_path()
     )
-    with _registry_lock(path):
-        return _remove_model_locked(reference, path)
+    entry_id = _entry_id_for_reference(path, reference)
+    with _entry_lock(path, entry_id):
+        with _registry_lock(path):
+            return _remove_model_locked(reference, path)
 
 
 def _remove_model_locked(reference: str, path: Path) -> dict[str, Any]:
@@ -975,6 +981,13 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
     )
 
 
+def _entry_id_for_reference(path: Path, reference: str) -> str:
+    with _registry_lock(path):
+        registry = _load_registry_or_raise(path, reference)
+        entry = _entry_for_reference(registry, reference)
+        return _required_str(entry, "entry_id", reference)
+
+
 def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
     entry_id = _required_str(entry, "entry_id", reference)
     source = _required_str(entry, "source", reference)
@@ -1407,6 +1420,19 @@ def _write_registry_atomic(path: Path, registry: dict[str, Any]) -> None:
 
 def _registry_lock(path: Path) -> _ExclusiveFileLock:
     return _ExclusiveFileLock(path.parent / "registry.lock")
+
+
+def _entry_lock(path: Path, entry_id: str) -> _ExclusiveFileLock:
+    return _ExclusiveFileLock(path.parent / "locks" / _entry_lock_filename(entry_id))
+
+
+def _entry_lock_filename(entry_id: str) -> str:
+    safe = "".join(
+        char if char.isalnum() or char in "._-" else "_" for char in str(entry_id)
+    ).strip("._")
+    if not safe:
+        safe = sha256(str(entry_id).encode("utf-8")).hexdigest()
+    return f"{safe}.lock"
 
 
 class _ExclusiveFileLock:
