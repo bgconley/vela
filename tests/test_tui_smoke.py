@@ -3920,6 +3920,7 @@ async def test_build_manager_remove_confirms_and_calls_target_client(
         )
         confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
         assert "Remove build old-cu124?" in confirm_text
+        assert "on blackbird" in confirm_text
         await pilot.press("enter")
 
         await _wait_for_condition(
@@ -4672,6 +4673,7 @@ async def test_model_manager_remove_confirms_and_calls_target_client(
         )
         confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
         assert "Remove model qwen-remote?" in confirm_text
+        assert "on blackbird" in confirm_text
         await pilot.press("enter")
 
         await _wait_for_condition(
