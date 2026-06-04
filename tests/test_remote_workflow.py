@@ -357,12 +357,20 @@ def test_real_model_resume_check_accepts_build_and_model_overrides() -> None:
     assert 'params["model_ref"] = model_ref' in script
 
 
+def test_real_model_resume_check_fails_fast_on_health_errors() -> None:
+    script = Path("scripts/real_model_resume_check.py").read_text(encoding="utf-8")
+
+    assert 'last.get("error_kind")' in script
+    assert 'last.get("phase") in {"ERROR", "STOPPED"}' in script
+
+
 def test_tiny_real_resume_config_is_detached_and_small() -> None:
     config = Path("configs/tiny-random-llama-detached-blackbird.yaml").read_text(
         encoding="utf-8"
     )
 
     assert "hf-internal-testing/tiny-random-LlamaForCausalLM" in config
+    assert "enforce_eager: true" in config
     assert "mode: detached" in config
     assert "port: 18004" in config
 

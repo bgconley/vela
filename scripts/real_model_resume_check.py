@@ -93,6 +93,8 @@ async def _wait_ready(
         last = await client.call("health", {"run_id": run_id})
         if last.get("ready"):
             return last
+        if last.get("error_kind") or last.get("phase") in {"ERROR", "STOPPED"}:
+            raise RuntimeError(f"run {run_id} did not become ready: {last}")
         await asyncio.sleep(2.0)
     raise RuntimeError(f"run {run_id} did not become ready: {last}")
 
