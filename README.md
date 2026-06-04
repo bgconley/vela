@@ -17,21 +17,32 @@ vllm-loader smoke fake-child
 Mac to GPU workflow:
 
 ```bash
-scripts/rsync_to_gpu.sh USER@GPU_HOST:/tank/repos/lab-tui
+git push origin main
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
+```
+
+Pre-release validation can write a dated Markdown artifact from the same
+command:
+
+```bash
+VLLM_LOADER_REMOTE_ARTIFACT=1 \
+VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==0.11.2' \
+VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
 ```
 
 Preferred real smoke target:
 
 ```bash
-scripts/rsync_to_gpu.sh bgconley@10.25.0.51:/home/bgconley/repos/lab-tui
+git push origin main
 VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
   scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
-See `docs/gpu-workflow.md` for the full remote validation flow.
+See `docs/gpu-workflow.md` for the full remote validation flow and the manual
+`Remote Validation` GitHub Actions lane.
 
 Config discovery follows:
 

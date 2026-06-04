@@ -89,6 +89,28 @@ These knobs can be combined with the real config smoke. In that case the script
 first runs no-GPU checks, then the optional build/model artifact jobs, then
 `preview` + `smoke-tui` for the named config.
 
+To write the reviewable validation record required for pre-release signoff, use
+the same command with artifact capture enabled. The script records the local
+commit, target host/path, optional build/model/config knobs, full remote output,
+and final exit status in a fresh Markdown file:
+
+```bash
+VLLM_LOADER_REMOTE_ARTIFACT=1 \
+VLLM_LOADER_REMOTE_ARTIFACT_DIR=artifacts/remote-validation \
+VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==0.11.2' \
+VLLM_LOADER_REMOTE_MODEL_ID=real-model-smoke \
+VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VLLM_LOADER_REMOTE_MODEL_REVISION=main \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
+```
+
+The same lane is available as the manual GitHub Actions workflow
+`Remote Validation`. It runs `scripts/run_remote_tests.sh` instead of grepping
+for script text, and uploads the generated Markdown under the
+`remote-validation-artifacts` artifact. Use a self-hosted runner or SSH/network
+setup that can reach the GPU host; if the runner needs a private key, store it
+as the `VLLM_LOADER_REMOTE_SSH_KEY` secret.
+
 Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
 controller host is `620-01` (`10.25.0.50`), and the GPU/agent target is
 `blackbird` (`10.25.0.51`) with the `RTX PRO 6000 Blackwell Max-Q` GPU and

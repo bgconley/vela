@@ -26,6 +26,9 @@ Optional real artifact validation is enabled by local environment variables:
   - VLLM_LOADER_REMOTE_MODEL_ID defaults to remote-smoke-model
   - VLLM_LOADER_REMOTE_MODEL_REF downloads an existing pinned entry instead
   - VLLM_LOADER_REMOTE_MODEL_REVISION optionally pins/downloads a revision
+  - VLLM_LOADER_REMOTE_ARTIFACT=1 writes a dated Markdown validation record
+  - VLLM_LOADER_REMOTE_ARTIFACT_DIR overrides artifacts/remote-validation
+  - VLLM_LOADER_REMOTE_ARTIFACT_NAME writes a deterministic artifact filename
 
 Example:
   scripts/run_remote_tests.sh blackbird /srv/lab-tui
@@ -51,6 +54,9 @@ remote_model_id="${VLLM_LOADER_REMOTE_MODEL_ID:-remote-smoke-model}"
 remote_model_repo="${VLLM_LOADER_REMOTE_MODEL_REPO:-}"
 remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
 remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
+artifact_enabled="${VLLM_LOADER_REMOTE_ARTIFACT:-}"
+artifact_dir="${VLLM_LOADER_REMOTE_ARTIFACT_DIR:-}"
+artifact_name="${VLLM_LOADER_REMOTE_ARTIFACT_NAME:-}"
 empty_arg="__VLLM_LOADER_EMPTY__"
 append_remote_arg() {
   if [[ -n "$1" ]]; then
@@ -81,7 +87,25 @@ if [[ -n "$remote_build_spec" || -n "$remote_model_repo" || -n "$remote_model_re
   append_remote_arg "$remote_model_revision"
 fi
 
-"${ssh_cmd[@]}" <<'REMOTE'
+if [[ -z "$artifact_enabled" && -n "$artifact_dir" ]]; then
+  artifact_enabled=1
+fi
+if [[ "$artifact_enabled" == "1" && -z "$artifact_dir" ]]; then
+  artifact_dir="artifacts/remote-validation"
+fi
+
+_validation_slug() {
+  local value="$1"
+  local slug
+  slug="$(printf '%s' "$value" | tr -cs '[:alnum:]._-' '-' | sed -e 's/^-//' -e 's/-$//')"
+  if [[ -z "$slug" ]]; then
+    slug="validation"
+  fi
+  printf '%s' "$slug"
+}
+
+run_remote_validation() {
+  "${ssh_cmd[@]}" <<'REMOTE'
 set -euo pipefail
 
 empty_arg="__VLLM_LOADER_EMPTY__"
@@ -581,3 +605,73 @@ if [[ -n "$real_config" ]]; then
   timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config"
 fi
 REMOTE
+}
+
+if [[ "$artifact_enabled" == "1" ]]; then
+  mkdir -p "$artifact_dir"
+  start_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  date_slug="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+  host_slug="$(_validation_slug "$host")"
+  config_slug=""
+  if [[ -n "$real_config" ]]; then
+    config_slug="-$(_validation_slug "$real_config")"
+  fi
+  if [[ -z "$artifact_name" ]]; then
+    artifact_name="${date_slug}-${host_slug}${config_slug}-remote-validation.md"
+  fi
+  artifact_path="$artifact_dir/$artifact_name"
+  artifact_tmp="${artifact_path}.tmp"
+  local_head="$(git rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+  local_head_full="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
+  printf -v ssh_preview '%q ' "${ssh_cmd[@]}"
+  {
+    echo "# vLLM Loader Remote Validation"
+    echo
+    echo "- Started: \`$start_utc\`"
+    echo "- Local commit: \`$local_head\` (\`$local_head_full\`)"
+    echo "- Host: \`$host\`"
+    echo "- Remote path: \`$remote_path\`"
+    echo "- Remote venv: \`$remote_venv\`"
+    echo "- Timeout: \`$remote_timeout\` seconds"
+    if [[ -n "$real_config" ]]; then
+      echo "- Real config: \`$real_config\`"
+    else
+      echo "- Real config: _(none)_"
+    fi
+    if [[ -n "$remote_build_spec" ]]; then
+      echo "- Build validation: \`$remote_build_method $remote_build_spec\` as \`$remote_build_label\`"
+    else
+      echo "- Build validation: _(not requested)_"
+    fi
+    if [[ -n "$remote_model_repo" ]]; then
+      echo "- Model validation: pin/download \`$remote_model_repo\` as \`$remote_model_id\`"
+    elif [[ -n "$remote_model_ref" ]]; then
+      echo "- Model validation: download existing \`$remote_model_ref\`"
+    else
+      echo "- Model validation: _(not requested)_"
+    fi
+    echo "- SSH command: \`$ssh_preview\`"
+    echo
+    echo "## Output"
+    echo
+    echo '```text'
+  } >"$artifact_tmp"
+  set +e
+  run_remote_validation 2>&1 | tee -a "$artifact_tmp"
+  status="${PIPESTATUS[0]}"
+  set -e
+  completed_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  {
+    echo '```'
+    echo
+    echo "## Result"
+    echo
+    echo "- Completed: \`$completed_utc\`"
+    echo "- Exit status: \`$status\`"
+  } >>"$artifact_tmp"
+  mv "$artifact_tmp" "$artifact_path"
+  echo "remote validation artifact: $artifact_path" >&2
+  exit "$status"
+fi
+
+run_remote_validation

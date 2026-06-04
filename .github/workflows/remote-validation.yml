@@ -1,0 +1,92 @@
+name: Remote Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "SSH host for the GPU/controller validation node"
+        required: true
+        default: "bgconley@10.25.0.51"
+      remote_path:
+        description: "Absolute repo path on the remote host"
+        required: true
+        default: "/home/bgconley/repos/lab-tui"
+      real_config:
+        description: "Optional real config name for smoke-tui"
+        required: false
+        default: ""
+      remote_venv:
+        description: "Remote validation venv path"
+        required: true
+        default: "/home/bgconley/venvs/lab-tui"
+      remote_timeout:
+        description: "Timeout seconds for real smoke-tui"
+        required: true
+        default: "2700"
+      build_spec:
+        description: "Optional real build spec, for example vllm==0.11.2"
+        required: false
+        default: ""
+      model_repo:
+        description: "Optional Hugging Face model repo to pin/download"
+        required: false
+        default: ""
+      model_revision:
+        description: "Optional model revision"
+        required: false
+        default: ""
+      ssh_opts:
+        description: "Additional SSH options"
+        required: false
+        default: "-o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+      runner_label:
+        description: "Runner label with network access to the remote host"
+        required: true
+        default: "ubuntu-latest"
+
+jobs:
+  remote-validation:
+    runs-on: ${{ inputs.runner_label }}
+    env:
+      VLLM_LOADER_REMOTE_ARTIFACT: "1"
+      VLLM_LOADER_REMOTE_ARTIFACT_DIR: artifacts/remote-validation
+      VLLM_LOADER_REMOTE_TIMEOUT: ${{ inputs.remote_timeout }}
+      VLLM_LOADER_REMOTE_VENV: ${{ inputs.remote_venv }}
+      VLLM_LOADER_REMOTE_BUILD_SPEC: ${{ inputs.build_spec }}
+      VLLM_LOADER_REMOTE_MODEL_REPO: ${{ inputs.model_repo }}
+      VLLM_LOADER_REMOTE_MODEL_REVISION: ${{ inputs.model_revision }}
+      VLLM_LOADER_REMOTE_SSH_KEY: ${{ secrets.VLLM_LOADER_REMOTE_SSH_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH key
+        if: ${{ env.VLLM_LOADER_REMOTE_SSH_KEY != '' }}
+        run: |
+          mkdir -p "$HOME/.ssh"
+          key_path="$HOME/.ssh/vllm-loader-remote-validation"
+          printf '%s\n' "$VLLM_LOADER_REMOTE_SSH_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          echo "VLLM_LOADER_SSH_OPTS=-i $key_path ${{ inputs.ssh_opts }}" >> "$GITHUB_ENV"
+
+      - name: Configure SSH options without key
+        if: ${{ env.VLLM_LOADER_REMOTE_SSH_KEY == '' }}
+        run: |
+          echo "VLLM_LOADER_SSH_OPTS=${{ inputs.ssh_opts }}" >> "$GITHUB_ENV"
+
+      - name: Run remote validation
+        run: |
+          args=("${{ inputs.host }}" "${{ inputs.remote_path }}")
+          if [[ -n "${{ inputs.real_config }}" ]]; then
+            args+=("${{ inputs.real_config }}")
+          fi
+          bash scripts/run_remote_tests.sh "${args[@]}"
+
+      - name: Upload validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-validation-artifacts
+          path: artifacts/remote-validation/*.md
+          if-no-files-found: error

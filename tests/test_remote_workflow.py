@@ -226,6 +226,59 @@ def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path)
     assert '"$venv_bin/vllm-loader" model verify "$remote_model_ref"' in remote_script
 
 
+def test_remote_validation_writes_dated_artifact(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    artifact_dir = tmp_path / "artifacts"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+                'echo "REMOTE_OK from $1"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "SSH_CAPTURE": str(capture),
+        "VLLM_LOADER_REMOTE_ARTIFACT_DIR": str(artifact_dir),
+        "VLLM_LOADER_REMOTE_ARTIFACT_NAME": "2026-06-04-gpu-host-smoke.md",
+    }
+
+    result = subprocess.run(
+        [
+            "bash",
+            "scripts/run_remote_tests.sh",
+            "gpu-host",
+            "/srv/lab-tui",
+            "real-config",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    artifact = artifact_dir / "2026-06-04-gpu-host-smoke.md"
+    assert artifact.exists()
+    artifact_text = artifact.read_text(encoding="utf-8")
+    assert "# vLLM Loader Remote Validation" in artifact_text
+    assert "Host: `gpu-host`" in artifact_text
+    assert "Remote path: `/srv/lab-tui`" in artifact_text
+    assert "Real config: `real-config`" in artifact_text
+    assert "REMOTE_OK from gpu-host" in artifact_text
+    assert "Exit status: `0`" in artifact_text
+    assert f"remote validation artifact: {artifact}" in result.stderr
+
+
 def test_remote_validation_model_only_uses_nonempty_ssh_placeholders(
     tmp_path: Path,
 ) -> None:
@@ -280,6 +333,18 @@ def test_remote_validation_model_only_uses_nonempty_ssh_placeholders(
     ]
     assert 'empty_arg="__VLLM_LOADER_EMPTY__"' in remote_script
     assert "_remote_arg_or_empty" in remote_script
+
+
+def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact() -> None:
+    workflow = Path(".github/workflows/remote-validation.yml")
+
+    assert workflow.exists()
+    text = workflow.read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in text
+    assert "scripts/run_remote_tests.sh" in text
+    assert "VLLM_LOADER_REMOTE_ARTIFACT_DIR" in text
+    assert "actions/upload-artifact" in text
+    assert "remote-validation-artifacts" in text
 
 
 def test_remote_validation_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:
