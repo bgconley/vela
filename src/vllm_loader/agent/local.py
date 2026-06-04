@@ -198,6 +198,7 @@ class LocalAgent:
         self._event_buffers: dict[str, list[dict[str, Any]]] = {}
         self._event_buffer_size = 5000
         self._subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+        self._gpu_stream_tasks: dict[str, asyncio.Task[None]] = {}
         self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._controller_version: str | None = None
 
@@ -718,6 +719,8 @@ class LocalAgent:
 
     async def _sample_gpus(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = params or {}
+        if params.get("sub_id") is not None and not params.get("emit_event"):
+            return self._start_gpu_stream(params)
         payload = _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
         if params.get("emit_event"):
             sub_id = params.get("sub_id")
@@ -726,6 +729,31 @@ class LocalAgent:
                 event_payload["sub_id"] = sub_id
             self._publish_event(AgentEvent("gpu", "__agent__", event_payload))
         return payload
+
+    def _start_gpu_stream(self, params: dict[str, Any]) -> dict[str, Any]:
+        sub_id = params.get("sub_id")
+        if not isinstance(sub_id, str) or not sub_id.strip():
+            raise TargetCallError("invalid-params", "gpu stream requires sub_id")
+        interval = _gpu_stream_interval(params.get("interval_s"))
+        existing = self._gpu_stream_tasks.pop(sub_id, None)
+        if existing is not None:
+            existing.cancel()
+        task = asyncio.create_task(self._run_gpu_stream(sub_id, interval))
+        self._gpu_stream_tasks[sub_id] = task
+        return {"sub_id": sub_id}
+
+    async def _run_gpu_stream(self, sub_id: str, interval: float) -> None:
+        try:
+            while True:
+                payload = _gpu_poll_payload(await asyncio.to_thread(self.sample_gpus))
+                event_payload = dict(payload)
+                event_payload["sub_id"] = sub_id
+                self._publish_event(AgentEvent("gpu", "__agent__", event_payload))
+                await asyncio.sleep(interval)
+        finally:
+            current_task = asyncio.current_task()
+            if self._gpu_stream_tasks.get(sub_id) is current_task:
+                self._gpu_stream_tasks.pop(sub_id, None)
 
     def _list_builds(self) -> dict[str, Any]:
         return list_builds(self._builds_root)
@@ -1048,6 +1076,9 @@ class LocalAgent:
         sub_id = params.get("sub_id")
         if not isinstance(sub_id, str) or not sub_id.strip():
             raise TargetCallError("invalid-params", "sub_id is required")
+        task = self._gpu_stream_tasks.pop(sub_id, None)
+        if task is not None:
+            task.cancel()
         return {"sub_id": sub_id}
 
     async def _tail_detached_log_to_events(
@@ -1651,6 +1682,26 @@ def _gpu_poll_payload(result: GpuPollResult) -> dict[str, Any]:
         "note": result.note,
         "unavailable": result.unavailable,
     }
+
+
+def _gpu_stream_interval(value: object) -> float:
+    if value is None:
+        return 2.0
+    try:
+        interval = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TargetCallError(
+            "invalid-params",
+            "gpu interval_s must be a positive number",
+            {"interval_s": value},
+        ) from exc
+    if interval <= 0:
+        raise TargetCallError(
+            "invalid-params",
+            "gpu interval_s must be a positive number",
+            {"interval_s": value},
+        )
+    return interval
 
 
 def _gpu_sample_payload(sample: GpuSample) -> dict[str, Any]:

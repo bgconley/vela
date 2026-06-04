@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from vllm_loader.agent.local import TargetCallError
+from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.agent.stdio import _handle_frame
+from vllm_loader.monitoring.gpu import GpuPollResult
 from vllm_loader.transport.ndjson import NdjsonFrameError, decode_frame, encode_frame
+from vllm_loader.transport.rpc_errors import rpc_error_payload
 from vllm_loader.transport.socket import (
     _target_call_error_from_payload as socket_error_from_payload,
 )
@@ -12,7 +14,6 @@ from vllm_loader.transport.subprocess import SubprocessTargetClient
 from vllm_loader.transport.subprocess import (
     _target_call_error_from_payload as subprocess_error_from_payload,
 )
-from vllm_loader.transport.rpc_errors import rpc_error_payload
 
 
 def test_ndjson_frame_round_trips_json_object() -> None:
@@ -110,6 +111,36 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
     error = frames[-1]["error"]
     assert error["code"] == -32600
     assert error["data"] == {}
+
+
+@pytest.mark.asyncio
+async def test_stdio_unsubscribe_stops_agent_gpu_stream() -> None:
+    def sampler() -> GpuPollResult:
+        return GpuPollResult([])
+
+    agent = LocalAgent(gpu_sampler=sampler)
+    frames: list[dict] = []
+
+    async def write_frame(frame: dict) -> None:
+        frames.append(frame)
+
+    await _handle_frame(
+        agent,
+        {"id": "gpu-1", "method": "gpu", "params": {"sub_id": "gpu-panel"}},
+        write_frame,
+        {},
+    )
+    assert "gpu-panel" in agent._gpu_stream_tasks
+
+    await _handle_frame(
+        agent,
+        {"id": "unsub-1", "method": "unsubscribe", "params": {"sub_id": "gpu-panel"}},
+        write_frame,
+        {},
+    )
+
+    assert frames[-1] == {"id": "unsub-1", "result": {"sub_id": "gpu-panel"}}
+    assert "gpu-panel" not in agent._gpu_stream_tasks
 
 
 def test_transport_clients_decode_json_rpc_error_data_to_target_call_error() -> None:

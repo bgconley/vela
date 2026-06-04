@@ -87,6 +87,13 @@ async def _handle_frame(
             result = await _subscribe(agent, params, write_frame, subscription_tasks)
         elif method == "unsubscribe":
             result = await _unsubscribe(params, subscription_tasks)
+            agent_result = agent.handle(
+                method, params if isinstance(params, dict) else None
+            )
+            if inspect.isawaitable(agent_result):
+                agent_result = await agent_result
+            if isinstance(agent_result, dict):
+                result = agent_result
         else:
             result = agent.handle(method, params if isinstance(params, dict) else None)
             if inspect.isawaitable(result):

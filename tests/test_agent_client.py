@@ -3001,6 +3001,75 @@ async def test_gpu_method_can_emit_serialized_agent_stream_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gpu_method_starts_and_stops_agent_stream_by_sub_id() -> None:
+    samples = [
+        GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=1024,
+                    memory_total_mb=81920,
+                    utilization_percent=25,
+                    temperature_c=42,
+                    power_w=110,
+                )
+            ]
+        ),
+        GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="A100",
+                    memory_used_mb=2048,
+                    memory_total_mb=81920,
+                    utilization_percent=50,
+                    temperature_c=43,
+                    power_w=120,
+                )
+            ]
+        ),
+    ]
+    calls = 0
+
+    def sampler() -> GpuPollResult:
+        nonlocal calls
+        result = samples[min(calls, len(samples) - 1)]
+        calls += 1
+        return result
+
+    client = InProcessTargetClient(LocalAgent(gpu_sampler=sampler))
+    await client.connect()
+    events = client.subscribe(["__agent__"], resume_from="live")
+    try:
+        result = await client.call(
+            "gpu", {"sub_id": "gpu-panel", "interval_s": 0.01}
+        )
+        first = await asyncio.wait_for(events.__anext__(), timeout=2)
+        second = await asyncio.wait_for(events.__anext__(), timeout=2)
+        unsubscribed = await client.call("unsubscribe", {"sub_id": "gpu-panel"})
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(events.__anext__(), timeout=0.05)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert result == {"sub_id": "gpu-panel"}
+    assert first["event"] == "gpu"
+    assert first["run_id"] == "__agent__"
+    assert first["sub_id"] == "gpu-panel"
+    assert first["samples"][0]["memory_used_mb"] == 1024
+    assert second["event"] == "gpu"
+    assert second["sub_id"] == "gpu-panel"
+    assert second["samples"][0]["memory_used_mb"] == 2048
+    assert unsubscribed == {"sub_id": "gpu-panel"}
+    json.dumps(first)
+    json.dumps(second)
+
+
+@pytest.mark.asyncio
 async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
