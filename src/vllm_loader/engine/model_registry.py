@@ -537,7 +537,17 @@ def _cached_model_entries_from_hf_scan() -> list[dict[str, Any]]:
     cache_info = _scan_hf_cache_info()
     if cache_info is None:
         return []
+    return _cached_model_entries_from_cache_info(cache_info)
 
+
+def _cached_model_payloads_from_hf_scan() -> list[dict[str, Any]] | None:
+    cache_info = _scan_hf_cache_info()
+    if cache_info is None:
+        return None
+    return [_model_payload(entry) for entry in _cached_model_entries_from_cache_info(cache_info)]
+
+
+def _cached_model_entries_from_cache_info(cache_info: object) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for repo in getattr(cache_info, "repos", ()) or ():
         repo_type = _optional_str(getattr(repo, "repo_type", "model")) or "model"
@@ -1087,7 +1097,7 @@ def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
 def _verify_metadata_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
     entry_id = str(entry.get("entry_id") or "")
-    status = _hf_model_status(entry)
+    status = _verify_hf_model_status(entry)
     entry["cache_state"] = status["cache_state"]
     payload = {
         "entry_id": entry_id,
@@ -1099,6 +1109,25 @@ def _verify_metadata_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
+
+
+def _verify_hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
+    if str(entry.get("cache_state") or "") != "cached":
+        return _hf_model_status(entry)
+    cached_payloads = _cached_model_payloads_from_hf_scan()
+    if cached_payloads is None:
+        return _hf_model_status(entry)
+    cached = _matching_hf_payload_for_entry(entry, cached_payloads)
+    if cached is None:
+        entry["cache_state"] = "missing"
+        return {
+            "ok": False,
+            "reason": "missing-cache-entry",
+            "cache_state": "missing",
+            "detail": "cached model was not found in the Hugging Face cache",
+        }
+    _apply_cached_model_payload(entry, cached)
+    return _hf_model_status(entry)
 
 
 def _hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
