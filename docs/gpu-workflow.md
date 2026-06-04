@@ -218,6 +218,24 @@ The latest P620-to-Blackbird validation records are:
   no-token gated Hugging Face auth probe against `meta-llama/Llama-2-7b-hf`,
   with the normal agent `download_model` job ending in `GATED_MODEL_AUTH_OK`.
 
+Physical controller sleep is intentionally not triggered by automation. To run
+that drill, start the controller on the machine that should sleep, launch a
+detached real config, and let the script hold the original connection open while
+you sleep and wake the controller. After wake, press Enter; the script
+disconnects, reconnects, rediscovers the live sidecar, reattaches, resumes by
+log cursor, and writes `LAPTOP_SLEEP_RECONNECT_OK` to an optional artifact:
+
+```bash
+scripts/laptop_sleep_reconnect_check.py tiny-random-llama-detached-blackbird \
+  --target blackbird \
+  --timeout 900 \
+  --artifact-dir artifacts/remote-validation
+```
+
+Do not run this from an unsupervised CI job. If the Mac is only an SSH terminal
+to P620, sleeping the Mac tests the outer operator session, not controller
+sleep; run the script on the actual controller host for the stricter drill.
+
 Direct Mac to Blackbird validation is still useful for host-local checks:
 
 ```bash

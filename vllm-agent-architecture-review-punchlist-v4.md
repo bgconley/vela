@@ -65,7 +65,9 @@ push, and one shared GPU needs a concurrency guard plus trusted-code hygiene.
 - Nothing required for v4 validation remains open. Ongoing hygiene: keep the
   P620 runner online, keep the SSH secret current, and let the nightly/manual
   lane refresh the artifact cadence. The physical laptop-sleep scenario remains
-  a manual environmental drill rather than an automated CI gate.
+  a manual environmental drill rather than an automated CI gate; use
+  `scripts/laptop_sleep_reconnect_check.py` to produce the evidence artifact
+  when exercising it on the actual controller host.
 
 **Important nuance (don't over-fix).** Auto-gating a real GPU run on every commit is **not realistic** for a lab tool (slow, costly, and contends with research use). The stronger target is scheduled/manual self-hosted proof with a concurrency guard, plus an optional `fast` profile for cheaper build/model validation.
 

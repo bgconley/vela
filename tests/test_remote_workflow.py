@@ -144,6 +144,8 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
     )
     assert "GitHub Actions run `26976430928`" in docs
     assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in docs
+    assert "scripts/laptop_sleep_reconnect_check.py" in docs
+    assert "LAPTOP_SLEEP_RECONNECT_OK" in docs
 
 
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:
@@ -467,6 +469,23 @@ def test_gated_model_auth_check_uses_isolated_agent_and_disables_implicit_token(
     assert "HF_TOKEN" in script
     assert "gated-auth" in script
     assert "GATED_MODEL_AUTH_OK" in script
+
+
+def test_laptop_sleep_reconnect_check_is_operator_gated_and_resumes_by_cursor() -> None:
+    script = Path("scripts/laptop_sleep_reconnect_check.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "pmset sleepnow" not in script
+    assert "systemctl suspend" not in script
+    assert "input(" in script
+    assert "prepare_launch" in script
+    assert "tail_detached" in script
+    assert "discover_runs" in script
+    assert "reattach" in script
+    assert "resume_from=cursor" in script
+    assert "LAPTOP_SLEEP_RECONNECT_OK" in script
+    assert "artifact_dir" in script
 
 
 def test_tiny_real_resume_config_is_detached_and_small() -> None:
