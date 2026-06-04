@@ -5,7 +5,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Static
+from textual.widgets import Checkbox, Input, Static
 
 from vllm_loader.tui.theme import ACCENT, BAD, SURFACE_ALT, TEXT
 
@@ -69,6 +69,7 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
                 placeholder="current",
                 id="adopt-build-vllm-version-profile",
             )
+            yield Checkbox("Copy venv into managed build", id="adopt-build-copy")
             yield Static("", id="adopt-build-error")
 
     def on_mount(self) -> None:
@@ -87,6 +88,9 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
     def _field_value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()
 
+    def _checked(self, selector: str) -> bool:
+        return bool(self.query_one(selector, Checkbox).value)
+
     def _collect_adopt_build_params(self) -> dict[str, Any]:
         params = {
             "label": self._field_value("#adopt-build-label"),
@@ -97,6 +101,8 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
             ),
         }
         cleaned = {key: value for key, value in params.items() if value}
+        if self._checked("#adopt-build-copy"):
+            cleaned["copy"] = "true"
         if not cleaned.get("venv_path"):
             raise ValueError("Enter venv_path=<path>")
         return cleaned

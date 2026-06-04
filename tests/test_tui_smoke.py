@@ -12,7 +12,7 @@ import pytest
 from conftest import write_yaml
 from rich.text import Text
 from textual.screen import ModalScreen
-from textual.widgets import Input, ProgressBar, RichLog, Select, Static
+from textual.widgets import Checkbox, Input, ProgressBar, RichLog, Select, Static
 from textual.worker import WorkerState
 
 from vllm_loader.agent.local import LocalAgent, TargetCallError
@@ -4727,6 +4727,7 @@ async def test_build_manager_adopts_external_venv_through_target_client(
         )
         app.screen.query_one("#adopt-build-vllm-version", Input).value = "0.17.0.dev"
         app.screen.query_one("#adopt-build-vllm-version-profile", Input).value = "current"
+        app.screen.query_one("#adopt-build-copy", Checkbox).value = True
         await pilot.press("enter")
 
         await _wait_for_condition(
@@ -4737,6 +4738,7 @@ async def test_build_manager_adopts_external_venv_through_target_client(
                     "venv_path": "/agent/venvs/vllm-nightly",
                     "vllm_version": "0.17.0.dev",
                     "vllm_version_profile": "current",
+                    "copy": "true",
                 }
             ],
             "build adopt was not requested",
