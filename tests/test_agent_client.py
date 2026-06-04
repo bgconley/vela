@@ -4951,6 +4951,250 @@ async def test_agent_create_build_wheel_falls_back_to_pip(
 
 
 @pytest.mark.asyncio
+async def test_agent_create_build_git_requires_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    monkeypatch.setattr(
+        local_agent_module,
+        "_find_uv_executable",
+        lambda: "/opt/bin/uv",
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-git-missing-url"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-git-missing-url",
+                "method": "git",
+                "build_id": "01GIT",
+                "ref": "main",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert done["ok"] is False
+    assert done["error_kind"] == "invalid-params"
+    assert done["reason"] == "missing-git-url"
+    assert not (builds_root / "01GIT").exists()
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_git_clones_and_installs_with_uv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    uv_path = "/opt/bin/uv"
+    git_url = "https://github.com/vllm-project/vllm.git"
+    git_ref = "abc123"
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        command_calls.append(list(argv))
+        if argv[:2] == [uv_path, "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        if argv[:2] == ["git", "clone"]:
+            Path(argv[-1]).mkdir(parents=True)
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: uv_path, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        lambda _venv_path: {
+            "vllm": "0.17.0.dev",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        },
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-git"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-git",
+                "method": "git",
+                "build_id": "01GIT",
+                "label": "source-build",
+                "url": git_url,
+                "ref": git_ref,
+                "python": "3.12",
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01GIT"
+    source_dir = build_dir / "source"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is True
+    assert manifest["install"]["method"] == "git"
+    assert manifest["install"]["installer"] == "uv"
+    assert manifest["install"]["provenance"]["git_url"] == git_url
+    assert manifest["install"]["provenance"]["git_ref"] == git_ref
+    assert command_calls == [
+        [uv_path, "venv", "--python", "3.12", str(build_dir / "venv")],
+        ["git", "clone", git_url, str(source_dir)],
+        ["git", "-C", str(source_dir), "checkout", git_ref],
+        [
+            uv_path,
+            "pip",
+            "install",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            "-e",
+            str(source_dir),
+            "--torch-backend=auto",
+        ],
+    ]
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_git_falls_back_to_pip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    git_url = "https://github.com/vllm-project/vllm.git"
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        command_calls.append(list(argv))
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        if argv[:2] == ["git", "clone"]:
+            Path(argv[-1]).mkdir(parents=True)
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        lambda _venv_path: {
+            "vllm": "0.17.0.dev",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        },
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-git-pip"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-git-pip",
+                "method": "git",
+                "build_id": "01GITPIP",
+                "url": git_url,
+                "precompiled": True,
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01GITPIP"
+    source_dir = build_dir / "source"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is True
+    assert manifest["install"]["method"] == "git"
+    assert manifest["install"]["installer"] == "pip"
+    assert manifest["install"]["provenance"]["precompiled"] is True
+    assert manifest["install"]["provenance"]["env_overrides"] == {
+        "VLLM_USE_PRECOMPILED": "1"
+    }
+    assert command_calls == [
+        [sys.executable, "-m", "venv", str(build_dir / "venv")],
+        ["git", "clone", git_url, str(source_dir)],
+        [
+            str(build_dir / "venv" / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            "-e",
+            str(source_dir),
+        ],
+    ]
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

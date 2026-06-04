@@ -145,6 +145,8 @@ class BuildInstallRequest:
     provenance: dict[str, Any]
     venv_argv: list[str]
     install_argv: list[str]
+    pre_install_argvs: list[list[str]] = field(default_factory=list)
+    env_overrides: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -1092,6 +1094,10 @@ class LocalAgent:
             }
             result.update(exc.details)
             return result
+        effective_env_overrides = {
+            **env_overrides,
+            **install_request.env_overrides,
+        }
         if build_dir.exists():
             return {
                 "ok": False,
@@ -1144,7 +1150,7 @@ class LocalAgent:
             "provenance": _scrub_job_payload(
                 {
                     **install_request.provenance,
-                    "env_overrides": dict(env_overrides),
+                    "env_overrides": dict(effective_env_overrides),
                 },
                 secrets=job_secrets,
             ),
@@ -1161,7 +1167,7 @@ class LocalAgent:
                     resolved={},
                 ),
             )
-            env = {**os.environ, **env_overrides}
+            env = {**os.environ, **effective_env_overrides}
             venv_exit = await _build_subprocess_exec(
                 install_request.venv_argv,
                 env=env,
@@ -1180,6 +1186,25 @@ class LocalAgent:
                     detail="build virtualenv creation failed",
                     exit_code=venv_exit,
                 )
+            for preinstall_argv in install_request.pre_install_argvs:
+                preinstall_exit = await _build_subprocess_exec(
+                    preinstall_argv,
+                    env=env,
+                    cwd=build_dir,
+                    emit=emit_install,
+                    phase="DOWNLOADING",
+                    cancel_event=cancel_event,
+                )
+                if preinstall_exit != 0:
+                    return _failed_build_result(
+                        build_dir,
+                        build_id=build_id,
+                        label=label,
+                        install=install_payload,
+                        error_kind="source-prepare-failed",
+                        detail="build source preparation failed",
+                        exit_code=preinstall_exit,
+                    )
             install_exit = await _build_subprocess_exec(
                 install_request.install_argv,
                 env=env,
@@ -1259,7 +1284,7 @@ class LocalAgent:
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
         method = str(params.get("method") or "").strip().lower()
-        if method in {"pip", "nightly", "commit", "wheel"}:
+        if method in {"pip", "nightly", "commit", "wheel", "git"}:
             return await self._run_pip_build_job(params, emit, _cancel_event)
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
             adopt_params = {
@@ -2293,6 +2318,13 @@ def _build_install_request(
             python_requested=python_requested,
             venv_path=venv_path,
         )
+    if method == "git":
+        return _git_install_request(
+            params,
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+        )
     raise BuildRegistryError(
         "feature-unavailable",
         f"create_build method is not implemented: {method or 'unknown'}",
@@ -2339,6 +2371,8 @@ def _uv_install_request(
     venv_path: Path,
     install_args: list[str],
     provenance: dict[str, Any],
+    pre_install_argvs: list[list[str]] | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> BuildInstallRequest:
     venv_argv = [uv_path, "venv"]
     if python_requested is not None:
@@ -2357,6 +2391,8 @@ def _uv_install_request(
             str(venv_path / "bin" / "python"),
             *install_args,
         ],
+        pre_install_argvs=list(pre_install_argvs or []),
+        env_overrides=dict(env_overrides or {}),
     )
 
 
@@ -2416,6 +2452,65 @@ def _wheel_path_param(params: dict[str, Any]) -> Path:
             {"reason": "missing-wheel", "path": str(path), "method": "wheel"},
         )
     return path
+
+
+def _git_install_request(
+    params: dict[str, Any],
+    *,
+    uv_path: str | None,
+    python_requested: str | None,
+    venv_path: Path,
+) -> BuildInstallRequest:
+    git_url = _optional_param_str(params.get("url") or params.get("git_url"))
+    if git_url is None:
+        raise BuildRegistryError(
+            "invalid-params",
+            "create_build method=git requires url",
+            {"reason": "missing-git-url", "method": "git"},
+        )
+    git_ref = _optional_param_str(params.get("ref") or params.get("git_ref"))
+    precompiled = _param_bool(params.get("precompiled"))
+    source_dir = venv_path.parent / "source"
+    preinstall_argvs = [["git", "clone", git_url, str(source_dir)]]
+    if git_ref is not None:
+        preinstall_argvs.append(["git", "-C", str(source_dir), "checkout", git_ref])
+    provenance = {
+        "git_url": git_url,
+        "git_ref": git_ref,
+        "precompiled": precompiled,
+    }
+    env_overrides = {"VLLM_USE_PRECOMPILED": "1"} if precompiled else {}
+    if uv_path is not None:
+        install_args = ["-e", str(source_dir)]
+        if not precompiled:
+            install_args.append("--torch-backend=auto")
+            provenance["torch_backend"] = "auto"
+        return _uv_install_request(
+            method="git",
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+            install_args=install_args,
+            provenance=provenance,
+            pre_install_argvs=preinstall_argvs,
+            env_overrides=env_overrides,
+        )
+    return BuildInstallRequest(
+        method="git",
+        installer="pip",
+        provenance=provenance,
+        venv_argv=[sys.executable, "-m", "venv", str(venv_path)],
+        install_argv=[
+            str(venv_path / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            "-e",
+            str(source_dir),
+        ],
+        pre_install_argvs=preinstall_argvs,
+        env_overrides=env_overrides,
+    )
 
 
 def _nightly_index_url(channel: str | None) -> str:
