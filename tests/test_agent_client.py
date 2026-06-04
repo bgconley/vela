@@ -3439,6 +3439,61 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_rejects_model_ref_repo_mismatch(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "mismatched-model.yaml",
+        """
+        name: mismatched-model
+        model: Qwen/Qwen3-32B
+        model_ref: 01MODEL
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "mismatched-model", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "invalid-config"
+    assert "model_ref" in exc_info.value.message
+    assert exc_info.value.details == {
+        "model": "Qwen/Qwen3-32B",
+        "model_ref": "01MODEL",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "reason": "model-ref-repo-mismatch",
+    }
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

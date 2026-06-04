@@ -483,6 +483,7 @@ class LocalAgent:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
         if handoff is None:
             return cfg, None
+        _validate_model_ref_repo(cfg, handoff)
         if validate:
             _validate_model_handoff_prelaunch(cfg, handoff)
         extra_args = _extra_args_with_model_handoff(cfg.extra_args, handoff)
@@ -1731,6 +1732,26 @@ def _validate_model_handoff_prelaunch(cfg: ModelConfig, handoff: ModelHandoff) -
                 "reason": "missing-hf-token",
             },
         )
+
+
+def _validate_model_ref_repo(cfg: ModelConfig, handoff: ModelHandoff) -> None:
+    if handoff.source != "hf_repo" or handoff.repo_id is None:
+        return
+    if cfg.model == handoff.repo_id:
+        return
+    raise TargetCallError(
+        "invalid-config",
+        (
+            f"model_ref {handoff.entry_id} resolves to {handoff.repo_id}, "
+            f"but config model is {cfg.model}"
+        ),
+        {
+            "model": cfg.model,
+            "model_ref": handoff.entry_id,
+            "repo_id": handoff.repo_id,
+            "reason": "model-ref-repo-mismatch",
+        },
+    )
 
 
 def _extra_args_include_tokenizer(extra_args: list[str]) -> bool:
