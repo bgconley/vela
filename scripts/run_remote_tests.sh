@@ -69,6 +69,9 @@ append_remote_arg() {
     ssh_cmd+=("$empty_arg")
   fi
 }
+quote_remote_word() {
+  printf "%q" "$1"
+}
 ssh_cmd=(ssh)
 if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
@@ -77,10 +80,10 @@ fi
 ssh_cmd+=("$host")
 remote_env=()
 if [[ -n "$remote_target" ]]; then
-  remote_env+=("VLLM_LOADER_REMOTE_TARGET=$remote_target")
+  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_TARGET=$remote_target")")
 fi
 if [[ -n "$remote_pytest_args" ]]; then
-  remote_env+=("VLLM_LOADER_REMOTE_PYTEST_ARGS=$remote_pytest_args")
+  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_PYTEST_ARGS=$remote_pytest_args")")
 fi
 if [[ ${#remote_env[@]} -gt 0 ]]; then
   ssh_cmd+=(env "${remote_env[@]}")

@@ -269,7 +269,8 @@ def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
     assert args[:5] == [
         "controller-host",
         "env",
-        f"VLLM_LOADER_REMOTE_PYTEST_ARGS={pytest_args}",
+        "VLLM_LOADER_REMOTE_PYTEST_ARGS=-q\\ "
+        "tests/test_remote_workflow.py\\ -k\\ target_nested",
         "bash",
         "-s",
     ]
