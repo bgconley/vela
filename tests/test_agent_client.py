@@ -1162,6 +1162,60 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
 
 
 @pytest.mark.asyncio
+async def test_local_agent_restores_registry_api_key_for_health_probe(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "#!/usr/bin/env python3\nimport time\nwhile True:\n    time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "health-auth.yaml",
+        f"""
+        name: health-auth
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        server:
+          port: 8130
+          api_key: sk-live-health
+        """,
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        seen["api_key"] = cfg.server.api_key
+        seen["alive"] = is_process_alive()
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    agent = LocalAgent()
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    run_id: str | None = None
+
+    try:
+        launch = await client.call(
+            "launch", {"name": "health-auth", "configs_dir": str(config_dir)}
+        )
+        run_id = str(launch["run_id"])
+        result = await client.call("health", {"run_id": run_id})
+
+        assert seen == {"api_key": "sk-live-health", "alive": True}
+        assert result["ready"] is True
+    finally:
+        if run_id is not None and agent.is_run_alive(run_id):
+            await client.call("kill", {"run_id": run_id})
+            await client.call("wait", {"run_id": run_id})
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_local_agent_probes_detached_run_health_by_run_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

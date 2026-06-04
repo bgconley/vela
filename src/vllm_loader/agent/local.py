@@ -610,7 +610,8 @@ class LocalAgent:
             }
         launch = self._spawn_detached_supervisor(prepared, run_id=run_id)
         self._detached_sidecar_paths[launch.run_id] = launch.sidecar_path
-        self._load_detached_run(launch.sidecar_path, verify=False)
+        loaded_run = self._load_detached_run(launch.sidecar_path, verify=False)
+        loaded_run.config = cfg
         return {
             "run_id": launch.run_id,
             "launch_mode": requested_launch_mode,
