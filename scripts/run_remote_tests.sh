@@ -178,6 +178,131 @@ fi
 "$venv_python" -m pytest -q
 "$venv_bin/vllm-loader" list
 "$venv_bin/vllm-loader" preview fake-child
+echo "== Daemon restart live-run survival =="
+"$venv_python" - "$remote_path" "$venv_bin" <<'PY'
+import asyncio
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+from vllm_loader.transport.subprocess import SubprocessTargetClient
+
+
+remote_path = Path(sys.argv[1])
+venv_bin = Path(sys.argv[2])
+config_name = "daemon-restart-fake"
+tmp_root = Path(tempfile.mkdtemp(prefix="vllm-loader-daemon-restart-"))
+runs_dir = tmp_root / "runs"
+config_path = tmp_root / f"{config_name}.yaml"
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _agent_client() -> SubprocessTargetClient:
+    return SubprocessTargetClient(
+        [str(venv_bin / "vllm-loader"), "agent", "connect"],
+        cwd=remote_path,
+    )
+
+
+async def _wait_ready(client: SubprocessTargetClient, run_id: str) -> dict:
+    for _ in range(60):
+        health = await client.call("health", {"run_id": run_id})
+        if health.get("ready"):
+            return health
+        await asyncio.sleep(0.5)
+    raise RuntimeError(f"run did not become ready after daemon restart test: {run_id}")
+
+
+async def _main() -> None:
+    port = _free_port()
+    config_path.write_text(
+        f"""
+name: {config_name}
+model: fake/model
+served_model_name: fake-model
+command:
+  entrypoint: serve
+  executable: {remote_path / "scripts" / "fake_vllm_child.py"}
+server:
+  host: 127.0.0.1
+  port: {port}
+logging:
+  request_logging: false
+launch:
+  mode: detached
+  runs_dir: {runs_dir}
+  ready_timeout_seconds: 30
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    run_id = f"daemon-restart-{uuid.uuid4().hex}"
+    client = _agent_client()
+    await client.connect()
+    try:
+        await client.call(
+            "launch",
+            {
+                "run_id": run_id,
+                "name": config_name,
+                "configs_dir": str(tmp_root),
+            },
+        )
+        await _wait_ready(client, run_id)
+    finally:
+        await client.disconnect()
+
+    subprocess.run([str(venv_bin / "vllm-loader"), "agent", "restart"], check=True)
+
+    client = _agent_client()
+    await client.connect()
+    try:
+        discovered = await client.call("discover_runs", {"runs_dirs": [str(runs_dir)]})
+        discovered_ids = {
+            str(run.get("run_id"))
+            for run in discovered.get("runs", [])
+            if isinstance(run, dict)
+        }
+        if run_id not in discovered_ids:
+            raise RuntimeError(
+                f"run {run_id} not rediscovered after daemon restart: {discovered}"
+            )
+        reattached = await client.call("reattach", {"run_id": run_id})
+        if str(reattached.get("run_id")) != run_id:
+            raise RuntimeError(f"reattach returned wrong run: {reattached}")
+        health = await _wait_ready(client, run_id)
+        await client.call(
+            "stop",
+            {
+                "run_id": run_id,
+                "interrupt_timeout": 2,
+                "terminate_timeout": 2,
+            },
+        )
+        waited = await client.call("wait", {"run_id": run_id})
+    finally:
+        await client.disconnect()
+
+    shutil.rmtree(tmp_root, ignore_errors=True)
+    print(
+        "DAEMON_RESTART_LIVE_RUN_OK "
+        f"run_id={run_id} port={port} "
+        f"url={health.get('reachable_url')} "
+        f"returncode={waited.get('returncode')}"
+    )
+
+
+asyncio.run(_main())
+PY
 
 if [[ -n "$remote_build_spec" ]]; then
   echo "== Real build install =="

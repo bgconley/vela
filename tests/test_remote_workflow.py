@@ -40,6 +40,21 @@ def test_remote_validation_restarts_daemon_after_install() -> None:
     assert script.index(restart_command) < script.index(list_command)
 
 
+def test_remote_validation_exercises_live_run_daemon_restart() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    assert "== Daemon restart live-run survival ==" in script
+    assert "SubprocessTargetClient" in script
+    assert '"agent", "connect"' in script
+    assert 'await client.call(\n            "launch"' in script
+    assert 'subprocess.run([str(venv_bin / "vllm-loader"), "agent", "restart"]' in script
+    assert 'await client.call("discover_runs"' in script
+    assert 'await client.call("reattach"' in script
+    assert 'await client.call(\n            "stop"' in script
+    assert 'await client.call("wait", {"run_id": run_id})' in script
+    assert "DAEMON_RESTART_LIVE_RUN_OK" in script
+
+
 def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 
