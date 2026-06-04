@@ -34,6 +34,23 @@ def test_pin_model_params_allow_registry_minted_entry_id() -> None:
     }
 
 
+def test_pin_model_params_allow_url_source_and_quoted_notes() -> None:
+    params = _parse_model_pin_params(
+        "url=https://models.example/model.gguf display_name=url-model "
+        "notes='operator note'"
+    )
+
+    assert params == {
+        "url": "https://models.example/model.gguf",
+        "display_name": "url-model",
+        "notes": "operator note",
+        "source": "url",
+    }
+
+
 def test_pin_model_params_still_require_model_source() -> None:
-    with pytest.raises(ValueError, match="repo_id=<repo> or local_path=<path>"):
+    with pytest.raises(
+        ValueError,
+        match="repo_id=<repo>, local_path=<path>, or url=<url>",
+    ):
         _parse_model_pin_params("display_name=tiny-gpt2")

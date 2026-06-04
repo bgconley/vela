@@ -5540,6 +5540,138 @@ async def test_model_manager_pins_model_metadata_through_target_client(
 
 
 @pytest.mark.asyncio
+async def test_model_manager_pins_url_model_metadata_through_target_client(
+    config_dir: Path,
+) -> None:
+    model_url = "https://models.example/Qwen/example-q4.gguf"
+
+    class ModelTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.pin_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/modelable.yaml",
+                            "name": "modelable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "modelable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_label": "stable-cu124",
+                        "model_display_name": "url-gguf",
+                    },
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "02URL",
+                            "display_name": "url-gguf",
+                            "source": "url",
+                            "url": model_url,
+                            "revision": None,
+                            "commit_sha": None,
+                            "quant_format": "q4_k_m",
+                            "tokenizer": "Qwen/Qwen3-32B",
+                            "notes": "operator note",
+                            "cache_state": "remote_only",
+                            "gated": True,
+                            "token_required": True,
+                            "size_bytes": 0,
+                            "files": {},
+                        },
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method == "pin_model":
+                self.pin_calls.append(dict(params))
+                return {
+                    "entry": {
+                        "entry_id": "02URL",
+                        "display_name": "url-gguf",
+                        "source": "url",
+                        "url": model_url,
+                    }
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model pin should not subscribe")
+
+    target_client = ModelTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open",
+        )
+        await pilot.press("p")
+        await _wait_for_condition(
+            lambda: app.screen.id == "pin-model",
+            "pin model screen did not open",
+        )
+
+        assert app.screen.query_one("#pin-model-url", Input).value == model_url
+        assert app.screen.query_one("#pin-model-tokenizer", Input).value == "Qwen/Qwen3-32B"
+        assert app.screen.query_one("#pin-model-notes", Input).value == "operator note"
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: bool(target_client.pin_calls),
+            "url model pin was not requested",
+        )
+        assert target_client.pin_calls == [
+            {
+                "url": model_url,
+                "source": "url",
+                "display_name": "url-gguf",
+                "quant_format": "q4_k_m",
+                "tokenizer": "Qwen/Qwen3-32B",
+                "gated": True,
+                "token_required": True,
+                "notes": "operator note",
+            }
+        ]
+
+
+@pytest.mark.asyncio
 async def test_model_manager_verifies_model_through_target_client(
     config_dir: Path,
 ) -> None:

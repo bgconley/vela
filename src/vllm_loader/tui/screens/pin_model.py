@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from typing import Any
 
 from textual.app import ComposeResult
@@ -66,6 +67,12 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
                 placeholder="/agent/models/model",
                 id="pin-model-local-path",
             )
+            yield Static("URL", classes="pin-model-field-label")
+            yield Input(
+                value=self._initial_value("url"),
+                placeholder="https://host/model.gguf",
+                id="pin-model-url",
+            )
             yield Static("Display name", classes="pin-model-field-label")
             yield Input(
                 value=self._initial_value("display_name"),
@@ -95,6 +102,12 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
                 value=self._initial_value("tokenizer"),
                 placeholder="optional tokenizer ref",
                 id="pin-model-tokenizer",
+            )
+            yield Static("Notes", classes="pin-model-field-label")
+            yield Input(
+                value=self._initial_value("notes"),
+                placeholder="operator note",
+                id="pin-model-notes",
             )
             yield Checkbox(
                 "Gated repository",
@@ -141,24 +154,28 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
         fields = {
             "repo_id": self._field_value("#pin-model-repo-id"),
             "local_path": self._field_value("#pin-model-local-path"),
+            "url": self._field_value("#pin-model-url"),
             "display_name": self._field_value("#pin-model-display-name"),
             "revision": self._field_value("#pin-model-revision"),
             "commit_sha": self._field_value("#pin-model-commit-sha"),
             "quant_format": self._field_value("#pin-model-quant-format"),
             "tokenizer": self._field_value("#pin-model-tokenizer"),
+            "notes": self._field_value("#pin-model-notes"),
         }
         params: dict[str, Any] = {key: value for key, value in fields.items() if value}
+        if params.get("url"):
+            params["source"] = "url"
         if self._checked("#pin-model-gated"):
             params["gated"] = True
         if self._checked("#pin-model-token-required"):
             params["token_required"] = True
-        if not params.get("repo_id") and not params.get("local_path"):
-            raise ValueError("Enter repo_id=<repo> or local_path=<path>")
+        if not params.get("repo_id") and not params.get("local_path") and not params.get("url"):
+            raise ValueError("Enter repo_id=<repo>, local_path=<path>, or url=<url>")
         return params
 
 
 def _parse_model_pin_params(value: str) -> dict[str, Any]:
-    tokens = [token.strip() for token in value.split() if token.strip()]
+    tokens = [token.strip() for token in shlex.split(value) if token.strip()]
     if not tokens:
         raise ValueError("Enter model pin metadata")
     params: dict[str, Any] = {}
@@ -174,6 +191,8 @@ def _parse_model_pin_params(value: str) -> dict[str, Any]:
             params[key] = raw_value.lower() in {"1", "true", "yes", "on"}
         else:
             params[key] = raw_value
-    if not params.get("repo_id") and not params.get("local_path"):
-        raise ValueError("Enter repo_id=<repo> or local_path=<path>")
+    if params.get("url"):
+        params["source"] = "url"
+    if not params.get("repo_id") and not params.get("local_path") and not params.get("url"):
+        raise ValueError("Enter repo_id=<repo>, local_path=<path>, or url=<url>")
     return params

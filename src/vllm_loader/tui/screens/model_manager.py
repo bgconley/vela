@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from typing import Any
 
 from textual.app import ComposeResult
@@ -181,16 +182,24 @@ def _initial_pin_text(model: dict[str, Any]) -> str:
     fields = [
         ("entry_id", model.get("entry_id")),
         ("repo_id", model.get("repo_id")),
+        ("url", model.get("url")),
         ("display_name", model.get("display_name")),
         ("revision", model.get("revision")),
         ("commit_sha", model.get("commit_sha")),
         ("quant_format", model.get("quant_format")),
+        ("tokenizer", model.get("tokenizer")),
+        ("notes", model.get("notes")),
     ]
-    return " ".join(
-        f"{key}={value}"
+    tokens = [
+        f"{key}={shlex.quote(value)}"
         for key, value in fields
         if isinstance(value, str) and value.strip()
-    )
+    ]
+    if model.get("gated"):
+        tokens.append("gated=true")
+    if model.get("token_required"):
+        tokens.append("token_required=true")
+    return " ".join(tokens)
 
 
 def _quant_label(model: dict[str, Any]) -> str:
