@@ -19,6 +19,7 @@ If real-config-name is provided, the remote host also runs:
   - timeout-bound vllm-loader smoke-tui REAL_CONFIG
 
 Optional real artifact validation is enabled by local environment variables:
+  - VLLM_LOADER_REMOTE_PYTEST_ARGS overrides the remote pytest args (default: -q)
   - VLLM_LOADER_REMOTE_TARGET runs build/model/config checks through a named target
   - VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==X.Y.Z' runs build add/verify
   - VLLM_LOADER_REMOTE_BUILD_METHOD defaults to pip
@@ -56,6 +57,7 @@ remote_model_repo="${VLLM_LOADER_REMOTE_MODEL_REPO:-}"
 remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
 remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
 remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
+remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:-}"
 artifact_enabled="${VLLM_LOADER_REMOTE_ARTIFACT:-}"
 artifact_dir="${VLLM_LOADER_REMOTE_ARTIFACT_DIR:-}"
 artifact_name="${VLLM_LOADER_REMOTE_ARTIFACT_NAME:-}"
@@ -73,8 +75,15 @@ if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
   ssh_cmd+=(${VLLM_LOADER_SSH_OPTS})
 fi
 ssh_cmd+=("$host")
+remote_env=()
 if [[ -n "$remote_target" ]]; then
-  ssh_cmd+=(env "VLLM_LOADER_REMOTE_TARGET=$remote_target")
+  remote_env+=("VLLM_LOADER_REMOTE_TARGET=$remote_target")
+fi
+if [[ -n "$remote_pytest_args" ]]; then
+  remote_env+=("VLLM_LOADER_REMOTE_PYTEST_ARGS=$remote_pytest_args")
+fi
+if [[ ${#remote_env[@]} -gt 0 ]]; then
+  ssh_cmd+=(env "${remote_env[@]}")
 fi
 ssh_cmd+=(bash -s -- "$remote_path" "$remote_timeout" "$remote_python" "$remote_venv")
 if [[ -n "$real_config" ]]; then
@@ -136,6 +145,8 @@ remote_model_repo="$(_remote_arg_or_empty "${10:-}")"
 remote_model_ref="$(_remote_arg_or_empty "${11:-}")"
 remote_model_revision="$(_remote_arg_or_empty "${12:-}")"
 remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
+remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:--q}"
+read -r -a pytest_args <<< "$remote_pytest_args"
 target_args=()
 if [[ -n "$remote_target" ]]; then
   target_args=(--target "$remote_target")
@@ -210,7 +221,7 @@ else
   echo "vllm not found on PATH; no-GPU package checks will still run"
 fi
 "$venv_python" -m ruff check .
-"$venv_python" -m pytest -q
+"$venv_python" -m pytest "${pytest_args[@]}"
 "$venv_bin/vllm-loader" list
 "$venv_bin/vllm-loader" preview fake-child
 echo "== Daemon restart live-run survival =="
@@ -643,6 +654,7 @@ if [[ "$artifact_enabled" == "1" ]]; then
     echo "- Host: \`$host\`"
     echo "- Remote path: \`$remote_path\`"
     echo "- Remote venv: \`$remote_venv\`"
+    echo "- Pytest args: \`${remote_pytest_args:--q}\`"
     if [[ -n "$remote_target" ]]; then
       echo "- Remote target: \`$remote_target\`"
     else

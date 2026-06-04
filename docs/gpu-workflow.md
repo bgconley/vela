@@ -89,6 +89,15 @@ These knobs can be combined with the real config smoke. In that case the script
 first runs no-GPU checks, then the optional build/model artifact jobs, then
 `preview` + `smoke-tui` for the named config.
 
+On a busy controller host where the full no-GPU suite can conflict with local
+services, use `VLLM_LOADER_REMOTE_PYTEST_ARGS` to run a narrower proof slice
+before the real target operations:
+
+```bash
+VLLM_LOADER_REMOTE_PYTEST_ARGS="-q tests/test_remote_workflow.py" \
+  scripts/run_remote_tests.sh USER@CONTROLLER /home/user/repos/lab-tui
+```
+
 When the validation host is a controller that should drive a different target
 agent, set `VLLM_LOADER_REMOTE_TARGET`. The script passes `--target` to the
 build/model jobs and the real-config preview/smoke commands:

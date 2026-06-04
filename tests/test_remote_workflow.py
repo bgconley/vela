@@ -231,6 +231,53 @@ def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> N
         assert snippet in remote_script
 
 
+def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    pytest_args = "-q tests/test_remote_workflow.py -k target_nested"
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "SSH_CAPTURE": str(capture),
+        "VLLM_LOADER_REMOTE_PYTEST_ARGS": pytest_args,
+    }
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "controller-host", "/srv/lab-tui"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    assert args[:5] == [
+        "controller-host",
+        "env",
+        f"VLLM_LOADER_REMOTE_PYTEST_ARGS={pytest_args}",
+        "bash",
+        "-s",
+    ]
+    assert 'remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:--q}"' in remote_script
+    assert 'read -r -a pytest_args <<< "$remote_pytest_args"' in remote_script
+    assert '"$venv_python" -m pytest "${pytest_args[@]}"' in remote_script
+
+
 def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
