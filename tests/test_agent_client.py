@@ -4469,7 +4469,7 @@ async def test_agent_pin_model_takes_registry_lock(
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01LOCKED",
@@ -4480,9 +4480,14 @@ async def test_agent_pin_model_takes_registry_lock(
     finally:
         await client.disconnect()
 
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01LOCKED")
+    entry_lock = registry_path.parent / "locks" / f"{entry_id}.lock"
+    registry_lock = registry_path.parent / "registry.lock"
     assert flock_calls == [
-        (str(registry_path.parent / "registry.lock"), fcntl.LOCK_EX),
-        (str(registry_path.parent / "registry.lock"), fcntl.LOCK_UN),
+        (str(entry_lock), fcntl.LOCK_EX),
+        (str(registry_lock), fcntl.LOCK_EX),
+        (str(registry_lock), fcntl.LOCK_UN),
+        (str(entry_lock), fcntl.LOCK_UN),
     ]
 
 

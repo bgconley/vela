@@ -116,16 +116,34 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
         if registry_path is not None
         else default_models_registry_path()
     )
-    with _registry_lock(path):
-        return _pin_model_locked(params, path)
+    for _attempt in range(16):
+        entry = _pin_entry_from_params(params)
+        entry_id = _required_str(entry, "entry_id", "new model entry")
+        with _entry_lock(path, entry_id):
+            with _registry_lock(path):
+                registry = _load_registry_for_write(path)
+                entries = registry.get("entries") or []
+                if not isinstance(entries, list):
+                    entries = []
+                if any(
+                    isinstance(item, dict) and item.get("entry_id") == entry_id
+                    for item in entries
+                ):
+                    continue
+                return _pin_model_entry_payload(entry, path, registry, entries)
+    raise ModelRegistryError(
+        "resource-in-use",
+        "unable to mint an unused model entry id",
+        {"reason": "model-entry-id-collision"},
+    )
 
 
-def _pin_model_locked(params: dict[str, Any], path: Path) -> dict[str, Any]:
-    registry = _load_registry_for_write(path)
-    entries = registry.get("entries") or []
-    if not isinstance(entries, list):
-        entries = []
-    entry = _pin_entry_from_params(params, entries)
+def _pin_model_entry_payload(
+    entry: dict[str, Any],
+    path: Path,
+    registry: dict[str, Any],
+    entries: list[object],
+) -> dict[str, Any]:
     entries = [
         item
         for item in entries

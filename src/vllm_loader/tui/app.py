@@ -1743,29 +1743,47 @@ class VllmLoaderApp(App):
         return self.target_name
 
     async def _restart_attached_run(self, run_id: str) -> None:
-        await self._target_stop_run(
-            run_id,
-            interrupt_timeout=2,
-            terminate_timeout=2,
+        cfg = self.current_config
+        if cfg is None:
+            self._set_error_text("No config selected for restart")
+            return
+        self._set_phase(Phase.STARTING)
+        params = self._restart_agent_params(run_id=run_id, name=cfg.name)
+        try:
+            result = await self._target_call("restart", params)
+        except TargetCallError as exc:
+            self._handle_launch_agent_error(exc)
+            return
+        await self._monitor_restart_result(
+            cfg,
+            result,
+            fallback_run_id=str(params["new_run_id"]),
         )
-        while self.current_run_id == run_id:
-            await asyncio.sleep(0.05)
-        self.action_load()
 
     async def _restart_reattached_target_run(self) -> None:
-        if self.reattached_run_id is None:
+        run_id = self.reattached_run_id
+        cfg = self.current_config
+        if run_id is None:
             return
-        await self._target_stop_run(
-            self.reattached_run_id,
-            interrupt_timeout=2,
-            terminate_timeout=2,
-        )
+        if cfg is None:
+            self._set_error_text("No config selected for restart")
+            return
         self.workers.cancel_group(self, "tail")
         self.workers.cancel_group(self, "health")
+        self._set_phase(Phase.STARTING)
+        params = self._restart_agent_params(run_id=run_id, name=cfg.name)
+        try:
+            result = await self._target_call("restart", params)
+        except TargetCallError as exc:
+            self._handle_launch_agent_error(exc)
+            return
         self.reattached_run_id = None
         self.current_run_id = None
-        self._set_phase(Phase.STOPPED)
-        self.action_load()
+        await self._monitor_restart_result(
+            cfg,
+            result,
+            fallback_run_id=str(params["new_run_id"]),
+        )
 
     def action_config_picker(self) -> None:
         self.push_screen(
@@ -2395,6 +2413,18 @@ class VllmLoaderApp(App):
     def _launch_agent_params(self, **values) -> dict[str, str]:
         params = self._agent_params(**values)
         params["run_id"] = uuid.uuid4().hex
+        return params
+
+    def _restart_agent_params(self, *, run_id: str, name: str) -> dict[str, Any]:
+        params: dict[str, Any] = self._agent_params(
+            name=name,
+            configs_dir=self.configs_dir,
+            **self._launch_overrides,
+        )
+        params["run_id"] = run_id
+        params["new_run_id"] = uuid.uuid4().hex
+        params["interrupt_timeout"] = 2
+        params["terminate_timeout"] = 2
         return params
 
     async def _ensure_target_client_connected(self) -> None:
@@ -3057,6 +3087,9 @@ class VllmLoaderApp(App):
             self._handle_attached_start_agent_error(exc, build.argv[0])
             return
         run_id = str(launch["run_id"])
+        await self._monitor_attached_run(cfg, run_id)
+
+    async def _monitor_attached_run(self, cfg: ModelConfig, run_id: str) -> None:
         self.current_run_id = run_id
         events_task = asyncio.create_task(
             self._consume_target_run_events_until_exit(run_id)
@@ -3098,6 +3131,25 @@ class VllmLoaderApp(App):
             return
         self._set_error_text("Agent wait result did not include a terminal phase")
         self._set_phase(self.fsm.phase)
+
+    async def _monitor_restart_result(
+        self,
+        cfg: ModelConfig,
+        result: dict[str, Any],
+        *,
+        fallback_run_id: str,
+    ) -> None:
+        launch = dict(result.get("launch") or {})
+        new_run_id = str(
+            result.get("new_run_id") or launch.get("run_id") or fallback_run_id
+        )
+        launch_mode = str(launch.get("launch_mode") or "attached")
+        if launch_mode == "detached":
+            self.current_run_id = None
+            await self._reattach_target_detached_run(new_run_id)
+            return
+        self.reattached_run_id = None
+        await self._monitor_attached_run(cfg, new_run_id)
 
     def _handle_command_not_found(
         self, exc: FileNotFoundError, fallback_command: str

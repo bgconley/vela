@@ -7912,6 +7912,14 @@ async def test_copy_server_url_uses_textual_clipboard(config_dir: Path) -> None:
 async def test_restart_attached_run_signals_target_client_by_run_id(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    write_yaml(
+        config_dir / "alpha.yaml",
+        """
+        name: alpha
+        model: org/alpha
+        """,
+    )
+
     class RestartRefusingAgent(RecordingConfigAgent):
         def is_run_alive(self, run_id: str) -> bool:
             raise AssertionError(f"direct attached TUI liveness check: {run_id}")
@@ -7935,45 +7943,65 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
+            if method == "restart":
+                return {
+                    "run_id": params["run_id"],
+                    "new_run_id": "run-2",
+                    "status": "started",
+                    "launch": {
+                        "run_id": "run-2",
+                        "status": "started",
+                        "launch_mode": "attached",
+                    },
+                }
             if method == "stop":
-                return {"run_id": params["run_id"], "signaled": True}
+                raise AssertionError("restart should use the restart RPC")
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
-            raise AssertionError("restart stop should not subscribe")
+            raise AssertionError("restart RPC test should not subscribe")
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(RestartRefusingAgent()),
     )
     load_calls: list[str | None] = []
+    monitor_calls: list[tuple[str | None, str]] = []
+
+    async def fake_monitor_attached_run(cfg: object, run_id: str) -> None:
+        monitor_calls.append((getattr(cfg, "name", None), run_id))
 
     async with app.run_test() as pilot:
         await pilot.pause()
+        app.current_config = load_registry(config_dir).by_name("alpha")
         app.current_run_id = "run-1"
         monkeypatch.setattr(app, "action_load", lambda: load_calls.append(app.current_run_id))
+        monkeypatch.setattr(
+            app,
+            "_monitor_attached_run",
+            fake_monitor_attached_run,
+            raising=False,
+        )
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: _non_discovery_target_calls(app)
-            == [
-                (
-                    "stop",
-                    {
-                        "run_id": "run-1",
-                        "interrupt_timeout": 2,
-                        "terminate_timeout": 2,
-                    },
-                )
-            ],
-            "target client restart stop was not requested",
+            lambda: len(_non_discovery_target_calls(app)) == 1,
+            "target client restart RPC was not requested",
         )
 
+        method, params = _non_discovery_target_calls(app)[0]
+        assert method == "restart"
+        assert params["run_id"] == "run-1"
+        assert isinstance(params["new_run_id"], str)
+        assert params["new_run_id"] != "run-1"
+        assert params["name"] == "alpha"
+        assert params["configs_dir"] == str(config_dir)
+        assert params["interrupt_timeout"] == 2
+        assert params["terminate_timeout"] == 2
         assert load_calls == []
-        app.current_run_id = None
         await _wait_for_condition(
-            lambda: load_calls == [None],
-            "restart did not load after target run exit",
+            lambda: monitor_calls == [("alpha", "run-2")],
+            "restart did not monitor the agent-started replacement run",
         )
 
 
@@ -8008,15 +8036,30 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
+            if method == "restart":
+                return {
+                    "run_id": params["run_id"],
+                    "new_run_id": "run-2",
+                    "status": "started",
+                    "launch": {
+                        "run_id": "run-2",
+                        "status": "started",
+                        "launch_mode": "attached",
+                    },
+                }
             if method == "stop":
-                return {"run_id": params["run_id"], "signaled": True}
+                raise AssertionError("reattached restart should use the restart RPC")
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
-            raise AssertionError("reattached restart stop should not subscribe")
+            raise AssertionError("reattached restart RPC test should not subscribe")
 
     agent = RestartRefusingAgent()
     load_calls: list[str | None] = []
+    monitor_calls: list[tuple[str | None, str]] = []
+
+    async def fake_monitor_attached_run(cfg: object, run_id: str) -> None:
+        monitor_calls.append((getattr(cfg, "name", None), run_id))
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
@@ -8033,26 +8076,32 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
             "action_load",
             lambda: load_calls.append(app.reattached_run_id),
         )
+        monkeypatch.setattr(
+            app,
+            "_monitor_attached_run",
+            fake_monitor_attached_run,
+            raising=False,
+        )
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: _non_discovery_target_calls(app)
-            == [
-                (
-                    "stop",
-                    {
-                        "run_id": "run-1",
-                        "interrupt_timeout": 2,
-                        "terminate_timeout": 2,
-                    },
-                )
-            ],
-            "target client reattached restart stop was not requested",
+            lambda: len(_non_discovery_target_calls(app)) == 1,
+            "target client reattached restart RPC was not requested",
         )
 
+        method, params = _non_discovery_target_calls(app)[0]
+        assert method == "restart"
+        assert params["run_id"] == "run-1"
+        assert isinstance(params["new_run_id"], str)
+        assert params["new_run_id"] != "run-1"
+        assert params["name"] == "restart-detached"
+        assert params["configs_dir"] == str(config_dir)
+        assert params["interrupt_timeout"] == 2
+        assert params["terminate_timeout"] == 2
+        assert load_calls == []
         await _wait_for_condition(
-            lambda: load_calls == [None],
-            "restart did not load after target stop",
+            lambda: monitor_calls == [("restart-detached", "run-2")],
+            "restart did not monitor the agent-started replacement run",
         )
         assert app.reattached_run_id is None
 
@@ -8089,12 +8138,44 @@ async def test_restart_after_target_detached_reattach(
             self.calls.append((method, params))
             if method in _TARGET_CONFIG_METHODS:
                 return _delegate_config_target_call(self.agent, method, params)
+            if method == "restart":
+                return {
+                    "run_id": params["run_id"],
+                    "new_run_id": "run-2",
+                    "status": "started",
+                    "launch": {
+                        "run_id": "run-2",
+                        "status": "started",
+                        "launch_mode": "detached",
+                    },
+                }
+            if method == "reattach":
+                return {
+                    "run_id": params["run_id"],
+                    "config": {
+                        "name": "restart-target-detached",
+                        "model": "org/model",
+                    },
+                    "sidecar": {
+                        "config_name": "restart-target-detached",
+                        "server_host": "127.0.0.1",
+                        "server_port": 8000,
+                        "served_model_names": [],
+                    },
+                    "fsm": {},
+                }
+            if method in {"tail_detached", "health"}:
+                return {"run_id": params["run_id"], "ready": False}
             if method == "stop":
-                return {"run_id": params["run_id"], "signaled": True}
+                raise AssertionError("target-reattached restart should use restart RPC")
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
-            raise AssertionError("target-reattached restart stop should not subscribe")
+            async def events():
+                if False:
+                    yield {}
+
+            return events()
 
     app = VllmLoaderApp(
         configs_dir=config_dir,
@@ -8111,25 +8192,24 @@ async def test_restart_after_target_detached_reattach(
 
         app.action_restart()
         await _wait_for_condition(
-            lambda: _non_discovery_target_calls(app)
-            == [
-                (
-                    "stop",
-                    {
-                        "run_id": "run-1",
-                        "interrupt_timeout": 2,
-                        "terminate_timeout": 2,
-                    },
-                )
-            ],
-            "target client target-reattached restart stop was not requested",
+            lambda: any(call[0] == "restart" for call in _non_discovery_target_calls(app)),
+            "target client target-reattached restart RPC was not requested",
         )
 
+        method, params = _non_discovery_target_calls(app)[0]
+        assert method == "restart"
+        assert params["run_id"] == "run-1"
+        assert isinstance(params["new_run_id"], str)
+        assert params["new_run_id"] != "run-1"
+        assert params["name"] == "restart-target-detached"
+        assert params["configs_dir"] == str(config_dir)
+        assert params["interrupt_timeout"] == 2
+        assert params["terminate_timeout"] == 2
+        assert load_calls == []
         await _wait_for_condition(
-            lambda: load_calls == [None],
-            "restart did not load after target-only stop",
+            lambda: app.reattached_run_id == "run-2",
+            "restart did not reattach to the agent-started detached replacement run",
         )
-        assert app.reattached_run_id is None
 
 
 @pytest.mark.asyncio
