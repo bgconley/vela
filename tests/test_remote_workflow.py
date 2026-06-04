@@ -38,6 +38,17 @@ def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
     assert script.index(pull_command) < script.index(install_command)
 
 
+def test_remote_validation_workflow_uses_remote_safe_pytest_slice() -> None:
+    workflow = Path(".github/workflows/remote-validation.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "VLLM_LOADER_REMOTE_PYTEST_ARGS" in workflow
+    assert "tests/test_remote_workflow.py" in workflow
+    assert "tests/test_transport_factory.py" in workflow
+    assert "tests/test_targets.py" in workflow
+
+
 def test_remote_validation_restarts_daemon_after_install() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 

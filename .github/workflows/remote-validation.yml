@@ -83,6 +83,7 @@ jobs:
       VLLM_LOADER_REMOTE_MODEL_REPO: ${{ github.event.inputs.model_repo || vars.VLLM_LOADER_REMOTE_MODEL_REPO || 'hf-internal-testing/tiny-random-LlamaForCausalLM' }}
       VLLM_LOADER_REMOTE_MODEL_REVISION: ${{ github.event.inputs.model_revision || vars.VLLM_LOADER_REMOTE_MODEL_REVISION || 'main' }}
       VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG: ${{ github.event.inputs.real_resume_config || vars.VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG || 'tiny-random-llama-detached-blackbird' }}
+      VLLM_LOADER_REMOTE_PYTEST_ARGS: ${{ vars.VLLM_LOADER_REMOTE_PYTEST_ARGS || '-q tests/test_remote_workflow.py tests/test_transport_factory.py tests/test_targets.py' }}
       VLLM_LOADER_REMOTE_SSH_KEY: ${{ secrets.VLLM_LOADER_REMOTE_SSH_KEY }}
 
     steps:
