@@ -89,8 +89,37 @@ These knobs can be combined with the real config smoke. In that case the script
 first runs no-GPU checks, then the optional build/model artifact jobs, then
 `preview` + `smoke-tui` for the named config.
 
-Preferred future real smoke target: `blackbird` (`10.25.0.51`) with the
-`RTX PRO 6000 Blackwell Max-Q` GPU and Qwen3.6 27B FP8:
+Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
+controller host is `620-01` (`10.25.0.50`), and the GPU/agent target is
+`blackbird` (`10.25.0.51`) with the `RTX PRO 6000 Blackwell Max-Q` GPU and
+Qwen3.6 27B FP8. Use SSH agent forwarding from the Mac unless the shared key is
+installed directly on P620:
+
+```bash
+ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
+  -o BatchMode=yes bgconley@10.25.0.50 \
+  'cd /home/bgconley/repos/lab-tui &&
+   /home/bgconley/venvs/lab-tui/bin/vllm-loader targets test blackbird'
+```
+
+Then run the real TUI smoke from P620 through the `blackbird` target:
+
+```bash
+ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
+  -o BatchMode=yes bgconley@10.25.0.50 \
+  'cd /home/bgconley/repos/lab-tui &&
+   timeout 2700 /home/bgconley/venvs/lab-tui/bin/vllm-loader smoke-tui \
+     qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird'
+```
+
+The remote command invokes
+`vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
+from P620.
+
+The 2026-06-04 validation record is in
+`artifacts/remote-validation/2026-06-04-p620-blackbird-smoke.md`.
+
+Direct Mac to Blackbird validation is still useful for host-local checks:
 
 ```bash
 git push origin main

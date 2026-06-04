@@ -61,6 +61,19 @@ def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     assert "controls model launches" in docs
 
 
+def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
+    docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
+
+    assert "P620-01 controller to Blackbird agent" in docs
+    assert "ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519" in docs
+    assert "vllm-loader targets test blackbird" in docs
+    assert (
+        "vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird"
+        in docs
+    )
+    assert "artifacts/remote-validation/2026-06-04-p620-blackbird-smoke.md" in docs
+
+
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
