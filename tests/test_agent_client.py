@@ -75,6 +75,12 @@ def _isolate_hf_cache_scan(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda: None,
         raising=False,
     )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_hf_model_info",
+        lambda repo_id, revision=None: None,
+        raising=False,
+    )
 
 
 def test_target_client_requires_lifecycle_capabilities() -> None:
@@ -2915,6 +2921,48 @@ async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
     assert inspected["entry"]["display_name"] == "llama-pin"
     assert inspected["entry"]["repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
     assert inspected["entry"]["commit_sha"] == "abc123"
+    json.dumps(inspected)
+
+
+@pytest.mark.asyncio
+async def test_agent_pin_model_resolves_revision_to_commit_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    calls: list[dict[str, str | None]] = []
+
+    def fake_hf_model_info(repo_id: str, revision: str | None = None) -> object:
+        calls.append({"repo_id": repo_id, "revision": revision})
+        return SimpleNamespace(sha="abc123", gated="manual")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", fake_hf_model_info)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        inspected = await client.call("inspect_model", {"model_ref": "01REMOTE"})
+    finally:
+        await client.disconnect()
+
+    assert calls == [
+        {
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+        }
+    ]
+    assert pinned["entry"]["commit_sha"] == "abc123"
+    assert inspected["entry"]["commit_sha"] == "abc123"
+    assert inspected["entry"]["gated"] is True
+    assert inspected["entry"]["token_required"] is True
     json.dumps(inspected)
 
 

@@ -891,13 +891,27 @@ def _hf_repo_entry_from_params(
     params: dict[str, Any], entry_id: str, now: str
 ) -> dict[str, Any]:
     repo_id = _required_param(params, "repo_id")
+    revision = _optional_str(params.get("revision"))
+    commit_sha = _optional_str(params.get("commit_sha"))
+    info = (
+        _hf_model_info(repo_id, revision)
+        if revision is not None and commit_sha is None
+        else None
+    )
+    if info is not None:
+        commit_sha = _optional_str(getattr(info, "sha", None)) or commit_sha
+    gated = bool(params.get("gated"))
+    token_required = bool(params.get("token_required"))
+    if info is not None and _hf_model_info_is_gated(getattr(info, "gated", None)):
+        gated = True
+        token_required = True
     entry: dict[str, Any] = {
         "entry_id": entry_id,
         "display_name": _optional_str(params.get("display_name")) or entry_id,
         "source": "hf_repo",
         "repo_id": repo_id,
-        "revision": _optional_str(params.get("revision")),
-        "commit_sha": _optional_str(params.get("commit_sha")),
+        "revision": revision,
+        "commit_sha": commit_sha,
         "local_path": None,
         "url": None,
         "quant_format": _optional_str(params.get("quant_format")) or "none",
@@ -905,13 +919,34 @@ def _hf_repo_entry_from_params(
         "files": {},
         "size_bytes": 0,
         "cache_state": _optional_str(params.get("cache_state")) or "remote_only",
-        "gated": bool(params.get("gated")),
-        "token_required": bool(params.get("token_required")),
+        "gated": gated,
+        "token_required": token_required,
         "created_at": _optional_str(params.get("created_at")) or now,
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
     }
     return entry
+
+
+def _hf_model_info(repo_id: str, revision: str | None = None) -> object | None:
+    try:
+        from huggingface_hub import HfApi
+    except Exception:
+        return None
+
+    kwargs: dict[str, Any] = {"repo_id": repo_id}
+    if revision is not None:
+        kwargs["revision"] = revision
+    try:
+        return HfApi().model_info(**kwargs)
+    except Exception:
+        return None
+
+
+def _hf_model_info_is_gated(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.lower() not in {"", "0", "false", "none"}
+    return bool(value)
 
 
 def _local_path_entry_from_params(
