@@ -397,7 +397,9 @@ class LocalAgent:
         cfg = _config_by_name(registry, name)
         self._remember_run_config(cfg)
         try:
-            preparation = self._prepare_command_for_config(cfg)
+            preparation = self._prepare_command_for_config(
+                cfg, validate_model_handoff=True
+            )
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
         result = preparation.result
@@ -417,8 +419,12 @@ class LocalAgent:
     def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
         return self._prepare_command_for_config(cfg).result
 
-    def _prepare_command_for_config(self, cfg: ModelConfig) -> LocalCommandPreparation:
-        resolved_cfg, model_handoff = self._resolve_model_handoff_config(cfg)
+    def _prepare_command_for_config(
+        self, cfg: ModelConfig, *, validate_model_handoff: bool = False
+    ) -> LocalCommandPreparation:
+        resolved_cfg, model_handoff = self._resolve_model_handoff_config(
+            cfg, validate=validate_model_handoff
+        )
         result = self._build_command_for_resolved_config(resolved_cfg)
         if model_handoff is not None:
             result = replace(
@@ -469,7 +475,7 @@ class LocalAgent:
         return replace(result, metadata=metadata)
 
     def _resolve_model_handoff_config(
-        self, cfg: ModelConfig
+        self, cfg: ModelConfig, *, validate: bool = False
     ) -> tuple[ModelConfig, ModelHandoff | None]:
         try:
             handoff = resolve_model_handoff(cfg.model_ref, self._models_registry_path)
@@ -477,6 +483,8 @@ class LocalAgent:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
         if handoff is None:
             return cfg, None
+        if validate:
+            _validate_model_handoff_prelaunch(cfg, handoff)
         extra_args = _extra_args_with_model_handoff(cfg.extra_args, handoff)
         resolved_cfg = cfg.model_copy(
             update={
@@ -1691,8 +1699,55 @@ def _extra_args_with_model_handoff(
     return resolved
 
 
+def _validate_model_handoff_prelaunch(cfg: ModelConfig, handoff: ModelHandoff) -> None:
+    if handoff.source != "hf_repo":
+        return
+    if (handoff.cache_state or "").lower() == "remote_only" and _cfg_env_truthy(
+        cfg, "HF_HUB_OFFLINE"
+    ):
+        raise TargetCallError(
+            "model-unavailable",
+            (
+                f"model {handoff.display_name} is remote-only, "
+                "but offline mode is enabled via HF_HUB_OFFLINE"
+            ),
+            {
+                "model_ref": handoff.entry_id,
+                "repo_id": handoff.repo_id,
+                "cache_state": handoff.cache_state,
+                "reason": "offline-remote-only",
+            },
+        )
+    if handoff.token_required and not _cfg_env_value(cfg, "HF_TOKEN"):
+        raise TargetCallError(
+            "hf-auth-required",
+            (
+                f"model {handoff.display_name} requires HF_TOKEN; "
+                "accept the model license and set HF_TOKEN"
+            ),
+            {
+                "model_ref": handoff.entry_id,
+                "repo_id": handoff.repo_id,
+                "reason": "missing-hf-token",
+            },
+        )
+
+
 def _extra_args_include_tokenizer(extra_args: list[str]) -> bool:
     return any(arg == "--tokenizer" or arg.startswith("--tokenizer=") for arg in extra_args)
+
+
+def _cfg_env_value(cfg: ModelConfig, key: str) -> str | None:
+    if key in cfg.env:
+        value = cfg.env.get(key)
+    else:
+        value = os.environ.get(key)
+    return _optional_param_str(value)
+
+
+def _cfg_env_truthy(cfg: ModelConfig, key: str) -> bool:
+    value = _cfg_env_value(cfg, key)
+    return value is not None and value.lower() in {"1", "true", "yes", "on"}
 
 
 def _optional_param_str(value: object) -> str | None:

@@ -3439,6 +3439,175 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01GATED",
+                        "display_name": "llama-gated",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "cached",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "gated-model.yaml",
+        """
+        name: gated-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01GATED
+        """,
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "gated-model", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "hf-auth-required"
+    assert "HF_TOKEN" in exc_info.value.message
+    assert exc_info.value.details == {
+        "model_ref": "01GATED",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "reason": "missing-hf-token",
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_blocks_remote_only_model_ref_when_offline(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01REMOTE",
+                        "display_name": "llama-remote",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "offline-model.yaml",
+        """
+        name: offline-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01REMOTE
+        env:
+          HF_HUB_OFFLINE: "1"
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "offline-model", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "model-unavailable"
+    assert "offline" in exc_info.value.message
+    assert exc_info.value.details == {
+        "model_ref": "01REMOTE",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "cache_state": "remote_only",
+        "reason": "offline-remote-only",
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_preview_renders_model_ref_even_when_launch_would_block(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01REMOTE",
+                        "display_name": "llama-remote",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "offline-preview.yaml",
+        """
+        name: offline-preview
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01REMOTE
+        env:
+          HF_HUB_OFFLINE: "1"
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        result = await client.call(
+            "preview",
+            {"name": "offline-preview", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert "vllm serve meta-llama/Llama-3.1-8B-Instruct" in result["preview"]
+    assert "--revision abc123" in result["preview"]
+    assert result["metadata"]["model_ref"] == "01REMOTE"
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_local_model_ref_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
