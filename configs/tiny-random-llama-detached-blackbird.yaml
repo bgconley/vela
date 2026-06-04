@@ -1,0 +1,23 @@
+name: tiny-random-llama-detached-blackbird
+description: Small real vLLM model for Blackbird detached resume validation.
+model: hf-internal-testing/tiny-random-LlamaForCausalLM
+served_model_name: tiny-random-llama
+engine:
+  gpu_memory_utilization: 0.2
+  max_model_len: 128
+  dtype: auto
+server:
+  host: 127.0.0.1
+  port: 18004
+  exposure: local
+logging:
+  request_logging: false
+  suppress_access_log_for: [/health]
+launch:
+  mode: detached
+  ready_timeout_seconds: 300
+  health:
+    interval_seconds: 1
+  runs_dir: /home/bgconley/models/tiny-random-llama/vllm-loader-runs
+vllm:
+  version_profile: "0.11"

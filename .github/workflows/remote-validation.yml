@@ -30,7 +30,7 @@ on:
       real_resume_config:
         description: "Optional real config for resume/daemon-restart validation"
         required: false
-        default: "qwen36-27b-fp8-kvfp8-rp6000-blackbird"
+        default: "tiny-random-llama-detached-blackbird"
       remote_venv:
         description: "Remote validation venv path"
         required: true
@@ -82,7 +82,7 @@ jobs:
       VLLM_LOADER_REMOTE_BUILD_SPEC: ${{ github.event.inputs.build_spec || vars.VLLM_LOADER_REMOTE_BUILD_SPEC || 'vllm==0.11.2' }}
       VLLM_LOADER_REMOTE_MODEL_REPO: ${{ github.event.inputs.model_repo || vars.VLLM_LOADER_REMOTE_MODEL_REPO || 'hf-internal-testing/tiny-random-LlamaForCausalLM' }}
       VLLM_LOADER_REMOTE_MODEL_REVISION: ${{ github.event.inputs.model_revision || vars.VLLM_LOADER_REMOTE_MODEL_REVISION || 'main' }}
-      VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG: ${{ github.event.inputs.real_resume_config || vars.VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG || 'qwen36-27b-fp8-kvfp8-rp6000-blackbird' }}
+      VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG: ${{ github.event.inputs.real_resume_config || vars.VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG || 'tiny-random-llama-detached-blackbird' }}
       VLLM_LOADER_REMOTE_SSH_KEY: ${{ secrets.VLLM_LOADER_REMOTE_SSH_KEY }}
 
     steps:

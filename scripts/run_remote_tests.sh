@@ -633,10 +633,17 @@ fi
 
 if [[ -n "$remote_real_resume_config" ]]; then
   echo "== Real model resume/daemon restart =="
-  "$venv_python" scripts/real_model_resume_check.py \
-    "$remote_real_resume_config" \
-    "${target_args[@]}" \
-    --timeout "$remote_timeout"
+  real_resume_args=("$remote_real_resume_config" "${target_args[@]}" --timeout "$remote_timeout")
+  if [[ -n "$remote_build_spec" ]]; then
+    real_resume_args+=(--build "$remote_build_label")
+  fi
+  if [[ -n "$remote_model_ref" ]]; then
+    real_resume_args+=(--model-ref "$remote_model_ref")
+  fi
+  if [[ -n "$remote_model_revision" ]]; then
+    real_resume_args+=(--revision "$remote_model_revision")
+  fi
+  "$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}"
 fi
 
 if [[ -n "$real_config" ]]; then

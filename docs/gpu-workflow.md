@@ -135,14 +135,22 @@ secret. Keep this workflow restricted to trusted branches/tags/manual use; do
 not run untrusted fork PR code on a GPU host with lab-network access.
 
 To cover the final real-model reconnect surface, set
-`VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake config. The script
-launches that config through the selected target, disconnects and resumes by log
-cursor, restarts the target daemon while the model is still live, rediscovers
-and reattaches the run, verifies health, then stops it:
+`VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake detached config. The
+default workflow uses `tiny-random-llama-detached-blackbird`, which launches the
+tiny HF Llama model through the just-installed build and downloaded model
+registry entry. The script launches that config through the selected target,
+disconnects and resumes by log cursor, restarts the target daemon while the
+model is still live, rediscovers and reattaches the run, verifies health, then
+stops it:
 
 ```bash
 VLLM_LOADER_REMOTE_TARGET=blackbird \
-VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=qwen36-27b-fp8-kvfp8-rp6000-blackbird \
+VLLM_LOADER_REMOTE_BUILD_SPEC=vllm==0.11.2 \
+VLLM_LOADER_REMOTE_BUILD_LABEL=p620-target-vllm-0112 \
+VLLM_LOADER_REMOTE_MODEL_ID=p620-target-tiny-llama \
+VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VLLM_LOADER_REMOTE_MODEL_REVISION=main \
+VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
   scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui
 ```
 

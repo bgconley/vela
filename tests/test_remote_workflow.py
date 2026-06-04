@@ -288,6 +288,55 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert '"$remote_real_resume_config"' in remote_script
 
 
+def test_remote_validation_passes_real_build_and_model_to_resume_check(
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_BUILD_SPEC="vllm==0.11.2",
+        VLLM_LOADER_REMOTE_BUILD_LABEL="tiny-build",
+        VLLM_LOADER_REMOTE_MODEL_ID="tiny-model",
+        VLLM_LOADER_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        VLLM_LOADER_REMOTE_MODEL_REVISION="main",
+        VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG="tiny-real",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/lab-tui"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    assert 'real_resume_args=("$remote_real_resume_config"' in remote_script
+    assert 'real_resume_args+=(--build "$remote_build_label")' in remote_script
+    assert 'real_resume_args+=(--model-ref "$remote_model_ref")' in remote_script
+    assert 'real_resume_args+=(--revision "$remote_model_revision")' in remote_script
+    assert (
+        '"$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}"'
+        in remote_script
+    )
+
+
 def test_real_model_resume_check_discovers_run_before_reconnect_reattach() -> None:
     script = Path("scripts/real_model_resume_check.py").read_text(encoding="utf-8")
 
@@ -297,6 +346,25 @@ def test_real_model_resume_check_discovers_run_before_reconnect_reattach() -> No
     reattach = 'await client.call("reattach", {"run_id": run_id})'
 
     assert script.index(discover, reconnect_at) < script.index(reattach, reconnect_at)
+
+
+def test_real_model_resume_check_accepts_build_and_model_overrides() -> None:
+    script = Path("scripts/real_model_resume_check.py").read_text(encoding="utf-8")
+
+    assert 'parser.add_argument("--build"' in script
+    assert 'parser.add_argument("--model-ref"' in script
+    assert 'params["build"] = build' in script
+    assert 'params["model_ref"] = model_ref' in script
+
+
+def test_tiny_real_resume_config_is_detached_and_small() -> None:
+    config = Path("configs/tiny-random-llama-detached-blackbird.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "hf-internal-testing/tiny-random-LlamaForCausalLM" in config
+    assert "mode: detached" in config
+    assert "port: 18004" in config
 
 
 def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
@@ -528,6 +596,7 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert 'default: "self-hosted"' in text
     assert "remote_target" in text
     assert "real_resume_config" in text
+    assert "tiny-random-llama-detached-blackbird" in text
     assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in text
     assert "VLLM_LOADER_REMOTE_TARGET" in text
     assert "ssh-agent -s" in text

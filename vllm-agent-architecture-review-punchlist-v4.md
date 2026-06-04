@@ -47,7 +47,7 @@ push, and one shared GPU needs a concurrency guard plus trusted-code hygiene.
 1. Stand up or point `remote-validation.yml` at a trusted self-hosted runner on Blackbird or P620 with LAN/SSH reach to Blackbird. Set `VLLM_LOADER_REMOTE_SSH_KEY` or equivalent runner credentials.
 2. Keep manual dispatch, and run the nightly/scheduled `full` profile so HEAD stays continuously proven without blocking every commit.
 3. Use the workflow concurrency group as the first guard against double-booking the GPU; keep the lane restricted to trusted branches/tags/manual runs, not untrusted fork PR code.
-4. Keep the `fast` profile for cheaper build+tiny-model validation and reserve the full Qwen smoke + real resume for nightly/release or explicit dispatch.
+4. Keep the `fast` profile for cheaper build+tiny-model validation and reserve the full Qwen smoke + real resume for nightly/release or explicit dispatch. Use the small checked-in `tiny-random-llama-detached-blackbird` config for resume/restart; keep the heavyweight Qwen config as the TUI smoke.
 5. Re-run the full real build+model+Qwen lane at HEAD and record a fresh artifact.
 6. Run one resume + daemon-restart pass against a real model using `VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG`, not the fake child.
 

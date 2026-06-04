@@ -26,6 +26,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("config_name")
     parser.add_argument("--target", default="local")
+    parser.add_argument("--build")
+    parser.add_argument("--model-ref")
+    parser.add_argument("--revision")
     parser.add_argument("--timeout", type=float, default=1800.0)
     return parser.parse_args()
 
@@ -59,6 +62,23 @@ def _reject_fake_config(prepared: dict[str, Any]) -> None:
         raise RuntimeError(
             "real resume validation requires a real model config, not fake-child"
         )
+
+
+def _launch_params(
+    config_name: str,
+    *,
+    build: str | None,
+    model_ref: str | None,
+    revision: str | None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {"name": config_name}
+    if build:
+        params["build"] = build
+    if model_ref:
+        params["model_ref"] = model_ref
+    if revision:
+        params["revision"] = revision
+    return params
 
 
 async def _wait_ready(
@@ -159,17 +179,31 @@ def _restart_target_agent(target: TargetConfig) -> None:
     )
 
 
-async def _run(config_name: str, *, target_name: str, timeout: float) -> None:
+async def _run(
+    config_name: str,
+    *,
+    target_name: str,
+    timeout: float,
+    build: str | None,
+    model_ref: str | None,
+    revision: str | None,
+) -> None:
     target, client = _new_client(target_name)
     run_id = f"real-resume-{uuid.uuid4().hex}"
+    base_params = _launch_params(
+        config_name,
+        build=build,
+        model_ref=model_ref,
+        revision=revision,
+    )
     events = None
     tail_task = None
     await client.connect()
     try:
-        prepared = await client.call("prepare_launch", {"name": config_name})
+        prepared = await client.call("prepare_launch", base_params)
         _reject_fake_config(prepared)
         runs_dirs = _runs_dirs_from_prepared(prepared)
-        await client.call("launch", {"run_id": run_id, "name": config_name})
+        await client.call("launch", {**base_params, "run_id": run_id})
         events = client.subscribe([run_id], resume_from="start")
         tail_task = asyncio.create_task(
             client.call(
@@ -271,6 +305,9 @@ def main() -> int:
             args.config_name,
             target_name=args.target,
             timeout=args.timeout,
+            build=args.build,
+            model_ref=args.model_ref,
+            revision=args.revision,
         )
     )
     return 0

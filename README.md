@@ -70,6 +70,9 @@ forwarding and the nested target:
 VLLM_LOADER_SSH_OPTS="-A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 -o BatchMode=yes" \
 VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
 VLLM_LOADER_REMOTE_TARGET=blackbird \
+VLLM_LOADER_REMOTE_BUILD_SPEC=vllm==0.11.2 \
+VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
   scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
