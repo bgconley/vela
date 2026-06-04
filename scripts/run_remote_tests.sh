@@ -19,6 +19,7 @@ If real-config-name is provided, the remote host also runs:
   - timeout-bound vllm-loader smoke-tui REAL_CONFIG
 
 Optional real artifact validation is enabled by local environment variables:
+  - VLLM_LOADER_REMOTE_TARGET runs build/model/config checks through a named target
   - VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==X.Y.Z' runs build add/verify
   - VLLM_LOADER_REMOTE_BUILD_METHOD defaults to pip
   - VLLM_LOADER_REMOTE_BUILD_LABEL defaults to remote-smoke-build
@@ -54,6 +55,7 @@ remote_model_id="${VLLM_LOADER_REMOTE_MODEL_ID:-remote-smoke-model}"
 remote_model_repo="${VLLM_LOADER_REMOTE_MODEL_REPO:-}"
 remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
 remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
+remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
 artifact_enabled="${VLLM_LOADER_REMOTE_ARTIFACT:-}"
 artifact_dir="${VLLM_LOADER_REMOTE_ARTIFACT_DIR:-}"
 artifact_name="${VLLM_LOADER_REMOTE_ARTIFACT_NAME:-}"
@@ -70,7 +72,11 @@ if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
   ssh_cmd+=(${VLLM_LOADER_SSH_OPTS})
 fi
-ssh_cmd+=("$host" bash -s -- "$remote_path" "$remote_timeout" "$remote_python" "$remote_venv")
+ssh_cmd+=("$host")
+if [[ -n "$remote_target" ]]; then
+  ssh_cmd+=(env "VLLM_LOADER_REMOTE_TARGET=$remote_target")
+fi
+ssh_cmd+=(bash -s -- "$remote_path" "$remote_timeout" "$remote_python" "$remote_venv")
 if [[ -n "$real_config" ]]; then
   ssh_cmd+=("$real_config")
 fi
@@ -129,6 +135,11 @@ remote_model_id="$(_remote_arg_or_empty "${9:-remote-smoke-model}")"
 remote_model_repo="$(_remote_arg_or_empty "${10:-}")"
 remote_model_ref="$(_remote_arg_or_empty "${11:-}")"
 remote_model_revision="$(_remote_arg_or_empty "${12:-}")"
+remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
+target_args=()
+if [[ -n "$remote_target" ]]; then
+  target_args=(--target "$remote_target")
+fi
 if [[ -z "$remote_build_method" ]]; then
   remote_build_method="pip"
 fi
@@ -569,21 +580,21 @@ PY
 
 if [[ -n "$remote_build_spec" ]]; then
   echo "== Real build install =="
-  "$venv_bin/vllm-loader" build add \
+  "$venv_bin/vllm-loader" build add "${target_args[@]}" \
     --method "$remote_build_method" \
     --label "$remote_build_label" \
     --spec "$remote_build_spec"
-  "$venv_bin/vllm-loader" build verify "$remote_build_label"
+  "$venv_bin/vllm-loader" build verify "$remote_build_label" "${target_args[@]}"
 fi
 
 if [[ -n "$remote_model_repo" ]]; then
   echo "== Real model pin =="
   if [[ -n "$remote_model_revision" ]]; then
-    "$venv_bin/vllm-loader" model pin "$remote_model_id" \
+    "$venv_bin/vllm-loader" model pin "$remote_model_id" "${target_args[@]}" \
       --repo-id "$remote_model_repo" \
       --revision "$remote_model_revision"
   else
-    "$venv_bin/vllm-loader" model pin "$remote_model_id" \
+    "$venv_bin/vllm-loader" model pin "$remote_model_id" "${target_args[@]}" \
       --repo-id "$remote_model_repo"
   fi
   remote_model_ref="$remote_model_id"
@@ -592,17 +603,17 @@ fi
 if [[ -n "$remote_model_ref" ]]; then
   echo "== Real model download =="
   if [[ -n "$remote_model_revision" ]]; then
-    "$venv_bin/vllm-loader" model download "$remote_model_ref" \
+    "$venv_bin/vllm-loader" model download "$remote_model_ref" "${target_args[@]}" \
       --revision "$remote_model_revision"
   else
-    "$venv_bin/vllm-loader" model download "$remote_model_ref"
+    "$venv_bin/vllm-loader" model download "$remote_model_ref" "${target_args[@]}"
   fi
-  "$venv_bin/vllm-loader" model verify "$remote_model_ref"
+  "$venv_bin/vllm-loader" model verify "$remote_model_ref" "${target_args[@]}"
 fi
 
 if [[ -n "$real_config" ]]; then
-  "$venv_bin/vllm-loader" preview "$real_config"
-  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config"
+  "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"
+  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config" "${target_args[@]}"
 fi
 REMOTE
 }
@@ -632,6 +643,11 @@ if [[ "$artifact_enabled" == "1" ]]; then
     echo "- Host: \`$host\`"
     echo "- Remote path: \`$remote_path\`"
     echo "- Remote venv: \`$remote_venv\`"
+    if [[ -n "$remote_target" ]]; then
+      echo "- Remote target: \`$remote_target\`"
+    else
+      echo "- Remote target: _(default)_"
+    fi
     echo "- Timeout: \`$remote_timeout\` seconds"
     if [[ -n "$real_config" ]]; then
       echo "- Real config: \`$real_config\`"

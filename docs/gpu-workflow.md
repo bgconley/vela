@@ -89,6 +89,16 @@ These knobs can be combined with the real config smoke. In that case the script
 first runs no-GPU checks, then the optional build/model artifact jobs, then
 `preview` + `smoke-tui` for the named config.
 
+When the validation host is a controller that should drive a different target
+agent, set `VLLM_LOADER_REMOTE_TARGET`. The script passes `--target` to the
+build/model jobs and the real-config preview/smoke commands:
+
+```bash
+VLLM_LOADER_REMOTE_TARGET=blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
+  qwen36-27b-fp8-kvfp8-rp6000-blackbird
+```
+
 To write the reviewable validation record required for pre-release signoff, use
 the same command with artifact capture enabled. The script records the local
 commit, target host/path, optional build/model/config knobs, full remote output,
@@ -116,6 +126,14 @@ controller host is `620-01` (`10.25.0.50`), and the GPU/agent target is
 `blackbird` (`10.25.0.51`) with the `RTX PRO 6000 Blackwell Max-Q` GPU and
 Qwen3.6 27B FP8. Use SSH agent forwarding from the Mac unless the shared key is
 installed directly on P620:
+
+```bash
+VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
+VLLM_LOADER_REMOTE_TIMEOUT=2700 \
+VLLM_LOADER_REMOTE_TARGET=blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
+  qwen36-27b-fp8-kvfp8-rp6000-blackbird
+```
 
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \

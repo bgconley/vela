@@ -162,6 +162,75 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
     )
 
 
+def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "SSH_CAPTURE": str(capture),
+        "VLLM_LOADER_REMOTE_TARGET": "blackbird",
+        "VLLM_LOADER_REMOTE_BUILD_SPEC": "vllm==0.11.2",
+        "VLLM_LOADER_REMOTE_MODEL_ID": "real-model-smoke",
+        "VLLM_LOADER_REMOTE_MODEL_REPO": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    }
+
+    result = subprocess.run(
+        [
+            "bash",
+            "scripts/run_remote_tests.sh",
+            "p620-controller",
+            "/srv/lab-tui",
+            "real-config",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    assert args[:5] == [
+        "p620-controller",
+        "env",
+        "VLLM_LOADER_REMOTE_TARGET=blackbird",
+        "bash",
+        "-s",
+    ]
+    expected_snippets = [
+        'target_args=(--target "$remote_target")',
+        '"$venv_bin/vllm-loader" build add "${target_args[@]}"',
+        '"$venv_bin/vllm-loader" build verify "$remote_build_label" '
+        '"${target_args[@]}"',
+        '"$venv_bin/vllm-loader" model pin "$remote_model_id" '
+        '"${target_args[@]}"',
+        '"$venv_bin/vllm-loader" model download "$remote_model_ref" '
+        '"${target_args[@]}"',
+        '"$venv_bin/vllm-loader" model verify "$remote_model_ref" '
+        '"${target_args[@]}"',
+        '"$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"',
+        'timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui '
+        '"$real_config" "${target_args[@]}"',
+    ]
+    for snippet in expected_snippets:
+        assert snippet in remote_script
+
+
 def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
