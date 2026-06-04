@@ -9,6 +9,40 @@
 
 ---
 
+## Current status after remediation — 2026-06-04
+
+This review snapshot is now stale. The punchlist below is kept as review
+history, but the current tree has closed the load-bearing gaps it identified:
+
+- **P1 closed:** build/model removal now refuses verified live-run usage, with
+  sidecar/ref tests for live, stale, and config-pinned cases.
+- **P2/P3 closed:** build `pip`/`uv` install jobs and model download jobs stream
+  through the agent, support cancellation/partial state, inject op-time
+  `HF_TOKEN` where needed, and scrub job output before both the wire and
+  durable job logs.
+- **P4 closed for the current done gate:** remote validation is recorded in
+  `artifacts/remote-validation/2026-06-04-p620-blackbird-smoke.md`, including
+  P620-01 controller to Blackbird agent handshake/list/preview/Qwen smoke,
+  Blackbird daemon-restart and disconnect/reconnect resume checks, a real tiny
+  Hugging Face model download/verify, and a real `vllm==0.11.2` build
+  install/verify. Physical laptop sleep was not separately exercised; the
+  reconnect/resume path it depends on was.
+- **P5 closed:** registry-minted build/model ULIDs, integrity metadata/verify,
+  two-tier locks, build ref files, bare `model:`+`revision:` pin protection,
+  `command.cwd`, and `FlagManagerScreen` are implemented and tested.
+- **P6 substantially closed:** target manager add/edit/remove, rich active-target
+  detail, disconnected run-control gating, structured create/adopt/pin screens,
+  manager detail panes, target-named destructive confirms, palette target
+  commands, and agent-info entry are implemented and tested.
+- **PA7 follow-up closed in this pass:** stdio response priority now also
+  coalesces backpressured transient progress frames, and build/model/flag entry
+  points are gated against missing target capabilities.
+
+Remaining work should be treated as incremental polish or new validation scope,
+not as the original P1-P4 safety/functionality blockers.
+
+---
+
 ## ✅ v1 items — CLOSED (verified)
 
 - **v1‑P1 reachable_url for remote** → **DONE.** Controller-side rewrite `_controller_reachable_url` (`tui/app.py:2986`) + `_controller_host_from_ssh_target` (`:321`) rewrites the agent-reported URL to the SSH target host, applied to ready/health/sidecar URLs; pinned by an SSH-target test. **[Opus-verified]**

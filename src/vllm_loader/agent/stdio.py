@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import heapq
 import inspect
 import sys
 import uuid
@@ -174,36 +175,90 @@ async def _stream_events(
 
 
 class _PrioritizedFrameWriter:
-    def __init__(self, writer: asyncio.StreamWriter) -> None:
+    def __init__(
+        self,
+        writer: asyncio.StreamWriter,
+        *,
+        max_pending_frames: int = 1024,
+    ) -> None:
         self._writer = writer
-        self._queue: asyncio.PriorityQueue[tuple[int, int, dict[str, Any]]] = (
-            asyncio.PriorityQueue()
-        )
+        self._condition = asyncio.Condition()
+        self._items: list[tuple[int, int, dict[str, Any]]] = []
         self._sequence = 0
+        self._active = False
+        self._latest_lossy_sequence: dict[tuple[str, str], int] = {}
+        self._max_pending_frames = max(1, max_pending_frames)
         self._task = asyncio.create_task(self._drain())
 
     async def write(self, frame: dict[str, Any]) -> None:
-        self._sequence += 1
-        await self._queue.put((_frame_priority(frame), self._sequence, frame))
+        async with self._condition:
+            self._sequence += 1
+            sequence = self._sequence
+            lossy_key = _lossy_event_key(frame)
+            if lossy_key is not None:
+                self._latest_lossy_sequence[lossy_key] = sequence
+            heapq.heappush(self._items, (_frame_priority(frame), sequence, frame))
+            if len(self._items) > self._max_pending_frames:
+                self._compact_pending_lossy_events()
+            self._condition.notify()
 
     async def close(self) -> None:
-        await self._queue.join()
+        async with self._condition:
+            await self._condition.wait_for(lambda: not self._items and not self._active)
         self._task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
 
     async def _drain(self) -> None:
         while True:
-            _priority, _sequence, frame = await self._queue.get()
+            async with self._condition:
+                await self._condition.wait_for(lambda: bool(self._items))
+                _priority, sequence, frame = heapq.heappop(self._items)
+                lossy_key = _lossy_event_key(frame)
+                if (
+                    lossy_key is not None
+                    and self._latest_lossy_sequence.get(lossy_key) != sequence
+                ):
+                    if not self._items:
+                        self._condition.notify_all()
+                    continue
+                if lossy_key is not None:
+                    self._latest_lossy_sequence.pop(lossy_key, None)
+                self._active = True
             try:
                 self._writer.write(encode_frame(frame))
                 await self._writer.drain()
             finally:
-                self._queue.task_done()
+                async with self._condition:
+                    self._active = False
+                    if not self._items:
+                        self._condition.notify_all()
+
+    def _compact_pending_lossy_events(self) -> None:
+        self._items = [
+            (priority, sequence, frame)
+            for priority, sequence, frame in self._items
+            if (
+                (lossy_key := _lossy_event_key(frame)) is None
+                or self._latest_lossy_sequence.get(lossy_key) == sequence
+            )
+        ]
+        heapq.heapify(self._items)
 
 
 def _frame_priority(frame: dict[str, Any]) -> int:
     return 0 if "id" in frame else 1
+
+
+def _lossy_event_key(frame: dict[str, Any]) -> tuple[str, str] | None:
+    event = frame.get("event")
+    if event == "progress":
+        run_id = frame.get("run_id")
+        return ("run", str(run_id)) if run_id is not None else None
+    if event == "job_progress" and frame.get("kind") == "transient":
+        job_id = frame.get("job_id")
+        return ("job", str(job_id)) if job_id is not None else None
+    return None
 
 
 async def _stdio_streams(

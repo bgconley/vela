@@ -75,6 +75,44 @@ async def test_stdio_writer_prioritizes_response_over_buffered_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stdio_writer_coalesces_backpressured_progress_events() -> None:
+    class PausedDrainWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.drain_calls = 0
+            self.first_drain_started = asyncio.Event()
+            self.release_first_drain = asyncio.Event()
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            self.drain_calls += 1
+            if self.drain_calls == 1:
+                self.first_drain_started.set()
+                await self.release_first_drain.wait()
+
+    sink = PausedDrainWriter()
+    writer = _PrioritizedFrameWriter(sink)
+    await writer.write({"event": "log", "run_id": "run-1", "seq": 1, "text": "start"})
+    await asyncio.wait_for(sink.first_drain_started.wait(), timeout=2)
+
+    await writer.write({"event": "progress", "run_id": "run-1", "seq": 2, "text": "10%"})
+    await writer.write({"event": "progress", "run_id": "run-1", "seq": 3, "text": "20%"})
+    await writer.write({"event": "progress", "run_id": "run-1", "seq": 4, "text": "30%"})
+    await writer.write({"event": "log", "run_id": "run-1", "seq": 5, "text": "done"})
+
+    sink.release_first_drain.set()
+    await writer.close()
+
+    assert sink.frames == [
+        {"event": "log", "run_id": "run-1", "seq": 1, "text": "start"},
+        {"event": "progress", "run_id": "run-1", "seq": 4, "text": "30%"},
+        {"event": "log", "run_id": "run-1", "seq": 5, "text": "done"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_subprocess_target_client_requires_connection() -> None:
     client = SubprocessTargetClient(["python", "-c", "pass"])
 

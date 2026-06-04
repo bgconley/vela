@@ -964,6 +964,8 @@ class VllmLoaderApp(App):
         self.notify(f"Removed target: {target_name}")
 
     def action_builds(self) -> None:
+        if self._target_capability_blocked("list_builds", "vLLM builds"):
+            return
         self.run_worker(
             self._open_build_manager(),
             name="build-manager",
@@ -973,6 +975,8 @@ class VllmLoaderApp(App):
         )
 
     def action_flags(self) -> None:
+        if self._target_capability_blocked("update_config_flags", "vLLM flags"):
+            return
         if self.current_config is None:
             self._set_error_text("Select a config before opening Flag Manager")
             return
@@ -1219,6 +1223,8 @@ class VllmLoaderApp(App):
         self._refresh_target_backed_views()
 
     def action_models(self) -> None:
+        if self._target_capability_blocked("list_models", "models"):
+            return
         self.run_worker(
             self._open_model_manager(),
             name="model-manager",
@@ -1636,6 +1642,28 @@ class VllmLoaderApp(App):
             severity="warning",
         )
         return True
+
+    def _target_capability_blocked(self, capability: str, feature: str) -> bool:
+        if self._target_supports_capability(capability):
+            return False
+        self._set_error_text(
+            (
+                f"Feature not available on {self._target_label()}: {feature} "
+                f"(missing capability {capability})"
+            ),
+            style=f"bold {WARN}",
+        )
+        self.notify(
+            f"Feature unavailable on {self._target_label()}: {feature}",
+            severity="warning",
+        )
+        return True
+
+    def _target_supports_capability(self, capability: str) -> bool:
+        capabilities = self._target_agent_info.get("capabilities")
+        if not isinstance(capabilities, list):
+            return True
+        return capability in {str(item) for item in capabilities}
 
     def _target_label(self) -> str:
         return self.target_name

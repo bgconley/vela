@@ -997,6 +997,85 @@ async def test_run_control_actions_block_when_target_disconnected(
 
 
 @pytest.mark.asyncio
+async def test_resource_manager_actions_block_when_target_lacks_capability(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class LimitedCapabilityTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "agent_version": "0.9.0",
+                "agent_protocol_version": 1,
+                "protocol_version": 1,
+                "capabilities": [
+                    "list_configs",
+                    "preview",
+                    "prepare_launch",
+                    "launch",
+                ],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/alpha.yaml",
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "warnings": [],
+                            "config": {
+                                "name": "alpha",
+                                "model": "org/alpha",
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "vllm serve org/alpha", "warnings": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("capability gate should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="limited",
+        target_client=LimitedCapabilityTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+    worker_calls: list[str] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(str(kwargs.get("name", "")))
+        coro.close()
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        assert app.current_config is not None
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        app.action_builds()
+        app.action_models()
+        app.action_flags()
+
+        assert worker_calls == []
+        assert "Feature not available on limited" in app.error_text
+        assert "update_config_flags" in app.error_text
+
+
+@pytest.mark.asyncio
 async def test_tui_keepalive_timeout_marks_target_disconnected(
     config_dir: Path,
 ) -> None:
