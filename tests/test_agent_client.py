@@ -5,6 +5,7 @@ import inspect
 import json
 import socket
 import sys
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -3627,6 +3628,62 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     json.dumps(progress)
     json.dumps(downloading)
     json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_cancelled_model_download_marks_entry_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    def slow_snapshot_download(**_kwargs: object) -> str:
+        time.sleep(0.2)
+        return str(tmp_path / "hf-cache" / "snapshots" / "abc123")
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        slow_snapshot_download,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-cancel"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-cancel", "model_ref": "01REMOTE"},
+        )
+        await asyncio.wait_for(events.__anext__(), timeout=2)
+        downloading = await asyncio.wait_for(events.__anext__(), timeout=2)
+        cancel_result = await client.call("cancel_job", {"job_id": "job-model-cancel"})
+        done = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    [entry] = registry["entries"]
+    assert downloading["text"] == "Downloading model meta-llama/Llama-3.1-8B-Instruct"
+    assert cancel_result == {
+        "job_id": "job-model-cancel",
+        "cancelled": True,
+        "status": "cancelled",
+    }
+    assert done["event"] == "job_done"
+    assert done["error_kind"] == "cancelled"
+    assert entry["cache_state"] == "partial"
 
 
 @pytest.mark.asyncio

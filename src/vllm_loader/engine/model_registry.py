@@ -179,6 +179,12 @@ def download_hf_model(
     if token:
         download_kwargs["token"] = token
 
+    entry["cache_state"] = "partial"
+    registry["schema_version"] = 1
+    registry["default_cache"] = str(registry.get("default_cache") or "hf")
+    registry.setdefault("app_download_dir", None)
+    _write_registry_atomic(path, registry)
+
     try:
         snapshot_path = _snapshot_download(**download_kwargs)
     except ImportError as exc:
@@ -218,6 +224,38 @@ def download_hf_model(
         "snapshot_path": str(snapshot_path),
         "entry": _model_payload(entry),
     }
+
+
+def mark_hf_model_partial(
+    reference: str,
+    registry_path: str | Path | None = None,
+    *,
+    allow_patterns: list[str] | None = None,
+    ignore_patterns: list[str] | None = None,
+) -> dict[str, Any]:
+    path = (
+        Path(registry_path).expanduser()
+        if registry_path is not None
+        else default_models_registry_path()
+    )
+    registry = _load_registry_for_write(path)
+    entry = _entry_for_reference(registry, reference)
+    if entry.get("source") != "hf_repo":
+        raise ModelRegistryError(
+            "invalid-config",
+            f"model {reference} is not a Hugging Face repo entry",
+            {"model_ref": reference, "source": _optional_str(entry.get("source"))},
+        )
+    entry["cache_state"] = "partial"
+    if allow_patterns is not None:
+        entry["allow_patterns"] = list(allow_patterns)
+    if ignore_patterns is not None:
+        entry["ignore_patterns"] = list(ignore_patterns)
+    registry["schema_version"] = 1
+    registry["default_cache"] = str(registry.get("default_cache") or "hf")
+    registry.setdefault("app_download_dir", None)
+    _write_registry_atomic(path, registry)
+    return {"entry": _model_payload(entry)}
 
 
 def refresh_models(registry_path: str | Path | None = None) -> dict[str, Any]:

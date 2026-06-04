@@ -38,6 +38,7 @@ from vllm_loader.engine.model_registry import (
     download_hf_model,
     inspect_model,
     list_models,
+    mark_hf_model_partial,
     model_reference_aliases,
     pin_model,
     refresh_models,
@@ -1070,6 +1071,23 @@ class LocalAgent:
         source = str(entry.get("source") or "")
         if source == "hf_repo":
             repo_id = str(entry.get("repo_id") or model_ref)
+            allow_patterns = _optional_str_list(params.get("allow_patterns"))
+            ignore_patterns = _optional_str_list(params.get("ignore_patterns"))
+            try:
+                mark_hf_model_partial(
+                    model_ref,
+                    self._models_registry_path,
+                    allow_patterns=allow_patterns,
+                    ignore_patterns=ignore_patterns,
+                )
+            except ModelRegistryError as exc:
+                result = {
+                    "ok": False,
+                    "error_kind": exc.code,
+                    "detail": exc.message,
+                }
+                result.update(exc.details)
+                return result
             emit(
                 {
                     "kind": "committed",
@@ -1084,8 +1102,8 @@ class LocalAgent:
                     model_ref,
                     self._models_registry_path,
                     revision=_optional_param_str(params.get("revision")),
-                    allow_patterns=_optional_str_list(params.get("allow_patterns")),
-                    ignore_patterns=_optional_str_list(params.get("ignore_patterns")),
+                    allow_patterns=allow_patterns,
+                    ignore_patterns=ignore_patterns,
                 )
             except ModelRegistryError as exc:
                 result = {
