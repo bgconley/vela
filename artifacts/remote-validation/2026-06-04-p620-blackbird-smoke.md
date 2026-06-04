@@ -189,3 +189,41 @@ running pid=70725 socket=/run/user/1000/vllm-loader/agent.sock
 
 Blackbird `docker ps` produced no active container rows after the smoke,
 consistent with the normal TUI stop flow cleaning up the foreground wrapper.
+
+## Current-Commit Real Build Install
+
+Commit validated: `ec8f374`
+
+Blackbird pulled `origin/main` before the build test:
+
+```text
+P620 repo: ec8f374
+Blackbird repo: ec8f374
+Filesystem / had 501G available before install.
+```
+
+Command:
+
+```bash
+ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
+  -o BatchMode=yes bgconley@10.25.0.51 \
+  'set -euo pipefail; cd /home/bgconley/repos/lab-tui;
+   label="current-real-vllm-0112-20260604114516";
+   timeout 2700 /home/bgconley/venvs/lab-tui/bin/vllm-loader build add \
+     --method pip --label "$label" --spec "vllm==0.11.2";
+   /home/bgconley/venvs/lab-tui/bin/vllm-loader build verify "$label"'
+```
+
+Output:
+
+```text
+BUILD_LABEL=current-real-vllm-0112-20260604114516
+Creating build current-real-vllm-0112-20260604114516
+Successfully installed ... vllm-0.11.2 ...
+Verifying build current-real-vllm-0112-20260604114516
+DONE	5f70d36304bb45e5816d3df3d200aa5b	build ready
+OK	01KT977DF7DVWNTZSCV3H6DWGJ	ready	build verified
+```
+
+This covers a new real managed vLLM build install and verify on Blackbird for
+the current code path.
