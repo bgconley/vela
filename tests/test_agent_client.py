@@ -4715,6 +4715,242 @@ async def test_agent_create_build_commit_uses_uv_commit_index(
 
 
 @pytest.mark.asyncio
+async def test_agent_create_build_wheel_requires_existing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    missing_wheel = tmp_path / "wheels" / "vllm-0.11.2.whl"
+    monkeypatch.setattr(
+        local_agent_module,
+        "_find_uv_executable",
+        lambda: "/opt/bin/uv",
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-wheel-missing"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-wheel-missing",
+                "method": "wheel",
+                "build_id": "01WHEEL",
+                "path": str(missing_wheel),
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert done["ok"] is False
+    assert done["error_kind"] == "invalid-config"
+    assert done["reason"] == "missing-wheel"
+    assert done["path"] == str(missing_wheel)
+    assert not (builds_root / "01WHEEL").exists()
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_wheel_uses_uv_with_extra_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    uv_path = "/opt/bin/uv"
+    wheel_path = tmp_path / "wheels" / "vllm-0.11.2+cu130.whl"
+    wheel_path.parent.mkdir(parents=True)
+    wheel_path.write_text("wheel", encoding="utf-8")
+    torch_index = "https://download.pytorch.org/whl/cu130"
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        command_calls.append(list(argv))
+        if argv[:2] == [uv_path, "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: uv_path, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        lambda _venv_path: {
+            "vllm": "0.11.2",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        },
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-wheel"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-wheel",
+                "method": "wheel",
+                "build_id": "01WHEEL",
+                "label": "wheel-cu130",
+                "path": str(wheel_path),
+                "extra_index_url": torch_index,
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01WHEEL"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is True
+    assert manifest["install"]["method"] == "wheel"
+    assert manifest["install"]["installer"] == "uv"
+    assert manifest["install"]["provenance"]["local_wheel_path"] == str(wheel_path)
+    assert manifest["install"]["provenance"]["index_url"] == torch_index
+    assert command_calls == [
+        [uv_path, "venv", str(build_dir / "venv")],
+        [
+            uv_path,
+            "pip",
+            "install",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            str(wheel_path),
+            "--torch-backend=auto",
+            "--extra-index-url",
+            torch_index,
+        ],
+    ]
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_create_build_wheel_falls_back_to_pip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    wheel_path = tmp_path / "wheels" / "vllm-0.11.2.whl"
+    wheel_path.parent.mkdir(parents=True)
+    wheel_path.write_text("wheel", encoding="utf-8")
+    command_calls: list[list[str]] = []
+
+    async def fake_build_subprocess_exec(
+        argv: list[str],
+        *,
+        env: dict[str, str],
+        cwd: Path,
+        emit,
+        phase: str,
+        cancel_event: asyncio.Event,
+    ) -> int:
+        del env, cwd, cancel_event
+        command_calls.append(list(argv))
+        if argv[1:3] == ["-m", "venv"]:
+            venv_dir = Path(argv[-1])
+            bin_dir = venv_dir / "bin"
+            bin_dir.mkdir(parents=True)
+            (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "pip").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+            (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+        emit(
+            {
+                "kind": "committed",
+                "text": f"{phase}: {' '.join(argv)}",
+                "level": "INFO",
+                "phase": phase,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
+    monkeypatch.setattr(
+        local_agent_module,
+        "_build_subprocess_exec",
+        fake_build_subprocess_exec,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_managed_build_resolved_versions",
+        lambda _venv_path: {
+            "vllm": "0.11.2",
+            "vllm_version_profile": "current",
+            "python": "3.12.7",
+        },
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    events = client.subscribe(["job-build-wheel-pip"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {
+                "job_id": "job-build-wheel-pip",
+                "method": "wheel",
+                "build_id": "01WHEELPIP",
+                "path": str(wheel_path),
+            },
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    build_dir = builds_root / "01WHEELPIP"
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert done["ok"] is True
+    assert manifest["install"]["method"] == "wheel"
+    assert manifest["install"]["installer"] == "pip"
+    assert manifest["install"]["provenance"]["local_wheel_path"] == str(wheel_path)
+    assert command_calls == [
+        [sys.executable, "-m", "venv", str(build_dir / "venv")],
+        [
+            str(build_dir / "venv" / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            str(wheel_path),
+        ],
+    ]
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

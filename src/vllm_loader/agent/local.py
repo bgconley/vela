@@ -1259,7 +1259,7 @@ class LocalAgent:
         _cancel_event: asyncio.Event,
     ) -> dict[str, Any]:
         method = str(params.get("method") or "").strip().lower()
-        if method in {"pip", "nightly", "commit"}:
+        if method in {"pip", "nightly", "commit", "wheel"}:
             return await self._run_pip_build_job(params, emit, _cancel_event)
         if method in {"adopt", "adopt-existing", "adopt-existing-venv"}:
             adopt_params = {
@@ -2279,6 +2279,20 @@ def _build_install_request(
                 "torch_backend": "auto",
             },
         )
+    if method == "wheel":
+        wheel_path = _wheel_path_param(params)
+        extra_index_url = _optional_param_str(
+            params.get("extra_index_url")
+            or params.get("torch_index")
+            or params.get("index_url")
+        )
+        return _wheel_install_request(
+            wheel_path,
+            extra_index_url=extra_index_url,
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+        )
     raise BuildRegistryError(
         "feature-unavailable",
         f"create_build method is not implemented: {method or 'unknown'}",
@@ -2344,6 +2358,64 @@ def _uv_install_request(
             *install_args,
         ],
     )
+
+
+def _wheel_install_request(
+    wheel_path: Path,
+    *,
+    extra_index_url: str | None,
+    uv_path: str | None,
+    python_requested: str | None,
+    venv_path: Path,
+) -> BuildInstallRequest:
+    install_args = [str(wheel_path)]
+    provenance = {
+        "local_wheel_path": str(wheel_path),
+        "index_url": extra_index_url,
+    }
+    if extra_index_url is not None:
+        install_args.extend(["--extra-index-url", extra_index_url])
+    if uv_path is not None:
+        return _uv_install_request(
+            method="wheel",
+            uv_path=uv_path,
+            python_requested=python_requested,
+            venv_path=venv_path,
+            install_args=[str(wheel_path), "--torch-backend=auto"]
+            + (["--extra-index-url", extra_index_url] if extra_index_url is not None else []),
+            provenance={**provenance, "torch_backend": "auto"},
+        )
+    return BuildInstallRequest(
+        method="wheel",
+        installer="pip",
+        provenance=provenance,
+        venv_argv=[sys.executable, "-m", "venv", str(venv_path)],
+        install_argv=[
+            str(venv_path / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            *install_args,
+        ],
+    )
+
+
+def _wheel_path_param(params: dict[str, Any]) -> Path:
+    value = _optional_param_str(params.get("path") or params.get("wheel_path"))
+    if value is None:
+        raise BuildRegistryError(
+            "invalid-params",
+            "create_build method=wheel requires path",
+            {"reason": "missing-wheel-path", "method": "wheel"},
+        )
+    path = Path(value).expanduser()
+    if not path.is_file():
+        raise BuildRegistryError(
+            "invalid-config",
+            f"wheel path does not exist: {path}",
+            {"reason": "missing-wheel", "path": str(path), "method": "wheel"},
+        )
+    return path
 
 
 def _nightly_index_url(channel: str | None) -> str:
