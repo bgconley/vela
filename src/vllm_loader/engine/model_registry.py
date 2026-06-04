@@ -907,14 +907,56 @@ def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
 def _verify_metadata_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
     entry_id = str(entry.get("entry_id") or "")
-    cache_state = str(entry.get("cache_state") or "remote_only")
-    ok = cache_state == "cached"
-    return {
+    status = _hf_model_status(entry)
+    entry["cache_state"] = status["cache_state"]
+    payload = {
         "entry_id": entry_id,
-        "ok": ok,
-        "cache_state": cache_state,
-        "detail": "model metadata is cached" if ok else f"model is {cache_state}",
+        "ok": bool(status["ok"]),
+        "cache_state": str(status["cache_state"]),
+        "detail": str(status["detail"]),
         "entry": _model_payload(entry),
+    }
+    if not status["ok"]:
+        payload["reason"] = str(status["reason"])
+    return payload
+
+
+def _hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
+    cache_state = str(entry.get("cache_state") or "remote_only")
+    if cache_state != "cached":
+        return {
+            "ok": False,
+            "reason": cache_state,
+            "cache_state": cache_state,
+            "detail": f"model is {cache_state}",
+        }
+    if not _optional_str(entry.get("commit_sha")):
+        return {
+            "ok": False,
+            "reason": "missing-commit",
+            "cache_state": "partial",
+            "detail": "cached model metadata is missing commit identity",
+        }
+    files = entry.get("files")
+    if not isinstance(files, dict) or _safe_int(files.get("count")) <= 0:
+        return {
+            "ok": False,
+            "reason": "missing-files",
+            "cache_state": "partial",
+            "detail": "cached model metadata is missing file inventory",
+        }
+    if str(files.get("weights_format") or "unknown") == "unknown":
+        return {
+            "ok": False,
+            "reason": "missing-weights",
+            "cache_state": "partial",
+            "detail": "cached model metadata is missing weight files",
+        }
+    return {
+        "ok": True,
+        "reason": "cached",
+        "cache_state": "cached",
+        "detail": "model metadata is cached",
     }
 
 

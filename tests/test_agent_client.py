@@ -2858,6 +2858,38 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "remote-llama",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "cache_state": "cached",
+            },
+        )
+        verified = await client.call("verify_model", {"model_ref": "01REMOTE"})
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert verified["entry_id"] == "01REMOTE"
+    assert verified["ok"] is False
+    assert verified["cache_state"] == "partial"
+    assert verified["reason"] == "missing-commit"
+    assert verified["entry"]["cache_state"] == "partial"
+    assert listed["models"][0]["cache_state"] == "partial"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
 async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
 
@@ -3479,21 +3511,48 @@ async def test_agent_download_model_job_verifies_cached_model_entry(
     tmp_path: Path,
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 3,
+                            "total_bytes": 130,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 130,
+                        "cache_state": "cached",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-03T00:00:00Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     events = client.subscribe(["job-model-cached"], resume_from="live")
     try:
-        await client.call(
-            "pin_model",
-            {
-                "entry_id": "01MODEL",
-                "display_name": "llama-pin",
-                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
-                "commit_sha": "abc123",
-                "cache_state": "cached",
-            },
-        )
         result = await client.call(
             "download_model",
             {"job_id": "job-model-cached", "model_ref": "01MODEL"},
