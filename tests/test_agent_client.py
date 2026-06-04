@@ -3115,6 +3115,9 @@ async def test_agent_adopts_local_model_path_for_launch_handoff(
         "count": 3,
         "weights_format": "safetensors",
     }
+    assert adopted["entry"]["integrity"]["strategy"] == "local_files_sha256"
+    assert adopted["entry"]["integrity"]["files_sha256"].startswith("sha256:")
+    assert adopted["entry"]["integrity"]["file_count"] == 3
     assert prepared["build"]["argv"][:3] == ["vllm", "serve", str(model_dir)]
     assert "--revision" not in prepared["build"]["argv"]
     assert prepared["build"]["metadata"]["model_source"] == "local_path"
@@ -3179,6 +3182,12 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
     assert verified["cache_state"] == "cached"
     assert verified["detail"] == "local model verified"
     assert verified["entry"]["cache_state"] == "cached"
+    assert verified["entry"]["integrity"]["strategy"] == "local_files_sha256"
+    assert verified["entry"]["integrity"]["files_sha256"].startswith("sha256:")
+    assert verified["entry"]["integrity"]["file_count"] == 3
+    assert verified["entry"]["integrity"]["total_bytes"] == (
+        len(b"{}") + len(b"weights") + len(b"{}")
+    )
     json.dumps(verified)
 
 
@@ -3318,6 +3327,50 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
     assert verified["reason"] == "missing-weights"
     assert verified["entry"]["cache_state"] == "partial"
     assert listed["models"][0]["cache_state"] == "partial"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_marks_local_model_partial_after_integrity_drift(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    weights_path = model_dir / "model.safetensors"
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    weights_path.write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        expected_sha = adopted["entry"]["integrity"]["files_sha256"]
+        weights_path.write_text("changed-weights", encoding="utf-8")
+        verified = await client.call("verify_model", {"model_ref": "01LOCAL"})
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    assert verified["entry_id"] == "01LOCAL"
+    assert verified["ok"] is False
+    assert verified["cache_state"] == "partial"
+    assert verified["reason"] == "integrity-mismatch"
+    assert verified["integrity"]["expected_files_sha256"] == expected_sha
+    assert verified["integrity"]["current_files_sha256"].startswith("sha256:")
+    assert verified["integrity"]["current_files_sha256"] != expected_sha
+    assert verified["entry"]["cache_state"] == "partial"
+    assert verified["entry"]["integrity"]["files_sha256"] == expected_sha
+    assert listed["models"][0]["cache_state"] == "partial"
+    assert listed["models"][0]["integrity"]["files_sha256"] == expected_sha
     json.dumps(verified)
 
 

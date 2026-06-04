@@ -5,6 +5,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,7 @@ MODEL_ENTRY_FIELDS = (
     "cache_state",
     "gated",
     "token_required",
+    "integrity",
     "created_at",
     "last_used_at",
     "notes",
@@ -1014,6 +1016,7 @@ def _local_path_entry_from_params(
         "cache_state": "cached",
         "gated": False,
         "token_required": False,
+        "integrity": _local_model_integrity_payload(local_path),
         "created_at": _optional_str(params.get("created_at")) or now,
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
@@ -1038,7 +1041,34 @@ def _verify_local_model_entry(entry: dict[str, Any]) -> dict[str, Any]:
     status = _local_model_status(local_path)
     entry["cache_state"] = status["cache_state"]
     if status["ok"]:
+        current_integrity = _local_model_integrity_payload(local_path)
+        previous_integrity = entry.get("integrity")
+        expected_files_sha256 = (
+            previous_integrity.get("files_sha256")
+            if isinstance(previous_integrity, dict)
+            else None
+        )
+        current_files_sha256 = current_integrity["files_sha256"]
+        if expected_files_sha256 and expected_files_sha256 != current_files_sha256:
+            entry["cache_state"] = "partial"
+            return {
+                "entry_id": entry_id,
+                "ok": False,
+                "reason": "integrity-mismatch",
+                "cache_state": "partial",
+                "detail": "local model integrity mismatch",
+                "integrity": {
+                    "expected_files_sha256": expected_files_sha256,
+                    "current_files_sha256": current_files_sha256,
+                    "expected_file_count": _safe_int(previous_integrity.get("file_count"))
+                    if isinstance(previous_integrity, dict)
+                    else 0,
+                    "current_file_count": _safe_int(current_integrity.get("file_count")),
+                },
+                "entry": _model_payload(entry),
+            }
         entry["files"] = _local_model_files_payload(local_path)
+        entry["integrity"] = current_integrity
     payload = {
         "entry_id": entry_id,
         "ok": bool(status["ok"]),
@@ -1152,6 +1182,37 @@ def _local_model_files_payload(path: Path) -> dict[str, Any]:
     }
 
 
+def _local_model_integrity_payload(path: Path) -> dict[str, Any]:
+    files = _local_model_integrity_files(path)
+    digest = sha256()
+    total_bytes = 0
+    blob_hashes: dict[str, str] = {}
+    for file in files:
+        relative = file.relative_to(path).as_posix()
+        data = file.read_bytes()
+        total_bytes += len(data)
+        blob_hashes[relative] = _sha256_uri(data)
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(len(data)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(data)
+        digest.update(b"\0")
+    return {
+        "strategy": "local_files_sha256",
+        "files_sha256": f"sha256:{digest.hexdigest()}",
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "blob_hashes": blob_hashes,
+    }
+
+
+def _local_model_integrity_files(path: Path) -> list[Path]:
+    files = [path / "config.json", *_local_weight_files(path), *_local_tokenizer_files(path)]
+    unique = {file.resolve(): file for file in files}
+    return sorted(unique.values(), key=lambda file: file.relative_to(path).as_posix())
+
+
 def _local_weight_files(path: Path) -> list[Path]:
     patterns = ("*.safetensors", "*.bin", "*.gguf")
     return sorted(file for pattern in patterns for file in path.glob(pattern))
@@ -1218,6 +1279,9 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
         value = entry.get(field)
         if field == "files":
             payload[field] = dict(value) if isinstance(value, dict) else {}
+        elif field == "integrity":
+            if isinstance(value, dict) and value:
+                payload[field] = dict(value)
         elif field in {"gated", "token_required"}:
             payload[field] = bool(value)
         elif field == "size_bytes":
@@ -1231,3 +1295,7 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _sha256_uri(data: bytes) -> str:
+    return f"sha256:{sha256(data).hexdigest()}"
