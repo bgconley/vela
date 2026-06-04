@@ -1363,6 +1363,8 @@ class VllmLoaderApp(App):
         self.run_worker(self._run_selected_config(), name="load", group="engine", exclusive=True)
 
     def action_stop(self) -> None:
+        if self._target_control_blocked("stop"):
+            return
         if self.reattached_run_id is not None:
             self.run_worker(
                 self._signal_reattached_target_run("stop"),
@@ -1387,6 +1389,8 @@ class VllmLoaderApp(App):
         self._write_log("INFO stop requested")
 
     def action_kill(self) -> None:
+        if self._target_control_blocked("kill"):
+            return
         if self._attached_run_is_alive():
             self.push_screen(
                 ConfirmScreen(
@@ -1410,6 +1414,8 @@ class VllmLoaderApp(App):
         self._set_error_text("Kill requested")
 
     def action_restart(self) -> None:
+        if self._target_control_blocked("restart"):
+            return
         if self.current_run_id is not None:
             run_id = self.current_run_id
             self.run_worker(
@@ -1429,6 +1435,19 @@ class VllmLoaderApp(App):
             return
         self.action_stop()
         self.action_load()
+
+    def _target_control_blocked(self, action: str) -> bool:
+        if self.target_connection_state == "connected":
+            return False
+        self._set_error_text(
+            self._render_target_connection_banner(),
+            style=f"bold {BAD}",
+        )
+        self.notify(
+            f"Target unavailable - reconnect before {action}",
+            severity="warning",
+        )
+        return True
 
     def _target_label(self) -> str:
         return self.target_name

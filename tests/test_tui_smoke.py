@@ -658,6 +658,39 @@ async def test_action_load_blocks_when_target_unreachable(
 
 
 @pytest.mark.asyncio
+async def test_run_control_actions_block_when_target_disconnected(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_ping_interval_seconds=None,
+    )
+    worker_calls: list[str] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(str(kwargs.get("name", "")))
+        coro.close()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+        app.target_connection_state = "disconnected"
+        app.target_connection_detail = "ping timeout"
+        app.current_run_id = "run-1"
+
+        app.action_stop()
+        app.action_kill()
+        app.action_restart()
+
+        assert worker_calls == []
+        assert app.screen.id != "confirm"
+        assert "target disconnected" in app.error_text
+        assert "ping timeout" in app.error_text
+        assert "(R) Reconnect" in app.error_text
+        assert "(t) Switch target" in app.error_text
+
+
+@pytest.mark.asyncio
 async def test_tui_keepalive_timeout_marks_target_disconnected(
     config_dir: Path,
 ) -> None:
