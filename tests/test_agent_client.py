@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import uuid
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2217,6 +2218,12 @@ async def test_agent_verifies_ready_build_from_agent_owned_registry(
     assert verified["manifest"]["status"] == "ready"
     assert verified["manifest"]["verify"]["verify_output"]["python_import"] == "0.11.2"
     assert verified["manifest"]["verify"]["verify_output"]["vllm_version"] == "vLLM 0.11.2"
+    integrity = verified["manifest"]["integrity"]
+    assert integrity["strategy"] == "pip_freeze_sha256"
+    assert integrity["executable_sha256"] == _sha256_uri(vllm_bin.read_bytes())
+    assert integrity["freeze_sha256"] == _sha256_uri(b"0.11.2")
+    assert integrity["verify_command"] == ["bin/vllm", "--version"]
+    assert integrity["verify_output"] == "vLLM 0.11.2"
     json.dumps(verified)
 
 
@@ -2315,6 +2322,71 @@ async def test_agent_verify_marks_build_broken_when_vllm_probe_fails(
     assert manifest["verify"]["reason"] == "vllm-version-probe-failed"
     assert manifest["verify"]["verify_output"]["vllm_returncode"] == 42
     json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_marks_build_broken_when_executable_hash_drifts(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01HASHDRIFT"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    original_vllm = b"#!/bin/sh\necho 'vLLM 0.11.2'\n"
+    vllm_bin.write_bytes(original_vllm)
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01HASHDRIFT",
+                "label": "hash-drift",
+                "status": "ready",
+                "integrity": {
+                    "strategy": "pip_freeze_sha256",
+                    "executable_sha256": _sha256_uri(original_vllm),
+                    "freeze_sha256": _sha256_uri(b"0.11.2"),
+                    "verify_command": ["bin/vllm", "--version"],
+                    "verify_output": "vLLM 0.11.2",
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.3'\n", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        verified = await client.call("verify_build", {"build": "hash-drift"})
+    finally:
+        await client.disconnect()
+
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert verified["ok"] is False
+    assert verified["status"] == "broken"
+    assert verified["reason"] == "executable-integrity-mismatch"
+    assert manifest["status"] == "broken"
+    assert manifest["verify"]["reason"] == "executable-integrity-mismatch"
+    assert manifest["integrity"]["executable_sha256"] == _sha256_uri(original_vllm)
+    assert manifest["verify"]["integrity"]["current_executable_sha256"] == _sha256_uri(
+        vllm_bin.read_bytes()
+    )
+    json.dumps(verified)
+
+
+def _sha256_uri(data: bytes) -> str:
+    return f"sha256:{sha256(data).hexdigest()}"
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -337,11 +338,23 @@ def _verify_build_manifest(manifest: dict[str, Any], build_dir: Path) -> dict[st
         "python": str(python),
     }
     verify_output: dict[str, Any] = {}
+    integrity: dict[str, Any] = {}
     if reason is None:
         reason, verify_output = _build_verify_output(executable, python)
     if verify_output:
         verify_payload["verify_output"] = verify_output
     if reason is None:
+        reason, integrity = _build_integrity(executable, python, verify_output)
+    if integrity:
+        drift_reason, drift_payload = _build_integrity_drift(
+            _dict_or_empty(manifest.get("integrity")),
+            integrity,
+        )
+        if drift_reason is not None:
+            reason = drift_reason
+            verify_payload["integrity"] = drift_payload
+    if reason is None:
+        manifest["integrity"] = integrity
         verify_payload.update({"ok": True, "reason": None})
         manifest["verify"] = verify_payload
         if str(manifest.get("status") or "") == "broken":
@@ -386,6 +399,78 @@ def _build_verify_output(executable: Path, python: Path) -> tuple[str | None, di
     if not version_probe["ok"]:
         return "vllm-version-probe-failed", output
     return None, output
+
+
+def _build_integrity(
+    executable: Path,
+    python: Path,
+    verify_output: dict[str, Any],
+) -> tuple[str | None, dict[str, Any]]:
+    freeze_probe = _run_build_verify_command([str(python), "-m", "pip", "freeze"])
+    if not freeze_probe["ok"]:
+        return "pip-freeze-probe-failed", {
+            "strategy": "pip_freeze_sha256",
+            "freeze_returncode": freeze_probe["returncode"],
+            "freeze_output": freeze_probe["output"],
+        }
+    try:
+        executable_sha = _sha256_file(executable)
+    except OSError as exc:
+        return "executable-hash-failed", {
+            "strategy": "pip_freeze_sha256",
+            "hash_error": str(exc),
+        }
+    freeze_output = str(freeze_probe["output"])
+    return None, {
+        "strategy": "pip_freeze_sha256",
+        "freeze_sha256": _sha256_uri(freeze_output.encode("utf-8")),
+        "executable_sha256": executable_sha,
+        "verify_command": ["bin/vllm", "--version"],
+        "verify_output": str(verify_output.get("vllm_version") or ""),
+    }
+
+
+def _build_integrity_drift(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+) -> tuple[str | None, dict[str, Any]]:
+    if not previous:
+        return None, {}
+    checks = (
+        (
+            "executable_sha256",
+            "executable-integrity-mismatch",
+            "expected_executable_sha256",
+            "current_executable_sha256",
+        ),
+        (
+            "freeze_sha256",
+            "freeze-integrity-mismatch",
+            "expected_freeze_sha256",
+            "current_freeze_sha256",
+        ),
+    )
+    for field, reason, expected_key, current_key in checks:
+        expected = _optional_str(previous.get(field))
+        actual = _optional_str(current.get(field))
+        if expected is not None and actual is not None and expected != actual:
+            return reason, {
+                expected_key: expected,
+                current_key: actual,
+            }
+    return None, {}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _sha256_uri(data: bytes) -> str:
+    return f"sha256:{sha256(data).hexdigest()}"
 
 
 def _run_build_verify_command(argv: list[str]) -> dict[str, Any]:
@@ -488,6 +573,9 @@ def _build_payload(manifest: dict[str, Any], default_build_id: str | None) -> di
     verify = _dict_or_empty(manifest.get("verify"))
     if verify:
         payload["verify"] = verify
+    integrity = _dict_or_empty(manifest.get("integrity"))
+    if integrity:
+        payload["integrity"] = integrity
     return payload
 
 
