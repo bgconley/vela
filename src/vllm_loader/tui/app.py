@@ -1010,7 +1010,10 @@ class VllmLoaderApp(App):
 
     async def _open_build_manager(self) -> None:
         try:
-            result = await self._target_call("list_builds", {})
+            result = await self._target_call(
+                "list_builds",
+                {"configs_dir": str(self.configs_dir)},
+            )
         except TargetCallError as exc:
             self._set_error_text(f"Unable to list builds: {exc}", style=f"bold {BAD}")
             return

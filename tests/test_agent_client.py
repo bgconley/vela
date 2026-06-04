@@ -2368,6 +2368,51 @@ async def test_agent_lists_builds_with_verified_live_refs(
 
 
 @pytest.mark.asyncio
+async def test_agent_lists_builds_with_config_refs(config_dir: Path, tmp_path: Path) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01PINNEDBUILD"
+    build_dir.mkdir(parents=True)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01PINNEDBUILD",
+                "label": "pinned-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "uses-build.yaml").write_text(
+        """
+        name: uses-build
+        model: org/model
+        command:
+          build: pinned-build
+        """,
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        result = await client.call("list_builds", {"configs_dir": str(config_dir)})
+    finally:
+        await client.disconnect()
+
+    [build] = result["builds"]
+    assert build["config_refs"] == ["uses-build"]
+    assert build["config_ref_count"] == 1
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_agent_selects_build_default_from_agent_owned_registry(
     tmp_path: Path,
 ) -> None:

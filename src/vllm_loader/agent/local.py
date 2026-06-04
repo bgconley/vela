@@ -334,7 +334,7 @@ class LocalAgent:
         if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)
         if method == "list_builds":
-            return self._list_builds()
+            return self._list_builds(payload)
         if method == "adopt_build":
             return self._adopt_build(payload)
         if method == "inspect_build":
@@ -984,8 +984,19 @@ class LocalAgent:
                 )
             )
 
-    def _list_builds(self) -> dict[str, Any]:
-        return list_builds(self._builds_root)
+    def _list_builds(self, params: dict[str, Any]) -> dict[str, Any]:
+        payload = list_builds(self._builds_root)
+        configs_dir = _configs_dir(params)
+        if configs_dir is None:
+            return payload
+        config_registry = self._load_config_registry(configs_dir)
+        for build in payload.get("builds", []):
+            if not isinstance(build, dict):
+                continue
+            refs = _configs_pinning_build(config_registry, _build_payload_aliases(build))
+            build["config_refs"] = refs
+            build["config_ref_count"] = len(refs)
+        return payload
 
     def _adopt_build(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -3040,6 +3051,15 @@ def _configs_pinning_build(registry: ConfigRegistry, aliases: set[str]) -> list[
         if item.config.command.build is not None and item.config.command.build in aliases
     ]
     return sorted(pinned)
+
+
+def _build_payload_aliases(build: dict[str, Any]) -> set[str]:
+    aliases: set[str] = set()
+    for key in ("build_id", "label"):
+        value = build.get(key)
+        if isinstance(value, str) and value:
+            aliases.add(value)
+    return aliases
 
 
 def _sidecar_using_build(manifest: dict[str, Any], sidecars: list[Sidecar]) -> Sidecar | None:

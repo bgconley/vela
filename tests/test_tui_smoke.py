@@ -3952,6 +3952,8 @@ async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
                             "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
                             "paths": {"executable": "bin/vllm"},
                             "in_use": True,
+                            "config_refs": ["buildable", "canary"],
+                            "config_ref_count": 2,
                             "live_refs": [
                                 {
                                     "run_id": "run-live",
@@ -3987,8 +3989,9 @@ async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
         )
         build_list = str(app.screen.query_one("#build-manager-list", Static).content)
         detail = str(app.screen.query_one("#build-manager-detail", Static).content)
-        assert "live-build  ready  ● active  🔒 in use" in build_list
+        assert "live-build  ready  ● active  🔒 in use  ⇩ used by 2 configs" in build_list
         assert "in_use: 1 live run (run-live)" in detail
+        assert "used_by_configs: 2 (buildable, canary)" in detail
 
 
 @pytest.mark.asyncio

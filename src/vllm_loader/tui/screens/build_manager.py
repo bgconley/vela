@@ -129,9 +129,10 @@ class BuildManagerScreen(ModalScreen):
             status = str(build.get("status") or "unknown")
             active = "  ● active" if build.get("default") else ""
             in_use = "  🔒 in use" if _live_refs(build) else ""
+            config_refs = _config_ref_badge(build)
             lines.append(
                 f"{marker} {_build_status_dot(status)} {_build_label(build)}  "
-                f"{status}{active}{in_use}"
+                f"{status}{active}{in_use}{config_refs}"
             )
         return "\n".join(lines)
 
@@ -148,6 +149,7 @@ class BuildManagerScreen(ModalScreen):
             f"build_id: {build.get('build_id') or '-'}",
             f"status: {build.get('status') or 'unknown'}",
             f"in_use: {_in_use_detail(build)}",
+            f"used_by_configs: {_config_ref_detail(build)}",
             f"vllm: {resolved.get('vllm') or '-'}",
             f"cuda: {resolved.get('cuda') or '-'}",
             f"executable: {paths.get('executable') or '-'}",
@@ -196,6 +198,43 @@ def _in_use_detail(build: dict[str, Any]) -> str:
     suffix = f" ({visible})" if visible else ""
     noun = "run" if len(refs) == 1 else "runs"
     return f"{len(refs)} live {noun}{suffix}"
+
+
+def _config_refs(build: dict[str, Any]) -> list[str]:
+    refs = build.get("config_refs")
+    if not isinstance(refs, list):
+        return []
+    return [str(ref) for ref in refs if isinstance(ref, str) and ref]
+
+
+def _config_ref_count(build: dict[str, Any]) -> int:
+    refs = _config_refs(build)
+    if refs:
+        return len(refs)
+    try:
+        return int(build.get("config_ref_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _config_ref_badge(build: dict[str, Any]) -> str:
+    count = _config_ref_count(build)
+    if count <= 0:
+        return ""
+    noun = "config" if count == 1 else "configs"
+    return f"  ⇩ used by {count} {noun}"
+
+
+def _config_ref_detail(build: dict[str, Any]) -> str:
+    refs = _config_refs(build)
+    count = _config_ref_count(build)
+    if count <= 0:
+        return "no"
+    visible = ", ".join(refs[:3])
+    if len(refs) > 3:
+        visible = f"{visible}, +{len(refs) - 3}" if visible else f"+{len(refs) - 3}"
+    suffix = f" ({visible})" if visible else ""
+    return f"{count}{suffix}"
 
 
 def _build_action_payload(action: str, build: dict[str, Any]) -> dict[str, Any]:
