@@ -29,26 +29,50 @@ Both use the same request/response shape and event stream.
 
 ## Core Methods
 
-Common request methods:
+Common request methods and capabilities:
 
 - `handshake`
+- `ping`
 - `list_configs`
+- `update_config_flags`
 - `preview`
 - `preflight`
+- `prepare_launch`
 - `launch`
+- `wait`
 - `stop`
 - `kill`
 - `restart`
-- `wait`
 - `status`
+- `gpu`
+- `sample_gpus`
 - `health`
+- `probe_until_ready`
+- `tail_detached`
 - `discover_runs`
+- `discover_runs_no_paths`
+- `discover_detached`
 - `reattach`
+- `reattach_detached`
+- `list_builds`
+- `adopt_build`
+- `inspect_build`
+- `select_build`
+- `verify_build`
+- `repair_build`
+- `remove_build`
+- `run_build`
+- `list_models`
+- `pin_model`
+- `refresh_models`
+- `inspect_model`
+- `verify_model`
+- `remove_model`
+- `create_build`
+- `download_model`
+- `cancel_job`
 - `subscribe`
 - `unsubscribe`
-- `gpu`
-- `list_builds`, `create_build`, `verify_build`, `remove_build`
-- `list_models`, `pin_model`, `download_model`, `verify_model`, `remove_model`
 
 Build and model jobs emit `job_progress` and `job_done` events and can be
 cancelled with `cancel_job`.

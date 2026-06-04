@@ -218,12 +218,19 @@ The latest P620-to-Blackbird validation records are:
   no-token gated Hugging Face auth probe against `meta-llama/Llama-2-7b-hf`,
   with the normal agent `download_model` job ending in `GATED_MODEL_AUTH_OK`.
 
-Physical controller sleep is intentionally not triggered by automation. To run
-that drill, start the controller on the machine that should sleep, launch a
-detached real config, and let the script hold the original connection open while
-you sleep and wake the controller. After wake, press Enter; the script
-disconnects, reconnects, rediscovers the live sidecar, reattaches, resumes by
-log cursor, and writes `LAPTOP_SLEEP_RECONNECT_OK` to an optional artifact:
+Physical controller sleep is intentionally not triggered by automation. In the
+lab topology, P620-01 is the controller host and Blackbird/P620-01 are target
+agents. Sleeping the Mac while it is only an SSH terminal into P620 tests the
+outer operator session, not the TUI controller-to-agent boundary. Use `tmux`,
+`screen`, `systemd-run`, or another session manager for that operator-shell
+case.
+
+To run the stricter controller sleep drill, start the controller on the machine
+that should sleep, launch a detached real config, and let the script hold the
+original connection open while you sleep and wake that controller. After wake,
+press Enter; the script disconnects, reconnects, rediscovers the live sidecar,
+reattaches, resumes by log cursor, and writes `LAPTOP_SLEEP_RECONNECT_OK` to an
+optional artifact:
 
 ```bash
 scripts/laptop_sleep_reconnect_check.py tiny-random-llama-detached-blackbird \
@@ -234,9 +241,8 @@ scripts/laptop_sleep_reconnect_check.py tiny-random-llama-detached-blackbird \
   --artifact-dir artifacts/remote-validation
 ```
 
-Do not run this from an unsupervised CI job. If the Mac is only an SSH terminal
-to P620, sleeping the Mac tests the outer operator session, not controller
-sleep; run the script on the actual controller host for the stricter drill.
+Do not run this from an unsupervised CI job; run the script on the actual
+controller host for the stricter drill.
 If the selected target venv already has a compatible `vllm` on `PATH`, the
 `--build`/`--model-ref` overrides can be omitted; the Blackbird validation lane
 uses the managed build/model labels shown above.

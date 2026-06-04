@@ -94,6 +94,7 @@ Common YAML fields:
 
 ```yaml
 name: qwen-example
+target: blackbird              # optional home target label
 model: Qwen/Qwen3.6-27B-FP8
 model_ref: pinned-qwen        # optional registry entry id/display name
 revision: main               # optional model revision or commit
@@ -122,6 +123,8 @@ vllm:
 ```
 
 Details are in [docs/configuration.md](docs/configuration.md).
+Use `exposure: lan` or `exposure: public` only when the target should bind a
+non-loopback or wildcard address; `exposure: local` is rejected for those binds.
 
 ## Build Methods
 
