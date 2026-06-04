@@ -8224,6 +8224,7 @@ async def test_restart_stops_running_attached_server_and_starts_same_config(
 ) -> None:
     port = _free_port()
     script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    src_path = Path.cwd() / "src"
     write_yaml(
         config_dir / "fake.yaml",
         f"""
@@ -8235,6 +8236,8 @@ async def test_restart_stops_running_attached_server_and_starts_same_config(
         server:
           host: 127.0.0.1
           port: {port}
+        env:
+          PYTHONPATH: "{src_path}"
         launch:
           health:
             interval_seconds: 0.05
