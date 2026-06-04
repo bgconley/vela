@@ -12,7 +12,7 @@ import pytest
 from conftest import write_yaml
 from rich.text import Text
 from textual.screen import ModalScreen
-from textual.widgets import Input, ProgressBar, RichLog, Static
+from textual.widgets import Input, ProgressBar, RichLog, Select, Static
 from textual.worker import WorkerState
 
 from vllm_loader.agent.local import LocalAgent, TargetCallError
@@ -4141,9 +4141,9 @@ async def test_build_manager_create_build_streams_job_events(
             lambda: app.screen.id == "create-build",
             "create build screen did not open",
         )
-        app.screen.query_one("#create-build-input", Input).value = (
-            "method=nightly label=nvfp4 channel=cu130"
-        )
+        app.screen.query_one("#create-build-method", Select).value = "nightly"
+        app.screen.query_one("#create-build-label", Input).value = "nvfp4"
+        app.screen.query_one("#create-build-channel", Input).value = "cu130"
         await pilot.press("enter")
 
         await _wait_for_condition(
@@ -4997,11 +4997,12 @@ async def test_model_manager_pins_model_metadata_through_target_client(
             lambda: app.screen.id == "pin-model",
             "pin model screen did not open",
         )
-        app.screen.query_one("#pin-model-input", Input).value = (
-            "entry_id=02REMOTE repo_id=Qwen/Qwen3-32B "
-            "display_name=qwen-remote revision=main commit_sha=abc123 "
-            "quant_format=bf16"
-        )
+        app.screen.query_one("#pin-model-entry-id", Input).value = "02REMOTE"
+        app.screen.query_one("#pin-model-repo-id", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#pin-model-display-name", Input).value = "qwen-remote"
+        app.screen.query_one("#pin-model-revision", Input).value = "main"
+        app.screen.query_one("#pin-model-commit-sha", Input).value = "abc123"
+        app.screen.query_one("#pin-model-quant-format", Input).value = "bf16"
         await pilot.press("enter")
 
         await _wait_for_condition(
