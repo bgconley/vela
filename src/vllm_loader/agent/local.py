@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+import yaml
+
 from vllm_loader import __version__
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
 from vllm_loader.config.schema import EntryPoint, ModelConfig, default_run_artifacts_dir
@@ -85,6 +87,7 @@ AGENT_CAPABILITIES = [
     "handshake",
     "ping",
     "list_configs",
+    "update_config_flags",
     "preview",
     "prepare_launch",
     "launch",
@@ -306,6 +309,8 @@ class LocalAgent:
             return self._ping()
         if method == "list_configs":
             return self._list_configs(payload)
+        if method == "update_config_flags":
+            return self._update_config_flags(payload)
         if method == "preview":
             return self._preview(payload)
         if method == "prepare_launch":
@@ -462,6 +467,75 @@ class LocalAgent:
             "valid": [_valid_config_payload(item) for item in registry.valid],
             "invalid": [_invalid_config_payload(item) for item in registry.invalid],
         }
+
+    def _update_config_flags(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise TargetCallError("invalid-params", "update_config_flags requires config name")
+        registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
+        item = _valid_config_item_by_name(registry, name)
+        try:
+            raw = yaml.safe_load(item.path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"unable to read config {name}: {exc}",
+                {"name": name, "path": str(item.path)},
+            ) from exc
+        if not isinstance(raw, dict):
+            raise TargetCallError(
+                "invalid-config",
+                f"config root must be a mapping: {name}",
+                {"name": name, "path": str(item.path)},
+            )
+        updated = dict(raw)
+        engine_updates = params.get("engine")
+        if engine_updates is not None:
+            if not isinstance(engine_updates, dict):
+                raise TargetCallError(
+                    "invalid-params",
+                    "update_config_flags engine must be a mapping",
+                )
+            current_engine = updated.get("engine")
+            engine = dict(current_engine) if isinstance(current_engine, dict) else {}
+            for key, value in engine_updates.items():
+                field = str(key)
+                if value is None:
+                    engine.pop(field, None)
+                else:
+                    engine[field] = value
+            if engine:
+                updated["engine"] = engine
+            else:
+                updated.pop("engine", None)
+        if "extra_args" in params:
+            extra_args = params.get("extra_args")
+            if not isinstance(extra_args, list) or not all(
+                isinstance(item, str) for item in extra_args
+            ):
+                raise TargetCallError(
+                    "invalid-params",
+                    "update_config_flags extra_args must be a list of strings",
+                )
+            if extra_args:
+                updated["extra_args"] = list(extra_args)
+            else:
+                updated.pop("extra_args", None)
+        try:
+            cfg = ModelConfig.model_validate(updated)
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"updated config is invalid: {exc}",
+                {"name": name, "path": str(item.path)},
+            ) from exc
+        tmp = item.path.with_name(f".{item.path.name}.tmp")
+        tmp.write_text(yaml.safe_dump(updated, sort_keys=False), encoding="utf-8")
+        os.replace(tmp, item.path)
+        payload = _valid_config_payload(ValidConfig(item.path, cfg, item.warnings))
+        payload["updated"] = True
+        return payload
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("name")
@@ -3355,9 +3429,12 @@ def _reachable_url(cfg: ModelConfig) -> str:
     return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
 
 
-def _config_by_name(registry: ConfigRegistry, name: str):
+def _valid_config_item_by_name(registry: ConfigRegistry, name: str) -> ValidConfig:
+    for item in registry.valid:
+        if item.config.name == name:
+            return item
     try:
-        return registry.by_name(name)
+        registry.by_name(name)
     except KeyError as exc:
         invalid_matches = [
             item
@@ -3380,6 +3457,15 @@ def _config_by_name(registry: ConfigRegistry, name: str):
             f"unknown config: {name}",
             {"name": name, "available": available},
         ) from exc
+    raise TargetCallError(
+        "unknown-config",
+        f"unknown config: {name}",
+        {"name": name, "available": [item.config.name for item in registry.valid]},
+    )
+
+
+def _config_by_name(registry: ConfigRegistry, name: str) -> ModelConfig:
+    return _valid_config_item_by_name(registry, name).config
 
 
 def _valid_config_payload(item: ValidConfig) -> dict[str, Any]:

@@ -3503,6 +3503,70 @@ async def test_flag_manager_opens_from_binding_and_partitions_flags(
 
 
 @pytest.mark.asyncio
+async def test_flag_manager_reset_modeled_flag_saves_to_config(
+    config_dir: Path,
+    tmp_path: Path,
+) -> None:
+    fake_vllm = tmp_path / "fake-vllm"
+    fake_vllm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('vllm 0.11.2')\n"
+        "elif len(sys.argv) >= 2 and sys.argv[1] == 'serve':\n"
+        "    print('usage: vllm serve')\n"
+        "    print('  --host TEXT')\n"
+        "    print('  --port INTEGER')\n"
+        "    print('  --tensor-parallel-size INTEGER')\n"
+        "    print('  --kv-cache-dtype TEXT')\n",
+        encoding="utf-8",
+    )
+    fake_vllm.chmod(0o755)
+    config_path = config_dir / "flags-save.yaml"
+    write_yaml(
+        config_path,
+        f"""
+        name: flags-save
+        model: org/model
+        command:
+          executable: {fake_vllm}
+        engine:
+          tensor_parallel_size: 2
+          kv_cache_dtype: fp8
+        """,
+    )
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_client=InProcessTargetClient(LocalAgent()),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+        await pilot.press("down")
+        await pilot.press("d")
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "_default",
+            "flag manager did not close after save",
+        )
+
+        assert app.current_config is not None
+        assert app.current_config.name == "flags-save"
+        assert app.current_config.engine.tensor_parallel_size == 2
+        assert app.current_config.engine.kv_cache_dtype is None
+        text = config_path.read_text(encoding="utf-8")
+        assert "tensor_parallel_size: 2" in text
+        assert "kv_cache_dtype" not in text
+        assert "--kv-cache-dtype" not in app.selected_config_preview
+
+
+@pytest.mark.asyncio
 async def test_select_config_with_profile_gate_failure_shows_preview_error(
     config_dir: Path,
 ) -> None:

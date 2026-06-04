@@ -993,7 +993,19 @@ class VllmLoaderApp(App):
                 self.current_config,
                 preview=self.selected_config_preview,
                 metadata=self.selected_config_metadata,
-            )
+            ),
+            callback=self._handle_flag_manager_selection,
+        )
+
+    def _handle_flag_manager_selection(self, selection: object) -> None:
+        if not isinstance(selection, dict) or selection.get("action") != "save_flags":
+            return
+        self.run_worker(
+            self._save_flag_manager_changes(selection),
+            name="flag-save",
+            group="flag-manager",
+            exclusive=True,
+            exit_on_error=False,
         )
 
     async def _open_build_manager(self) -> None:
@@ -1006,6 +1018,38 @@ class VllmLoaderApp(App):
             BuildManagerScreen(result),
             callback=self._handle_build_manager_selection,
         )
+
+    async def _save_flag_manager_changes(self, selection: dict[str, Any]) -> None:
+        name = _optional_str(selection.get("name"))
+        if name is None:
+            return
+        engine = selection.get("engine")
+        extra_args = selection.get("extra_args")
+        try:
+            result = await self._target_call(
+                "update_config_flags",
+                {
+                    "name": name,
+                    "configs_dir": str(self.configs_dir),
+                    "engine": engine if isinstance(engine, dict) else {},
+                    "extra_args": extra_args if isinstance(extra_args, list) else [],
+                },
+            )
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to save flags: {exc}", style=f"bold {BAD}")
+            return
+        config_payload = result.get("config")
+        if isinstance(config_payload, dict):
+            self.current_config = ModelConfig.model_validate(config_payload)
+        self.registry = await self._load_registry_from_agent()
+        if self.current_config is not None:
+            try:
+                self.current_config = self.registry.by_name(self.current_config.name)
+            except KeyError:
+                pass
+            await self._refresh_selected_config_preview()
+        self._refresh_chrome()
+        self.notify(f"Saved flags: {name}")
 
     def _handle_build_manager_selection(self, selection: object) -> None:
         if not selection:

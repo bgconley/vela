@@ -49,6 +49,10 @@ class FlagManagerScreen(ModalScreen):
     """
 
     BINDINGS = [
+        ("up", "previous", "Previous"),
+        ("down", "next", "Next"),
+        ("d", "reset_default", "Reset"),
+        ("ctrl+s", "save", "Save"),
         ("escape", "cancel", "Close"),
     ]
 
@@ -63,7 +67,9 @@ class FlagManagerScreen(ModalScreen):
         self.config = config
         self.preview = preview
         self.metadata = dict(metadata or {})
+        self.engine_updates: dict[str, object | None] = {}
         self.modeled = _modeled_flags(config)
+        self.selected_index = 0
         self.passthrough, self.unknown = _partition_extra_args(
             config.extra_args,
             known_flags=_known_flags(self.metadata),
@@ -74,10 +80,48 @@ class FlagManagerScreen(ModalScreen):
             with Horizontal():
                 yield Static(self._render_list(), id="flag-manager-list")
                 yield Static(self._render_detail(), id="flag-manager-detail")
-            yield Static("Esc Close", id="flag-manager-footer")
+            yield Static(
+                "↑↓ Select   d Reset-to-default   Ctrl+S Save   Esc Close",
+                id="flag-manager-footer",
+            )
+
+    def action_previous(self) -> None:
+        if self.modeled:
+            self.selected_index = max(0, self.selected_index - 1)
+            self._refresh()
+
+    def action_next(self) -> None:
+        if self.modeled:
+            self.selected_index = min(len(self.modeled) - 1, self.selected_index + 1)
+            self._refresh()
+
+    def action_reset_default(self) -> None:
+        if not self.modeled:
+            return
+        item = self.modeled.pop(self.selected_index)
+        self.engine_updates[item["field"]] = None
+        if self.modeled:
+            self.selected_index = min(self.selected_index, len(self.modeled) - 1)
+        else:
+            self.selected_index = 0
+        self._refresh()
+
+    def action_save(self) -> None:
+        self.dismiss(
+            {
+                "action": "save_flags",
+                "name": self.config.name,
+                "engine": dict(self.engine_updates),
+                "extra_args": list(self.config.extra_args),
+            }
+        )
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def _refresh(self) -> None:
+        self.query_one("#flag-manager-list", Static).update(self._render_list())
+        self.query_one("#flag-manager-detail", Static).update(self._render_detail())
 
     def _render_list(self) -> str:
         lines = [
@@ -92,7 +136,13 @@ class FlagManagerScreen(ModalScreen):
             "",
             "MODELED",
         ]
-        lines.extend(f"  {_flag_value_text(item)}" for item in self.modeled)
+        if self.modeled:
+            lines.extend(
+                f"{'>' if index == self.selected_index else ' '} {_flag_value_text(item)}"
+                for index, item in enumerate(self.modeled)
+            )
+        else:
+            lines.append("  none")
         lines.append("PASSTHROUGH")
         if self.passthrough:
             lines.extend(f"  {item}" for item in self.passthrough)
@@ -131,6 +181,7 @@ def _modeled_flags(config: ModelConfig) -> list[dict[str, str]]:
             continue
         rows.append(
             {
+                "field": field_name,
                 "flag": flag,
                 "label": flag.removeprefix("--"),
                 "target": f"engine.{field_name}",
@@ -143,6 +194,7 @@ def _modeled_flags(config: ModelConfig) -> list[dict[str, str]]:
             rows.append(
                 {
                     "flag": flag,
+                    "field": "enforce_eager",
                     "label": flag.removeprefix("--"),
                     "target": "engine.enforce_eager",
                     "value": "true",

@@ -23,6 +23,7 @@ from conftest import write_yaml
 from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
+from vllm_loader.config.loader import load_registry
 from vllm_loader.engine import build_registry as build_registry_module
 from vllm_loader.engine import model_registry as model_registry_module
 from vllm_loader.engine.phases import ErrorKind, Phase
@@ -982,6 +983,47 @@ async def test_local_agent_preview_metadata_includes_collected_known_flags(
     assert "--moe-backend" in metadata["known_flags"]
     assert metadata["flag_map"]["host"] == "--host"
     assert metadata["flag_map"]["port"] == "--port"
+    json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_agent_update_config_flags_writes_agent_side_yaml(config_dir: Path) -> None:
+    config_path = config_dir / "flags.yaml"
+    write_yaml(
+        config_path,
+        """
+        name: flags
+        model: org/model
+        engine:
+          tensor_parallel_size: 2
+          kv_cache_dtype: fp8
+        extra_args:
+          - --moe-backend
+          - flashinfer_cutlass
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    result = await client.call(
+        "update_config_flags",
+        {
+            "name": "flags",
+            "configs_dir": str(config_dir),
+            "engine": {"tensor_parallel_size": 2, "kv_cache_dtype": None},
+            "extra_args": ["--moe-backend", "flashinfer_cutlass"],
+        },
+    )
+
+    assert result["name"] == "flags"
+    assert result["path"] == str(config_path)
+    updated = load_registry(config_dir).by_name("flags")
+    assert updated.engine.tensor_parallel_size == 2
+    assert updated.engine.kv_cache_dtype is None
+    assert updated.extra_args == ["--moe-backend", "flashinfer_cutlass"]
+    text = config_path.read_text(encoding="utf-8")
+    assert "tensor_parallel_size: 2" in text
+    assert "kv_cache_dtype" not in text
     json.dumps(result)
 
 
