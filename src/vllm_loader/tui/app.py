@@ -1125,9 +1125,10 @@ class VllmLoaderApp(App):
         label = _optional_str(selection.get("label")) or build
         paths = selection.get("paths") if isinstance(selection.get("paths"), dict) else {}
         executable = _optional_str(paths.get("executable"))
+        target_label = self._target_label()
         message = (
-            f"Remove build {label}?"
-            f"\n\nThis deletes target-local build artifacts on {self._target_label()}."
+            f"Remove build {label} on {target_label}?"
+            f"\n\nThis deletes target-local build artifacts on {target_label}."
         )
         if executable:
             message += f"\nExecutable: {executable}"
@@ -1354,9 +1355,10 @@ class VllmLoaderApp(App):
         if model_ref is None:
             return
         label = _optional_str(selection.get("label")) or model_ref
+        target_label = self._target_label()
         message = (
-            f"Remove model {label}?"
-            f"\n\nThis removes target-local model metadata on {self._target_label()}."
+            f"Remove model {label} on {target_label}?"
+            f"\n\nThis removes target-local model metadata on {target_label}."
         )
         self._pending_model_remove = {"model_ref": model_ref, "label": label}
         self.push_screen(

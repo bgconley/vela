@@ -4490,7 +4490,7 @@ async def test_build_manager_remove_confirms_and_calls_target_client(
             "build remove confirm did not open",
         )
         confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
-        assert "Remove build old-cu124?" in confirm_text
+        assert "Remove build old-cu124 on blackbird?" in confirm_text
         assert "on blackbird" in confirm_text
         await pilot.press("enter")
 
@@ -5246,7 +5246,7 @@ async def test_model_manager_remove_confirms_and_calls_target_client(
             "model remove confirm did not open",
         )
         confirm_text = str(app.screen.query_one("#confirm-message", Static).content)
-        assert "Remove model qwen-remote?" in confirm_text
+        assert "Remove model qwen-remote on blackbird?" in confirm_text
         assert "on blackbird" in confirm_text
         await pilot.press("enter")
 
