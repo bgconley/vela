@@ -820,6 +820,59 @@ def test_cli_model_list_uses_selected_target(
     ]
 
 
+def test_cli_model_list_passes_cache_and_pin_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "models": [
+                {
+                    "entry_id": "01PINNED",
+                    "display_name": "llama-pin",
+                    "source": "hf_repo",
+                    "cache_state": "cached",
+                }
+            ],
+            "default_cache": "hf",
+            "app_download_dir": None,
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "list",
+            "--cached-only",
+            "--pinned-only",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "list_models",
+            {"cached_only": "true", "pinned_only": "true"},
+            "blackbird",
+        )
+    ]
+    assert result.output.splitlines() == [
+        "01PINNED\tllama-pin\thf_repo\tcached",
+    ]
+
+
 def test_cli_model_refresh_prints_refreshed_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

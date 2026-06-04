@@ -446,12 +446,24 @@ def build_remove(
 @model_app.command("list")
 def model_list(
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    cached_only: Annotated[
+        bool,
+        typer.Option("--cached-only", help="Show only cached models."),
+    ] = False,
+    pinned_only: Annotated[
+        bool,
+        typer.Option("--pinned-only", help="Show only registry-pinned models."),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable model list."),
     ] = False,
 ) -> None:
-    result = _agent_call("list_models", target_name=target)
+    params = _agent_params(
+        cached_only="true" if cached_only else None,
+        pinned_only="true" if pinned_only else None,
+    )
+    result = _agent_call("list_models", params or None, target_name=target)
     if json_output:
         _echo_json(result)
         return

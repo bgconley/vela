@@ -352,7 +352,7 @@ class LocalAgent:
         if method == "remove_build":
             return self._remove_build(payload)
         if method == "list_models":
-            return self._list_models()
+            return self._list_models(payload)
         if method == "pin_model":
             return self._pin_model(payload)
         if method == "refresh_models":
@@ -1152,8 +1152,13 @@ class LocalAgent:
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
-    def _list_models(self) -> dict[str, Any]:
-        return list_models(self._models_registry_path)
+    def _list_models(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        params = params or {}
+        return list_models(
+            self._models_registry_path,
+            cached_only=_param_bool(params.get("cached_only")),
+            pinned_only=_param_bool(params.get("pinned_only")),
+        )
 
     def _pin_model(self, params: dict[str, Any]) -> dict[str, Any]:
         try:

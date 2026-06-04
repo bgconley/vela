@@ -452,7 +452,12 @@ def _remove_model_locked(reference: str, path: Path) -> dict[str, Any]:
     }
 
 
-def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
+def list_models(
+    registry_path: str | Path | None = None,
+    *,
+    cached_only: bool = False,
+    pinned_only: bool = False,
+) -> dict[str, Any]:
     path = (
         Path(registry_path).expanduser()
         if registry_path is not None
@@ -492,6 +497,7 @@ def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
         registry = loaded
 
     models: list[dict[str, Any]] = []
+    pinned_entry_ids: set[str] = set()
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
         skipped.append({"entry_id": "", "reason": "invalid-entries"})
@@ -505,10 +511,24 @@ def list_models(registry_path: str | Path | None = None) -> dict[str, Any]:
             skipped.append({"entry_id": "", "reason": "missing-entry-id"})
             continue
         try:
-            models.append(_model_payload(entry))
+            payload = _model_payload(entry)
+            models.append(payload)
+            pinned_entry_ids.add(str(payload.get("entry_id") or entry_id))
         except (TypeError, ValueError):
             skipped.append({"entry_id": entry_id, "reason": "invalid-entry"})
     _merge_hf_cache_models(models)
+    if pinned_only:
+        models = [
+            model
+            for model in models
+            if str(model.get("entry_id") or "") in pinned_entry_ids
+        ]
+    if cached_only:
+        models = [
+            model
+            for model in models
+            if str(model.get("cache_state") or "") == "cached"
+        ]
 
     return {
         "models": models,

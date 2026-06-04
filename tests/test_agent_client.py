@@ -3913,6 +3913,97 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
 
 
 @pytest.mark.asyncio
+async def test_agent_list_models_filters_cached_and_pinned_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01PINNED",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "awq",
+                        "tokenizer": None,
+                        "files": {},
+                        "size_bytes": 0,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "pinned for repro",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_files = (
+        SimpleNamespace(file_name="config.json", size_on_disk=10),
+        SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+    )
+    cached_pinned_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=110,
+        files=fake_files,
+        refs=("main",),
+    )
+    cached_unpinned_revision = SimpleNamespace(
+        commit_hash="def456",
+        size_on_disk=110,
+        files=fake_files,
+        refs=("other",),
+    )
+    pinned_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(cached_pinned_revision,),
+    )
+    unpinned_repo = SimpleNamespace(
+        repo_id="org/Unpinned",
+        repo_type="model",
+        revisions=(cached_unpinned_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(pinned_repo, unpinned_repo)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        cached = await client.call("list_models", {"cached_only": "true"})
+        pinned = await client.call("list_models", {"pinned_only": "true"})
+        cached_pinned = await client.call(
+            "list_models",
+            {"cached_only": "true", "pinned_only": "true"},
+        )
+    finally:
+        await client.disconnect()
+
+    assert [model["display_name"] for model in cached["models"]] == [
+        "llama-pin",
+        "org/Unpinned",
+    ]
+    assert [model["display_name"] for model in pinned["models"]] == ["llama-pin"]
+    assert [model["display_name"] for model in cached_pinned["models"]] == ["llama-pin"]
+
+
+@pytest.mark.asyncio
 async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
