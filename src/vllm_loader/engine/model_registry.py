@@ -337,6 +337,7 @@ def remove_model(reference: str, registry_path: str | Path | None = None) -> dic
         )
     entry = _entry_for_reference(registry, reference)
     removed_id = entry.get("entry_id")
+    removal = _remove_model_weights(entry, reference)
     registry["entries"] = [
         item
         for item in entries
@@ -349,7 +350,8 @@ def remove_model(reference: str, registry_path: str | Path | None = None) -> dic
     return {
         "entry_id": str(removed_id),
         "source": str(entry.get("source") or ""),
-        "removed_weights": False,
+        "removed_weights": bool(removal["removed_weights"]),
+        "expected_freed_size": int(removal["expected_freed_size"]),
         "entry": _model_payload(entry),
     }
 
@@ -547,6 +549,39 @@ def _scan_hf_cache_info() -> object | None:
         return scan_cache_dir()
     except Exception:
         return None
+
+
+def _remove_model_weights(entry: dict[str, Any], reference: str) -> dict[str, object]:
+    if entry.get("source") != "hf_repo":
+        return {"removed_weights": False, "expected_freed_size": 0}
+    commit_sha = _optional_str(entry.get("commit_sha"))
+    if commit_sha is None:
+        return {"removed_weights": False, "expected_freed_size": 0}
+    cache_info = _scan_hf_cache_info()
+    if cache_info is None:
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "huggingface_hub is required to remove cached model weights",
+            {"model_ref": reference, "commit_sha": commit_sha},
+        )
+    delete_revisions = getattr(cache_info, "delete_revisions", None)
+    if not callable(delete_revisions):
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "Hugging Face cache deletion is unavailable",
+            {"model_ref": reference, "commit_sha": commit_sha},
+        )
+    strategy = delete_revisions(commit_sha)
+    expected_freed_size = _safe_int(getattr(strategy, "expected_freed_size", 0))
+    execute = getattr(strategy, "execute", None)
+    if not callable(execute):
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "Hugging Face cache deletion execute hook is unavailable",
+            {"model_ref": reference, "commit_sha": commit_sha},
+        )
+    execute()
+    return {"removed_weights": True, "expected_freed_size": expected_freed_size}
 
 
 def _snapshot_download(**kwargs: Any) -> str:

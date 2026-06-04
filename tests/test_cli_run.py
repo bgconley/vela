@@ -923,6 +923,37 @@ def test_cli_model_remove_passes_configs_dir_to_agent(
     assert result.output == "removed model\t01MODEL\tllama-pin\n"
 
 
+def test_cli_model_remove_reports_expected_freed_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        assert method == "remove_model"
+        assert params == {"model_ref": "llama-pin"}
+        assert target_name == "local"
+        return {
+            "entry_id": "01MODEL",
+            "source": "hf_repo",
+            "removed_weights": True,
+            "expected_freed_size": 1_500_000_000,
+            "entry": {"display_name": "llama-pin"},
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "remove", "llama-pin", "--yes"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "removed model\t01MODEL\tllama-pin\tfreed ~1.5 GB\n"
+
+
 def test_cli_model_download_streams_job_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

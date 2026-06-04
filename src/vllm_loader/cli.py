@@ -702,9 +702,14 @@ def model_remove(
         _echo_json(result)
         return
     entry = result.get("entry", {})
-    typer.echo(
-        f"removed model\t{result.get('entry_id', '')}\t{entry.get('display_name', '')}"
-    )
+    fields = [
+        "removed model",
+        str(result.get("entry_id", "")),
+        str(entry.get("display_name", "")),
+    ]
+    if result.get("removed_weights"):
+        fields.append(f"freed ~{_format_bytes(result.get('expected_freed_size'))}")
+    typer.echo("\t".join(fields))
 
 
 @app.command("list")
@@ -829,6 +834,20 @@ def _prepare_launch_with_client_or_exit(
 
 def _agent_params(**values) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if value is not None}
+
+
+def _format_bytes(value: object) -> str:
+    try:
+        size = int(value or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if size >= 1_000_000_000:
+        return f"{size / 1_000_000_000:.1f} GB"
+    if size >= 1_000_000:
+        return f"{size / 1_000_000:.1f} MB"
+    if size >= 1_000:
+        return f"{size / 1_000:.1f} KB"
+    return f"{size} B"
 
 
 def _launch_agent_params(**values) -> dict[str, str]:

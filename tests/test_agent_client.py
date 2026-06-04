@@ -3032,6 +3032,66 @@ async def test_agent_removes_unpinned_local_model_metadata(
 
 
 @pytest.mark.asyncio
+async def test_agent_removes_cached_hf_model_via_cache_delete_revisions(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+    executed: list[tuple[str, ...]] = []
+
+    class FakeDeleteStrategy:
+        expected_freed_size = 42
+
+        def __init__(self, revisions: tuple[str, ...]) -> None:
+            self.revisions = revisions
+
+        def execute(self) -> None:
+            executed.append(self.revisions)
+
+    class FakeCacheInfo:
+        def delete_revisions(self, *revisions: str) -> FakeDeleteStrategy:
+            return FakeDeleteStrategy(tuple(revisions))
+
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: FakeCacheInfo(),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+        removed = await client.call(
+            "remove_model",
+            {"model_ref": "01REMOTE", "configs_dir": str(config_dir)},
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert executed == [("abc123",)]
+    assert removed["entry_id"] == "01REMOTE"
+    assert removed["source"] == "hf_repo"
+    assert removed["removed_weights"] is True
+    assert removed["expected_freed_size"] == 42
+    assert listed["models"] == []
+    assert registry["entries"] == []
+    json.dumps(removed)
+
+
+@pytest.mark.asyncio
 async def test_agent_refuses_to_remove_model_pinned_by_config(
     config_dir: Path, tmp_path: Path
 ) -> None:
