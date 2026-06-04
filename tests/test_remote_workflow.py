@@ -117,6 +117,8 @@ def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     assert "vllm-loader smoke-tui" in docs
     assert "VLLM_LOADER_REMOTE_BUILD_SPEC" in docs
     assert "VLLM_LOADER_REMOTE_MODEL_REPO" in docs
+    assert "VLLM_LOADER_REMOTE_GATED_MODEL_REPO" in docs
+    assert "GATED_MODEL_AUTH_OK" in docs
     assert "textual serve" in docs
     assert "network/auth" in docs
     assert "controls model launches" in docs
@@ -311,6 +313,56 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert '"$remote_real_resume_config"' in remote_script
 
 
+def test_remote_validation_can_run_gated_model_auth_probe(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VLLM_LOADER_REMOTE_GATED_MODEL_REPO="meta-llama/Llama-2-7b-hf",
+        VLLM_LOADER_REMOTE_GATED_MODEL_ID="gated-llama-auth",
+        VLLM_LOADER_REMOTE_GATED_MODEL_REVISION="main",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/lab-tui"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    assert args[:6] == [
+        "p620-controller",
+        "env",
+        "VLLM_LOADER_REMOTE_GATED_MODEL_REPO=meta-llama/Llama-2-7b-hf",
+        "VLLM_LOADER_REMOTE_GATED_MODEL_ID=gated-llama-auth",
+        "VLLM_LOADER_REMOTE_GATED_MODEL_REVISION=main",
+        "bash",
+    ]
+    assert "== Real gated model auth probe ==" in remote_script
+    assert '"$venv_python" scripts/gated_model_auth_check.py' in remote_script
+    assert '"$remote_gated_model_repo"' in remote_script
+    assert '--model-id "$remote_gated_model_id"' in remote_script
+    assert '--revision "$remote_gated_model_revision"' in remote_script
+
+
 def test_remote_validation_runs_real_config_before_real_resume() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
@@ -399,6 +451,18 @@ def test_real_model_resume_check_fails_fast_on_health_errors() -> None:
 
     assert 'last.get("error_kind")' in script
     assert 'last.get("phase") in {"ERROR", "STOPPED"}' in script
+
+
+def test_gated_model_auth_check_uses_isolated_agent_and_disables_implicit_token() -> None:
+    script = Path("scripts/gated_model_auth_check.py").read_text(encoding="utf-8")
+
+    assert "SubprocessTargetClient" in script
+    assert '"agent", "connect"' in script
+    assert "XDG_STATE_HOME" in script
+    assert "HF_HUB_DISABLE_IMPLICIT_TOKEN" in script
+    assert "HF_TOKEN" in script
+    assert "gated-auth" in script
+    assert "GATED_MODEL_AUTH_OK" in script
 
 
 def test_tiny_real_resume_config_is_detached_and_small() -> None:
@@ -641,8 +705,10 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert 'default: "self-hosted"' in text
     assert "remote_target" in text
     assert "real_resume_config" in text
+    assert "gated_model_repo" in text
     assert "tiny-random-llama-detached-blackbird" in text
     assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in text
+    assert "VLLM_LOADER_REMOTE_GATED_MODEL_REPO" in text
     assert "VLLM_LOADER_REMOTE_TARGET" in text
     assert "ssh-agent -s" in text
     assert "ssh-add \"$key_path\"" in text

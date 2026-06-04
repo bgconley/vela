@@ -28,6 +28,9 @@ Optional real artifact validation is enabled by local environment variables:
   - VLLM_LOADER_REMOTE_MODEL_ID defaults to remote-smoke-model
   - VLLM_LOADER_REMOTE_MODEL_REF downloads an existing pinned entry instead
   - VLLM_LOADER_REMOTE_MODEL_REVISION optionally pins/downloads a revision
+  - VLLM_LOADER_REMOTE_GATED_MODEL_REPO runs a no-token gated-auth probe
+  - VLLM_LOADER_REMOTE_GATED_MODEL_ID defaults to remote-gated-model
+  - VLLM_LOADER_REMOTE_GATED_MODEL_REVISION optionally probes a revision
   - VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG runs real-model resume/restart validation
   - VLLM_LOADER_REMOTE_ARTIFACT=1 writes a dated Markdown validation record
   - VLLM_LOADER_REMOTE_ARTIFACT_DIR overrides artifacts/remote-validation
@@ -60,6 +63,9 @@ remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
 remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
 remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:-}"
 remote_real_resume_config="${VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG:-}"
+remote_gated_model_repo="${VLLM_LOADER_REMOTE_GATED_MODEL_REPO:-}"
+remote_gated_model_id="${VLLM_LOADER_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
+remote_gated_model_revision="${VLLM_LOADER_REMOTE_GATED_MODEL_REVISION:-}"
 artifact_enabled="${VLLM_LOADER_REMOTE_ARTIFACT:-}"
 artifact_dir="${VLLM_LOADER_REMOTE_ARTIFACT_DIR:-}"
 artifact_name="${VLLM_LOADER_REMOTE_ARTIFACT_NAME:-}"
@@ -89,6 +95,13 @@ if [[ -n "$remote_pytest_args" ]]; then
 fi
 if [[ -n "$remote_real_resume_config" ]]; then
   remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=$remote_real_resume_config")")
+fi
+if [[ -n "$remote_gated_model_repo" ]]; then
+  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_GATED_MODEL_REPO=$remote_gated_model_repo")")
+  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_GATED_MODEL_ID=$remote_gated_model_id")")
+  if [[ -n "$remote_gated_model_revision" ]]; then
+    remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_GATED_MODEL_REVISION=$remote_gated_model_revision")")
+  fi
 fi
 if [[ ${#remote_env[@]} -gt 0 ]]; then
   ssh_cmd+=(env "${remote_env[@]}")
@@ -155,6 +168,9 @@ remote_model_revision="$(_remote_arg_or_empty "${12:-}")"
 remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
 remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:--q}"
 remote_real_resume_config="${VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG:-}"
+remote_gated_model_repo="${VLLM_LOADER_REMOTE_GATED_MODEL_REPO:-}"
+remote_gated_model_id="${VLLM_LOADER_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
+remote_gated_model_revision="${VLLM_LOADER_REMOTE_GATED_MODEL_REVISION:-}"
 read -r -a pytest_args <<< "$remote_pytest_args"
 target_args=()
 if [[ -n "$remote_target" ]]; then
@@ -631,6 +647,15 @@ if [[ -n "$remote_model_ref" ]]; then
   "$venv_bin/vllm-loader" model verify "$remote_model_ref" "${target_args[@]}"
 fi
 
+if [[ -n "$remote_gated_model_repo" ]]; then
+  echo "== Real gated model auth probe =="
+  gated_args=("$remote_gated_model_repo" --model-id "$remote_gated_model_id")
+  if [[ -n "$remote_gated_model_revision" ]]; then
+    gated_args+=(--revision "$remote_gated_model_revision")
+  fi
+  "$venv_python" scripts/gated_model_auth_check.py "${gated_args[@]}"
+fi
+
 if [[ -n "$real_config" ]]; then
   "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"
   timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config" "${target_args[@]}"
@@ -706,6 +731,11 @@ if [[ "$artifact_enabled" == "1" ]]; then
       echo "- Model validation: download existing \`$remote_model_ref\`"
     else
       echo "- Model validation: _(not requested)_"
+    fi
+    if [[ -n "$remote_gated_model_repo" ]]; then
+      echo "- Gated model auth validation: \`$remote_gated_model_repo\` as \`$remote_gated_model_id\`"
+    else
+      echo "- Gated model auth validation: _(not requested)_"
     fi
     echo "- SSH command: \`$ssh_preview\`"
     echo

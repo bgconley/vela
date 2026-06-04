@@ -85,9 +85,22 @@ VLLM_LOADER_REMOTE_MODEL_REVISION=main \
   scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
 ```
 
+To exercise the real gated/auth path without downloading a gated model, set a
+known gated repo as a negative probe. The script launches an isolated local
+agent on the validation host with `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, an empty
+`HF_TOKEN`, and a temporary state/cache root, then expects the normal
+`download_model` job to end with `gated-auth` and print `GATED_MODEL_AUTH_OK`:
+
+```bash
+VLLM_LOADER_REMOTE_GATED_MODEL_REPO=meta-llama/Llama-2-7b-hf \
+VLLM_LOADER_REMOTE_GATED_MODEL_ID=gated-llama-auth \
+VLLM_LOADER_REMOTE_GATED_MODEL_REVISION=main \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+```
+
 These knobs can be combined with the real config smoke. In that case the script
-first runs no-GPU checks, then the optional build/model artifact jobs, then
-`preview` + `smoke-tui` for the named config.
+first runs no-GPU checks, then the optional build/model/gated-auth artifact
+jobs, then `preview` + `smoke-tui` for the named config.
 
 On a busy controller host where the full no-GPU suite can conflict with local
 services, use `VLLM_LOADER_REMOTE_PYTEST_ARGS` to run a narrower proof slice
@@ -132,7 +145,11 @@ Use the `full` profile for Qwen smoke plus real resume/restart validation, and
 the `fast` profile for build/model proof without the long Qwen/resume pass. If
 the runner needs a private key, store it as the `VLLM_LOADER_REMOTE_SSH_KEY`
 secret. Keep this workflow restricted to trusted branches/tags/manual use; do
-not run untrusted fork PR code on a GPU host with lab-network access.
+not run untrusted fork PR code on a GPU host with lab-network access. The
+workflow also accepts `gated_model_repo`, `gated_model_id`, and
+`gated_model_revision` inputs, or the matching
+`VLLM_LOADER_REMOTE_GATED_MODEL_REPO` repo variable family, for the no-token
+gated auth probe.
 
 To cover the final real-model reconnect surface, set
 `VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake detached config. The
