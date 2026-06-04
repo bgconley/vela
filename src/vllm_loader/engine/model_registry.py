@@ -554,6 +554,8 @@ def _scan_hf_cache_info() -> object | None:
 def _remove_model_weights(entry: dict[str, Any], reference: str) -> dict[str, object]:
     if entry.get("source") != "hf_repo":
         return {"removed_weights": False, "expected_freed_size": 0}
+    if str(entry.get("cache_state") or "") != "cached":
+        return {"removed_weights": False, "expected_freed_size": 0}
     commit_sha = _optional_str(entry.get("commit_sha"))
     if commit_sha is None:
         return {"removed_weights": False, "expected_freed_size": 0}

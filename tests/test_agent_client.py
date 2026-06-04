@@ -3092,6 +3092,52 @@ async def test_agent_removes_cached_hf_model_via_cache_delete_revisions(
 
 
 @pytest.mark.asyncio
+async def test_agent_removes_remote_only_hf_model_metadata_without_cache_access(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
+
+    def fail_scan_cache() -> object:
+        raise AssertionError("remote-only removal should not inspect the HF cache")
+
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        fail_scan_cache,
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "commit_sha": "abc123",
+                "cache_state": "remote_only",
+            },
+        )
+        removed = await client.call(
+            "remove_model",
+            {"model_ref": "01REMOTE", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert removed["entry_id"] == "01REMOTE"
+    assert removed["source"] == "hf_repo"
+    assert removed["removed_weights"] is False
+    assert removed["expected_freed_size"] == 0
+    assert registry["entries"] == []
+    json.dumps(removed)
+
+
+@pytest.mark.asyncio
 async def test_agent_refuses_to_remove_model_pinned_by_config(
     config_dir: Path, tmp_path: Path
 ) -> None:
