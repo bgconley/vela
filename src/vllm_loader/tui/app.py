@@ -62,6 +62,7 @@ from vllm_loader.tui.screens.build_manager import BuildManagerScreen
 from vllm_loader.tui.screens.config_picker import ConfigPickerScreen
 from vllm_loader.tui.screens.confirm import ConfirmScreen
 from vllm_loader.tui.screens.create_build import CreateBuildScreen
+from vllm_loader.tui.screens.download_model import DownloadModelScreen
 from vllm_loader.tui.screens.flag_manager import FlagManagerScreen
 from vllm_loader.tui.screens.help import HelpScreen
 from vllm_loader.tui.screens.log_prompt import LogPromptScreen
@@ -1315,12 +1316,9 @@ class VllmLoaderApp(App):
         if model_ref is None:
             return
         if action == "download":
-            self.run_worker(
-                self._download_model(model_ref),
-                name="model-download",
-                group="model-download",
-                exclusive=True,
-                exit_on_error=False,
+            self.push_screen(
+                DownloadModelScreen(selection),
+                callback=self._handle_download_model_submission,
             )
         elif action == "verify_model":
             self.run_worker(
@@ -1333,8 +1331,19 @@ class VllmLoaderApp(App):
         elif action == "remove_model":
             self._confirm_remove_model(selection)
 
-    async def _download_model(self, model_ref: str) -> None:
-        params = {"job_id": uuid.uuid4().hex, "model_ref": model_ref}
+    def _handle_download_model_submission(self, params: dict[str, Any] | None) -> None:
+        if not params:
+            return
+        self.run_worker(
+            self._download_model(params),
+            name="model-download",
+            group="model-download",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _download_model(self, params: dict[str, Any]) -> None:
+        params = {"job_id": uuid.uuid4().hex, **dict(params)}
         await self._run_target_job(
             "download_model",
             params,

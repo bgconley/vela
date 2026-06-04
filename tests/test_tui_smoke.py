@@ -5441,6 +5441,14 @@ async def test_model_manager_download_streams_job_events(
             "model manager did not open",
         )
         await pilot.press("d")
+        await _wait_for_condition(
+            lambda: app.screen.id == "download-model",
+            "model download screen did not open",
+        )
+        app.screen.query_one("#download-model-revision", Input).value = "main"
+        app.screen.query_one("#download-model-allow", Input).value = "*.safetensors,*.json"
+        app.screen.query_one("#download-model-ignore", Input).value = "*.bin"
+        await pilot.press("enter")
 
         await _wait_for_condition(
             lambda: bool(target_client.download_calls)
@@ -5451,7 +5459,13 @@ async def test_model_manager_download_streams_job_events(
         )
         job_id = str(target_client.download_calls[0]["job_id"])
         assert target_client.download_calls == [
-            {"job_id": job_id, "model_ref": "01MODEL"}
+            {
+                "job_id": job_id,
+                "model_ref": "01MODEL",
+                "revision": "main",
+                "allow_patterns": ["*.safetensors", "*.json"],
+                "ignore_patterns": ["*.bin"],
+            }
         ]
         assert ([job_id], "live") in target_client.subscribe_calls
 
@@ -5610,6 +5624,11 @@ async def test_stop_cancels_active_model_download_job(
             "model manager did not open",
         )
         await pilot.press("d")
+        await _wait_for_condition(
+            lambda: app.screen.id == "download-model",
+            "model download screen did not open",
+        )
+        await pilot.press("enter")
         await _wait_for_condition(
             lambda: bool(target_client.download_calls)
             and "Downloading model" in app.visible_log_lines,

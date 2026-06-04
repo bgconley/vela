@@ -82,6 +82,8 @@ MODEL_ENTRY_FIELDS = (
     "gated",
     "token_required",
     "integrity",
+    "allow_patterns",
+    "ignore_patterns",
     "created_at",
     "last_used_at",
     "notes",
@@ -317,13 +319,15 @@ def mark_hf_model_partial(
         if registry_path is not None
         else default_models_registry_path()
     )
-    with _registry_lock(path):
-        return _mark_hf_model_partial_locked(
-            reference,
-            path,
-            allow_patterns=allow_patterns,
-            ignore_patterns=ignore_patterns,
-        )
+    entry_id = _entry_id_for_reference(path, reference)
+    with _entry_lock(path, entry_id):
+        with _registry_lock(path):
+            return _mark_hf_model_partial_locked(
+                reference,
+                path,
+                allow_patterns=allow_patterns,
+                ignore_patterns=ignore_patterns,
+            )
 
 
 def _mark_hf_model_partial_locked(
@@ -1623,6 +1627,9 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
         elif field in {"unique_size_bytes", "nominal_size_bytes"}:
             if value is not None:
                 payload[field] = int(value or 0)
+        elif field in {"allow_patterns", "ignore_patterns"}:
+            if isinstance(value, list):
+                payload[field] = [str(item) for item in value if isinstance(item, str)]
         else:
             payload[field] = _optional_str(value)
     return payload

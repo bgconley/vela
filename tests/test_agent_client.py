@@ -4602,6 +4602,54 @@ def test_model_download_holds_entry_lock_during_snapshot(
     assert (str(entry_lock), fcntl.LOCK_UN) in flock_calls
 
 
+def test_model_mark_partial_takes_entry_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    pinned = model_registry_module.pin_model(
+        {
+            "entry_id": "01REMOTE",
+            "display_name": "llama-remote",
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+        },
+        registry_path,
+    )
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    flock_calls: list[tuple[str, int]] = []
+
+    def fake_flock(handle: object, operation: int) -> None:
+        flock_calls.append((str(getattr(handle, "name", "")), operation))
+
+    monkeypatch.setattr(
+        model_registry_module,
+        "fcntl",
+        SimpleNamespace(LOCK_EX=fcntl.LOCK_EX, LOCK_UN=fcntl.LOCK_UN, flock=fake_flock),
+        raising=False,
+    )
+
+    marked = model_registry_module.mark_hf_model_partial(
+        "01REMOTE",
+        registry_path,
+        allow_patterns=["*.safetensors"],
+        ignore_patterns=["*.bin"],
+    )
+
+    entry_lock = registry_path.parent / "locks" / f"{entry_id}.lock"
+    registry_lock = registry_path.parent / "registry.lock"
+    assert marked["entry"]["cache_state"] == "partial"
+    assert marked["entry"]["allow_patterns"] == ["*.safetensors"]
+    assert marked["entry"]["ignore_patterns"] == ["*.bin"]
+    assert flock_calls == [
+        (str(registry_lock), fcntl.LOCK_EX),
+        (str(registry_lock), fcntl.LOCK_UN),
+        (str(entry_lock), fcntl.LOCK_EX),
+        (str(registry_lock), fcntl.LOCK_EX),
+        (str(registry_lock), fcntl.LOCK_UN),
+        (str(entry_lock), fcntl.LOCK_UN),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_agent_adopts_local_model_path_for_launch_handoff(
     config_dir: Path, tmp_path: Path

@@ -104,7 +104,7 @@ class ModelManagerScreen(ModalScreen):
                 }
             )
             return
-        self.dismiss(_model_action_payload("download", model))
+        self.dismiss(_model_download_payload(model))
 
     def action_verify(self) -> None:
         model = self._selected_model()
@@ -188,6 +188,25 @@ def _model_action_payload(action: str, model: dict[str, Any]) -> dict[str, Any]:
         "model_ref": _model_reference(model),
         "label": _model_label(model),
     }
+
+
+def _model_download_payload(model: dict[str, Any]) -> dict[str, Any]:
+    payload = _model_action_payload("download", model)
+    for field in (
+        "entry_id",
+        "display_name",
+        "repo_id",
+        "revision",
+        "commit_sha",
+        "cache_state",
+        "gated",
+        "token_required",
+        "allow_patterns",
+        "ignore_patterns",
+    ):
+        if field in model:
+            payload[field] = model[field]
+    return payload
 
 
 def _is_url_model(model: dict[str, Any]) -> bool:

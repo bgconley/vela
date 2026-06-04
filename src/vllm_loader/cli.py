@@ -67,6 +67,8 @@ MODEL_INSPECT_FIELDS = (
     "cache_state",
     "gated",
     "token_required",
+    "allow_patterns",
+    "ignore_patterns",
     "created_at",
     "last_used_at",
     "notes",
