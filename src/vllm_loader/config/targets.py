@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -67,12 +68,12 @@ def default_targets_path() -> Path:
 
 
 def load_targets_file(path: str | Path | None = None) -> TargetsRegistry:
-    target_path = Path(path).expanduser() if path is not None else default_targets_path()
+    target_path = _resolve_targets_path(path)
     if not target_path.exists():
         return TargetsRegistry((_local_target(),))
 
     try:
-        data = yaml.safe_load(target_path.read_text(encoding="utf-8"))
+        data = _load_targets_payload(target_path)
     except Exception as exc:
         raise ValueError(f"failed to load targets file {target_path}: {exc}") from exc
     if data is None:
@@ -103,7 +104,7 @@ def load_targets_file(path: str | Path | None = None) -> TargetsRegistry:
 def save_targets_file(
     registry: TargetsRegistry, path: str | Path | None = None
 ) -> Path:
-    target_path = Path(path).expanduser() if path is not None else default_targets_path()
+    target_path = _resolve_targets_path(path)
     payload = {
         "targets": {
             target.name: target.model_dump(
@@ -116,10 +117,7 @@ def save_targets_file(
         }
     }
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(
-        yaml.safe_dump(payload, sort_keys=True),
-        encoding="utf-8",
-    )
+    _write_targets_payload(target_path, payload)
     return target_path
 
 
@@ -152,6 +150,36 @@ def remove_target_file(name: str, path: str | Path | None = None) -> Path:
 
 def _local_target() -> TargetConfig:
     return TargetConfig(name="local", transport=TransportKind.LOCAL)
+
+
+def _resolve_targets_path(path: str | Path | None = None) -> Path:
+    if path is not None:
+        return Path(path).expanduser()
+    yaml_path = default_targets_path()
+    json_path = yaml_path.with_suffix(".json")
+    if not yaml_path.exists() and json_path.exists():
+        return json_path
+    return yaml_path
+
+
+def _load_targets_payload(path: Path) -> Any:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        return json.loads(text)
+    return yaml.safe_load(text)
+
+
+def _write_targets_payload(path: Path, payload: dict[str, Any]) -> None:
+    if path.suffix.lower() == ".json":
+        path.write_text(
+            f"{json.dumps(payload, indent=2, sort_keys=True)}\n",
+            encoding="utf-8",
+        )
+        return
+    path.write_text(
+        yaml.safe_dump(payload, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _parse_target(name: str, data: dict[str, Any]) -> TargetConfig:
