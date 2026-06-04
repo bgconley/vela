@@ -4792,6 +4792,85 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
 
 
 @pytest.mark.asyncio
+async def test_agent_download_model_job_injects_hf_token_without_persisting_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    snapshot_calls: list[dict[str, object]] = []
+    hf_token = "hf_live_download_token"
+
+    def fake_snapshot_download(**kwargs: object) -> str:
+        snapshot_calls.append(dict(kwargs))
+        return str(tmp_path / "hf-cache" / "snapshots" / "abc123")
+
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=130,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+            SimpleNamespace(file_name="tokenizer.json", size_on_disk=20),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setenv("HF_TOKEN", hf_token)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        fake_snapshot_download,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-model-token"], resume_from="live")
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+            },
+        )
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-token", "model_ref": "01REMOTE"},
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert snapshot_calls == [
+        {
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": "main",
+            "token": hf_token,
+        }
+    ]
+    assert done["ok"] is True
+    assert done["cache_state"] == "cached"
+    registry_text = registry_path.read_text(encoding="utf-8")
+    assert hf_token not in registry_text
+    assert hf_token not in json.dumps(done)
+    assert "HF_TOKEN" not in registry_text
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("message", "expected_kind"),
     [
