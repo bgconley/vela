@@ -34,3 +34,16 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     assert "HF_TOKEN" in builds_models
     assert "controller passes only run_id" in agent_rpc
     assert "subscribe" in agent_rpc
+
+
+def test_build_model_docs_cover_operational_cli_surfaces() -> None:
+    text = _read("docs/builds-and-models.md")
+
+    for phrase in (
+        "vllm-loader build run",
+        "vllm-loader build repair",
+        "--copy",
+        "vllm-loader model download tiny-llama --target blackbird --json",
+        "vllm-loader model verify tiny-llama --target blackbird --deep",
+    ):
+        assert phrase in text

@@ -7,6 +7,26 @@
 
 **Headline:** the architecture is done; this is the final ~8%, all validation + docs polish. Three items, shortest list yet.
 
+## 2026-06-04 implementation refresh
+
+Follow-on commits after this review moved the repo past two of the three v4
+items:
+
+- **V4-P2 docs are now closed.** `README.md` plus `docs/configuration.md`,
+  `docs/builds-and-models.md`, `docs/agent-rpc.md`, and `docs/gpu-workflow.md`
+  cover quickstart, local/remote targets, config schema, build methods,
+  model registry operations, RPC/event-stream boundaries, tested matrix, and
+  the self-hosted/manual remote validation lane.
+- **V4-P3 build edges are now closed.** Git-source builds fall back to Python
+  venv plus pip when `uv` is absent, nightly/commit still correctly require
+  `uv`, and the CLI/TUI surfaces that requirement before users start the job.
+- **V4-P1 is narrowed to live GitHub runner proof.** Manual P620 controller to
+  Blackbird agent validation produced current in-tree artifacts covering real
+  build install, tiny HF model pin/download, real model resume/daemon restart,
+  and Qwen3.6 27B FP8 `smoke-tui`. The remaining proof is a live execution of
+  `.github/workflows/remote-validation.yml` on the trusted self-hosted runner
+  path with the configured secret/concurrency setup.
+
 ---
 
 ## ✅ Closed since v3 (verified) — DO NOT REGRESS

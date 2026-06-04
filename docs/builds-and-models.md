@@ -28,6 +28,23 @@ vllm-loader build adopt /agent/venvs/vllm-nightly --target blackbird --label ado
 vllm-loader build select stable-0112 --target blackbird
 ```
 
+Operational commands:
+
+```bash
+vllm-loader build verify stable-0112 --target blackbird
+vllm-loader build repair stable-0112 --target blackbird
+vllm-loader build run stable-0112 --target blackbird -- python -c 'import vllm; print(vllm.__version__)'
+vllm-loader build adopt /agent/venvs/vllm-nightly --target blackbird --label copied-nightly --copy
+```
+
+`build run` executes the command through the selected target agent with the
+build's environment overlay, so the controller does not need the target venv
+path locally. `build repair` regenerates the managed launcher artifacts
+(`bin/`, `run.sh`, `activate`) from an existing manifest without reinstalling
+vLLM. `build adopt --copy` copies an external venv into the managed build
+directory before registration; without `--copy`, the registry references the
+external path.
+
 Managed builds write `build.json`, `install.log`, `bin/vllm`, `bin/python`,
 `activate`, and `run.sh`. `install.log` is mode `0600`; output is scrubbed
 before wire events and before durable log persistence.
@@ -51,13 +68,20 @@ vllm-loader model pin tiny-llama \
   --repo-id hf-internal-testing/tiny-random-LlamaForCausalLM \
   --revision main
 vllm-loader model download tiny-llama --target blackbird
+vllm-loader model download tiny-llama --target blackbird --json
 vllm-loader model verify tiny-llama --target blackbird
+vllm-loader model verify tiny-llama --target blackbird --deep
 vllm-loader model remove tiny-llama --target blackbird
 ```
 
 For gated repos, accept the license upstream and set `HF_TOKEN` on the target
 host before pinning or downloading. The token is never stored in the registry
 and is scrubbed from job output.
+
+`model download --json` emits the final job payload for automation. `model
+verify --deep` runs the registry's deep content verification path when the
+source supports it; shallow verification is still the default for quick health
+checks.
 
 Removal refuses live server usage and config pins. Actual reclaim for Hugging
 Face revisions is dedup-aware because the registry delegates to the HF cache
