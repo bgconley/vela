@@ -4924,7 +4924,7 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
         "status": "running",
     }
     assert done is not None
-    assert [event["event"] for event in progress] == ["job_progress"] * 4
+    assert [event["event"] for event in progress] == ["job_progress"] * 5
     assert progress[0]["text"] == "Creating build stable-cu124"
     assert progress[-1]["text"] == "Verifying build stable-cu124"
     assert done["event"] == "job_done"
@@ -4967,7 +4967,16 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
     assert (build_dir / "run.sh").stat().st_mode & 0o111
     assert (build_dir / "install.log").stat().st_mode & 0o077 == 0
     assert command_calls == [
-        [sys.executable, "-m", "venv", str(build_dir / "venv")],
+        [sys.executable, "-m", "venv", "--without-pip", str(build_dir / "venv")],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            "install",
+            "pip",
+        ],
         [
             str(build_dir / "venv" / "bin" / "python"),
             "-m",
@@ -4978,6 +4987,43 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
     ]
     json.dumps(progress)
     json.dumps(done)
+
+
+def test_pip_build_fallback_bootstraps_pip_without_ensurepip(tmp_path: Path) -> None:
+    venv_path = tmp_path / "build" / "venv"
+
+    request = local_agent_module._pip_install_request(
+        "vllm==0.11.0",
+        uv_path=None,
+        python_requested=None,
+        venv_path=venv_path,
+    )
+
+    assert request.venv_argv == [
+        sys.executable,
+        "-m",
+        "venv",
+        "--without-pip",
+        str(venv_path),
+    ]
+    assert request.pre_install_argvs == [
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--python",
+            str(venv_path / "bin" / "python"),
+            "install",
+            "pip",
+        ]
+    ]
+    assert request.install_argv == [
+        str(venv_path / "bin" / "python"),
+        "-m",
+        "pip",
+        "install",
+        "vllm==0.11.0",
+    ]
 
 
 @pytest.mark.asyncio
@@ -5569,7 +5615,16 @@ async def test_agent_create_build_wheel_falls_back_to_pip(
     assert manifest["install"]["installer"] == "pip"
     assert manifest["install"]["provenance"]["local_wheel_path"] == str(wheel_path)
     assert command_calls == [
-        [sys.executable, "-m", "venv", str(build_dir / "venv")],
+        [sys.executable, "-m", "venv", "--without-pip", str(build_dir / "venv")],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            "install",
+            "pip",
+        ],
         [
             str(build_dir / "venv" / "bin" / "python"),
             "-m",
@@ -5811,7 +5866,16 @@ async def test_agent_create_build_git_falls_back_to_pip(
         "VLLM_USE_PRECOMPILED": "1"
     }
     assert command_calls == [
-        [sys.executable, "-m", "venv", str(build_dir / "venv")],
+        [sys.executable, "-m", "venv", "--without-pip", str(build_dir / "venv")],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--python",
+            str(build_dir / "venv" / "bin" / "python"),
+            "install",
+            "pip",
+        ],
         ["git", "clone", git_url, str(source_dir)],
         [
             str(build_dir / "venv" / "bin" / "python"),

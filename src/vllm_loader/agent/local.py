@@ -2580,7 +2580,7 @@ def _pip_install_request(
         method="pip",
         installer="pip",
         provenance={"pip_spec": pip_spec},
-        venv_argv=[sys.executable, "-m", "venv", str(venv_path)],
+        venv_argv=_pip_fallback_venv_argv(venv_path),
         install_argv=[
             str(venv_path / "bin" / "python"),
             "-m",
@@ -2588,6 +2588,7 @@ def _pip_install_request(
             "install",
             pip_spec,
         ],
+        pre_install_argvs=[_pip_bootstrap_argv(venv_path)],
     )
 
 
@@ -2653,7 +2654,7 @@ def _wheel_install_request(
         method="wheel",
         installer="pip",
         provenance=provenance,
-        venv_argv=[sys.executable, "-m", "venv", str(venv_path)],
+        venv_argv=_pip_fallback_venv_argv(venv_path),
         install_argv=[
             str(venv_path / "bin" / "python"),
             "-m",
@@ -2661,6 +2662,7 @@ def _wheel_install_request(
             "install",
             *install_args,
         ],
+        pre_install_argvs=[_pip_bootstrap_argv(venv_path)],
     )
 
 
@@ -2727,7 +2729,7 @@ def _git_install_request(
         method="git",
         installer="pip",
         provenance=provenance,
-        venv_argv=[sys.executable, "-m", "venv", str(venv_path)],
+        venv_argv=_pip_fallback_venv_argv(venv_path),
         install_argv=[
             str(venv_path / "bin" / "python"),
             "-m",
@@ -2736,9 +2738,25 @@ def _git_install_request(
             "-e",
             str(source_dir),
         ],
-        pre_install_argvs=preinstall_argvs,
+        pre_install_argvs=[_pip_bootstrap_argv(venv_path), *preinstall_argvs],
         env_overrides=env_overrides,
     )
+
+
+def _pip_fallback_venv_argv(venv_path: Path) -> list[str]:
+    return [sys.executable, "-m", "venv", "--without-pip", str(venv_path)]
+
+
+def _pip_bootstrap_argv(venv_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "pip",
+        "--python",
+        str(venv_path / "bin" / "python"),
+        "install",
+        "pip",
+    ]
 
 
 def _nightly_index_url(channel: str | None) -> str:
