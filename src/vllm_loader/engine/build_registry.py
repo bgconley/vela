@@ -143,6 +143,18 @@ def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[
             {"build": build_id, "reason": "build-exists"},
         )
 
+    try:
+        _write_adopted_build_artifacts(build_dir, venv_path)
+    except OSError as exc:
+        shutil.rmtree(build_dir, ignore_errors=True)
+        raise BuildRegistryError(
+            "invalid-config",
+            "unable to prepare adopted build artifacts",
+            {"reason": "artifact-write-failed", "build": build_id, "path": str(build_dir)},
+        ) from exc
+
+    build_executable = build_dir / "bin" / "vllm"
+    build_python = build_dir / "venv" / "bin" / "python"
     now = _utc_now()
     manifest: dict[str, Any] = {
         "schema_version": 1,
@@ -158,10 +170,12 @@ def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[
             "vllm_version_profile": _optional_str(params.get("vllm_version_profile")),
         },
         "paths": {
-            "root": str(venv_path),
-            "venv": ".",
+            "root": str(build_dir),
+            "venv": "venv",
             "executable": "bin/vllm",
-            "python": "bin/python",
+            "python": "venv/bin/python",
+            "activate": "activate",
+            "run_script": "run.sh",
         },
         "created_at": now,
         "last_used_at": None,
@@ -171,8 +185,8 @@ def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[
         "checked_at": now,
         "ok": True,
         "reason": None,
-        "executable": str(executable),
-        "python": str(python),
+        "executable": str(build_executable),
+        "python": str(build_python),
     }
     manifest["verify"] = verify_payload
     _write_json_atomic(build_dir / "build.json", manifest)
@@ -352,6 +366,31 @@ def _missing_build_path_reason(executable: Path, python: Path) -> str | None:
     if not python.exists():
         return "missing-python"
     return None
+
+
+def _write_adopted_build_artifacts(build_dir: Path, venv_path: Path) -> None:
+    build_dir.mkdir(parents=True, exist_ok=False)
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir()
+    (build_dir / "venv").symlink_to(venv_path)
+    (bin_dir / "vllm").symlink_to(venv_path / "bin" / "vllm")
+    (build_dir / "activate").symlink_to(venv_path / "bin" / "activate")
+    run_script = build_dir / "run.sh"
+    run_script.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "set -eu",
+                f'BUILD_ROOT="{build_dir}"',
+                'export VIRTUAL_ENV="${BUILD_ROOT}/venv"',
+                'export PATH="${VIRTUAL_ENV}/bin:${PATH}"',
+                'exec "${BUILD_ROOT}/bin/vllm" "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    run_script.chmod(0o755)
 
 
 def _required_param(params: dict[str, Any], field: str) -> str:

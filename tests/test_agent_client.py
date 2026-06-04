@@ -1982,6 +1982,7 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     bin_dir.mkdir(parents=True)
     (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
     (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
     await client.connect()
@@ -2000,17 +2001,28 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
     finally:
         await client.disconnect()
 
-    manifest_path = builds_root / "01ADOPTED" / "build.json"
+    build_dir = builds_root / "01ADOPTED"
+    manifest_path = build_dir / "build.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert adopted["build_id"] == "01ADOPTED"
     assert adopted["label"] == "external-nightly"
     assert adopted["status"] == "adopted"
     assert adopted["manifest"]["paths"] == {
-        "root": str(venv_dir),
-        "venv": ".",
+        "root": str(build_dir),
+        "venv": "venv",
         "executable": "bin/vllm",
-        "python": "bin/python",
+        "python": "venv/bin/python",
+        "activate": "activate",
+        "run_script": "run.sh",
     }
+    assert (build_dir / "venv").resolve() == venv_dir.resolve()
+    assert (build_dir / "bin" / "vllm").resolve() == (venv_dir / "bin" / "vllm")
+    assert (build_dir / "activate").resolve() == (venv_dir / "bin" / "activate")
+    run_script = build_dir / "run.sh"
+    assert run_script.stat().st_mode & 0o111
+    assert 'exec "${BUILD_ROOT}/bin/vllm" "$@"' in run_script.read_text(
+        encoding="utf-8"
+    )
     assert manifest["status"] == "adopted"
     assert manifest["install"]["method"] == "adopt"
     assert inspected["manifest"]["build_id"] == "01ADOPTED"
@@ -3119,7 +3131,11 @@ async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
     assert done["detail"] == "build adopted"
     assert done["build_id"] == "01ADOPTED"
     assert manifest["status"] == "adopted"
-    assert manifest["paths"]["root"] == str(venv_dir)
+    assert manifest["paths"]["root"] == str(builds_root / "01ADOPTED")
+    assert manifest["paths"]["executable"] == "bin/vllm"
+    assert (builds_root / "01ADOPTED" / "bin" / "vllm").resolve() == (
+        venv_dir / "bin" / "vllm"
+    )
     json.dumps(progress)
     json.dumps(done)
 
