@@ -966,6 +966,67 @@ def test_cli_model_pin_passes_metadata_to_agent(
     assert result.output == "pinned model\t01MODEL\tllama-pin\n"
 
 
+def test_cli_model_pin_passes_optional_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "model",
+            "pin",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "--display-name",
+            "llama-pin",
+            "--quant-format",
+            "awq",
+            "--tokenizer",
+            "meta-llama/Llama-3.1-tokenizer",
+            "--gated",
+            "--token-required",
+            "--notes",
+            "license accepted",
+            "--target",
+            "blackbird",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        (
+            "pin_model",
+            {
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "display_name": "llama-pin",
+                "quant_format": "awq",
+                "tokenizer": "meta-llama/Llama-3.1-tokenizer",
+                "gated": "true",
+                "token_required": "true",
+                "notes": "license accepted",
+            },
+            "blackbird",
+        )
+    ]
+
+
 def test_cli_model_pin_uses_repo_argument_and_generated_entry_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

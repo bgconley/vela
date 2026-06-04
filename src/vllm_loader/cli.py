@@ -609,6 +609,26 @@ def model_pin(
         typer.Option("--local-path", help="Adopt a local model directory."),
     ] = None,
     url: Annotated[str | None, typer.Option("--url", help="Remote model URL.")] = None,
+    quant_format: Annotated[
+        str | None,
+        typer.Option("--quant-format", help="Model quantization label."),
+    ] = None,
+    tokenizer: Annotated[
+        str | None,
+        typer.Option("--tokenizer", help="Tokenizer override."),
+    ] = None,
+    gated: Annotated[
+        bool,
+        typer.Option("--gated", help="Mark model metadata as gated."),
+    ] = False,
+    token_required: Annotated[
+        bool,
+        typer.Option("--token-required", help="Mark model metadata as requiring HF_TOKEN."),
+    ] = False,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="Operator notes."),
+    ] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
     json_output: Annotated[
         bool,
@@ -620,6 +640,11 @@ def model_pin(
         params = _agent_params(
             url=url,
             display_name=display_name or repo_or_entry,
+            quant_format=quant_format,
+            tokenizer=tokenizer,
+            gated="true" if gated else None,
+            token_required="true" if token_required else None,
+            notes=notes,
         )
         params["source"] = "url"
     else:
@@ -633,6 +658,11 @@ def model_pin(
             revision=revision,
             commit_sha=commit_sha,
             local_path=local_path,
+            quant_format=quant_format,
+            tokenizer=tokenizer,
+            gated="true" if gated else None,
+            token_required="true" if token_required else None,
+            notes=notes,
         )
     if local_path is not None and url is None:
         params["source"] = "local_path"
