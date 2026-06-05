@@ -194,6 +194,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
 
 def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
     key = _ssh_option_key(value)
+    if not key or "=" not in value:
+        raise ValueError(
+            f"{source} contains malformed SSH option assignment {value!r}; "
+            "use -o Key=Value"
+        )
     if key in _DISALLOWED_SSH_OPTION_KEYS:
         raise ValueError(
             f"{source} contains command-bearing SSH option {key!r}; "
