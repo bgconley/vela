@@ -73,7 +73,19 @@ from vllm_loader.tui.screens.target_manager import (
     TargetManagerRequest,
     TargetManagerScreen,
 )
-from vllm_loader.tui.theme import ACCENT, BAD, GOOD, MUTED, TEXT, WARN
+from vllm_loader.tui.theme import (
+    ACCENT,
+    ACCENT_SURFACE,
+    BAD,
+    BAD_SURFACE,
+    GOOD,
+    GOOD_SURFACE,
+    MUTED,
+    MUTED_SURFACE,
+    TEXT,
+    WARN,
+    WARN_SURFACE,
+)
 
 LEVEL_STYLE = {
     "CRITICAL": "bold #e8f1f2 on #ff6b6b",
@@ -2388,20 +2400,22 @@ class VllmLoaderApp(App):
                 cfg = item.config
                 selected = cfg.name == selected_name
                 marker = ">" if selected else "✓"
-                marker_style = f"bold {ACCENT}" if selected else GOOD
-                name_style = f"bold {TEXT}" if selected else TEXT
+                row_surface = f" on {ACCENT_SURFACE}" if selected else ""
+                marker_style = f"bold {ACCENT}{row_surface}" if selected else GOOD
+                name_style = f"bold {TEXT}{row_surface}" if selected else TEXT
                 text.append(marker, style=marker_style)
                 text.append(f" {cfg.name}", style=name_style)
                 meta = self._config_meta(cfg)
                 if meta:
-                    text.append(f"  {meta}", style=MUTED)
+                    text.append(f"  {meta}", style=f"{MUTED}{row_surface}")
                 text.append("\n")
         if self.registry.invalid:
             for item in self.registry.invalid:
                 first_error, *remaining_errors = item.errors or ["invalid config"]
-                text.append("⚠ ", style=f"bold {WARN}")
-                text.append(item.path.name, style=f"bold {WARN}")
-                text.append(f": {first_error}", style=MUTED)
+                warning_surface = f" on {WARN_SURFACE}"
+                text.append("⚠ ", style=f"bold {WARN}{warning_surface}")
+                text.append(item.path.name, style=f"bold {WARN}{warning_surface}")
+                text.append(f": {first_error}", style=f"{MUTED}{warning_surface}")
                 text.append("\n")
                 for error in remaining_errors:
                     text.append("  ", style=MUTED)
@@ -2427,9 +2441,15 @@ class VllmLoaderApp(App):
         invalid_count = len(self.registry.invalid)
         text = Text("Configs", style=f"bold {ACCENT}")
         if valid_count:
-            text.append(f"  {valid_count} valid", style=f"bold {GOOD}")
+            text.append(
+                f"  {valid_count} valid",
+                style=f"bold {GOOD} on {GOOD_SURFACE}",
+            )
         if invalid_count:
-            text.append(f"  {invalid_count} invalid", style=f"bold {WARN}")
+            text.append(
+                f"  {invalid_count} invalid",
+                style=f"bold {WARN} on {WARN_SURFACE}",
+            )
         if self.current_config is None:
             return text
         text.append("\nSelected: ", style=MUTED)
@@ -3033,9 +3053,23 @@ class VllmLoaderApp(App):
         autoscroll = "OFF" if self.paused else "ON"
         wrap = "ON" if self.wrap else "OFF"
         text = Text("autoscroll ", style=MUTED)
-        text.append(autoscroll, style=GOOD if autoscroll == "ON" else WARN)
+        text.append(
+            autoscroll,
+            style=(
+                f"bold {GOOD} on {GOOD_SURFACE}"
+                if autoscroll == "ON"
+                else f"bold {WARN} on {WARN_SURFACE}"
+            ),
+        )
         text.append("   wrap ", style=MUTED)
-        text.append(wrap, style=ACCENT if wrap == "ON" else MUTED)
+        text.append(
+            wrap,
+            style=(
+                f"bold {ACCENT} on {ACCENT_SURFACE}"
+                if wrap == "ON"
+                else f"bold {MUTED} on {MUTED_SURFACE}"
+            ),
+        )
         return text
 
     def _refresh_status_strip(self) -> None:
@@ -3447,7 +3481,11 @@ class VllmLoaderApp(App):
 
     def _render_status_badge(self, phase: Phase) -> Text:
         style = self._status_style_for_phase(phase)
-        return Text(f"{self._status_icon_for_phase(phase)} {phase.value}", style=style)
+        surface = self._status_surface_for_phase(phase)
+        return Text(
+            f"{self._status_icon_for_phase(phase)} {phase.value}",
+            style=f"{style} on {surface}",
+        )
 
     def _apply_status_classes(self, status: Static, phase: Phase) -> None:
         for class_name in STATUS_CLASSES:
@@ -3472,6 +3510,18 @@ class VllmLoaderApp(App):
         if phase is Phase.ERROR:
             return f"bold {BAD}"
         return MUTED
+
+    @staticmethod
+    def _status_surface_for_phase(phase: Phase) -> str:
+        if phase in LOADING_PHASES:
+            return WARN_SURFACE
+        if phase is Phase.READY:
+            return GOOD_SURFACE
+        if phase is Phase.DEGRADED:
+            return WARN_SURFACE
+        if phase is Phase.ERROR:
+            return BAD_SURFACE
+        return MUTED_SURFACE
 
     @staticmethod
     def _status_icon_for_phase(phase: Phase) -> str:

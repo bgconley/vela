@@ -6692,6 +6692,45 @@ async def test_sidebar_and_banner_use_semantic_color_roles(config_dir: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_figma_dashboard_pills_and_selection_use_surface_styles(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "llama.yaml",
+        """
+        name: llama-3.1-70b-awq
+        model: meta-llama/Llama-3.1-70B-Instruct-AWQ
+        engine:
+          tensor_parallel_size: 4
+          kv_cache_dtype: fp8
+        """,
+    )
+    write_yaml(config_dir / "broken.yaml", "name: broken")
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.LOADING_WEIGHTS)
+
+        configs_title = app.query_one("#configs-title", Static).content
+        configs = app.query_one("#configs", Static).content
+        status = app.query_one("#status", Static).content
+        controls = app.query_one("#log-controls", Static).content
+
+        assert isinstance(configs_title, Text)
+        assert isinstance(configs, Text)
+        assert isinstance(status, Text)
+        assert isinstance(controls, Text)
+        assert _text_uses_style(configs_title, "on #0e2a21")
+        assert _text_uses_style(configs_title, "on #2b2410")
+        assert _text_uses_style(configs, "on #0c2238")
+        assert _text_uses_style(configs, "on #2b2410")
+        assert _text_uses_style(status, "on #2b2410")
+        assert _text_uses_style(controls, "on #0e2a21")
+        assert _text_uses_style(controls, "on #14202b")
+
+
+@pytest.mark.asyncio
 async def test_terminal_phases_clear_stale_progress_line(config_dir: Path) -> None:
     app = VllmLoaderApp(configs_dir=config_dir)
 
