@@ -1604,7 +1604,10 @@ async def test_local_agent_emits_attached_log_and_phase_events(
 
 @pytest.mark.asyncio
 async def test_local_agent_starts_detached_run_from_prepared_launch(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
 ) -> None:
     executable = tmp_path / "child.py"
     executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
@@ -1618,6 +1621,7 @@ async def test_local_agent_starts_detached_run_from_prepared_launch(
           entrypoint: serve
           executable: {executable}
         server:
+          port: {unused_tcp_port}
           api_key: literal-api-key
         env:
           HF_TOKEN: hf_literal
@@ -5985,7 +5989,7 @@ async def test_agent_ignores_unverified_sidecar_when_removing_model(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
@@ -6013,10 +6017,12 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     )
     write_yaml(
         config_dir / "pinned-model.yaml",
-        """
+        f"""
         name: pinned-model
         model: meta-llama/Llama-3.1-8B-Instruct
         model_ref: 01MODEL
+        server:
+          port: {unused_tcp_port}
         env:
           HF_TOKEN: hf_live
         """,
@@ -6230,7 +6236,10 @@ async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
 ) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
@@ -6257,10 +6266,12 @@ async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref
     )
     write_yaml(
         config_dir / "gated-model.yaml",
-        """
+        f"""
         name: gated-model
         model: meta-llama/Llama-3.1-8B-Instruct
         model_ref: 01GATED
+        server:
+          port: {unused_tcp_port}
         vllm:
           version_profile: current
         """,
@@ -6395,7 +6406,7 @@ async def test_agent_preview_renders_model_ref_even_when_launch_would_block(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_local_model_ref_handoff(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     model_dir = tmp_path / "models" / "llama-local"
     model_dir.mkdir(parents=True)
@@ -6420,10 +6431,12 @@ async def test_agent_prepare_launch_resolves_local_model_ref_handoff(
     )
     write_yaml(
         config_dir / "local-model.yaml",
-        """
+        f"""
         name: local-model
         model: local-llama
         model_ref: local-llama
+        server:
+          port: {unused_tcp_port}
         """,
     )
 
