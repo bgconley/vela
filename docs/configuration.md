@@ -31,8 +31,9 @@ Fields:
   add option flags such as `-A`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
   positional SSH arguments, port forwarding, command-suppression, and
   command-bearing `-o` options such as `ProxyCommand`, `RemoteCommand`, or
-  `LocalCommand` are rejected so the configured target host and `agent connect`
-  command cannot be replaced by the environment.
+  `LocalCommand` are rejected. External config/control socket options (`-F`,
+  `-S`, `ControlPath`) are also rejected so the configured target host and
+  `agent connect` command cannot be replaced by the environment.
 
 ## Config Discovery
 

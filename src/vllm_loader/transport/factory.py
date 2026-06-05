@@ -30,7 +30,6 @@ _SAFE_SSH_VALUE_OPTIONS = {
     "-c",
     "-E",
     "-e",
-    "-F",
     "-I",
     "-i",
     "-J",
@@ -38,7 +37,6 @@ _SAFE_SSH_VALUE_OPTIONS = {
     "-m",
     "-o",
     "-p",
-    "-S",
 }
 _DISALLOWED_SSH_OPTIONS = {
     "-D",
@@ -54,11 +52,15 @@ _DISALLOWED_SSH_OPTIONS = {
     "-W",
     "-w",
 }
+_DISALLOWED_SSH_ROUTING_OPTIONS = {"-F", "-S"}
 _DISALLOWED_SSH_OPTION_KEYS = {
     "localcommand",
     "permitlocalcommand",
     "proxycommand",
     "remotecommand",
+}
+_DISALLOWED_SSH_ROUTING_OPTION_KEYS = {
+    "controlpath",
 }
 
 
@@ -115,6 +117,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
                 f"{source} contains unsupported SSH option {option!r}; "
                 "forwarding, command-suppression, and query options are not allowed"
             )
+        if _is_disallowed_ssh_routing_option(option):
+            raise ValueError(
+                f"{source} contains routing SSH option {option!r}; "
+                "external SSH config and control sockets are not allowed"
+            )
         if option == "-o":
             if index + 1 >= len(options):
                 raise ValueError(f"{source} option '-o' requires a value")
@@ -146,10 +153,22 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
             f"{source} contains command-bearing SSH option {key!r}; "
             "command-bearing SSH options are not allowed"
         )
+    if key in _DISALLOWED_SSH_ROUTING_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains routing SSH option {key!r}; "
+            "external SSH config and control sockets are not allowed"
+        )
 
 
 def _is_disallowed_ssh_option(option: str) -> bool:
     return option in _DISALLOWED_SSH_OPTIONS or option[:2] in _DISALLOWED_SSH_OPTIONS
+
+
+def _is_disallowed_ssh_routing_option(option: str) -> bool:
+    return (
+        option in _DISALLOWED_SSH_ROUTING_OPTIONS
+        or option[:2] in _DISALLOWED_SSH_ROUTING_OPTIONS
+    )
 
 
 def _is_concatenated_safe_value_option(option: str) -> bool:
