@@ -575,6 +575,7 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
         ("build-integrity-failed", -32014),
         ("cancelled", -32015),
         ("profile-error", -32016),
+        ("agent-auth-required", -32017),
     ],
 )
 def test_named_target_errors_have_specific_json_rpc_codes(

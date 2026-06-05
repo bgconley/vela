@@ -29,6 +29,7 @@ ERROR_CODE_BY_NAME = {
     "build-integrity-failed": -32014,
     "cancelled": -32015,
     "profile-error": -32016,
+    "agent-auth-required": -32017,
 }
 
 ERROR_NAME_BY_CODE = {

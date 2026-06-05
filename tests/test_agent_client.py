@@ -33,7 +33,7 @@ from vllm_loader.engine.profile import bundled_profile
 from vllm_loader.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.health import HealthEvent
-from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES
+from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES, handshake_params
 from vllm_loader.transport.inprocess import InProcessTargetClient
 
 
@@ -505,6 +505,42 @@ def test_local_agent_handshake_downgrades_for_older_controller_protocol(
     assert result["agent_protocol_version"] == 2
     assert result["controller_version"] == "controller-0.9.0"
     assert "driver" in result["host_info"]
+
+
+def test_local_agent_handshake_requires_configured_capability_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    agent = LocalAgent(target_name="local")
+
+    with pytest.raises(TargetCallError) as missing:
+        agent.handle("handshake", {"protocol_version": 1})
+    with pytest.raises(TargetCallError) as wrong:
+        agent.handle(
+            "handshake",
+            {"protocol_version": 1, "capability_token": "wrong-secret"},
+        )
+
+    result = agent.handle(
+        "handshake",
+        {"protocol_version": 1, "capability_token": "shared-secret"},
+    )
+
+    assert missing.value.code == "agent-auth-required"
+    assert wrong.value.code == "agent-auth-required"
+    assert missing.value.details == {"reason": "capability-token-required"}
+    assert wrong.value.details == {"reason": "capability-token-required"}
+    assert result["target"] == "local"
+
+
+def test_handshake_params_include_configured_agent_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VLLM_LOADER_AGENT_TOKEN", raising=False)
+    assert "capability_token" not in handshake_params(1)
+
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    assert handshake_params(1)["capability_token"] == "shared-secret"
 
 
 @pytest.mark.asyncio

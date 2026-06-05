@@ -53,10 +53,14 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
         *,
         initial: dict[str, Any] | None = None,
         error_message: str = "",
+        uv_available: bool | None = None,
+        target_label: str = "",
     ) -> None:
         super().__init__(id="create-build")
         self.initial = dict(initial or {})
         self.error_message = error_message
+        self.uv_available = uv_available
+        self.target_label = target_label
 
     def compose(self) -> ComposeResult:
         method = self._initial_value("method") or "nightly"
@@ -76,8 +80,7 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
                 id="create-build-method",
             )
             yield Static(
-                "Nightly and commit require uv on the target; pip, wheel, and git "
-                "can fall back to pip.",
+                self._uv_note_text(),
                 id="create-build-uv-note",
             )
             yield Static("Label", classes="create-build-field-label")
@@ -137,8 +140,24 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
         event.stop()
         self.action_submit()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.control.id != "create-build-method":
+            return
+        method = str(event.value or "").strip()
+        error = self.query_one("#create-build-error", Static)
+        if self._method_requires_uv(method) and self.uv_available is False:
+            error.update(self._uv_block_message(method))
+        elif self.uv_available is False:
+            error.update("")
+
     def action_submit(self) -> None:
         try:
+            method = str(self.query_one("#create-build-method", Select).value or "").strip()
+            if self._method_requires_uv(method) and self.uv_available is False:
+                self.query_one("#create-build-error", Static).update(
+                    self._uv_block_message(method)
+                )
+                return
             self.dismiss(self._collect_build_params())
         except ValueError as exc:
             self.query_one("#create-build-error", Static).update(str(exc))
@@ -178,3 +197,25 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
         if not params["method"]:
             raise ValueError("Choose a build method")
         return params
+
+    def _uv_note_text(self) -> str:
+        target = f" on {self.target_label}" if self.target_label else " on the target"
+        if self.uv_available is True:
+            return f"uv available{target}; nightly and commit can run."
+        if self.uv_available is False:
+            return (
+                f"uv not found{target}; nightly and commit require uv. "
+                "Choose pip, wheel, or git."
+            )
+        return (
+            "Nightly and commit require uv on the target; pip, wheel, and git "
+            "can fall back to pip."
+        )
+
+    def _uv_block_message(self, method: str) -> str:
+        target = f" on {self.target_label}" if self.target_label else " on the target"
+        return f"{method} build creation requires uv{target}. Choose pip, wheel, or git."
+
+    @staticmethod
+    def _method_requires_uv(method: str) -> bool:
+        return method in {"nightly", "commit"}

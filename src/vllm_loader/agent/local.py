@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fcntl
+import hmac
 import json
 import os
 import platform
@@ -23,6 +24,7 @@ from urllib.parse import unquote, urlsplit
 import yaml
 
 from vllm_loader import __version__
+from vllm_loader.agent.auth import configured_agent_token
 from vllm_loader.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
 from vllm_loader.config.schema import EntryPoint, ModelConfig, default_run_artifacts_dir
 from vllm_loader.engine.build_registry import (
@@ -440,6 +442,7 @@ class LocalAgent:
         }
 
     def _handshake(self, params: dict[str, Any]) -> dict[str, Any]:
+        self._require_capability_token(params)
         controller_protocol_version = self._controller_protocol_version(params)
         if controller_protocol_version > PROTOCOL_VERSION:
             raise TargetCallError(
@@ -502,6 +505,19 @@ class LocalAgent:
             },
             "capabilities": list(AGENT_CAPABILITIES),
         }
+
+    @staticmethod
+    def _require_capability_token(params: dict[str, Any]) -> None:
+        expected = configured_agent_token()
+        if expected is None:
+            return
+        supplied = params.get("capability_token")
+        if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
+            raise TargetCallError(
+                "agent-auth-required",
+                "target agent requires a valid capability token",
+                {"reason": "capability-token-required"},
+            )
 
     @staticmethod
     def _controller_protocol_version(params: dict[str, Any]) -> int:

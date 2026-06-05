@@ -1178,9 +1178,12 @@ class VllmLoaderApp(App):
         if isinstance(selection, dict):
             action = selection.get("action")
             if action == "create_build":
-                self.push_screen(
-                    CreateBuildScreen(),
-                    callback=self._handle_create_build_submission,
+                self.run_worker(
+                    self._open_create_build_form(),
+                    name="build-create-form",
+                    group="build-manager",
+                    exclusive=True,
+                    exit_on_error=False,
                 )
             elif action == "adopt_build":
                 self.push_screen(
@@ -1327,6 +1330,20 @@ class VllmLoaderApp(App):
             exit_on_error=False,
         )
 
+    async def _open_create_build_form(self) -> None:
+        uv_available: bool | None = None
+        try:
+            result = await self._target_call(
+                "check_build_prerequisites",
+                {"method": "pip"},
+            )
+        except TargetCallError:
+            result = {}
+        uv_value = result.get("uv_available")
+        if isinstance(uv_value, bool):
+            uv_available = uv_value
+        self.call_later(self._push_create_build_form, {}, "", uv_available)
+
     async def _create_build(
         self,
         params: dict[str, Any],
@@ -1361,15 +1378,21 @@ class VllmLoaderApp(App):
         params: dict[str, Any],
         error_message: str,
     ) -> None:
-        self.call_later(self._push_create_build_form, dict(params), error_message)
+        self.call_later(self._push_create_build_form, dict(params), error_message, False)
 
     def _push_create_build_form(
         self,
         params: dict[str, Any],
         error_message: str,
+        uv_available: bool | None = None,
     ) -> None:
         self.push_screen(
-            CreateBuildScreen(initial=params, error_message=error_message),
+            CreateBuildScreen(
+                initial=params,
+                error_message=error_message,
+                uv_available=uv_available,
+                target_label=self._target_label(),
+            ),
             callback=self._handle_create_build_submission,
         )
 

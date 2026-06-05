@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 from vllm_loader import __version__
+from vllm_loader.agent.auth import configured_agent_token
 
 GLOBAL_EVENTS = {"agent_error"}
 
@@ -30,11 +31,15 @@ REQUIRED_AGENT_CAPABILITIES = (
 
 
 def handshake_params(protocol_version: int) -> dict[str, Any]:
-    return {
+    params: dict[str, Any] = {
         "protocol_version": protocol_version,
         "controller_version": __version__,
         "capabilities": list(REQUIRED_AGENT_CAPABILITIES),
     }
+    token = configured_agent_token()
+    if token is not None:
+        params["capability_token"] = token
+    return params
 
 
 def subscription_event_id(event: dict[str, Any]) -> str | None:

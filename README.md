@@ -201,3 +201,8 @@ mode `0600`.
 vLLM API keys do not protect every network-reachable endpoint, including
 `/invocations`. Keep the default localhost binding unless the host is protected
 by a firewall or reverse proxy.
+
+For stricter shared-host policy, set `VLLM_LOADER_AGENT_TOKEN` in both the
+target agent environment and the controller environment. The token is checked
+during the first agent handshake and is optional for the default single-user
+P620/Blackbird topology.

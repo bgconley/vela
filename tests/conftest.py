@@ -53,4 +53,5 @@ def valid_config_text() -> str:
 @pytest.fixture(autouse=True)
 def clear_config_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("VLLM_LOADER_CONFIGS", raising=False)
+    monkeypatch.delenv("VLLM_LOADER_AGENT_TOKEN", raising=False)
     yield
