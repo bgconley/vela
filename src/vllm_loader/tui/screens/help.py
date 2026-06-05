@@ -62,6 +62,8 @@ class HelpScreen(ModalScreen):
         text.append("/ Search   f Filter   p Pause autoscroll   w Wrap\n", style=TEXT)
         text.append("Navigation:      ", style=MUTED)
         text.append("g Top   G Bottom   Tab focus\n", style=TEXT)
+        text.append("Composition:     ", style=MUTED)
+        text.append("b Builds   m Models   F Flags\n", style=TEXT)
         text.append("Targets:         ", style=MUTED)
         text.append("t Target manager   R Reconnect\n", style=TEXT)
         text.append("Discovery:       ", style=MUTED)

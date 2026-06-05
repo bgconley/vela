@@ -53,6 +53,7 @@ class BuildManagerScreen(ModalScreen):
         ("a", "adopt", "Adopt"),
         ("v", "verify", "Verify"),
         ("r", "repair", "Repair"),
+        ("F", "flags", "Flags"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
     ]
@@ -69,7 +70,8 @@ class BuildManagerScreen(ModalScreen):
                 yield Static("", id="build-manager-list")
                 yield Static("", id="build-manager-detail")
             yield Static(
-                "Enter Select   n New   a Adopt   v Verify   r Repair   x Remove   Esc Close",
+                "Enter Select   n New   a Adopt   v Verify   r Repair   "
+                "F Flags   x Remove   Esc Close",
                 id="build-manager-footer",
             )
 
@@ -112,6 +114,9 @@ class BuildManagerScreen(ModalScreen):
             self.dismiss(None)
             return
         self.dismiss(_build_action_payload("repair_build", build))
+
+    def action_flags(self) -> None:
+        self.dismiss({"action": "flags"})
 
     def action_remove(self) -> None:
         build = self._selected_build()

@@ -3292,6 +3292,9 @@ async def test_help_screen_opens(config_dir: Path) -> None:
         assert help_text.region.x > 0
         assert help_text.region.y > 0
         assert "Tab focus" in str(help_text.content)
+        assert "b Builds" in str(help_text.content)
+        assert "m Models" in str(help_text.content)
+        assert "F Flags" in str(help_text.content)
         assert isinstance(help_text.content, Text)
         assert _text_uses_style(help_text.content, tui_app_module.ACCENT)
         assert _text_uses_style(help_text.content, tui_app_module.GOOD)
@@ -4145,6 +4148,7 @@ async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
         assert "lines" in _static_text(app, "#status-strip")
         assert "scrubbed log 0600" in _static_text(app, "#status-strip")
         assert "l Load" in _static_text(app, "#footer-bindings")
+        assert "F Flags" in _static_text(app, "#footer-bindings")
         assert "Tab Focus" in _static_text(app, "#footer-bindings")
         assert "^P Palette" in _static_text(app, "#footer-bindings")
 
@@ -4351,6 +4355,95 @@ async def test_build_manager_selects_build_through_target_client(
             lambda: target_client.select_calls == ["nightly-cu130"]
             and "▣ nightly-cu130 ●" in _static_text(app, "#active-model"),
             "build selection did not refresh header",
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_manager_flags_binding_opens_flag_manager(config_dir: Path) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "build_id": "01STABLE",
+                        "build_label": "stable-cu124",
+                        "build_status": "ready",
+                        "model_display_name": "buildable",
+                    },
+                }
+            if method == "list_builds":
+                return {
+                    "default_build_id": "01STABLE",
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": True,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        },
+                    ],
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build flags path should not subscribe")
+
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=BuildTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+
+        await pilot.press("F")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open from build manager",
         )
 
 
@@ -5268,6 +5361,128 @@ async def test_model_manager_opens_model_catalog_from_target_client(
         assert "size: 2.1 GB unique / 16.1 GB nominal" in detail
         assert "auth: gated, requires HF_TOKEN" in detail
         assert "files: 7 safetensors" in detail
+
+
+@pytest.mark.asyncio
+async def test_model_manager_enter_selects_model_for_active_config(
+    config_dir: Path,
+) -> None:
+    class ModelTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.preview_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/modelable.yaml",
+                            "name": "modelable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "modelable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                call = dict(params)
+                self.preview_calls.append(call)
+                metadata: dict[str, object] = {"build_label": "stable-cu124"}
+                if call.get("model_ref") == "02REMOTE":
+                    metadata.update(
+                        {
+                            "model_ref": "02REMOTE",
+                            "model_display_name": "qwen-remote",
+                            "model_revision": "main",
+                            "model_cache_state": "remote_only",
+                        }
+                    )
+                else:
+                    metadata["model_display_name"] = "modelable"
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": metadata,
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "01MODEL",
+                            "display_name": "llama-pin",
+                            "source": "hf_repo",
+                            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "quant_format": "awq",
+                            "cache_state": "cached",
+                            "files": {},
+                        },
+                        {
+                            "entry_id": "02REMOTE",
+                            "display_name": "qwen-remote",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3-32B",
+                            "revision": "main",
+                            "commit_sha": None,
+                            "quant_format": "bf16",
+                            "cache_state": "remote_only",
+                            "files": {},
+                        },
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model select should not subscribe")
+
+    target_client = ModelTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open",
+        )
+
+        await pilot.press("down")
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: any(call.get("model_ref") == "02REMOTE" for call in target_client.preview_calls)
+            and "qwen-remote" in _static_text(app, "#active-model"),
+            "model selection did not refresh active config preview",
+        )
+        assert target_client.preview_calls[-1]["model_ref"] == "02REMOTE"
+        assert target_client.preview_calls[-1]["revision"] == "main"
+        assert "M qwen-remote ○ main" in _static_text(app, "#active-model")
 
 
 @pytest.mark.asyncio

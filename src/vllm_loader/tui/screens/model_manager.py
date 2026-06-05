@@ -49,6 +49,7 @@ class ModelManagerScreen(ModalScreen):
     BINDINGS = [
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
+        ("enter", "accept", "Select"),
         ("d", "download", "Download"),
         ("p", "pin", "Pin"),
         Binding("r", "refresh_models", "Refresh", priority=True),
@@ -69,7 +70,7 @@ class ModelManagerScreen(ModalScreen):
                 yield Static("", id="model-manager-list")
                 yield Static("", id="model-manager-detail")
             yield Static(
-                "d Download   p Pin   r Refresh   v Verify   x Remove   Esc Close",
+                "Enter Select   d Download   p Pin   r Refresh   v Verify   x Remove   Esc Close",
                 id="model-manager-footer",
             )
 
@@ -88,6 +89,13 @@ class ModelManagerScreen(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_accept(self) -> None:
+        model = self._selected_model()
+        if model is None:
+            self.dismiss(None)
+            return
+        self.dismiss(_model_selection_payload(model))
 
     def action_download(self) -> None:
         model = self._selected_model()
@@ -207,6 +215,17 @@ def _model_download_payload(model: dict[str, Any]) -> dict[str, Any]:
         "allow_patterns",
         "ignore_patterns",
     ):
+        if field in model:
+            payload[field] = model[field]
+    return payload
+
+
+def _model_selection_payload(model: dict[str, Any]) -> dict[str, Any]:
+    payload = _model_action_payload("select_model", model)
+    revision = model.get("commit_sha") or model.get("revision")
+    if isinstance(revision, str) and revision.strip():
+        payload["revision"] = revision.strip()
+    for field in ("cache_state", "gated", "token_required"):
         if field in model:
             payload[field] = model[field]
     return payload

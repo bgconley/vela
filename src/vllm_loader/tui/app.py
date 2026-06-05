@@ -1136,6 +1136,8 @@ class VllmLoaderApp(App):
                         exclusive=True,
                         exit_on_error=False,
                     )
+            elif action == "flags":
+                self.action_flags()
             elif action == "remove_build":
                 self._confirm_remove_build(selection)
             return
@@ -1323,6 +1325,9 @@ class VllmLoaderApp(App):
         if not isinstance(selection, dict):
             return
         action = selection.get("action")
+        if action == "select_model":
+            self._select_model_for_active_config(selection)
+            return
         if action == "pin_model":
             initial = selection.get("initial") if isinstance(selection.get("initial"), dict) else {}
             self.push_screen(
@@ -1364,6 +1369,42 @@ class VllmLoaderApp(App):
             )
         elif action == "remove_model":
             self._confirm_remove_model(selection)
+
+    def _select_model_for_active_config(self, selection: dict[str, Any]) -> None:
+        model_ref = _optional_str(selection.get("model_ref"))
+        if model_ref is None:
+            return
+        label = _optional_str(selection.get("label")) or model_ref
+        revision = _optional_str(selection.get("revision"))
+        self._launch_overrides["model_ref"] = model_ref
+        if revision is not None:
+            self._launch_overrides["revision"] = revision
+        else:
+            self._launch_overrides.pop("revision", None)
+
+        metadata = dict(self.selected_config_metadata)
+        metadata["model_ref"] = model_ref
+        metadata["model_display_name"] = label
+        if revision is not None:
+            metadata["model_revision"] = revision
+        else:
+            metadata.pop("model_revision", None)
+        cache_state = _optional_str(selection.get("cache_state"))
+        if cache_state is not None:
+            metadata["model_cache_state"] = cache_state
+        if "gated" in selection:
+            metadata["model_gated"] = selection["gated"]
+        self.selected_config_metadata = metadata
+        self._refresh_target_backed_views()
+        self.notify(f"Selected model: {label}")
+        if self.current_config is not None:
+            self.run_worker(
+                self._refresh_selected_config_preview(),
+                name="model-select-preview",
+                group="model-manager",
+                exclusive=True,
+                exit_on_error=False,
+            )
 
     def _handle_download_model_submission(self, params: dict[str, Any] | None) -> None:
         if not params:
@@ -2414,7 +2455,11 @@ class VllmLoaderApp(App):
         try:
             result = await self._target_call(
                 "preview",
-                self._agent_params(name=self.current_config.name, configs_dir=self.configs_dir),
+                self._agent_params(
+                    name=self.current_config.name,
+                    configs_dir=self.configs_dir,
+                    **self._launch_overrides,
+                ),
             )
             self.selected_config_preview = str(result["preview"])
             self._config_preview_cache[self.current_config.name] = (
@@ -3046,7 +3091,7 @@ class VllmLoaderApp(App):
     def _render_footer_bindings() -> str:
         return (
             "l Load   s Stop   K Kill   r Restart   t Targets   "
-            "b Builds   m Models   R Reconnect   / Search   f Filter   "
+            "b Builds   m Models   F Flags   R Reconnect   / Search   f Filter   "
             "p Pause   w Wrap   g/G Top/Bottom   Tab Focus   ? Help   ^P Palette   q Quit"
         )
 
