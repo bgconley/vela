@@ -342,3 +342,49 @@ def test_target_client_factory_rejects_required_ssh_option_overrides(
 
     with pytest.raises(ValueError, match="required SSH option"):
         _target_client_for_config()(target)
+
+
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-t",
+        "-tt",
+        "-o RequestTTY=yes",
+        "-oRequestTTY=yes",
+        "-o RequestTTY=force",
+        "-oRequestTTY=auto",
+    ],
+)
+def test_target_client_factory_rejects_tty_allocating_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="tty SSH option"):
+        _target_client_for_config()(target)
+
+
+def test_target_client_factory_accepts_tty_disabling_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "VLLM_LOADER_SSH_OPTS",
+        "-T -o RequestTTY=no",
+    )
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    client = _target_client_for_config()(target)
+
+    assert client._command[1:4] == ["-T", "-o", "RequestTTY=no"]

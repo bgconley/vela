@@ -24,7 +24,7 @@ DEFAULT_SSH_CONTROL_OPTIONS = {
     "ControlPersist": "60s",
     "ControlPath": "~/.ssh/vllm-loader-%C",
 }
-_SAFE_SSH_FLAGS = {"-4", "-6", "-A", "-a", "-C", "-q", "-T", "-t", "-tt", "-x"}
+_SAFE_SSH_FLAGS = {"-4", "-6", "-A", "-a", "-C", "-q", "-T", "-x"}
 _SAFE_SSH_VALUE_OPTIONS = {
     "-B",
     "-b",
@@ -86,6 +86,8 @@ _SSH_KNOWN_HOSTS_FILE_OPTION_KEYS = {
 }
 _WEAK_SSH_BOOLEAN_OPTION_VALUES = {"false", "no", "off"}
 _WEAK_SSH_KNOWN_HOSTS_FILE_VALUES = {"/dev/null", "none"}
+_SSH_TTY_ALLOCATING_OPTIONS = {"-t", "-tt"}
+_SSH_TTY_ALLOCATING_REQUEST_VALUES = {"auto", "force", "yes"}
 
 
 def target_client_for_config(
@@ -156,6 +158,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
                 f"{source} contains provider-loading SSH option {option!r}; "
                 "provider-loading SSH options are not allowed"
             )
+        if option in _SSH_TTY_ALLOCATING_OPTIONS:
+            raise ValueError(
+                f"{source} contains tty SSH option {option!r}; "
+                "TTY allocation is not allowed for the NDJSON agent transport"
+            )
         if option == "-o":
             if index + 1 >= len(options):
                 raise ValueError(f"{source} option '-o' requires a value")
@@ -206,6 +213,11 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
         raise ValueError(
             f"{source} contains required SSH option {key!r}; "
             "BatchMode and keepalive SSH options are managed by vllm-loader"
+        )
+    if key == "requesttty" and _ssh_option_value(value) in _SSH_TTY_ALLOCATING_REQUEST_VALUES:
+        raise ValueError(
+            f"{source} contains tty SSH option {key!r}; "
+            "TTY allocation is not allowed for the NDJSON agent transport"
         )
     _validate_ssh_host_verification_assignment(value, key=key, source=source)
 

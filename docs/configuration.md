@@ -40,6 +40,9 @@ Fields:
   `HostKeyAlgorithms`, and `KnownHostsCommand` are rejected. The configured
   `BatchMode`, `ServerAliveInterval`, and `ServerAliveCountMax` options are also
   managed by vLLM Loader and cannot be supplied through this environment hook.
+  TTY allocation options (`-t`, `-tt`, `RequestTTY=yes`) are rejected because
+  the agent transport is an NDJSON stdio stream; explicit TTY disabling (`-T` or
+  `RequestTTY=no`) is allowed.
   The configured target host and `agent connect` command cannot be replaced by
   the environment.
 
