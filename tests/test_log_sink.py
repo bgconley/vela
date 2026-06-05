@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from vllm_loader.engine.log_sink import LogSink, OSErrorByteReader, is_pty_eof
+from vllm_loader.engine.redaction import scrub_text
 
 
 def test_splits_carriage_return_and_newline_and_persists_only_committed(tmp_path: Path) -> None:
@@ -126,6 +127,16 @@ def test_generic_sk_token_scrubbing_masks_non_whitespace_suffix(tmp_path: Path) 
     assert "sk-live.secret/with-symbols?abc=123" not in joined
     assert ".secret/with-symbols" not in joined
     assert "INFO leaked •••• in output" in joined
+
+
+def test_generic_token_scrubbing_preserves_structural_delimiters() -> None:
+    assert (
+        scrub_text('{"token":"hf_live_token","api_key":"sk-live.secret/with?x=1"}')
+        == '{"token":"••••","api_key":"••••"}'
+    )
+    assert scrub_text("export HF_TOKEN=hf_shell_token; echo ok") == (
+        "export HF_TOKEN=••••; echo ok"
+    )
 
 
 def test_ansi_colored_vllm_line_is_sanitized_and_classified(tmp_path: Path) -> None:

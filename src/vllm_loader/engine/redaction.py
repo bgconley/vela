@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 MASK = "••••"
 BEARER_RE = re.compile(r"(Authorization:\s*Bearer\s+)\S+", re.IGNORECASE)
-TOKEN_RE = re.compile(r"\b(?:sk-|hf_)\S+")
+TOKEN_RE = re.compile(r"\b(?:sk-|hf_)[^\s\"'&;,\]})]+")
 
 
 def scrub_text(text: str, *, secrets: Iterable[str] = ()) -> str:
