@@ -114,6 +114,13 @@ def start_detached(
     *,
     secrets: list[str],
     run_id: str | None = None,
+    build_id: str | None = None,
+    build_label: str | None = None,
+    model_ref: str | None = None,
+    model_entry_id: str | None = None,
+    model_repo_id: str | None = None,
+    model_revision: str | None = None,
+    model_commit_sha: str | None = None,
     vllm_version: str | None = None,
     vllm_version_profile: str | None = None,
     wait_timeout: float = 5.0,
@@ -155,6 +162,13 @@ def start_detached(
         "served_model_names": [cfg.served_model_name] if cfg.served_model_name else [],
         "exposure": cfg.server.exposure.value,
         "launch_mode": cfg.launch.mode.value,
+        "build_id": build_id,
+        "build_label": build_label,
+        "model_ref": model_ref,
+        "model_entry_id": model_entry_id,
+        "model_repo_id": model_repo_id,
+        "model_revision": model_revision,
+        "model_commit_sha": model_commit_sha,
     }
     if log_rotate_bytes is not None:
         payload["log_rotate_bytes"] = log_rotate_bytes

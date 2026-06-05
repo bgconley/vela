@@ -103,6 +103,11 @@ If a PID was recycled or identity data no longer matches, the signal is refused.
 Scrubbing is unconditional and agent-side. There is no raw-log RPC, and the
 controller does not need target secrets to render logs.
 
+Sidecars carry typed build/model identity fields such as `build_id`,
+`model_ref`, `model_entry_id`, and `model_revision` so agent-side live-run
+guards do not need to infer managed resources from generic config snapshots or
+command argv. Path-bearing sidecar and manifest details remain agent-local.
+
 For shared-host hardening, set `VLLM_LOADER_AGENT_TOKEN` on both the target
 agent and the controller process. When the agent has this variable, the first
 `handshake` must include the matching capability token or the agent returns

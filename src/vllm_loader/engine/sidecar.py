@@ -75,6 +75,13 @@ class Sidecar:
     manifest_path: str
     schema_version: int = 1
     config_snapshot: dict | None = None
+    build_id: str | None = None
+    build_label: str | None = None
+    model_ref: str | None = None
+    model_entry_id: str | None = None
+    model_repo_id: str | None = None
+    model_revision: str | None = None
+    model_commit_sha: str | None = None
     vllm_version: str | None = None
     vllm_version_profile: str | None = None
     supervisor_pid: int | None = None

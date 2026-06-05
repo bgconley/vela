@@ -118,6 +118,7 @@ AGENT_CAPABILITIES = [
     "discover_detached",
     "reattach",
     "reattach_detached",
+    "typed_sidecar_resources",
     "list_builds",
     "adopt_build",
     "inspect_build",
@@ -977,6 +978,13 @@ class LocalAgent:
                 cfg,
                 build,
                 secrets=secrets,
+                build_id=_metadata_str(build.metadata.get("build_id")),
+                build_label=_metadata_str(build.metadata.get("build_label")),
+                model_ref=_metadata_str(build.metadata.get("model_ref")),
+                model_entry_id=_metadata_str(build.metadata.get("model_entry_id")),
+                model_repo_id=_metadata_str(build.metadata.get("model_repo_id")),
+                model_revision=_metadata_str(build.metadata.get("model_revision")),
+                model_commit_sha=_metadata_str(build.metadata.get("model_commit_sha")),
                 vllm_version=(
                     _metadata_str(build.metadata.get("vllm_version"))
                     or detect_vllm_version_for_config(cfg)
@@ -3523,10 +3531,14 @@ def _build_payload_aliases(build: dict[str, Any]) -> set[str]:
 
 
 def _sidecar_using_build(manifest: dict[str, Any], sidecars: list[Sidecar]) -> Sidecar | None:
+    aliases = _build_payload_aliases(manifest)
     candidates = _build_executable_path_keys(manifest)
-    if not candidates:
+    if not candidates and not aliases:
         return None
     for sidecar in sidecars:
+        sidecar_build_id = _optional_param_str(sidecar.build_id)
+        if sidecar_build_id is not None and sidecar_build_id in aliases:
+            return sidecar
         if candidates.intersection(_sidecar_executable_path_keys(sidecar)):
             return sidecar
     return None
@@ -3569,6 +3581,17 @@ def _sidecar_using_model(
 def _sidecar_matches_model(
     sidecar: Sidecar, entry: dict[str, Any], aliases: set[str]
 ) -> bool:
+    typed_refs = {
+        value
+        for value in (
+            _optional_param_str(sidecar.model_ref),
+            _optional_param_str(sidecar.model_entry_id),
+        )
+        if value is not None
+    }
+    if typed_refs.intersection(aliases):
+        return True
+
     snapshot = _dict_or_empty(sidecar.config_snapshot)
     snapshot_model_ref = _optional_param_str(snapshot.get("model_ref"))
     if snapshot_model_ref is not None and snapshot_model_ref in aliases:
@@ -3609,6 +3632,7 @@ def _sidecar_matches_hf_model(
     model_values = {
         value
         for value in (
+            _optional_param_str(sidecar.model_repo_id),
             _optional_param_str(snapshot.get("model")),
             _optional_param_str(snapshot.get("repo_id")),
             _argv_model_value(sidecar.command_argv),
@@ -3628,6 +3652,8 @@ def _sidecar_matches_hf_model(
     sidecar_revisions = {
         value
         for value in (
+            _optional_param_str(sidecar.model_commit_sha),
+            _optional_param_str(sidecar.model_revision),
             _optional_param_str(snapshot.get("revision")),
             _argv_revision_value(sidecar.command_argv),
         )
@@ -3983,19 +4009,32 @@ def _detached_summary_payload(summary: LocalDetachedRunSummary) -> dict[str, Any
 
 def _detached_run_payload(run: LocalDetachedRun) -> dict[str, Any]:
     sidecar = run.sidecar
+    sidecar_payload: dict[str, Any] = {
+        "config_name": sidecar.config_name,
+        "host": sidecar.host,
+        "port": sidecar.port,
+        "exposure": sidecar.exposure,
+        "served_model_names": list(sidecar.served_model_names),
+        "launch_mode": sidecar.launch_mode,
+        "vllm_version_profile": sidecar.vllm_version_profile,
+        "reachable_url": _reachable_url(run.config),
+    }
+    for key in (
+        "build_id",
+        "build_label",
+        "model_ref",
+        "model_entry_id",
+        "model_repo_id",
+        "model_revision",
+        "model_commit_sha",
+    ):
+        value = getattr(sidecar, key)
+        if value is not None:
+            sidecar_payload[key] = value
     return {
         "run_id": run.run_id,
         "config": run.config.model_dump(mode="json"),
-        "sidecar": {
-            "config_name": sidecar.config_name,
-            "host": sidecar.host,
-            "port": sidecar.port,
-            "exposure": sidecar.exposure,
-            "served_model_names": list(sidecar.served_model_names),
-            "launch_mode": sidecar.launch_mode,
-            "vllm_version_profile": sidecar.vllm_version_profile,
-            "reachable_url": _reachable_url(run.config),
-        },
+        "sidecar": sidecar_payload,
         "fsm": {
             "vllm_version_profile": sidecar.vllm_version_profile,
         },

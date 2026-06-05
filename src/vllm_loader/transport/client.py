@@ -25,6 +25,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "discover_runs",
     "discover_runs_no_paths",
     "reattach",
+    "typed_sidecar_resources",
     "subscribe",
     "unsubscribe",
 )
