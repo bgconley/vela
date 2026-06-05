@@ -569,6 +569,76 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
     assert error["data"] == {}
 
 
+@pytest.mark.asyncio
+async def test_stdio_agent_rejects_request_without_string_id() -> None:
+    called = False
+
+    class PingAgent:
+        def handle(self, _method: str, _params=None):
+            nonlocal called
+            called = True
+            return {"pong": True}
+
+    frames: list[dict] = []
+
+    async def write_frame(frame: dict) -> None:
+        frames.append(frame)
+
+    await _handle_frame(
+        PingAgent(),
+        {"method": "ping", "params": {}},
+        write_frame,
+        {},
+    )
+
+    assert called is False
+    assert frames == [
+        {
+            "id": None,
+            "error": {
+                "code": -32600,
+                "message": "request id must be a non-empty string",
+                "data": {},
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stdio_agent_rejects_non_object_params() -> None:
+    called = False
+
+    class PingAgent:
+        def handle(self, _method: str, _params=None):
+            nonlocal called
+            called = True
+            return {"pong": True}
+
+    frames: list[dict] = []
+
+    async def write_frame(frame: dict) -> None:
+        frames.append(frame)
+
+    await _handle_frame(
+        PingAgent(),
+        {"id": "ping-1", "method": "ping", "params": []},
+        write_frame,
+        {},
+    )
+
+    assert called is False
+    assert frames == [
+        {
+            "id": "ping-1",
+            "error": {
+                "code": -32602,
+                "message": "request params must be an object",
+                "data": {},
+            },
+        }
+    ]
+
+
 @pytest.mark.parametrize(
     ("target_error_code", "wire_code"),
     [

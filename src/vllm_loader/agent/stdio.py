@@ -81,6 +81,18 @@ async def _handle_frame(
     request_id = frame.get("id")
     method = frame.get("method")
     params = frame.get("params")
+    if not isinstance(request_id, str) or not request_id.strip():
+        await write_frame(
+            {
+                "id": request_id if isinstance(request_id, str) else None,
+                "error": rpc_error_payload(
+                    "invalid-request",
+                    "request id must be a non-empty string",
+                    {},
+                ),
+            }
+        )
+        return
     if not isinstance(method, str):
         await write_frame(
             {
@@ -88,6 +100,18 @@ async def _handle_frame(
                 "error": rpc_error_payload(
                     "invalid-request",
                     "request method is required",
+                    {},
+                ),
+            }
+        )
+        return
+    if "params" in frame and not isinstance(params, dict):
+        await write_frame(
+            {
+                "id": request_id,
+                "error": rpc_error_payload(
+                    "invalid-params",
+                    "request params must be an object",
                     {},
                 ),
             }
