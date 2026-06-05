@@ -400,6 +400,93 @@ async def test_local_agent_registry_rpc_handlers_are_thread_offloaded(
     assert calls == [handler_name]
 
 
+@pytest.mark.asyncio
+async def test_agent_update_config_flags_writes_private_atomic_tmp_file(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = write_yaml(
+        config_dir / "secret-config.yaml",
+        """
+        name: secret-config
+        model: org/model
+        server:
+          api_key: sk-config-secret
+        """,
+    )
+    tmp_modes: list[int] = []
+    original_replace = local_agent_module.os.replace
+
+    def capture_replace(src: str | Path, dst: str | Path) -> None:
+        tmp_modes.append(Path(src).stat().st_mode & 0o777)
+        original_replace(src, dst)
+
+    old_umask = os.umask(0)
+    monkeypatch.setattr(local_agent_module.os, "replace", capture_replace)
+    client = InProcessTargetClient(LocalAgent())
+    try:
+        await client.connect()
+        await client.call(
+            "update_config_flags",
+            {
+                "name": "secret-config",
+                "configs_dir": str(config_dir),
+                "engine": {"tensor_parallel_size": 2},
+            },
+        )
+    finally:
+        await client.disconnect()
+        os.umask(old_umask)
+
+    assert tmp_modes == [0o600]
+    assert config_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_build_registry_atomic_write_uses_private_tmp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "build.json"
+    tmp_modes: list[int] = []
+    original_replace = build_registry_module.os.replace
+
+    def capture_replace(src: str | Path, dst: str | Path) -> None:
+        tmp_modes.append(Path(src).stat().st_mode & 0o777)
+        original_replace(src, dst)
+
+    old_umask = os.umask(0)
+    try:
+        monkeypatch.setattr(build_registry_module.os, "replace", capture_replace)
+        build_registry_module._write_json_atomic(target, {"build_id": "01BUILD"})
+    finally:
+        os.umask(old_umask)
+
+    assert tmp_modes == [0o600]
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_model_registry_atomic_write_uses_private_tmp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "registry.json"
+    tmp_modes: list[int] = []
+    original_replace = model_registry_module.os.replace
+
+    def capture_replace(src: str | Path, dst: str | Path) -> None:
+        tmp_modes.append(Path(src).stat().st_mode & 0o777)
+        original_replace(src, dst)
+
+    old_umask = os.umask(0)
+    try:
+        monkeypatch.setattr(model_registry_module.os, "replace", capture_replace)
+        model_registry_module._write_registry_atomic(
+            target, {"schema_version": 1, "entries": []}
+        )
+    finally:
+        os.umask(old_umask)
+
+    assert tmp_modes == [0o600]
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
 def test_local_agent_handshake_downgrades_for_older_controller_protocol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

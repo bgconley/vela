@@ -310,6 +310,10 @@ def _signal_process_group(pgid: int, signal_number: int) -> None:
         os.killpg(pgid, signal_number)
     except ProcessLookupError:
         return
+    except PermissionError as exc:
+        raise TrackedProcessMismatch(
+            "permission denied signaling tracked process group"
+        ) from exc
 
 
 def _wait_process_exit(pid: int, create_time: float, timeout: float) -> bool:

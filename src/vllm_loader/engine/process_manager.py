@@ -123,7 +123,8 @@ def start_detached(
     secret_values = [secret for secret in secrets if secret]
     run_id = run_id or uuid.uuid4().hex
     run_dir = cfg.run_artifacts_dir
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    run_dir.chmod(0o700)
     log_path = run_dir / f"{run_id}.run.log"
     manifest_path = run_dir / f"{run_id}.manifest.json"
     sidecar_path = run_dir / f"{run_id}.json"

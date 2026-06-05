@@ -589,9 +589,10 @@ class LocalAgent:
                 f"updated config is invalid: {exc}",
                 {"name": name, "path": str(item.path)},
             ) from exc
-        tmp = item.path.with_name(f".{item.path.name}.tmp")
-        tmp.write_text(yaml.safe_dump(updated, sort_keys=False), encoding="utf-8")
-        os.replace(tmp, item.path)
+        _write_private_text_atomic(
+            item.path,
+            yaml.safe_dump(updated, sort_keys=False),
+        )
         payload = _valid_config_payload(ValidConfig(item.path, cfg, item.warnings))
         payload["updated"] = True
         return payload
@@ -2823,12 +2824,25 @@ def _write_build_manifest(build_dir: Path, manifest: dict[str, Any]) -> None:
     paths["root"] = str(build_dir)
     payload["paths"] = paths
     manifest["paths"] = paths
-    tmp = build_dir / ".build.json.tmp"
-    tmp.write_text(
+    _write_private_text_atomic(
+        build_dir / "build.json",
         json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="utf-8",
     )
-    os.replace(tmp, build_dir / "build.json")
+
+
+def _write_private_text_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            fd = -1
+            file.write(text)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    os.replace(tmp, path)
 
 
 def _failed_build_result(

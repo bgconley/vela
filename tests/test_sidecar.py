@@ -261,6 +261,34 @@ def test_destructive_signal_path_reverifies_before_signaling(tmp_path: Path, mon
     assert calls == [(100, 15)]
 
 
+def test_destructive_signal_treats_permission_error_as_identity_mismatch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sidecar = make_sidecar(tmp_path)
+    child = ProcessIdentity(
+        pid=100,
+        create_time=123.0,
+        pgid=100,
+        executable="/bin/vllm",
+        cmdline=sidecar.command_argv,
+    )
+    supervisor = ProcessIdentity(
+        pid=90,
+        create_time=122.0,
+        pgid=90,
+        executable="/bin/python",
+        cmdline=["python"],
+    )
+
+    def raise_permission_error(_pgid: int, _sig: int) -> None:
+        raise PermissionError("not owner")
+
+    monkeypatch.setattr(sidecar_module.os, "killpg", raise_permission_error)
+
+    with pytest.raises(TrackedProcessMismatch, match="permission"):
+        destructive_signal(sidecar, 15, child=child, supervisor=supervisor)
+
+
 def test_stop_sidecar_waits_after_final_sigkill(tmp_path: Path, monkeypatch) -> None:
     sidecar_path = tmp_path / "run.json"
     sidecar = make_sidecar(tmp_path)

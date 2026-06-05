@@ -243,6 +243,7 @@ def test_detached_launch_uses_requested_run_id(
     assert launch.sidecar_path == runs_dir / "controller-run-1.json"
     assert launch.manifest_path == runs_dir / "controller-run-1.manifest.json"
     assert launch.log_path == runs_dir / "controller-run-1.run.log"
+    assert runs_dir.stat().st_mode & 0o777 == 0o700
     assert payload["run_id"] == "controller-run-1"
     assert payload["sidecar_path"] == str(runs_dir / "controller-run-1.json")
 
