@@ -68,6 +68,12 @@ class EngineError(LoaderMessage):
 
 
 @dataclass
+class AgentError(LoaderMessage):
+    detail: str
+    fatal: bool = False
+
+
+@dataclass
 class GpuStatsUpdated(LoaderMessage):
     result: GpuPollResult
 

@@ -5,6 +5,8 @@ from typing import Any, Protocol
 
 from vllm_loader import __version__
 
+GLOBAL_EVENTS = {"agent_error"}
+
 REQUIRED_AGENT_CAPABILITIES = (
     "list_configs",
     "preview",
@@ -44,10 +46,20 @@ def subscription_event_id(event: dict[str, Any]) -> str | None:
 
 
 def event_matches_subscription(event: dict[str, Any], selected_ids: set[str]) -> bool:
+    if str(event.get("event") or "") in GLOBAL_EVENTS:
+        return True
     if not selected_ids:
         return True
     event_id = subscription_event_id(event)
     return event_id in selected_ids if event_id is not None else False
+
+
+def agent_error_event(exc: Exception, *, fatal: bool = False) -> dict[str, Any]:
+    return {
+        "event": "agent_error",
+        "detail": str(exc),
+        "fatal": fatal,
+    }
 
 
 class TargetClient(Protocol):

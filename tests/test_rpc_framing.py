@@ -351,6 +351,60 @@ async def test_subprocess_client_fails_pending_calls_on_malformed_agent_frame() 
 
 
 @pytest.mark.asyncio
+async def test_socket_client_publishes_agent_error_on_malformed_stream_event(tmp_path) -> None:
+    client = UnixSocketTargetClient(tmp_path / "agent.sock", auto_start=False)
+    reader = asyncio.StreamReader()
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    client._reader = reader
+    client._connected = True
+    client._event_subscribers["sub-1"] = ({"run-1"}, queue)
+    task = asyncio.create_task(client._read_socket())
+
+    try:
+        reader.feed_data(b"{not-json}\n")
+        event = await asyncio.wait_for(queue.get(), timeout=0.2)
+
+        assert event["event"] == "agent_error"
+        assert event["fatal"] is False
+        assert "Malformed NDJSON frame from target agent" in event["detail"]
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_subprocess_client_publishes_agent_error_on_malformed_stream_event() -> None:
+    client = SubprocessTargetClient([sys.executable, "-c", "pass"])
+    reader = asyncio.StreamReader()
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+
+    class FakeProcess:
+        stdout = reader
+        returncode = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+    client._process = FakeProcess()
+    client._connected = True
+    client._event_subscribers["sub-1"] = ({"run-1"}, queue)
+    task = asyncio.create_task(client._read_stdout())
+
+    try:
+        reader.feed_data(b"{not-json}\n")
+        event = await asyncio.wait_for(queue.get(), timeout=0.2)
+
+        assert event["event"] == "agent_error"
+        assert event["fatal"] is False
+        assert "Malformed NDJSON frame from target agent" in event["detail"]
+    finally:
+        client._disconnecting = True
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_subprocess_target_client_requires_connection() -> None:
     client = SubprocessTargetClient([sys.executable, "-c", "pass"])
 

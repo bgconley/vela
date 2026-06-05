@@ -10,6 +10,7 @@ from typing import Any
 
 from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
 from vllm_loader.transport.client import (
+    agent_error_event,
     event_matches_subscription,
     handshake_params,
 )
@@ -213,7 +214,9 @@ class SubprocessTargetClient:
                 try:
                     frame = decode_frame(line)
                 except NdjsonFrameError as exc:
-                    self._fail_pending(_agent_parse_error(exc))
+                    error = _agent_parse_error(exc)
+                    self._fail_pending(error)
+                    self._publish_event(agent_error_event(error))
                     continue
                 if "id" in frame:
                     self._resolve_response(frame)

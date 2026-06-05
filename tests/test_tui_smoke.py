@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import socket
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +26,7 @@ from vllm_loader.engine.log_sink import LogRecord
 from vllm_loader.engine.phases import ErrorKind, Phase
 from vllm_loader.engine.process_manager import start_detached
 from vllm_loader.messages import (
+    AgentError,
     EngineError,
     GpuStatsUnavailable,
     GpuStatsUpdated,
@@ -40,6 +44,53 @@ from vllm_loader.tui import app as tui_app_module
 from vllm_loader.tui.app import VllmLoaderApp
 from vllm_loader.tui.screens import config_picker as config_picker_module
 from vllm_loader.tui.screens.confirm import ConfirmScreen
+
+
+def _run_fresh_tui_import(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    subprocess_env = env.copy()
+    subprocess_env["PYTHONPATH"] = (
+        f"{repo_root / 'src'}{os.pathsep}{subprocess_env.get('PYTHONPATH', '')}"
+    )
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os\n"
+                "import vllm_loader.tui.app\n"
+                "from textual import constants\n"
+                "print(constants.COLOR_SYSTEM)\n"
+                "print(os.environ.get('TEXTUAL_COLOR_SYSTEM', ''))\n"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        env=subprocess_env,
+        text=True,
+    )
+
+
+def test_tui_import_defaults_to_truecolor_for_figma_palette() -> None:
+    env = os.environ.copy()
+    env["TERM"] = "dumb"
+    env.pop("NO_COLOR", None)
+    env.pop("TEXTUAL_COLOR_SYSTEM", None)
+
+    result = _run_fresh_tui_import(env)
+
+    assert result.stdout.splitlines() == ["truecolor", "truecolor"]
+
+
+def test_tui_import_honors_no_color_opt_out() -> None:
+    env = os.environ.copy()
+    env["TERM"] = "dumb"
+    env["NO_COLOR"] = "1"
+    env.pop("TEXTUAL_COLOR_SYSTEM", None)
+
+    result = _run_fresh_tui_import(env)
+
+    assert result.stdout.splitlines() == ["auto", ""]
 
 
 def test_wire_job_events_map_to_existing_tui_messages() -> None:
@@ -74,6 +125,22 @@ def test_wire_job_events_map_to_existing_tui_messages() -> None:
     assert isinstance(done, EngineError)
     assert done.kind is ErrorKind.CONFIG_INVALID
     assert done.detail == "download failed"
+
+
+def test_wire_agent_error_maps_to_visible_agent_message() -> None:
+    message = tui_app_module._message_from_wire_event(
+        {
+            "event": "agent_error",
+            "detail": "Malformed NDJSON frame from target agent",
+            "fatal": False,
+            "ts": "2026-06-03T00:00:00Z",
+            "mono": 1.0,
+        }
+    )
+
+    assert isinstance(message, AgentError)
+    assert message.detail == "Malformed NDJSON frame from target agent"
+    assert message.fatal is False
 
 
 class RecordingConfigAgent:

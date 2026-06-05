@@ -30,6 +30,13 @@ def test_subscription_event_matcher_accepts_job_ids() -> None:
     )
 
 
+def test_subscription_event_matcher_broadcasts_agent_errors() -> None:
+    assert event_matches_subscription(
+        {"event": "agent_error", "detail": "malformed frame", "fatal": False},
+        {"run-1"},
+    )
+
+
 def test_target_client_factory_builds_implicit_local_socket_client() -> None:
     client = _target_client_for_config()(TargetConfig(name="local"))
 

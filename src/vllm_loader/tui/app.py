@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 import time
 import uuid
@@ -11,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+
+# The canonical Figma screens depend on truecolor hex tokens. Textual reads this
+# during import, so set the default before importing any Textual modules.
+if "NO_COLOR" not in os.environ:
+    os.environ.setdefault("TEXTUAL_COLOR_SYSTEM", "truecolor")
 
 from rich.text import Text
 from textual import events
@@ -41,6 +47,7 @@ from vllm_loader.engine.profile import (
     bundled_profile,
 )
 from vllm_loader.messages import (
+    AgentError,
     EngineError,
     GpuStatsUnavailable,
     GpuStatsUpdated,
@@ -272,6 +279,7 @@ def _message_from_wire_event(
     | GpuStatsUpdated
     | GpuStatsUnavailable
     | EngineError
+    | AgentError
     | None
 ):
     kind = str(event.get("event", ""))
@@ -325,6 +333,11 @@ def _message_from_wire_event(
         return EngineError(
             _error_kind_from_agent_payload(payload.get("error_kind")),
             detail or "Job failed",
+        )
+    if kind == "agent_error":
+        return AgentError(
+            str(payload.get("detail") or "Target agent error"),
+            fatal=bool(payload.get("fatal")),
         )
     if kind == "exited" and payload.get("phase") is not None:
         return PhaseChanged(
@@ -2201,6 +2214,14 @@ class VllmLoaderApp(App):
         self.fsm.health_error(message.kind, message.detail)
         self._set_error_banner(message.kind)
         self._set_phase(self.fsm.phase)
+
+    def on_agent_error(self, message: AgentError) -> None:
+        if message.fatal:
+            self.fsm.health_error(ErrorKind.CRASHED, message.detail)
+            self._set_error_banner(ErrorKind.CRASHED)
+            self._set_phase(self.fsm.phase)
+            return
+        self._set_error_text(message.detail, style=f"bold {WARN}")
 
     def on_gpu_stats_updated(self, message: GpuStatsUpdated) -> None:
         self._render_gpu_panel(message.result)
