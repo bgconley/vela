@@ -310,6 +310,75 @@ async def test_stdio_agent_reports_parse_error_and_continues_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stdio_agent_requires_authenticated_handshake_before_other_methods(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+
+    class CaptureWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.closed = False
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def frame_with_id(writer: CaptureWriter, request_id: str) -> dict:
+        for _attempt in range(20):
+            for frame in writer.frames:
+                if frame.get("id") == request_id:
+                    return frame
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"frame {request_id!r} was not written")
+
+    reader = asyncio.StreamReader()
+    writer = CaptureWriter()
+    server = asyncio.create_task(serve_agent_stream(LocalAgent(), reader, writer))
+
+    reader.feed_data(encode_frame({"id": "ping-1", "method": "ping", "params": {}}))
+    unauthenticated = await frame_with_id(writer, "ping-1")
+    reader.feed_data(
+        encode_frame(
+            {
+                "id": "handshake-1",
+                "method": "handshake",
+                "params": {
+                    "protocol_version": 1,
+                    "capability_token": "shared-secret",
+                },
+            }
+        )
+    )
+    handshake = await frame_with_id(writer, "handshake-1")
+    reader.feed_data(encode_frame({"id": "ping-2", "method": "ping", "params": {}}))
+    authenticated = await frame_with_id(writer, "ping-2")
+
+    reader.feed_eof()
+    await asyncio.wait_for(server, timeout=2)
+
+    assert unauthenticated == {
+        "id": "ping-1",
+        "error": {
+            "code": -32017,
+            "message": "target agent requires a valid capability token",
+            "data": {"reason": "capability-token-required"},
+        },
+    }
+    assert handshake["result"]["target"] == "local"
+    assert authenticated["result"]["pong"] is True
+    assert writer.closed is True
+
+
+@pytest.mark.asyncio
 async def test_socket_client_fails_pending_calls_on_malformed_agent_frame(tmp_path) -> None:
     client = UnixSocketTargetClient(tmp_path / "agent.sock", auto_start=False)
     reader = asyncio.StreamReader()

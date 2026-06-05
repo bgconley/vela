@@ -9,6 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any, BinaryIO
 
+from vllm_loader.agent.auth import configured_agent_token
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.transport.ndjson import (
     FRAME_STREAM_LIMIT,
@@ -40,6 +41,7 @@ async def serve_agent_stream(
     frame_writer = _PrioritizedFrameWriter(writer)
     handler_tasks: set[asyncio.Task[None]] = set()
     subscription_tasks: dict[str, asyncio.Task[None]] = {}
+    auth_state = _ConnectionAuthState()
 
     async def write_frame(frame: dict[str, Any]) -> None:
         await frame_writer.write(frame)
@@ -57,7 +59,7 @@ async def serve_agent_stream(
                 )
                 continue
             task = asyncio.create_task(
-                _handle_frame(agent, frame, write_frame, subscription_tasks)
+                _handle_frame(agent, frame, write_frame, subscription_tasks, auth_state)
             )
             handler_tasks.add(task)
             task.add_done_callback(handler_tasks.discard)
@@ -77,6 +79,7 @@ async def _handle_frame(
     frame: dict[str, Any],
     write_frame,
     subscription_tasks: dict[str, asyncio.Task[None]],
+    auth_state: _ConnectionAuthState | None = None,
 ) -> None:
     request_id = frame.get("id")
     method = frame.get("method")
@@ -118,6 +121,8 @@ async def _handle_frame(
         )
         return
     try:
+        if auth_state is not None and not auth_state.authenticated and method != "handshake":
+            raise _agent_auth_required_error()
         if method == "subscribe":
             result = await _subscribe(agent, params, write_frame, subscription_tasks)
         elif method == "unsubscribe":
@@ -133,6 +138,8 @@ async def _handle_frame(
             result = agent.handle(method, params if isinstance(params, dict) else None)
             if inspect.isawaitable(result):
                 result = await result
+            if method == "handshake" and auth_state is not None:
+                auth_state.authenticated = True
         await write_frame({"id": request_id, "result": result})
     except TargetCallError as exc:
         await write_frame(
@@ -148,6 +155,19 @@ async def _handle_frame(
                 "error": rpc_error_payload("internal-error", str(exc), {}),
             }
         )
+
+
+class _ConnectionAuthState:
+    def __init__(self) -> None:
+        self.authenticated = configured_agent_token() is None
+
+
+def _agent_auth_required_error() -> TargetCallError:
+    return TargetCallError(
+        "agent-auth-required",
+        "target agent requires a valid capability token",
+        {"reason": "capability-token-required"},
+    )
 
 
 async def _subscribe(

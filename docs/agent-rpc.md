@@ -110,7 +110,8 @@ command argv. Path-bearing sidecar and manifest details remain agent-local.
 
 For shared-host hardening, set `VLLM_LOADER_AGENT_TOKEN` on both the target
 agent and the controller process. When the agent has this variable, the first
-`handshake` must include the matching capability token or the agent returns
-`agent-auth-required`. Single-user lab hosts can leave it unset; the default
-Unix-socket permissions, same-user peer check, and SSH authentication still
-apply.
+successful `handshake` on each socket/SSH stream must include the matching
+capability token. Other RPC methods on that stream return `agent-auth-required`
+until the handshake succeeds. Single-user lab hosts can leave it unset; the
+default Unix-socket permissions, same-user peer check, and SSH authentication
+still apply.
