@@ -3655,6 +3655,30 @@ def _assert_minted_build_dir(
     return builds_root / build_id
 
 
+def _write_minimal_build_manifest(build_dir: Path, build_id: str, label: str) -> None:
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": build_id,
+                "label": label,
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _assert_minted_model_entry(
     entry: dict[str, object],
     *,
@@ -4082,43 +4106,60 @@ async def test_agent_ignores_unverified_sidecar_when_removing_build(
 
 
 @pytest.mark.asyncio
-async def test_agent_refuses_to_remove_active_default_build(tmp_path: Path) -> None:
+async def test_agent_remove_active_default_build_repoints_to_remaining_ready_build(
+    tmp_path: Path,
+) -> None:
     builds_root = tmp_path / "data" / "vllm-loader" / "builds"
     build_dir = builds_root / "01ACTIVEBUILD"
-    bin_dir = build_dir / "bin"
-    bin_dir.mkdir(parents=True)
-    (bin_dir / "vllm").write_text("#!/bin/sh\n", encoding="utf-8")
-    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
-    (build_dir / "build.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "build_id": "01ACTIVEBUILD",
-                "label": "active-build",
-                "status": "ready",
-                "paths": {
-                    "root": str(build_dir),
-                    "venv": "venv",
-                    "executable": "bin/vllm",
-                    "python": "bin/python",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    fallback_dir = builds_root / "02FALLBACK"
+    _write_minimal_build_manifest(build_dir, "01ACTIVEBUILD", "active-build")
+    _write_minimal_build_manifest(fallback_dir, "02FALLBACK", "fallback-build")
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
     await client.connect()
     try:
         await client.call("select_build", {"build": "active-build"})
-        with pytest.raises(TargetCallError) as exc_info:
-            await client.call("remove_build", {"build": "active-build"})
+        removed = await client.call("remove_build", {"build": "active-build"})
+        listed = await client.call("list_builds")
     finally:
         await client.disconnect()
 
-    assert exc_info.value.code == "resource-in-use"
-    assert exc_info.value.details["reason"] == "active-build"
-    assert build_dir.exists()
+    active = json.loads((builds_root / "active.json").read_text(encoding="utf-8"))
+    assert removed["build_id"] == "01ACTIVEBUILD"
+    assert removed["removed"] is True
+    assert removed["default_build_id"] == "02FALLBACK"
+    assert removed["default_label"] == "fallback-build"
+    assert active["build_id"] == "02FALLBACK"
+    assert active["label"] == "fallback-build"
+    assert listed["default_build_id"] == "02FALLBACK"
+    assert not build_dir.exists()
+    assert fallback_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_agent_remove_only_active_default_build_clears_default(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01ACTIVEBUILD"
+    _write_minimal_build_manifest(build_dir, "01ACTIVEBUILD", "active-build")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        await client.call("select_build", {"build": "active-build"})
+        removed = await client.call("remove_build", {"build": "active-build"})
+        listed = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    assert removed["build_id"] == "01ACTIVEBUILD"
+    assert removed["removed"] is True
+    assert removed["default_build_id"] is None
+    assert removed["default_label"] is None
+    assert listed["default_build_id"] is None
+    assert not (builds_root / "active.json").exists()
+    assert not build_dir.exists()
 
 
 @pytest.mark.asyncio

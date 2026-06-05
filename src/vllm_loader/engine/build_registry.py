@@ -412,12 +412,7 @@ def _remove_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
     manifest, build_dir = _manifest_for_reference(builds_root, reference)
     with _build_lock(build_dir):
         build_id = str(manifest["build_id"])
-        if build_id == _active_build_id(builds_root):
-            raise BuildRegistryError(
-                "resource-in-use",
-                "build is the active default",
-                {"build": reference, "reason": "active-build", "build_id": build_id},
-            )
+        was_active = build_id == _active_build_id(builds_root)
         if not _is_agent_owned_build_dir(builds_root, build_dir):
             raise BuildRegistryError(
                 "invalid-config",
@@ -441,12 +436,20 @@ def _remove_build_locked(reference: str, builds_root: Path) -> dict[str, Any]:
                 },
             )
         shutil.rmtree(build_dir)
-        return {
+        payload = {
             "build_id": build_id,
             "label": str(manifest.get("label") or ""),
             "removed": True,
             "removed_path": str(build_dir),
         }
+        if was_active:
+            default_build_id, default_label = _repair_active_default_after_removal(
+                builds_root,
+                removed_build_id=build_id,
+            )
+            payload["default_build_id"] = default_build_id
+            payload["default_label"] = default_label
+        return payload
 
 
 def list_builds(root: str | Path | None = None) -> dict[str, Any]:
@@ -877,6 +880,47 @@ def _active_build_id(root: Path) -> str | None:
         return None
     build_id = data.get("build_id")
     return build_id if isinstance(build_id, str) and build_id else None
+
+
+def _repair_active_default_after_removal(
+    builds_root: Path,
+    *,
+    removed_build_id: str,
+) -> tuple[str | None, str | None]:
+    replacement = _replacement_default_build(builds_root, removed_build_id)
+    active_path = builds_root / "active.json"
+    if replacement is None:
+        with contextlib.suppress(FileNotFoundError):
+            active_path.unlink()
+        return None, None
+    payload = {
+        "schema_version": 1,
+        "build_id": str(replacement["build_id"]),
+        "label": str(replacement.get("label") or ""),
+        "updated_at": _utc_now(),
+    }
+    _write_json_atomic(active_path, payload)
+    return str(payload["build_id"]), str(payload["label"])
+
+
+def _replacement_default_build(
+    builds_root: Path,
+    removed_build_id: str,
+) -> dict[str, Any] | None:
+    for manifest_path in sorted(builds_root.glob("*/build.json")):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        build_id = manifest.get("build_id")
+        if not isinstance(build_id, str) or build_id == removed_build_id:
+            continue
+        status = str(manifest.get("status") or "unknown")
+        if status in {"ready", "adopted"}:
+            return manifest
+    return None
 
 
 def _is_agent_owned_build_dir(root: Path, build_dir: Path) -> bool:
