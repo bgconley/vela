@@ -1,5 +1,5 @@
 name: fake-child
-description: No-GPU fake child for smoke testing vLLM Loader.
+description: No-GPU fake child for smoke testing Vela.
 model: fake/model
 served_model_name: fake-model
 command:

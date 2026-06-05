@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from vllm_loader.config.schema import ModelConfig
-from vllm_loader.engine.phases import ErrorKind
-from vllm_loader.monitoring.health import HealthEvent, check_once, probe_host_for, probe_loop
+from vela.config.schema import ModelConfig
+from vela.engine.phases import ErrorKind
+from vela.monitoring.health import HealthEvent, check_once, probe_host_for, probe_loop
 
 
 @pytest.mark.asyncio

@@ -16,16 +16,16 @@ import typer
 from conftest import write_yaml
 from typer.testing import CliRunner
 
-from vllm_loader import __version__
-from vllm_loader import cli as cli_module
-from vllm_loader.cli import _enable_textual_debug_features
-from vllm_loader.config.targets import TargetConfig, TransportKind, load_targets_file
-from vllm_loader.engine import process_manager as process_manager_module
-from vllm_loader.engine import supervisor as supervisor_module
-from vllm_loader.engine.phases import Phase
-from vllm_loader.engine.sidecar import verify_sidecar_from_system
-from vllm_loader.engine.supervisor import run_supervisor
-from vllm_loader.tui.app import VllmLoaderApp
+from vela import __version__
+from vela import cli as cli_module
+from vela.cli import _enable_textual_debug_features
+from vela.config.targets import TargetConfig, TransportKind, load_targets_file
+from vela.engine import process_manager as process_manager_module
+from vela.engine import supervisor as supervisor_module
+from vela.engine.phases import Phase
+from vela.engine.sidecar import verify_sidecar_from_system
+from vela.engine.supervisor import run_supervisor
+from vela.tui.app import VelaApp
 
 
 def test_debug_mode_enables_textual_debug_and_devtools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -38,7 +38,7 @@ def test_debug_mode_enables_textual_debug_and_devtools(monkeypatch: pytest.Monke
 
 def test_cli_root_version_option_prints_version_without_launching_tui() -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "vllm_loader.cli", "--version"],
+        [sys.executable, "-m", "vela.cli", "--version"],
         capture_output=True,
         text=True,
         check=False,
@@ -71,9 +71,37 @@ def test_cli_root_target_option_launches_tui_with_target(
         def run(self) -> None:
             run_calls.append("run")
 
-    monkeypatch.setattr(cli_module, "VllmLoaderApp", FakeTui)
+    monkeypatch.setattr(cli_module, "VelaApp", FakeTui)
 
     result = CliRunner().invoke(cli_module.app, ["--target", "blackbird"])
+
+    assert result.exit_code == 0, result.output
+    assert constructed == [
+        {
+            "configs_dir": None,
+            "debug_log_path": None,
+            "target_name": "blackbird",
+        }
+    ]
+    assert run_calls == ["run"]
+
+
+def test_cli_tui_alias_launches_tui_with_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed: list[dict[str, object]] = []
+    run_calls: list[str] = []
+
+    class FakeTui:
+        def __init__(self, **kwargs) -> None:
+            constructed.append(kwargs)
+
+        def run(self) -> None:
+            run_calls.append("run")
+
+    monkeypatch.setattr(cli_module, "VelaApp", FakeTui)
+
+    result = CliRunner().invoke(cli_module.app, ["tui", "--target", "blackbird"])
 
     assert result.exit_code == 0, result.output
     assert constructed == [
@@ -2260,7 +2288,7 @@ def test_cli_targets_test_surfaces_invalid_ssh_options(
             raise KeyError(name)
 
     def fake_target_client_for_config(_target):
-        raise ValueError("VLLM_LOADER_SSH_OPTS contains positional SSH argument 'evil'")
+        raise ValueError("VELA_SSH_OPTS contains positional SSH argument 'evil'")
 
     monkeypatch.setattr(
         cli_module,
@@ -2275,7 +2303,7 @@ def test_cli_targets_test_surfaces_invalid_ssh_options(
     assert result.exit_code == 2
     assert (
         "ERROR: Unable to create target client: "
-        "VLLM_LOADER_SSH_OPTS contains positional SSH argument 'evil'"
+        "VELA_SSH_OPTS contains positional SSH argument 'evil'"
     ) in result.output
 
 
@@ -2296,25 +2324,25 @@ def test_cli_targets_add_persists_ssh_target(
             "--host",
             "bgconley@10.25.0.51",
             "--workdir",
-            "/tank/repos/lab-tui",
+            "/tank/repos/vela",
             "--venv",
-            "/tank/venvs/lab-tui",
+            "/tank/venvs/vela",
             "--ssh-opts-env",
-            "VLLM_LOADER_SSH_OPTS",
+            "VELA_SSH_OPTS",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert result.output == "added target blackbird\n"
 
-    registry = load_targets_file(tmp_path / "vllm-loader" / "targets.yaml")
+    registry = load_targets_file(tmp_path / "vela" / "targets.yaml")
     blackbird = registry.by_name("blackbird")
     assert [target.name for target in registry.targets] == ["local", "blackbird"]
     assert blackbird.transport is TransportKind.SSH
     assert blackbird.host == "bgconley@10.25.0.51"
-    assert blackbird.workdir == Path("/tank/repos/lab-tui")
-    assert blackbird.venv == Path("/tank/venvs/lab-tui")
-    assert blackbird.ssh_opts_env == "VLLM_LOADER_SSH_OPTS"
+    assert blackbird.workdir == Path("/tank/repos/vela")
+    assert blackbird.venv == Path("/tank/venvs/vela")
+    assert blackbird.ssh_opts_env == "VELA_SSH_OPTS"
 
 
 def test_cli_targets_remove_deletes_named_target(
@@ -2322,9 +2350,9 @@ def test_cli_targets_remove_deletes_named_target(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    (tmp_path / "vllm-loader").mkdir()
+    (tmp_path / "vela").mkdir()
     targets_path = write_yaml(
-        tmp_path / "vllm-loader" / "targets.yaml",
+        tmp_path / "vela" / "targets.yaml",
         """
         targets:
           blackbird:
@@ -2423,7 +2451,7 @@ def test_cli_preview_reports_unsupported_required_flags_without_traceback(
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             "preview",
             "unsupported-required-flag",
             "--configs-dir",
@@ -2456,7 +2484,7 @@ def test_cli_run_preview_prints_command_warnings_for_nonlocal_bind(config_dir: P
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             "run",
             "public-preview",
             "--preview",
@@ -2494,7 +2522,7 @@ def test_cli_run_reports_missing_executable_without_traceback(
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             "run",
             "missing-bin",
             "--configs-dir",
@@ -2545,7 +2573,7 @@ def test_cli_launch_preflight_reports_missing_local_model_without_traceback(
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             command,
             "missing-model",
             "--configs-dir",
@@ -2599,7 +2627,7 @@ def test_cli_launch_preflight_reports_tensor_parallel_mismatch_without_traceback
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             command,
             "tp-mismatch",
             "--configs-dir",
@@ -2657,7 +2685,7 @@ def test_cli_launch_preflight_reports_occupied_port_without_traceback(
             [
                 sys.executable,
                 "-m",
-                "vllm_loader.cli",
+                "vela.cli",
                 command,
                 "port-in-use",
                 "--configs-dir",
@@ -2699,7 +2727,7 @@ async def test_cli_smoke_exits_after_ready_and_stops_attached_child(
     )
 
     proc = await asyncio.create_subprocess_exec(
-        "vllm-loader",
+        "vela",
         "smoke",
         "fake",
         "--configs-dir",
@@ -2743,7 +2771,7 @@ async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             "smoke-tui",
             "fake-tui",
             "--configs-dir",
@@ -2765,7 +2793,7 @@ async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_wait_for_tui_stopped_waits_for_target_run_id(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3051,7 +3079,7 @@ def test_cli_reports_unknown_config_name_without_traceback(config_dir: Path, com
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             command,
             "missing",
             "--configs-dir",
@@ -3084,7 +3112,7 @@ def test_cli_reports_invalid_named_config_without_traceback(config_dir: Path, co
         [
             sys.executable,
             "-m",
-            "vllm_loader.cli",
+            "vela.cli",
             command,
             "bad",
             "--configs-dir",
@@ -4002,7 +4030,7 @@ async def test_cli_run_forwards_sigint_to_attached_child(config_dir: Path) -> No
         """,
     )
     proc = subprocess.Popen(
-        ["vllm-loader", "run", "fake", "--configs-dir", str(config_dir)],
+        ["vela", "run", "fake", "--configs-dir", str(config_dir)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -4037,7 +4065,7 @@ async def test_cli_run_prints_committed_fake_child_logs(config_dir: Path) -> Non
         """,
     )
     proc = await asyncio.create_subprocess_exec(
-        "vllm-loader",
+        "vela",
         "run",
         "fake",
         "--configs-dir",
@@ -4092,7 +4120,7 @@ async def test_cli_run_detached_starts_supervisor_and_writes_scrubbed_artifacts(
     )
 
     proc = await asyncio.create_subprocess_exec(
-        "vllm-loader",
+        "vela",
         "run",
         "detached",
         "--configs-dir",
@@ -4188,7 +4216,7 @@ async def test_cli_run_detached_records_detected_vllm_version(
     )
 
     proc = await asyncio.create_subprocess_exec(
-        "vllm-loader",
+        "vela",
         "run",
         "detected-version",
         "--configs-dir",

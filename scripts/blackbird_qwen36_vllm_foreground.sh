@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Foreground Docker launcher for the Blackbird Qwen3.6 27B FP8 smoke lane.
-# It translates the vLLM-style argv emitted by vllm-loader into the pinned
+# It translates the vLLM-style argv emitted by vela into the pinned
 # Docker launch shape, streams container logs, and stops the container on signal.
 
-CONTAINER="${CONTAINER:-qwen36-27b-fp8-kvfp8-rp6000-vllm-loader}"
+CONTAINER="${CONTAINER:-qwen36-27b-fp8-kvfp8-rp6000-vela}"
 IMAGE="${IMAGE:-vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046}"
 PULL_IMAGE="${PULL_IMAGE:-0}"
 ROOT="${ROOT:-/home/bgconley/models/qwen36-27b-fp8-rp6000}"
@@ -155,7 +155,7 @@ print_dry_run() {
   printf '\n'
 }
 
-if [[ "${VLLM_LOADER_BLACKBIRD_DRY_RUN:-0}" == "1" ]]; then
+if [[ "${VELA_BLACKBIRD_DRY_RUN:-0}" == "1" ]]; then
   print_dry_run
   exit 0
 fi

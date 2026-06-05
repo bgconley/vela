@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from conftest import write_yaml
 
-from vllm_loader.config.targets import (
+from vela.config.targets import (
     TargetConfig,
     TransportKind,
     load_targets_file,
@@ -32,9 +32,9 @@ def test_targets_registry_loads_ssh_targets_with_local_first(tmp_path: Path) -> 
           blackbird:
             transport: ssh
             host: bgconley@10.25.0.51
-            workdir: /tank/repos/lab-tui
-            venv: /tank/venvs/lab-tui
-            ssh_opts_env: VLLM_LOADER_SSH_OPTS
+            workdir: /tank/repos/vela
+            venv: /tank/venvs/vela
+            ssh_opts_env: VELA_SSH_OPTS
         """,
     )
 
@@ -44,9 +44,9 @@ def test_targets_registry_loads_ssh_targets_with_local_first(tmp_path: Path) -> 
     assert [target.name for target in registry.targets] == ["local", "blackbird"]
     assert blackbird.transport is TransportKind.SSH
     assert blackbird.host == "bgconley@10.25.0.51"
-    assert blackbird.workdir == Path("/tank/repos/lab-tui")
-    assert blackbird.venv == Path("/tank/venvs/lab-tui")
-    assert blackbird.ssh_opts_env == "VLLM_LOADER_SSH_OPTS"
+    assert blackbird.workdir == Path("/tank/repos/vela")
+    assert blackbird.venv == Path("/tank/venvs/vela")
+    assert blackbird.ssh_opts_env == "VELA_SSH_OPTS"
 
 
 def test_targets_registry_loads_json_targets_file(tmp_path: Path) -> None:
@@ -58,8 +58,8 @@ def test_targets_registry_loads_json_targets_file(tmp_path: Path) -> None:
                     "blackbird": {
                         "transport": "ssh",
                         "host": "bgconley@10.25.0.51",
-                        "workdir": "/tank/repos/lab-tui",
-                        "venv": "/tank/venvs/lab-tui",
+                        "workdir": "/tank/repos/vela",
+                        "venv": "/tank/venvs/vela",
                     }
                 }
             }
@@ -73,15 +73,15 @@ def test_targets_registry_loads_json_targets_file(tmp_path: Path) -> None:
     assert [target.name for target in registry.targets] == ["local", "blackbird"]
     assert blackbird.transport is TransportKind.SSH
     assert blackbird.host == "bgconley@10.25.0.51"
-    assert blackbird.workdir == Path("/tank/repos/lab-tui")
-    assert blackbird.venv == Path("/tank/venvs/lab-tui")
+    assert blackbird.workdir == Path("/tank/repos/vela")
+    assert blackbird.venv == Path("/tank/venvs/vela")
 
 
 def test_default_targets_path_falls_back_to_existing_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    path = tmp_path / "vllm-loader" / "targets.json"
+    path = tmp_path / "vela" / "targets.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -107,7 +107,7 @@ def test_default_upsert_preserves_existing_json_targets_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    path = tmp_path / "vllm-loader" / "targets.json"
+    path = tmp_path / "vela" / "targets.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"targets": {}}), encoding="utf-8")
 
@@ -123,7 +123,7 @@ def test_default_upsert_preserves_existing_json_targets_file(
     assert written == path
     assert payload["targets"]["blackbird"]["transport"] == "ssh"
     assert payload["targets"]["blackbird"]["host"] == "bgconley@10.25.0.51"
-    assert not (tmp_path / "vllm-loader" / "targets.yaml").exists()
+    assert not (tmp_path / "vela" / "targets.yaml").exists()
 
 
 def test_targets_registry_does_not_allow_overriding_implicit_local(

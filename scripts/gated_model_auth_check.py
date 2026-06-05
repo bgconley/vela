@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from vllm_loader.transport.subprocess import SubprocessTargetClient
+from vela.transport.subprocess import SubprocessTargetClient
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,10 +61,10 @@ async def _run(
     revision: str | None,
     timeout: float,
 ) -> None:
-    tmp_root = Path(tempfile.mkdtemp(prefix="vllm-loader-gated-auth-"))
+    tmp_root = Path(tempfile.mkdtemp(prefix="vela-gated-auth-"))
     job_id = f"gated-auth-{uuid.uuid4().hex}"
     client = SubprocessTargetClient(
-        [sys.executable, "-m", "vllm_loader.cli", "agent", "connect"],
+        [sys.executable, "-m", "vela.cli", "agent", "connect"],
         env=_agent_env(tmp_root),
     )
     events = None

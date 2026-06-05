@@ -1,6 +1,6 @@
 # vLLM TUI Model Loader — Canonical Specification & Implementation Plan (v2)
 
-**Binary:** `vllm-loader` · **Status:** canonical v2 — implementation-ready · **Audience:** the engineer(s) who will build and maintain it.
+**Binary:** `vela` · **Status:** canonical v2 — implementation-ready · **Audience:** the engineer(s) who will build and maintain it.
 
 > **This document supersedes and replaces** the v1 spec, the v2 delta, and the v2 rev-B corrections. It is self-contained: do not cross-reference the older layers. Where this document and any earlier layer disagree, **this document wins.**
 
@@ -109,7 +109,7 @@ Flag spellings, defaults, log strings, and enum value-sets change between releas
 
 ## 4. Functional requirements
 
-**Config** — FR-1 discover valid configs in a configs dir (default `./configs`, overridable); FR-2 validate against a typed schema, showing field-level errors for invalid configs without crashing; FR-3 render the exact resolved command + env (secrets masked) before launch; FR-4 launch from a config named on the CLI (`vllm-loader run <name>`).
+**Config** — FR-1 discover valid configs in a configs dir (default `./configs`, overridable); FR-2 validate against a typed schema, showing field-level errors for invalid configs without crashing; FR-3 render the exact resolved command + env (secrets masked) before launch; FR-4 launch from a config named on the CLI (`vela run <name>`).
 
 **Launch & lifecycle** — FR-5 launch vLLM as a child via the resolved command/env/cwd; FR-6 stop (SIGINT→SIGTERM→SIGKILL to the process group), force-kill (immediate SIGKILL), restart (stop then start same config); FR-7 optional **detached** launch surviving TUI exit, with reattach; FR-8 on quit while a server runs in **attached** mode, prompt Stop / Cancel (no runtime detach).
 
@@ -407,7 +407,7 @@ The supervisor **atomically updates the manifest on rotation** (write temp + ren
 ### 8.1 Layout (wide terminal)
 
 ```
-┌ vLLM Loader ─────────────────  llama-3.1-70b  ●READY  http://127.0.0.1:8000  12:42:07 ┐
+┌ Vela ─────────────────  llama-3.1-70b  ●READY  http://127.0.0.1:8000  12:42:07 ┐
 │┌ Configs ───────────┐┌ Logs ──────────────────────────────────────────────────────┐│
 ││▸ llama-3.1-70b-awq ││ INFO  12:41:18 Loading weights took 14.30 seconds            ││
 ││  mistral-7b-fp8    ││ INFO  12:41:25 GPU KV cache size: 372,160 tokens             ││
@@ -461,15 +461,15 @@ TCSS dark theme, one accent, generous spacing. Status colors paired with icons/w
 
 ## 9. Technology stack
 
-Python 3.10+ (3.11/3.12 rec.); **textual** (+ **rich** transitively); **pydantic** v2; **PyYAML**; **httpx** (async probes); **nvidia-ml-py** (`pynvml`); **psutil** (process identity incl. `create_time()`, fallbacks); **typer** (CLI: `run`/`list`/`preview`/`version`); optional `tomllib`, `watchfiles`. `vllm` is the **child target**, not imported by the TUI (so it installs on non-CUDA machines). Tooling: `pyproject.toml` console-script `vllm-loader`; uv/pip; ruff; pytest + pytest-asyncio. Pin exact versions after testing against the lab’s vLLM build.
+Python 3.10+ (3.11/3.12 rec.); **textual** (+ **rich** transitively); **pydantic** v2; **PyYAML**; **httpx** (async probes); **nvidia-ml-py** (`pynvml`); **psutil** (process identity incl. `create_time()`, fallbacks); **typer** (CLI: `run`/`list`/`preview`/`version`); optional `tomllib`, `watchfiles`. `vllm` is the **child target**, not imported by the TUI (so it installs on non-CUDA machines). Tooling: `pyproject.toml` console-script `vela`; uv/pip; ruff; pytest + pytest-asyncio. Pin exact versions after testing against the lab’s vLLM build.
 
 ## 10. Project structure
 
 ```
-vllm-loader/
+vela/
 ├── pyproject.toml · README.md
 ├── configs/                       # example configs (127.0.0.1, exposure, version_profile)
-├── src/vllm_loader/
+├── src/vela/
 │   ├── cli.py · messages.py
 │   ├── config/ { schema.py, loader.py, registry.py }
 │   ├── engine/ { profile.py, command_builder.py, process_manager.py,
@@ -548,13 +548,13 @@ Unit (no terminal/GPU): `test_command_builder` (exact argv/env; masked secrets; 
 
 ## 14. Packaging, distribution & ops
 
-`pip install .` → `vllm-loader` (+ `run`/`list`/`preview`/`--version`). Config discovery: `--configs-dir` › `VLLM_LOADER_CONFIGS` › `./configs` › `~/.config/vllm-loader/configs`. Run artifacts (logs `0600`, sidecars, manifests) under `~/.local/state/vllm-loader/runs/`. Remote: run over SSH on the GPU host, or `textual serve` for browser access **gated behind your network/auth** (it controls model launches). Document the tested vLLM version range; add log fixtures + a `VllmProfile` on each bump.
+`pip install .` → `vela` (+ `run`/`list`/`preview`/`--version`). Config discovery: `--configs-dir` › `VELA_CONFIGS` › `./configs` › `~/.config/vela/configs`. Run artifacts (logs `0600`, sidecars, manifests) under `~/.local/state/vela/runs/`. Remote: run over SSH on the GPU host, or `textual serve` for browser access **gated behind your network/auth** (it controls model launches). Document the tested vLLM version range; add log fixtures + a `VllmProfile` on each bump.
 
 ## 15. Implementation plan (~1 week MVP / ~2–3 weeks polished v1)
 
 Phases are independently demoable. Estimates assume one engineer fluent in async Python.
 
-- **P0 Scaffolding & config (~0.5–1d):** pyproject, package skeleton, ruff/pytest, CLI stub; `config/schema.py` (unset-default pass-through; open enums), loader/registry; `vllm-loader list`/`preview`. *Done when:* lists valid configs, flags invalid ones, prints a correct resolved command.
+- **P0 Scaffolding & config (~0.5–1d):** pyproject, package skeleton, ruff/pytest, CLI stub; `config/schema.py` (unset-default pass-through; open enums), loader/registry; `vela list`/`preview`. *Done when:* lists valid configs, flags invalid ones, prints a correct resolved command.
 - **P1 Profile + command builder (~1d):** `VllmProfile` (detect version, cache `--help`, defaults table, soft validation); builder incl. the version-aware flag-emission rule and model-ref rule. *Done when:* `test_command_builder` + `test_request_logging_policy` green.
 - **P2 Process + PTY + scrubbing sink (~1.5–2d):** attached PTY launch (close-slave, fixed width, EIO), `log_sink.py` (incremental decode-then-split, scrub, bounded buffer, tee to `0600` file), stop/restart, exit detection. *Done when:* launches `vllm serve` (or fake child), streams scrubbed lines to UI+file, renders `\r` progress, stops gracefully; `test_log_sink` green.
 - **P3 Phase FSM + errors (~1d):** `phases.py` (packs from profile), `errors.py`; capture real vLLM fixtures. *Done when:* `test_phases` reproduces the success walk + OOM/port/HF-auth classifications.

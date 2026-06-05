@@ -19,6 +19,6 @@ launch:
   ready_timeout_seconds: 300
   health:
     interval_seconds: 1
-  runs_dir: /home/bgconley/models/tiny-random-llama/vllm-loader-runs
+  runs_dir: /home/bgconley/models/tiny-random-llama/vela-runs
 vllm:
   version_profile: "0.11"

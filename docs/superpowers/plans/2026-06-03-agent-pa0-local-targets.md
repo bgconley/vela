@@ -21,7 +21,7 @@ Begin the agent/controller refactor by making local execution use the same targe
 ## Implementation Steps
 
 1. Extend `ModelConfig` with `target: str | None = None`.
-2. Add `vllm_loader.config.targets` with `TransportKind`, `TargetConfig`, `TargetsRegistry`, `default_targets_path`, and `load_targets_file`.
+2. Add `vela.config.targets` with `TransportKind`, `TargetConfig`, `TargetsRegistry`, `default_targets_path`, and `load_targets_file`.
 3. Validate SSH targets require `host`.
 4. Keep error handling strict for malformed target files so later UI/CLI layers can surface named failures cleanly.
 

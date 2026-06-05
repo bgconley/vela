@@ -10,19 +10,19 @@ from pathlib import Path
 
 import pytest
 
-from vllm_loader.agent.local import LocalAgent
-from vllm_loader.transport.subprocess import SubprocessTargetClient
+from vela.agent.local import LocalAgent
+from vela.transport.subprocess import SubprocessTargetClient
 
 
 def _short_socket_path() -> Path:
-    return Path("/tmp") / f"vllm-loader-daemon-{uuid.uuid4().hex}" / "agent.sock"
+    return Path("/tmp") / f"vela-daemon-{uuid.uuid4().hex}" / "agent.sock"
 
 
 def _agent_connect_socket_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "connect",
         "--socket",
@@ -34,7 +34,7 @@ def _agent_run_socket_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "run",
         "--socket",
@@ -54,7 +54,7 @@ def _agent_start_json_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "start",
         "--socket",
@@ -67,7 +67,7 @@ def _agent_status_json_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "status",
         "--socket",
@@ -80,7 +80,7 @@ def _agent_stop_json_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "stop",
         "--socket",
@@ -93,7 +93,7 @@ def _agent_restart_json_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "restart",
         "--socket",
@@ -104,17 +104,17 @@ def _agent_restart_json_command(socket_path: Path) -> list[str]:
 
 def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:
     service_path = Path(__file__).parents[1] / "packaging" / "systemd" / (
-        "vllm-loader-agent.service"
+        "vela-agent.service"
     )
 
     service = service_path.read_text(encoding="utf-8")
 
     assert "[Unit]" in service
-    assert "Description=vLLM Loader target agent daemon" in service
+    assert "Description=Vela target agent daemon" in service
     assert "After=network.target" not in service
     assert "[Service]" in service
     assert "Type=simple" in service
-    assert "ExecStart=vllm-loader agent run" in service
+    assert "ExecStart=vela agent run" in service
     assert "Restart=on-failure" in service
     assert "[Install]" in service
     assert "WantedBy=default.target" in service
@@ -122,7 +122,7 @@ def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
+    from vela.agent.daemon import agent_identity_path, start_agent_daemon
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -157,7 +157,7 @@ async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_status_reports_running_daemon_identity() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
+    from vela.agent.daemon import agent_identity_path, start_agent_daemon
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -198,7 +198,7 @@ async def test_agent_status_reports_missing_daemon_identity() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_status_rejects_live_identity_when_socket_is_missing() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, start_agent_daemon
+    from vela.agent.daemon import agent_identity_path, start_agent_daemon
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -226,7 +226,7 @@ async def test_agent_status_rejects_live_identity_when_socket_is_missing() -> No
 
 @pytest.mark.asyncio
 async def test_agent_start_spawns_detached_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path
+    from vela.agent.daemon import agent_identity_path
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -255,7 +255,7 @@ async def test_agent_start_spawns_detached_socket_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_restart_replaces_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path
+    from vela.agent.daemon import agent_identity_path
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -288,7 +288,7 @@ async def test_agent_restart_replaces_socket_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_connect_auto_starts_missing_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path
+    from vela.agent.daemon import agent_identity_path
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -313,8 +313,8 @@ async def test_agent_connect_auto_starts_missing_socket_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_connect_auto_starts_refused_stale_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
-    from vllm_loader.agent.socket import serve_unix_socket_agent
+    from vela.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vela.agent.socket import serve_unix_socket_agent
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -340,7 +340,7 @@ async def test_agent_connect_auto_starts_refused_stale_socket_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_stop_terminates_foreground_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path
+    from vela.agent.daemon import agent_identity_path
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -372,7 +372,7 @@ async def test_agent_stop_terminates_foreground_socket_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_run_foreground_command_serves_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path
+    from vela.agent.daemon import agent_identity_path
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -402,7 +402,7 @@ async def test_agent_run_foreground_command_serves_socket_daemon() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_run_foreground_command_exits_after_idle_timeout() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path
+    from vela.agent.daemon import agent_identity_path
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)

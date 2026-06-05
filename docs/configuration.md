@@ -7,7 +7,7 @@ vLLM.
 
 ## Target Registry
 
-Targets live on the controller in `~/.config/vllm-loader/targets.yaml`.
+Targets live on the controller in `~/.config/vela/targets.yaml`.
 `local` is implicit and cannot be removed.
 
 ```yaml
@@ -15,8 +15,8 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/lab-tui
-    venv: /home/bgconley/venvs/lab-tui
+    workdir: /home/bgconley/repos/vela
+    venv: /home/bgconley/venvs/vela
     local_transport: socket
 ```
 
@@ -24,7 +24,7 @@ Fields:
 
 - `transport`: `local` or `ssh`.
 - `host`: SSH host for remote targets.
-- `workdir`: remote directory used before starting `vllm-loader agent connect`.
+- `workdir`: remote directory used before starting `vela agent connect`.
 - `venv`: remote venv whose `bin` directory is prepended to `PATH`.
 - `local_transport`: `socket` for the daemon path or `inprocess` for tests.
 - `ssh_opts_env`: optional environment variable containing SSH options. It may
@@ -41,13 +41,13 @@ Fields:
   such as `StrictHostKeyChecking=no`, `CheckHostIP=no`, null known-hosts files,
   `HostKeyAlgorithms`, and `KnownHostsCommand` are rejected. The configured
   `BatchMode`, `ServerAliveInterval`, and `ServerAliveCountMax` options are also
-  managed by vLLM Loader and cannot be supplied through this environment hook.
+  managed by Vela and cannot be supplied through this environment hook.
   TTY allocation options (`-t`, `-tt`, `RequestTTY=yes`) are rejected because
   the agent transport is an NDJSON stdio stream; explicit TTY disabling (`-T` or
   `RequestTTY=no`) is allowed. Stdio/session suppression options
   (`ForkAfterAuthentication=yes`, `SessionType=none`, `StdinNull=yes`) are also
   rejected because they detach, omit, or starve the agent RPC stream.
-  vLLM Loader also adds `-a` to the generated SSH command so agent forwarding
+  Vela also adds `-a` to the generated SSH command so agent forwarding
   stays disabled even when a user's SSH config enables it by default.
   The configured target host and `agent connect` command cannot be replaced by
   the environment.
@@ -57,9 +57,9 @@ Fields:
 Config discovery runs agent-side in this order:
 
 1. `--configs-dir`
-2. `VLLM_LOADER_CONFIGS`
+2. `VELA_CONFIGS`
 3. `./configs`
-4. `~/.config/vllm-loader/configs`
+4. `~/.config/vela/configs`
 
 ## Config Fields
 
@@ -144,37 +144,37 @@ control layer before exposing the server beyond the target host.
 ## Agent Daemon
 
 For local-controller targets, `local_transport: socket` uses a Unix socket
-daemon. `vllm-loader agent connect` auto-starts that daemon when the configured
+daemon. `vela agent connect` auto-starts that daemon when the configured
 socket is missing or stale, then bridges stdio to the socket.
 
 Default paths:
 
-- Socket: `$XDG_RUNTIME_DIR/vllm-loader/agent.sock` when `XDG_RUNTIME_DIR` is
+- Socket: `$XDG_RUNTIME_DIR/vela/agent.sock` when `XDG_RUNTIME_DIR` is
   set.
-- Fallback socket: `~/.local/state/vllm-loader/agent.sock`.
+- Fallback socket: `~/.local/state/vela/agent.sock`.
 - Identity file: `agent.json` beside the socket.
 
 Operator commands:
 
 ```bash
-vllm-loader agent start
-vllm-loader agent status
-vllm-loader agent restart
-vllm-loader agent stop
+vela agent start
+vela agent status
+vela agent restart
+vela agent stop
 ```
 
 Each command accepts `--socket PATH` to manage a non-default daemon. To run the
 daemon in the foreground, use:
 
 ```bash
-vllm-loader agent run
+vela agent run
 ```
 
 A user-service template is available at
-`packaging/systemd/vllm-loader-agent.service`. Install it under
+`packaging/systemd/vela-agent.service`. Install it under
 `~/.config/systemd/user/`, then enable it with:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now vllm-loader-agent.service
+systemctl --user enable --now vela-agent.service
 ```

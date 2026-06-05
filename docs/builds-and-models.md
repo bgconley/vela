@@ -21,20 +21,20 @@ not copy weights into an app-owned tree by default.
 Examples:
 
 ```bash
-vllm-loader build add --target blackbird --method pip --spec 'vllm==0.11.2' --label stable-0112
-vllm-loader build add --target blackbird --method nightly --channel cu130 --label nightly-cu130
-vllm-loader build add --target blackbird --method git --url https://github.com/vllm-project/vllm.git --ref main
-vllm-loader build adopt /agent/venvs/vllm-nightly --target blackbird --label adopted-nightly
-vllm-loader build select stable-0112 --target blackbird
+vela build add --target blackbird --method pip --spec 'vllm==0.11.2' --label stable-0112
+vela build add --target blackbird --method nightly --channel cu130 --label nightly-cu130
+vela build add --target blackbird --method git --url https://github.com/vllm-project/vllm.git --ref main
+vela build adopt /agent/venvs/vllm-nightly --target blackbird --label adopted-nightly
+vela build select stable-0112 --target blackbird
 ```
 
 Operational commands:
 
 ```bash
-vllm-loader build verify stable-0112 --target blackbird
-vllm-loader build repair stable-0112 --target blackbird
-vllm-loader build run stable-0112 --target blackbird -- python -c 'import vllm; print(vllm.__version__)'
-vllm-loader build adopt /agent/venvs/vllm-nightly --target blackbird --label copied-nightly --copy
+vela build verify stable-0112 --target blackbird
+vela build repair stable-0112 --target blackbird
+vela build run stable-0112 --target blackbird -- python -c 'import vllm; print(vllm.__version__)'
+vela build adopt /agent/venvs/vllm-nightly --target blackbird --label copied-nightly --copy
 ```
 
 `build run` executes the command through the selected target agent with the
@@ -63,15 +63,15 @@ The model registry indexes:
 Examples:
 
 ```bash
-vllm-loader model pin tiny-llama \
+vela model pin tiny-llama \
   --target blackbird \
   --repo-id hf-internal-testing/tiny-random-LlamaForCausalLM \
   --revision main
-vllm-loader model download tiny-llama --target blackbird
-vllm-loader model download tiny-llama --target blackbird --json
-vllm-loader model verify tiny-llama --target blackbird
-vllm-loader model verify tiny-llama --target blackbird --deep
-vllm-loader model remove tiny-llama --target blackbird
+vela model download tiny-llama --target blackbird
+vela model download tiny-llama --target blackbird --json
+vela model verify tiny-llama --target blackbird
+vela model verify tiny-llama --target blackbird --deep
+vela model remove tiny-llama --target blackbird
 ```
 
 For gated repos, accept the license upstream and set `HF_TOKEN` on the target

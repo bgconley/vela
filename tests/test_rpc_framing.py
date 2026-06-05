@@ -8,38 +8,38 @@ from types import SimpleNamespace
 
 import pytest
 
-from vllm_loader.agent import socket as agent_socket_module
-from vllm_loader.agent import stdio as agent_stdio_module
-from vllm_loader.agent.auth import generate_agent_token
-from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.agent.stdio import (
+from vela.agent import socket as agent_socket_module
+from vela.agent import stdio as agent_stdio_module
+from vela.agent.auth import generate_agent_token
+from vela.agent.local import LocalAgent, TargetCallError
+from vela.agent.stdio import (
     _ConnectionAuthState,
     _handle_frame,
     _PrioritizedFrameWriter,
     serve_agent_stream,
 )
-from vllm_loader.monitoring.gpu import GpuPollResult
-from vllm_loader.transport import socket as socket_transport_module
-from vllm_loader.transport import subprocess as subprocess_transport_module
-from vllm_loader.transport.ndjson import (
+from vela.monitoring.gpu import GpuPollResult
+from vela.transport import socket as socket_transport_module
+from vela.transport import subprocess as subprocess_transport_module
+from vela.transport.ndjson import (
     FRAME_STREAM_LIMIT,
     MAX_FRAME_BYTES,
     NdjsonFrameError,
     decode_frame,
     encode_frame,
 )
-from vllm_loader.transport.rpc_errors import (
+from vela.transport.rpc_errors import (
     rpc_error_payload,
     target_call_error_from_rpc_payload,
 )
-from vllm_loader.transport.socket import UnixSocketTargetClient
-from vllm_loader.transport.socket import (
+from vela.transport.socket import UnixSocketTargetClient
+from vela.transport.socket import (
     _target_call_error_from_payload as socket_error_from_payload,
 )
-from vllm_loader.transport.subprocess import (
+from vela.transport.subprocess import (
     SubprocessTargetClient,
 )
-from vllm_loader.transport.subprocess import (
+from vela.transport.subprocess import (
     _target_call_error_from_payload as subprocess_error_from_payload,
 )
 
@@ -448,7 +448,7 @@ async def test_stdio_agent_requires_authenticated_handshake_before_other_methods
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     token = generate_agent_token()
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
+    monkeypatch.setenv("VELA_AGENT_TOKEN", token)
 
     class CaptureWriter:
         def __init__(self) -> None:
@@ -523,7 +523,7 @@ def test_stdio_frame_handler_requires_explicit_auth_state() -> None:
 async def test_stdio_frame_handler_auth_state_blocks_direct_unauthenticated_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", generate_agent_token())
+    monkeypatch.setenv("VELA_AGENT_TOKEN", generate_agent_token())
     called = False
 
     class PingAgent:
@@ -682,13 +682,13 @@ async def test_subprocess_target_client_requires_connection() -> None:
 
 @pytest.mark.asyncio
 async def test_subprocess_target_client_reports_command_startup_failure() -> None:
-    client = SubprocessTargetClient(["definitely-missing-vllm-loader-agent"])
+    client = SubprocessTargetClient(["definitely-missing-vela-agent"])
 
     with pytest.raises(TargetCallError) as exc_info:
         await client.connect()
 
     assert exc_info.value.code == "agent-unreachable"
-    assert "definitely-missing-vllm-loader-agent" in exc_info.value.message
+    assert "definitely-missing-vela-agent" in exc_info.value.message
 
 
 @pytest.mark.asyncio
@@ -735,7 +735,7 @@ async def test_subprocess_target_client_reports_remote_agent_command_not_found()
             "-c",
             (
                 "import sys; "
-                "sys.stderr.write('bash: vllm-loader: command not found\\n'); "
+                "sys.stderr.write('bash: vela: command not found\\n'); "
                 "sys.stderr.flush(); "
                 "sys.exit(127)"
             ),
@@ -748,7 +748,7 @@ async def test_subprocess_target_client_reports_remote_agent_command_not_found()
     assert exc_info.value.code == "command-not-found"
     assert "Target agent command not found" in exc_info.value.message
     assert exc_info.value.details["exit_code"] == 127
-    assert exc_info.value.details["command"] == "vllm-loader"
+    assert exc_info.value.details["command"] == "vela"
     assert "command not found" in exc_info.value.details["stderr"]
 
 

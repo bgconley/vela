@@ -9,7 +9,7 @@ Usage:
 Copies this Mac working tree to a GPU box for real runtime tests.
 
 Example:
-  scripts/rsync_to_gpu.sh blackbird:/srv/lab-tui
+  scripts/rsync_to_gpu.sh blackbird:/srv/vela
 
 Notes:
   - The destination must include a colon, using normal rsync SSH syntax.
@@ -31,8 +31,8 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rsync_cmd=(rsync -az --delete)
-if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
-  rsync_cmd+=(--rsh "ssh ${VLLM_LOADER_SSH_OPTS}")
+if [[ -n "${VELA_SSH_OPTS:-}" ]]; then
+  rsync_cmd+=(--rsh "ssh ${VELA_SSH_OPTS}")
 fi
 
 "${rsync_cmd[@]}" \

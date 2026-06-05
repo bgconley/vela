@@ -27,6 +27,6 @@ launch:
   ready_timeout_seconds: 1800
   health:
     interval_seconds: 2
-  runs_dir: /tank/repos/lab-tui/runs
+  runs_dir: /tank/repos/vela/runs
 vllm:
   version_profile: "0.11"

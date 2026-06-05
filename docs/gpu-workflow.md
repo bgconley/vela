@@ -22,30 +22,30 @@ the GPU host. Do not put `HF_TOKEN` or API keys in example configs.
 If the GPU host needs a specific SSH key or options, set them for validation:
 
 ```bash
-export VLLM_LOADER_SSH_OPTS="-i /path/to/gpu_key"
+export VELA_SSH_OPTS="-i /path/to/gpu_key"
 ```
 
 When the same environment variable is referenced by a target registry
-`ssh_opts_env`, vLLM Loader manages `BatchMode` and keepalive options itself.
+`ssh_opts_env`, Vela manages `BatchMode` and keepalive options itself.
 
 ## 2. Run remote validation
 
 No-GPU-safe validation on the GPU host:
 
 ```bash
-scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
 This installs the editable package, prints host/GPU/vLLM diagnostics, runs
 Ruff/pytest, and checks the fake config preview path.
 
 The remote script creates or reuses a persistent ZFS-backed validation
-environment at `/tank/venvs/lab-tui` by default, then installs this package into
+environment at `/tank/venvs/vela` by default, then installs this package into
 that venv. Override the venv path only when the host has a different ZFS layout:
 
 ```bash
-VLLM_LOADER_REMOTE_VENV=/tank/venvs/custom-lab-tui \
-  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+VELA_REMOTE_VENV=/tank/venvs/custom-vela \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
 The venv is created with `/tank/preproc/venv/bin/python` when that seed
@@ -53,39 +53,39 @@ interpreter exists, otherwise `python3`, then `python`. Override the seed
 interpreter when the GPU box needs a specific venv-capable Python:
 
 ```bash
-VLLM_LOADER_REMOTE_PYTHON=/path/to/venv/bin/python \
-  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+VELA_REMOTE_PYTHON=/path/to/venv/bin/python \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
 That interpreter must be able to create a pip-enabled venv; otherwise install
-`python3-venv`/`ensurepip` support or point `VLLM_LOADER_REMOTE_PYTHON` at a
+`python3-venv`/`ensurepip` support or point `VELA_REMOTE_PYTHON` at a
 prepared environment.
 
 Real vLLM validation with a named config already present in the committed
 `configs/` directory or the host's configured config directory:
 
 ```bash
-scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
+scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela my-real-config
 ```
 
 Real managed-artifact validation is opt-in so the default remote run stays safe
 and reasonably fast. To exercise the build installer, provide a pip spec; the
-script runs `vllm-loader build add` followed by `build verify` on the GPU host:
+script runs `vela build add` followed by `build verify` on the GPU host:
 
 ```bash
-VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==0.11.2' \
-VLLM_LOADER_REMOTE_BUILD_LABEL=real-build-smoke \
-  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+VELA_REMOTE_BUILD_SPEC='vllm==0.11.2' \
+VELA_REMOTE_BUILD_LABEL=real-build-smoke \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
 To exercise the model download path, pin a small Hugging Face repo and download
 it through the agent. Keep `HF_TOKEN` on the GPU host if the repo is gated:
 
 ```bash
-VLLM_LOADER_REMOTE_MODEL_ID=real-model-smoke \
-VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
-VLLM_LOADER_REMOTE_MODEL_REVISION=main \
-  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+VELA_REMOTE_MODEL_ID=real-model-smoke \
+VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VELA_REMOTE_MODEL_REVISION=main \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
 To exercise the real gated/auth path without downloading a gated model, set a
@@ -95,10 +95,10 @@ agent on the validation host with `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, an empty
 `download_model` job to end with `gated-auth` and print `GATED_MODEL_AUTH_OK`:
 
 ```bash
-VLLM_LOADER_REMOTE_GATED_MODEL_REPO=meta-llama/Llama-2-7b-hf \
-VLLM_LOADER_REMOTE_GATED_MODEL_ID=gated-llama-auth \
-VLLM_LOADER_REMOTE_GATED_MODEL_REVISION=main \
-  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui
+VELA_REMOTE_GATED_MODEL_REPO=meta-llama/Llama-2-7b-hf \
+VELA_REMOTE_GATED_MODEL_ID=gated-llama-auth \
+VELA_REMOTE_GATED_MODEL_REVISION=main \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
 These knobs can be combined with the real config smoke. In that case the script
@@ -106,21 +106,21 @@ first runs no-GPU checks, then the optional build/model/gated-auth artifact
 jobs, then `preview` + `smoke-tui` for the named config.
 
 On a busy controller host where the full no-GPU suite can conflict with local
-services, use `VLLM_LOADER_REMOTE_PYTEST_ARGS` to run a narrower proof slice
+services, use `VELA_REMOTE_PYTEST_ARGS` to run a narrower proof slice
 before the real target operations:
 
 ```bash
-VLLM_LOADER_REMOTE_PYTEST_ARGS="-q tests/test_remote_workflow.py" \
-  scripts/run_remote_tests.sh USER@CONTROLLER /home/user/repos/lab-tui
+VELA_REMOTE_PYTEST_ARGS="-q tests/test_remote_workflow.py" \
+  scripts/run_remote_tests.sh USER@CONTROLLER /home/user/repos/vela
 ```
 
 When the validation host is a controller that should drive a different target
-agent, set `VLLM_LOADER_REMOTE_TARGET`. The script passes `--target` to the
+agent, set `VELA_REMOTE_TARGET`. The script passes `--target` to the
 build/model jobs and the real-config preview/smoke commands:
 
 ```bash
-VLLM_LOADER_REMOTE_TARGET=blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
+VELA_REMOTE_TARGET=blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
@@ -130,13 +130,13 @@ commit, target host/path, optional build/model/config knobs, full remote output,
 and final exit status in a fresh Markdown file:
 
 ```bash
-VLLM_LOADER_REMOTE_ARTIFACT=1 \
-VLLM_LOADER_REMOTE_ARTIFACT_DIR=artifacts/remote-validation \
-VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==0.11.2' \
-VLLM_LOADER_REMOTE_MODEL_ID=real-model-smoke \
-VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
-VLLM_LOADER_REMOTE_MODEL_REVISION=main \
-  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
+VELA_REMOTE_ARTIFACT=1 \
+VELA_REMOTE_ARTIFACT_DIR=artifacts/remote-validation \
+VELA_REMOTE_BUILD_SPEC='vllm==0.11.2' \
+VELA_REMOTE_MODEL_ID=real-model-smoke \
+VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VELA_REMOTE_MODEL_REVISION=main \
+  scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela my-real-config
 ```
 
 The same lane is available as the GitHub Actions workflow `Remote Validation`.
@@ -146,16 +146,16 @@ supports manual dispatch and a nightly schedule on a self-hosted runner. It has
 a concurrency group so the validation lane does not double-book the Blackwell.
 Use the `full` profile for Qwen smoke plus real resume/restart validation, and
 the `fast` profile for build/model proof without the long Qwen/resume pass. If
-the runner needs a private key, store it as the `VLLM_LOADER_REMOTE_SSH_KEY`
+the runner needs a private key, store it as the `VELA_REMOTE_SSH_KEY`
 secret. Keep this workflow restricted to trusted branches/tags/manual use; do
 not run untrusted fork PR code on a GPU host with lab-network access. The
 workflow also accepts `gated_model_repo`, `gated_model_id`, and
 `gated_model_revision` inputs, or the matching
-`VLLM_LOADER_REMOTE_GATED_MODEL_REPO` repo variable family, for the no-token
+`VELA_REMOTE_GATED_MODEL_REPO` repo variable family, for the no-token
 gated auth probe.
 
 To cover the final real-model reconnect surface, set
-`VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake detached config. The
+`VELA_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake detached config. The
 default workflow uses `tiny-random-llama-detached-blackbird`, which launches the
 tiny HF Llama model through the just-installed build and downloaded model
 registry entry. The script launches that config through the selected target,
@@ -164,14 +164,14 @@ model is still live, rediscovers and reattaches the run, verifies health, then
 stops it:
 
 ```bash
-VLLM_LOADER_REMOTE_TARGET=blackbird \
-VLLM_LOADER_REMOTE_BUILD_SPEC=vllm==0.11.2 \
-VLLM_LOADER_REMOTE_BUILD_LABEL=p620-target-vllm-0112 \
-VLLM_LOADER_REMOTE_MODEL_ID=p620-target-tiny-llama \
-VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
-VLLM_LOADER_REMOTE_MODEL_REVISION=main \
-VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui
+VELA_REMOTE_TARGET=blackbird \
+VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
+VELA_REMOTE_BUILD_LABEL=p620-target-vllm-0112 \
+VELA_REMOTE_MODEL_ID=p620-target-tiny-llama \
+VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VELA_REMOTE_MODEL_REVISION=main \
+VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela
 ```
 
 Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
@@ -180,22 +180,22 @@ controller host is `620-01` (`10.25.0.50`), and the GPU/agent target is
 Qwen3.6 27B FP8. If running the helper from a Mac that does not have the shared
 lab key installed on P620, SSH agent forwarding may be used only for the outer
 Mac-to-P620 shell session. Do not put `-A` or `ForwardAgent=yes` in a target's
-`ssh_opts_env`; vLLM Loader disables agent forwarding for the controller-to-agent
+`ssh_opts_env`; Vela disables agent forwarding for the controller-to-agent
 NDJSON transport.
 
 ```bash
-VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
-VLLM_LOADER_REMOTE_TIMEOUT=2700 \
-VLLM_LOADER_REMOTE_TARGET=blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
+VELA_REMOTE_VENV=/home/bgconley/venvs/vela \
+VELA_REMOTE_TIMEOUT=2700 \
+VELA_REMOTE_TARGET=blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
   -o BatchMode=yes bgconley@10.25.0.50 \
-  'cd /home/bgconley/repos/lab-tui &&
-   /home/bgconley/venvs/lab-tui/bin/vllm-loader targets test blackbird'
+  'cd /home/bgconley/repos/vela &&
+   /home/bgconley/venvs/vela/bin/vela targets test blackbird'
 ```
 
 Then run the real TUI smoke from P620 through the `blackbird` target:
@@ -203,13 +203,13 @@ Then run the real TUI smoke from P620 through the `blackbird` target:
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
   -o BatchMode=yes bgconley@10.25.0.50 \
-  'cd /home/bgconley/repos/lab-tui &&
-   timeout 2700 /home/bgconley/venvs/lab-tui/bin/vllm-loader smoke-tui \
+  'cd /home/bgconley/repos/vela &&
+   timeout 2700 /home/bgconley/venvs/vela/bin/vela smoke-tui \
      qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird'
 ```
 
 The remote command invokes
-`vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
+`vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
 from P620.
 
 The latest P620-to-Blackbird validation records are:
@@ -257,8 +257,8 @@ Direct Mac to Blackbird validation is still useful for host-local checks:
 
 ```bash
 git push origin main
-VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
-  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
+VELA_REMOTE_VENV=/home/bgconley/venvs/vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
@@ -274,7 +274,7 @@ Historical/fallback real smoke target: `620-01` (`10.25.0.50`) with Qwen3-32B
 FP8:
 
 ```bash
-scripts/run_remote_tests.sh bgconley@10.25.0.50 /tank/repos/lab-tui qwen3-32b-fp8-62001
+scripts/run_remote_tests.sh bgconley@10.25.0.50 /tank/repos/vela qwen3-32b-fp8-62001
 ```
 
 That config uses `/tank/triton/venv-vllm/bin/vllm` directly and serves
@@ -283,14 +283,14 @@ The remote validation venv does not install vLLM, so the diagnostic line may
 say `vllm not found on PATH`; the real config preview/smoke still validates the
 absolute lab vLLM executable path.
 
-The real run uses `vllm-loader smoke-tui`: it mounts the Textual app headlessly,
+The real run uses `vela smoke-tui`: it mounts the Textual app headlessly,
 selects the config, follows the normal Load workflow, waits for READY via the
 app's health/model state, prints the READY URL/model names, then follows the
 normal Stop workflow. It is still wrapped in `timeout` as a hard guard. Override
 the limit with:
 
 ```bash
-VLLM_LOADER_REMOTE_TIMEOUT=2400 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/lab-tui my-real-config
+VELA_REMOTE_TIMEOUT=2400 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela my-real-config
 ```
 
 ## 3. Tested vLLM surface
@@ -310,16 +310,16 @@ any changed startup, download, readiness, or error text.
 ## 4. Browser access through Textual
 
 For browser access on a GPU host, use Textual's own `textual serve` entrypoint
-around `vllm-loader` only on a trusted network/auth boundary. The served TUI
+around `vela` only on a trusted network/auth boundary. The served TUI
 controls model launches, stops, kills, and log access; do not expose it as an
 unauthenticated public service.
 
 ## 5. Where results land
 
-By default, `vllm-loader run` writes scrubbed run artifacts on the GPU host:
+By default, `vela run` writes scrubbed run artifacts on the GPU host:
 
 ```text
-~/.local/state/vllm-loader/runs/
+~/.local/state/vela/runs/
 ```
 
 The durable log contains scrubbed committed lines only. Transient carriage-return

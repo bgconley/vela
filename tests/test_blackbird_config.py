@@ -4,9 +4,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from vllm_loader.config.loader import load_registry
-from vllm_loader.engine.command_builder import build_command
-from vllm_loader.monitoring.health import probe_host_for
+from vela.config.loader import load_registry
+from vela.engine.command_builder import build_command
+from vela.monitoring.health import probe_host_for
 
 
 def test_blackbird_qwen36_config_uses_foreground_docker_wrapper() -> None:
@@ -31,7 +31,7 @@ def test_blackbird_wrapper_dry_run_derives_container_launch() -> None:
     script = Path("scripts/blackbird_qwen36_vllm_foreground.sh")
     env = {
         **os.environ,
-        "VLLM_LOADER_BLACKBIRD_DRY_RUN": "1",
+        "VELA_BLACKBIRD_DRY_RUN": "1",
         "CONTAINER": "test-qwen36-container",
     }
 

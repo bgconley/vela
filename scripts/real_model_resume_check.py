@@ -10,9 +10,9 @@ import sys
 import uuid
 from typing import Any
 
-from vllm_loader.config.targets import TargetConfig, TransportKind, load_targets_file
-from vllm_loader.transport.client import TargetClient
-from vllm_loader.transport.factory import (
+from vela.config.targets import TargetConfig, TransportKind, load_targets_file
+from vela.transport.client import TargetClient
+from vela.transport.factory import (
     DEFAULT_SSH_CONTROL_OPTIONS,
     _ssh_option_present,
     _ssh_options_from_env,
@@ -159,7 +159,7 @@ def _restart_target_agent(target: TargetConfig) -> None:
         for key, value in DEFAULT_SSH_CONTROL_OPTIONS.items():
             if not _ssh_option_present(ssh_opts, key):
                 ssh_cmd.extend(["-o", f"{key}={value}"])
-        remote_command = "vllm-loader agent restart"
+        remote_command = "vela agent restart"
         if target.venv is not None:
             remote_command = (
                 f"PATH={shlex.quote(str(target.venv / 'bin'))}:$PATH "
@@ -172,7 +172,7 @@ def _restart_target_agent(target: TargetConfig) -> None:
         subprocess.run([*ssh_cmd, target.host, remote_command], check=True)
         return
     subprocess.run(
-        [sys.executable, "-m", "vllm_loader.cli", "agent", "restart"],
+        [sys.executable, "-m", "vela.cli", "agent", "restart"],
         check=True,
     )
 

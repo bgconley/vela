@@ -3,12 +3,12 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vllm-loader"
+name = "vela"
 version = "0.1.0"
-description = "Phase-aware Textual TUI and CLI for launching vLLM servers from named configs."
+description = "Vela is a phase-aware terminal TUI for launching vLLM servers from named configs."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "vLLM Loader contributors" }]
+authors = [{ name = "Vela contributors" }]
 dependencies = [
   "huggingface-hub>=0.27",
   "httpx>=0.27",
@@ -30,10 +30,10 @@ dev = [
 ]
 
 [project.scripts]
-vllm-loader = "vllm_loader.cli:main"
+vela = "vela.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vllm_loader"]
+packages = ["src/vela"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

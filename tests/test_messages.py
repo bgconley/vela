@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from textual.message import Message
 
-import vllm_loader.messages as messages
-from vllm_loader.engine.log_sink import LogRecord
-from vllm_loader.engine.phases import ErrorKind, Phase
-from vllm_loader.monitoring.gpu import GpuPollResult
+import vela.messages as messages
+from vela.engine.log_sink import LogRecord
+from vela.engine.phases import ErrorKind, Phase
+from vela.monitoring.gpu import GpuPollResult
 
 
 def test_canonical_event_taxonomy_uses_textual_messages() -> None:

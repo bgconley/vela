@@ -18,14 +18,14 @@ from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, ProgressBar, RichLog, Select, Static
 from textual.worker import WorkerState
 
-from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.config.loader import load_registry
-from vllm_loader.config.targets import TargetConfig, TransportKind
-from vllm_loader.engine.command_builder import build_command
-from vllm_loader.engine.log_sink import LogRecord
-from vllm_loader.engine.phases import ErrorKind, Phase
-from vllm_loader.engine.process_manager import start_detached
-from vllm_loader.messages import (
+from vela.agent.local import LocalAgent, TargetCallError
+from vela.config.loader import load_registry
+from vela.config.targets import TargetConfig, TransportKind
+from vela.engine.command_builder import build_command
+from vela.engine.log_sink import LogRecord
+from vela.engine.phases import ErrorKind, Phase
+from vela.engine.process_manager import start_detached
+from vela.messages import (
     AgentError,
     EngineError,
     GpuStatsUnavailable,
@@ -37,13 +37,13 @@ from vllm_loader.messages import (
     ProgressUpdated,
     ServerReady,
 )
-from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
-from vllm_loader.monitoring.health import HealthEvent
-from vllm_loader.transport.inprocess import InProcessTargetClient
-from vllm_loader.tui import app as tui_app_module
-from vllm_loader.tui.app import VllmLoaderApp
-from vllm_loader.tui.screens import config_picker as config_picker_module
-from vllm_loader.tui.screens.confirm import ConfirmScreen
+from vela.monitoring.gpu import GpuPollResult, GpuSample
+from vela.monitoring.health import HealthEvent
+from vela.transport.inprocess import InProcessTargetClient
+from vela.tui import app as tui_app_module
+from vela.tui.app import VelaApp
+from vela.tui.screens import config_picker as config_picker_module
+from vela.tui.screens.confirm import ConfirmScreen
 
 
 def _run_fresh_tui_import(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -58,7 +58,7 @@ def _run_fresh_tui_import(env: dict[str, str]) -> subprocess.CompletedProcess[st
             "-c",
             (
                 "import os\n"
-                "import vllm_loader.tui.app\n"
+                "import vela.tui.app\n"
                 "from textual import constants\n"
                 "print(constants.COLOR_SYSTEM)\n"
                 "print(os.environ.get('TEXTUAL_COLOR_SYSTEM', ''))\n"
@@ -261,7 +261,7 @@ async def test_textual_app_can_start_and_show_configs(config_dir: Path) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
     write_yaml(config_dir / "bad.yaml", "name: bad")
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -317,7 +317,7 @@ async def test_tui_loads_registry_and_preview_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("config load should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(HandleRefusingAgent()),
     )
@@ -382,7 +382,7 @@ async def test_tui_accepts_injected_target_client_without_local_agent(
             raise AssertionError("injected target setup should not subscribe")
 
     target_client = InjectedTargetClient()
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+    app = VelaApp(configs_dir=config_dir, target_client=target_client)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -422,7 +422,7 @@ async def test_header_target_segment_tracks_connection_state(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("header target segment should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=QuietTargetClient(),
@@ -474,8 +474,8 @@ async def test_target_manager_screen_opens_from_binding(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        workdir=Path("/tank/repos/lab-tui"),
-        venv=Path("/tank/venvs/lab-tui"),
+        workdir=Path("/tank/repos/vela"),
+        venv=Path("/tank/venvs/vela"),
     )
 
     class FakeTargetsRegistry:
@@ -538,7 +538,7 @@ async def test_target_manager_screen_opens_from_binding(
         lambda: FakeTargetsRegistry(),
         raising=False,
     )
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=QuietTargetClient(),
@@ -561,8 +561,8 @@ async def test_target_manager_screen_opens_from_binding(
         detail = str(app.screen.query_one("#target-manager-detail", Static).content)
         assert "> ● blackbird  ssh  bgconley@10.25.0.51" in target_list
         assert "Target Manager" in target_list
-        assert "workdir: /tank/repos/lab-tui" in detail
-        assert "venv: /tank/venvs/lab-tui" in detail
+        assert "workdir: /tank/repos/vela" in detail
+        assert "venv: /tank/venvs/vela" in detail
         assert "connection: connected" in detail
         assert "agent: 0.9.0-agent" in detail
         assert "controller: 0.9.0-controller" in detail
@@ -667,7 +667,7 @@ async def test_target_manager_selection_switches_target_and_refreshes_configs(
         fake_target_client_for_config,
     )
 
-    app = VllmLoaderApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
 
     async with app.run_test(size=(144, 45)) as pilot:
         await _wait_for_target_connection_state(app, "connected")
@@ -749,7 +749,7 @@ async def test_target_manager_add_persists_new_target(
         fake_upsert_target_file,
         raising=False,
     )
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=QuietTargetClient(),
         target_ping_interval_seconds=None,
@@ -765,7 +765,7 @@ async def test_target_manager_add_persists_new_target(
         )
         app.screen.query_one("#target-edit-input", Input).value = (
             "name=blackbird transport=ssh host=bgconley@10.25.0.51 "
-            "workdir=/tank/repos/lab-tui venv=/tank/venvs/lab-tui"
+            "workdir=/tank/repos/vela venv=/tank/venvs/vela"
         )
         await pilot.press("enter")
         await _wait_for_condition(
@@ -777,8 +777,8 @@ async def test_target_manager_add_persists_new_target(
         saved = saved_targets[0]
         assert saved.transport is TransportKind.SSH
         assert saved.host == "bgconley@10.25.0.51"
-        assert saved.workdir == Path("/tank/repos/lab-tui")
-        assert saved.venv == Path("/tank/venvs/lab-tui")
+        assert saved.workdir == Path("/tank/repos/vela")
+        assert saved.venv == Path("/tank/venvs/vela")
         target_list = str(app.screen.query_one("#target-manager-list", Static).content)
         assert "blackbird  ssh  bgconley@10.25.0.51" in target_list
 
@@ -845,7 +845,7 @@ async def test_target_manager_edit_persists_selected_target(
         fake_upsert_target_file,
         raising=False,
     )
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=QuietTargetClient(),
         target_ping_interval_seconds=None,
@@ -935,7 +935,7 @@ async def test_target_manager_remove_confirms_and_updates_registry(
         fake_remove_target_file,
         raising=False,
     )
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=QuietTargetClient(),
         target_ping_interval_seconds=None,
@@ -992,7 +992,7 @@ async def test_tui_surfaces_target_version_mismatch_on_mount(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("version mismatch should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=VersionMismatchTargetClient(),
         target_ping_interval_seconds=None,
@@ -1016,7 +1016,7 @@ async def test_action_load_blocks_when_target_unreachable(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     worker_calls: list[str] = []
 
     def capture_worker(coro, **kwargs):
@@ -1041,7 +1041,7 @@ async def test_action_load_blocks_when_target_unreachable(
 async def test_run_control_actions_block_when_target_disconnected(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_ping_interval_seconds=None,
     )
@@ -1123,7 +1123,7 @@ async def test_resource_manager_actions_block_when_target_lacks_capability(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("capability gate should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="limited",
         target_client=LimitedCapabilityTargetClient(),
@@ -1181,7 +1181,7 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
             raise AssertionError("keepalive should not subscribe")
 
     target_client = HangingPingTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=target_client,
         target_ping_interval_seconds=0.01,
@@ -1203,7 +1203,7 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
 def test_target_keepalive_uses_exponential_reconnect_backoff(
     config_dir: Path,
 ) -> None:
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_ping_interval_seconds=30,
     )
@@ -1276,7 +1276,7 @@ async def test_tui_keepalive_timeout_reconnects_to_target(
             raise AssertionError("keepalive reconnect should not subscribe")
 
     target_client = ReconnectingTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=target_client,
         target_ping_interval_seconds=0.01,
@@ -1356,7 +1356,7 @@ async def test_tui_reconnect_detects_agent_restart_and_rediscovers_runs(
             raise AssertionError("keepalive reconnect should not subscribe")
 
     target_client = RestartingTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=target_client,
         target_ping_interval_seconds=0.01,
@@ -1439,7 +1439,7 @@ async def test_tui_default_local_target_uses_target_client_factory(
         return client
 
     monkeypatch.setattr(tui_app_module, "target_client_for_config", fake_target_client_for_config)
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1522,7 +1522,7 @@ async def test_tui_target_name_uses_selected_registry_target(
         raising=False,
     )
     monkeypatch.setattr(tui_app_module, "target_client_for_config", fake_target_client_for_config)
-    app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird")
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1570,7 +1570,7 @@ async def test_tui_select_config_refreshes_preview_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("preview refresh should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(HandleRefusingAgent()),
     )
@@ -1635,7 +1635,7 @@ async def test_tui_launch_preparation_runs_through_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("prepare should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(HandleRefusingAgent()),
     )
@@ -1737,7 +1737,7 @@ async def test_tui_launch_fsm_uses_agent_profile_metadata(
         raise AssertionError("TUI should use agent profile metadata")
 
     agent = AgentProfileLaunchAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -1834,7 +1834,7 @@ async def test_tui_launch_passes_build_model_revision_overrides(
 
     agent = OverrideLaunchAgent()
     target_client = FakeTargetClient(agent)
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=target_client,
         launch_overrides={
@@ -1972,7 +1972,7 @@ async def test_tui_attached_launch_uses_target_client_stream(
             return self._events()
 
     agent = AgentProfileLaunchAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -2079,7 +2079,7 @@ async def test_tui_attached_launch_uses_wait_phase_without_controller_exit_fsm(
         refuse_controller_exit_fsm,
     )
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(),
     )
@@ -2175,7 +2175,7 @@ async def test_tui_attached_launch_uses_wait_error_metadata_without_terminal_eve
         refuse_controller_exit_fsm,
     )
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(),
     )
@@ -2266,7 +2266,7 @@ async def test_tui_attached_launch_subscribes_before_probe(
             order.append("subscribe")
             return self._events()
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(LaunchAgent()),
     )
@@ -2404,7 +2404,7 @@ async def test_tui_detached_launch_runs_through_target_client(
             return self._events()
 
     agent = DetachedLaunchAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -2500,7 +2500,7 @@ async def test_command_palette_discovers_detached_runs_through_target_client(
             return self._events()
 
     agent = DiscoveryAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -2583,7 +2583,7 @@ async def test_tui_stop_attached_run_signals_target_client_by_run_id(
             raise AssertionError("stop should not subscribe")
 
     agent = StopRefusingAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -2649,7 +2649,7 @@ async def test_tui_attached_health_probe_runs_through_target_client(
             raise AssertionError("direct probe should not subscribe")
 
     agent = ProbeRefusingAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -2716,7 +2716,7 @@ async def test_tui_detached_health_probe_runs_through_target_client(
             raise AssertionError("reattached probe should not subscribe")
 
     agent = ProbeRefusingAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -2744,7 +2744,7 @@ async def test_tui_detached_health_probe_runs_through_target_client(
 
 @pytest.mark.asyncio
 async def test_tui_consumes_serialized_run_events(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -2850,7 +2850,7 @@ async def test_tui_resumes_run_event_subscription_from_last_sequence(
             return self._events()
 
     target_client = SequencedTargetClient()
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+    app = VelaApp(configs_dir=config_dir, target_client=target_client)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -2923,7 +2923,7 @@ async def test_tui_drops_event_resume_sequence_after_agent_restart(
             return self._events()
 
     target_client = RestartingSequencedTargetClient()
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+    app = VelaApp(configs_dir=config_dir, target_client=target_client)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3021,7 +3021,7 @@ async def test_tui_uses_log_offset_resume_after_agent_restart(
             return self._events()
 
     target_client = RestartingOffsetTargetClient()
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+    app = VelaApp(configs_dir=config_dir, target_client=target_client)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3038,7 +3038,7 @@ async def test_tui_uses_log_offset_resume_after_agent_restart(
 
 @pytest.mark.asyncio
 async def test_wire_phase_timing_uses_agent_monotonic_clock(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir, clock=lambda: 1_000.0)
+    app = VelaApp(configs_dir=config_dir, clock=lambda: 1_000.0)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -3085,7 +3085,7 @@ async def test_wire_ready_uses_agent_reachable_url_without_phase_mutation(
           port: 8126
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.select_config("remote-ready")
@@ -3124,7 +3124,7 @@ async def test_wire_health_ready_uses_agent_reachable_url_without_phase_mutation
           exposure: lan
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.select_config("remote-health")
@@ -3221,7 +3221,7 @@ async def test_remote_target_rewrites_loopback_health_url_to_target_host(
         "target_client_for_config",
         lambda _target, **_kwargs: FakeTargetClient(),
     )
-    app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird")
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3318,7 +3318,7 @@ async def test_tui_gpu_sampling_runs_through_target_client(
 
             return events()
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(GpuRefusingAgent()),
         gpu_interval_seconds=60,
@@ -3348,7 +3348,7 @@ async def test_tui_gpu_sampling_runs_through_target_client(
 
 @pytest.mark.asyncio
 async def test_help_screen_opens(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("?")
@@ -3370,7 +3370,7 @@ async def test_help_screen_opens(config_dir: Path) -> None:
 @pytest.mark.asyncio
 async def test_prompt_and_picker_screens_render_as_modal_panels(config_dir: Path) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("c")
@@ -3391,7 +3391,7 @@ async def test_config_picker_marks_invalid_configs_with_warning_glyph(
 ) -> None:
     write_yaml(config_dir / "good.yaml", "name: good\nmodel: org/model")
     write_yaml(config_dir / "bad.yaml", "name: bad")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("c")
@@ -3415,7 +3415,7 @@ async def test_invalid_config_surfaces_all_field_errors(config_dir: Path) -> Non
           host: 0.0.0.0
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3435,7 +3435,7 @@ async def test_invalid_config_surfaces_all_field_errors(config_dir: Path) -> Non
 async def test_confirm_screen_is_modal_panel_with_destructive_color(
     config_dir: Path,
 ) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test(size=(100, 30)) as pilot:
         app.push_screen(ConfirmScreen("Attached server is still running. Stop it?"))
@@ -3486,7 +3486,7 @@ async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("kill should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(KillRefusingAgent()),
     )
@@ -3528,7 +3528,7 @@ async def test_kill_confirm_names_active_target(config_dir: Path) -> None:
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("target-name confirm should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=TargetClient(),
@@ -3551,7 +3551,7 @@ async def test_config_picker_displays_valid_invalid_and_selects_config(config_di
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
     write_yaml(config_dir / "broken.yaml", "name: broken")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("c")
@@ -3574,7 +3574,7 @@ async def test_config_picker_filters_configs_and_selects_filtered_match(
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     write_yaml(config_dir / "beta.yaml", "name: beta\nmodel: org/beta")
     write_yaml(config_dir / "gamma.yaml", "name: gamma\nmodel: org/gamma")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("c")
@@ -3609,7 +3609,7 @@ async def test_config_picker_shows_masked_preview_for_selected_config(
           HF_TOKEN: hf_private_token
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("c")
@@ -3675,7 +3675,7 @@ async def test_config_picker_uses_agent_preview_without_controller_profile(
         refuse_controller_profile,
         raising=False,
     )
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=TargetClient())
+    app = VelaApp(configs_dir=config_dir, target_client=TargetClient())
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3705,7 +3705,7 @@ async def test_selected_config_preview_masks_secrets_before_launch(config_dir: P
           HF_TOKEN: hf_private_token
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3758,7 +3758,7 @@ async def test_selected_config_preview_uses_config_executable_help_for_require_f
             - --disable-log-requests
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -3805,7 +3805,7 @@ async def test_flag_manager_opens_from_binding_and_partitions_flags(
           - value
         """,
     )
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=InProcessTargetClient(LocalAgent()),
         target_ping_interval_seconds=None,
@@ -3903,7 +3903,7 @@ async def test_flag_manager_uses_agent_flag_map_for_modeled_flags(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("flag manager should not subscribe")
 
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=TargetClient())
+    app = VelaApp(configs_dir=config_dir, target_client=TargetClient())
 
     async with app.run_test(size=(140, 40)) as pilot:
         await pilot.pause()
@@ -3957,7 +3957,7 @@ async def test_flag_manager_reset_modeled_flag_saves_to_config(
           kv_cache_dtype: fp8
         """,
     )
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=InProcessTargetClient(LocalAgent()),
         target_ping_interval_seconds=None,
@@ -4061,7 +4061,7 @@ async def test_flag_manager_editing_modeled_flag_refreshes_agent_preview(
             raise AssertionError("flag manager should not subscribe")
 
     target_client = TargetClient()
-    app = VllmLoaderApp(configs_dir=config_dir, target_client=target_client)
+    app = VelaApp(configs_dir=config_dir, target_client=target_client)
 
     async with app.run_test(size=(140, 40)) as pilot:
         await pilot.pause()
@@ -4105,7 +4105,7 @@ async def test_select_config_with_profile_gate_failure_shows_preview_error(
             - --definitely-missing-flag
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -4127,7 +4127,7 @@ async def test_phase_timeline_tracks_elapsed_time(config_dir: Path) -> None:
     def clock() -> float:
         return now
 
-    app = VllmLoaderApp(configs_dir=config_dir, clock=clock)
+    app = VelaApp(configs_dir=config_dir, clock=clock)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -4146,7 +4146,7 @@ async def test_phase_timeline_tracks_elapsed_time(config_dir: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_status_badge_uses_icons_and_phase_color_classes(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -4197,7 +4197,7 @@ async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
           kv_cache_dtype: fp8
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test(size=(144, 45)) as pilot:
         await pilot.pause()
@@ -4216,7 +4216,7 @@ async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
         ]:
             app.query_one(selector)
 
-        assert _static_text(app, "#app-title") == "vLLM Loader"
+        assert _static_text(app, "#app-title") == "Vela"
         assert "llama-3.1-70b-awq" in _static_text(app, "#active-model")
         assert "http://127.0.0.1:8000" in _static_text(app, "#server-url")
         assert "Logs - unified child stdout/stderr stream" in _static_text(app, "#log-title")
@@ -4295,7 +4295,7 @@ async def test_header_uses_agent_preview_metadata_for_build_model_scope(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("header preview metadata should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=PreviewMetadataTargetClient(),
@@ -4405,7 +4405,7 @@ async def test_build_manager_selects_build_through_target_client(
             raise AssertionError("build manager should not subscribe")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -4501,7 +4501,7 @@ async def test_build_manager_flags_binding_opens_flag_manager(config_dir: Path) 
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("build flags path should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=BuildTargetClient(),
@@ -4602,7 +4602,7 @@ async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("build manager live-ref test should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=BuildTargetClient(),
@@ -4756,7 +4756,7 @@ async def test_build_manager_create_build_streams_job_events(
             return self.events
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -4876,7 +4876,7 @@ async def test_build_manager_rejects_uv_less_target_before_create_job(
             raise AssertionError("create_build should not subscribe before uv precheck")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -4961,7 +4961,7 @@ async def test_build_manager_keeps_create_form_open_on_uv_precheck_failure(
             raise AssertionError("create_build should not subscribe before uv precheck")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5064,7 +5064,7 @@ async def test_build_manager_blocks_uv_only_method_in_create_form_before_dispatc
             raise AssertionError("create_build should not subscribe before uv precheck")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5179,7 +5179,7 @@ async def test_build_manager_adopts_external_venv_through_target_client(
             raise AssertionError("build adopt should not subscribe")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5299,7 +5299,7 @@ async def test_build_manager_verifies_build_through_target_client(
             raise AssertionError("build verify should not subscribe")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5399,7 +5399,7 @@ async def test_build_manager_repairs_build_through_target_client(
             raise AssertionError("build repair should not subscribe")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5504,7 +5504,7 @@ async def test_build_manager_remove_confirms_and_calls_target_client(
             raise AssertionError("build remove should not subscribe")
 
     target_client = BuildTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5625,7 +5625,7 @@ async def test_model_manager_opens_model_catalog_from_target_client(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("model manager should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=ModelTargetClient(),
@@ -5745,7 +5745,7 @@ async def test_model_manager_enter_selects_model_for_active_config(
             raise AssertionError("model select should not subscribe")
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -5850,7 +5850,7 @@ async def test_model_manager_marks_url_models_launch_time_only(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("URL model manager should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=ModelTargetClient(),
@@ -5971,7 +5971,7 @@ async def test_model_manager_refreshes_catalog_through_target_client(
             raise AssertionError("model refresh should not subscribe")
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6129,7 +6129,7 @@ async def test_model_manager_download_streams_job_events(
             return self.events
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6312,7 +6312,7 @@ async def test_stop_cancels_active_model_download_job(
             return self.events
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6432,7 +6432,7 @@ async def test_model_manager_pins_model_metadata_through_target_client(
             raise AssertionError("model pin should not subscribe")
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6563,7 +6563,7 @@ async def test_model_manager_pins_url_model_metadata_through_target_client(
             raise AssertionError("model pin should not subscribe")
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6688,7 +6688,7 @@ async def test_model_manager_verifies_model_through_target_client(
             raise AssertionError("model verify should not subscribe")
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6805,7 +6805,7 @@ async def test_model_manager_remove_confirms_and_calls_target_client(
             raise AssertionError("model remove should not subscribe")
 
     target_client = ModelTargetClient()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_name="blackbird",
         target_client=target_client,
@@ -6841,7 +6841,7 @@ async def test_model_manager_remove_confirms_and_calls_target_client(
 
 @pytest.mark.asyncio
 async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -6861,7 +6861,7 @@ async def test_dashboard_status_strip_tracks_log_controls(config_dir: Path) -> N
 async def test_wrap_toggle_notifies_state_change(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     notifications: list[str] = []
     monkeypatch.setattr(
         app,
@@ -6886,7 +6886,7 @@ async def test_wrap_toggle_notifies_state_change(
 
 @pytest.mark.asyncio
 async def test_dashboard_uses_intentional_rich_color_renderables(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -6943,7 +6943,7 @@ async def test_sidebar_and_banner_use_semantic_color_roles(config_dir: Path) -> 
         """,
     )
     write_yaml(config_dir / "broken.yaml", "name: broken")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -6994,7 +6994,7 @@ async def test_figma_dashboard_pills_and_selection_use_surface_styles(
         """,
     )
     write_yaml(config_dir / "broken.yaml", "name: broken")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7020,7 +7020,7 @@ async def test_figma_dashboard_pills_and_selection_use_surface_styles(
 
 @pytest.mark.asyncio
 async def test_terminal_phases_clear_stale_progress_line(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7092,7 +7092,7 @@ async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None
                 return events()
             raise AssertionError("message test should only subscribe to agent GPU events")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         gpu_interval_seconds=60,
         target_client=QuietTargetClient(),
@@ -7187,7 +7187,7 @@ async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None
 
 
 def test_late_log_message_updates_state_when_widgets_are_unmounted(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     app.on_log_line_committed(LogLineCommitted("INFO Starting to load model", "INFO"))
 
@@ -7236,7 +7236,7 @@ async def test_gpu_panel_refreshes_periodically(config_dir: Path) -> None:
         calls += 1
         return result
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=InProcessTargetClient(LocalAgent(gpu_sampler=sampler)),
         gpu_interval_seconds=0.05,
@@ -7260,7 +7260,7 @@ async def test_gpu_sampler_runs_off_event_loop_thread(config_dir: Path) -> None:
         sampler_threads.append(threading.get_ident())
         return GpuPollResult([])
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=InProcessTargetClient(LocalAgent(gpu_sampler=sampler)),
         gpu_interval_seconds=0.01,
@@ -7282,7 +7282,7 @@ async def test_gpu_sampler_error_renders_unavailable_detail(config_dir: Path) ->
         calls += 1
         raise RuntimeError("nvml exploded")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=InProcessTargetClient(LocalAgent(gpu_sampler=sampler)),
         gpu_interval_seconds=60,
@@ -7302,7 +7302,7 @@ async def test_gpu_sampler_error_renders_unavailable_detail(config_dir: Path) ->
 async def test_optional_monitor_worker_errors_notify_operator(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     notifications: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         app,
@@ -7336,7 +7336,7 @@ async def test_optional_monitor_worker_errors_notify_operator(
 
 @pytest.mark.asyncio
 async def test_classified_log_error_shows_named_banner_with_suggestion(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7362,7 +7362,7 @@ async def test_classified_log_error_shows_named_banner_with_suggestion(config_di
 
 @pytest.mark.asyncio
 async def test_health_error_shows_named_banner_with_suggestion(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7409,7 +7409,7 @@ async def test_nonzero_exit_before_ready_shows_crashed_banner(
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("l")
@@ -7422,7 +7422,7 @@ async def test_nonzero_exit_before_ready_shows_crashed_banner(
 
 @pytest.mark.asyncio
 async def test_nonzero_exit_without_logs_shows_exit_code_excerpt(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7450,7 +7450,7 @@ async def test_missing_executable_shows_launch_guidance_instead_of_crashing(
           executable: {missing_executable}
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7488,7 +7488,7 @@ async def test_missing_local_model_path_shows_model_not_found_without_launching(
           executable: {script}
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7526,7 +7526,7 @@ async def test_unsupported_required_flag_shows_config_error_without_launching(
             - --definitely-missing-flag
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7568,7 +7568,7 @@ async def test_parallel_world_size_exceeding_visible_gpus_shows_tp_mismatch_with
           CUDA_VISIBLE_DEVICES: "0,1"
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7614,7 +7614,7 @@ async def test_occupied_port_shows_port_in_use_without_launching(
               port: {port}
             """,
         )
-        app = VllmLoaderApp(configs_dir=config_dir)
+        app = VelaApp(configs_dir=config_dir)
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -7648,7 +7648,7 @@ async def test_detached_missing_executable_shows_launch_guidance(
           runs_dir: {runs_dir}
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7685,7 +7685,7 @@ async def test_command_palette_exposes_core_actions_and_config_loads(
         lambda: FakeTargetsRegistry(),
         raising=False,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     load_calls: list[str | None] = []
 
     async with app.run_test() as pilot:
@@ -7755,7 +7755,7 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
     launch = start_detached(cfg, build_command(cfg), secrets=[])
     await _wait_for_log_text(launch.log_path, "Uvicorn running")
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     try:
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -7787,7 +7787,7 @@ async def test_load_while_reattached_refuses_second_managed_run(
           port: 8765
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     notifications: list[str] = []
     worker_calls: list[str] = []
 
@@ -7846,11 +7846,11 @@ async def test_stop_after_agent_reattach_signals_target_client_run_id(
 
     cancelled_groups: list[str] = []
 
-    def cancel_group(_app: VllmLoaderApp, group: str) -> None:
+    def cancel_group(_app: VelaApp, group: str) -> None:
         cancelled_groups.append(group)
 
     agent = StopRefusingAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -7917,10 +7917,10 @@ async def test_kill_after_agent_reattach_signals_target_client_run_id(
 
     cancelled_groups: list[str] = []
 
-    def cancel_group(_app: VllmLoaderApp, group: str) -> None:
+    def cancel_group(_app: VelaApp, group: str) -> None:
         cancelled_groups.append(group)
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(KillRefusingAgent()),
     )
@@ -7954,7 +7954,7 @@ async def test_target_reattach_error_shows_error_without_crashing(
         "target_client_for_config",
         lambda _target, **_kwargs: fake_target_client(),
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -7966,15 +7966,15 @@ async def test_target_reattach_error_shows_error_without_crashing(
 
 
 def test_tui_does_not_expose_path_based_detached_reattach() -> None:
-    assert "reattach_detached_run" not in VllmLoaderApp.__dict__
+    assert "reattach_detached_run" not in VelaApp.__dict__
 
 
 def test_tui_does_not_compute_target_runs_dirs() -> None:
-    assert "_runs_dirs" not in VllmLoaderApp.__dict__
+    assert "_runs_dirs" not in VelaApp.__dict__
 
 
 def test_tui_constructor_only_accepts_target_client_boundary() -> None:
-    params = inspect.signature(VllmLoaderApp).parameters
+    params = inspect.signature(VelaApp).parameters
 
     assert "target_client" in params
     assert "target_name" in params
@@ -7983,13 +7983,13 @@ def test_tui_constructor_only_accepts_target_client_boundary() -> None:
 
 
 def test_tui_does_not_store_attached_process_handle(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     assert "current_process" not in app.__dict__
 
 
 def test_tui_does_not_store_reattached_sidecar_path(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     assert "reattached_sidecar_path" not in app.__dict__
 
@@ -8012,7 +8012,7 @@ async def test_reattach_health_worker_is_non_crashing_monitor(
         worker_calls.append(kwargs)
         coro.close()
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8046,7 +8046,7 @@ async def test_reattach_starts_tail_worker_before_health_probe(
         coro.close()
         return SimpleNamespace()
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8099,7 +8099,7 @@ async def test_reattach_health_snapshot_updates_phase_when_stream_misses_ready(
         "target_client_for_config",
         lambda _target, **_kwargs: FakeTargetClient(),
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     worker_coros: dict[str, object] = {}
 
     def capture_worker(coro, **kwargs):
@@ -8141,7 +8141,7 @@ async def test_reattach_hydrates_copyable_url_and_models_from_sidecar(
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8195,7 +8195,7 @@ async def test_remote_target_rewrites_loopback_reattach_url_to_target_host(
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    app = VllmLoaderApp(configs_dir=config_dir, target_name="blackbird")
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird")
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8241,7 +8241,7 @@ async def test_reattach_restores_registry_secrets_missing_from_sidecar_snapshot(
     def capture_worker(coro, **_kwargs):
         coro.close()
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8285,7 +8285,7 @@ async def test_stop_after_detached_reattach_signals_verified_run(
     launch = start_detached(cfg, build_command(cfg), secrets=[])
     await _wait_for_log_text(launch.log_path, "Uvicorn running")
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     try:
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -8326,7 +8326,7 @@ async def test_detach_after_reattach_leaves_detached_server_running(
     launch = start_detached(cfg, build_command(cfg), secrets=[])
     await _wait_for_log_text(launch.log_path, "Uvicorn running")
 
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     try:
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -8373,7 +8373,7 @@ async def test_tui_load_honors_detached_launch_mode(config_dir: Path, tmp_path: 
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     try:
         async with app.run_test() as pilot:
@@ -8464,7 +8464,7 @@ async def test_tui_detached_tail_consumes_agent_events(
             return self._events()
 
     agent = TailAgent()
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -8497,7 +8497,7 @@ async def test_tui_detached_tail_consumes_agent_events(
 async def test_wire_phase_error_shows_named_banner(
     config_dir: Path, kind: ErrorKind, excerpt: str, guidance: str
 ) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8529,7 +8529,7 @@ async def test_loaded_detached_log_classified_error_shows_named_banner(
 ) -> None:
     log_path = tmp_path / "run.log"
     log_path.write_text("ERROR CUDA out of memory before reattach\n", encoding="utf-8")
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8566,7 +8566,7 @@ async def test_fake_child_launch_streams_logs_and_stop_works(config_dir: Path) -
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("l")
@@ -8601,7 +8601,7 @@ async def test_attached_tui_launch_uses_configured_runs_dir_for_durable_log(
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
     try:
         async with app.run_test() as pilot:
             await pilot.press("l")
@@ -8645,7 +8645,7 @@ async def test_force_kill_running_attached_server_is_intentional_stop(
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     try:
         async with app.run_test() as pilot:
@@ -8683,7 +8683,7 @@ async def test_ready_status_shows_server_url_and_served_models(config_dir: Path)
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     try:
         async with app.run_test() as pilot:
@@ -8710,7 +8710,7 @@ async def test_copy_server_url_uses_textual_clipboard(config_dir: Path) -> None:
           port: 8124
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -8776,7 +8776,7 @@ async def test_restart_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("restart RPC test should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(RestartRefusingAgent()),
     )
@@ -8876,7 +8876,7 @@ async def test_restart_after_agent_detached_reattach_signals_run_id(
     async def fake_monitor_attached_run(cfg: object, run_id: str) -> None:
         monitor_calls.append((getattr(cfg, "name", None), run_id))
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(agent),
     )
@@ -8992,7 +8992,7 @@ async def test_restart_after_target_detached_reattach(
 
             return events()
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(RestartRefusingAgent()),
     )
@@ -9052,7 +9052,7 @@ async def test_restart_stops_running_attached_server_and_starts_same_config(
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     try:
         async with app.run_test() as pilot:
@@ -9102,7 +9102,7 @@ async def test_non_local_bind_warning_is_visible_in_tui(config_dir: Path) -> Non
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     try:
         async with app.run_test() as pilot:
@@ -9137,7 +9137,7 @@ async def test_quit_while_attached_running_prompts_stop_or_cancel(config_dir: Pa
             interval_seconds: 0.05
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.press("l")
@@ -9191,7 +9191,7 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
         def subscribe(self, *_args, **_kwargs):
             raise AssertionError("quit stop should not subscribe")
 
-    app = VllmLoaderApp(
+    app = VelaApp(
         configs_dir=config_dir,
         target_client=FakeTargetClient(QuitStopRefusingAgent()),
     )
@@ -9225,7 +9225,7 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
 
 @pytest.mark.asyncio
 async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app._write_log("INFO ready")
@@ -9243,7 +9243,7 @@ async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_log_filter_accepts_warn_alias_for_warning_level(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app._write_log("slow load", "WARNING")
@@ -9257,7 +9257,7 @@ async def test_log_filter_accepts_warn_alias_for_warning_level(config_dir: Path)
 
 @pytest.mark.asyncio
 async def test_search_key_prompts_and_applies_submitted_text(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app._write_log("INFO ready")
@@ -9271,7 +9271,7 @@ async def test_search_key_prompts_and_applies_submitted_text(config_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_filter_key_prompts_and_applies_submitted_text(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app._write_log("INFO ready")
@@ -9285,7 +9285,7 @@ async def test_filter_key_prompts_and_applies_submitted_text(config_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_log_search_highlights_matching_text_in_view(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app._write_log("ERROR bad thing", "ERROR")
@@ -9312,7 +9312,7 @@ async def test_log_search_highlights_matching_text_in_view(config_dir: Path) -> 
 
 @pytest.mark.asyncio
 async def test_bursty_log_output_batches_richlog_writes(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -9336,7 +9336,7 @@ async def test_bursty_log_output_batches_richlog_writes(config_dir: Path) -> Non
 async def test_transient_progress_updates_progress_bar_without_committing_log(
     config_dir: Path,
 ) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app.handle_log_record(
@@ -9356,7 +9356,7 @@ async def test_transient_progress_updates_progress_bar_without_committing_log(
 async def test_progress_line_uses_figma_track_ticks_and_percent(
     config_dir: Path,
 ) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         app.handle_log_record(
@@ -9401,7 +9401,7 @@ async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
           kv_cache_dtype: fp8
         """,
     )
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -9450,7 +9450,7 @@ async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
 
 @pytest.mark.asyncio
 async def test_log_buffers_are_bounded_for_bursty_output(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir, max_log_lines=3)
+    app = VelaApp(configs_dir=config_dir, max_log_lines=3)
 
     async with app.run_test() as pilot:
         for index in range(5):
@@ -9477,7 +9477,7 @@ async def test_debug_log_records_structured_app_events(
     config_dir: Path, tmp_path: Path
 ) -> None:
     debug_log_path = tmp_path / "debug.jsonl"
-    app = VllmLoaderApp(configs_dir=config_dir, debug_log_path=debug_log_path)
+    app = VelaApp(configs_dir=config_dir, debug_log_path=debug_log_path)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -9504,7 +9504,7 @@ async def test_debug_log_records_structured_app_events(
 
 @pytest.mark.asyncio
 async def test_pause_toggles_richlog_autoscroll(config_dir: Path) -> None:
-    app = VllmLoaderApp(configs_dir=config_dir)
+    app = VelaApp(configs_dir=config_dir)
 
     async with app.run_test() as pilot:
         log = app.query_one("#log", RichLog)
@@ -9519,7 +9519,7 @@ async def test_pause_toggles_richlog_autoscroll(config_dir: Path) -> None:
         assert log.auto_scroll is True
 
 
-async def _wait_for_log(app: VllmLoaderApp, text: str) -> None:
+async def _wait_for_log(app: VelaApp, text: str) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         if any(text in line for line in app.log_lines):
@@ -9528,7 +9528,7 @@ async def _wait_for_log(app: VllmLoaderApp, text: str) -> None:
     raise AssertionError(f"log line {text!r} was not emitted")
 
 
-async def _wait_for_command(app: VllmLoaderApp, title: str):
+async def _wait_for_command(app: VelaApp, title: str):
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         for command in app.get_system_commands(app.screen):
@@ -9538,7 +9538,7 @@ async def _wait_for_command(app: VllmLoaderApp, title: str):
     raise AssertionError(f"command {title!r} was not available")
 
 
-def _non_discovery_target_calls(app: VllmLoaderApp):
+def _non_discovery_target_calls(app: VelaApp):
     return [
         call
         for call in app._target_client.calls
@@ -9615,13 +9615,13 @@ def _target_reattach_payload(
     }
 
 
-async def _reattach_discovered_target_run(app: VllmLoaderApp, run_id: str) -> None:
+async def _reattach_discovered_target_run(app: VelaApp, run_id: str) -> None:
     await app._refresh_detached_runs()
     assert any(run["run_id"] == run_id for run in app.detached_run_summaries)
     await app._reattach_target_detached_run(run_id)
 
 
-async def _wait_for_gpu_text(app: VllmLoaderApp, text: str) -> None:
+async def _wait_for_gpu_text(app: VelaApp, text: str) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         if text in app.gpu_panel_text:
@@ -9640,7 +9640,7 @@ async def _wait_for_gpu_calls(calls: list[int], count: int) -> None:
 
 
 async def _wait_for_target_connection_state(
-    app: VllmLoaderApp, state: str, *, timeout: float = 5.0
+    app: VelaApp, state: str, *, timeout: float = 5.0
 ) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
@@ -9652,7 +9652,7 @@ async def _wait_for_target_connection_state(
     )
 
 
-async def _wait_for_stopped(app: VllmLoaderApp) -> None:
+async def _wait_for_stopped(app: VelaApp) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         if app.current_run_id is None and app.phase is Phase.STOPPED:
@@ -9691,7 +9691,7 @@ async def _wait_for_textual_condition(
     raise AssertionError(message)
 
 
-async def _wait_for_log_count(app: VllmLoaderApp, text: str, count: int) -> None:
+async def _wait_for_log_count(app: VelaApp, text: str, count: int) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         if sum(text in line for line in app.log_lines) >= count:
@@ -9700,7 +9700,7 @@ async def _wait_for_log_count(app: VllmLoaderApp, text: str, count: int) -> None
     raise AssertionError(f"log line {text!r} did not reach count {count}")
 
 
-async def _wait_for_phase(app: VllmLoaderApp, phase: Phase) -> None:
+async def _wait_for_phase(app: VelaApp, phase: Phase) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         if app.phase is phase:
@@ -9718,7 +9718,7 @@ async def _wait_for_log_text(path: Path, text: str) -> None:
     raise AssertionError(f"{text!r} was not written to {path}")
 
 
-def _static_text(app: VllmLoaderApp, selector: str) -> str:
+def _static_text(app: VelaApp, selector: str) -> str:
     return str(app.query_one(selector, Static).content)
 
 

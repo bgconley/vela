@@ -18,7 +18,7 @@ class FakeWriter:
 def test_same_user_peer_check_accepts_current_uid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vllm_loader.agent import socket as socket_module
+    from vela.agent import socket as socket_module
 
     monkeypatch.setattr(socket_module, "_peer_uid_from_socket", lambda _sock: os.getuid())
 
@@ -28,7 +28,7 @@ def test_same_user_peer_check_accepts_current_uid(
 def test_same_user_peer_check_rejects_mismatched_uid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vllm_loader.agent import socket as socket_module
+    from vela.agent import socket as socket_module
 
     monkeypatch.setattr(
         socket_module,

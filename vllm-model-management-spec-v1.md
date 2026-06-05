@@ -1,6 +1,6 @@
 # vLLM Model Registry & Management — Feature Specification & Implementation Plan (v1)
 
-**Feature:** a catalog/index over model weights the loader can see, pin, pre-download, verify, and GC · **Status:** spec-ready · **Audience:** the engineer(s) extending `vllm-loader`.
+**Feature:** a catalog/index over model weights the loader can see, pin, pre-download, verify, and GC · **Status:** spec-ready · **Audience:** the engineer(s) extending `vela`.
 
 > **Sibling of the build spec.** This document is the companion to `vllm-build-management-spec-v1.md` and an additive extension to `vllm-tui-loader-spec-v2-CANONICAL.md`. It **reuses the build feature's machinery wholesale** — the install-as-a-streamed-job pipeline (retargeted to HuggingFace downloads), `LogSink`-scrubbed streaming, a dedicated lifecycle FSM, two-tier `flock` locking, refcount-by-verified-sidecar identity, atomic temp-write+rename with ULID ids and caller-supplied timestamps, the precedence/handoff pattern, and the Textual UI conventions. It adds one subsystem (`models/`) plus small additive schema/UI changes.
 >
@@ -57,7 +57,7 @@ A launch is **build B × model M@rev**. The build resolver answers *which vLLM b
 
 ## 2. Scope & non-goals
 
-**In scope (v1):** a metadata index under an XDG **state** dir (single JSON, atomic writes, ULID ids); a **merged catalog** (`scan_cache_dir()` ∪ registered local dirs ∪ curated pins, deduped by `repo_id@commit_sha`); **add/pin** `repo_id @ revision` → resolved `commit_sha`; **pre-download** as a streamed background job (reusing the build install-job infra) with allow/ignore patterns; **verify**, **adopt-local**, **inspect**, **refresh**; **remove/GC** via `delete_revisions`, refusing if in use or pinned, dedup-aware reclaim; an optional default-off app download-dir; additive config schema (`revision`, `model_ref`) + precedence; CLI parity (`vllm-loader model …`).
+**In scope (v1):** a metadata index under an XDG **state** dir (single JSON, atomic writes, ULID ids); a **merged catalog** (`scan_cache_dir()` ∪ registered local dirs ∪ curated pins, deduped by `repo_id@commit_sha`); **add/pin** `repo_id @ revision` → resolved `commit_sha`; **pre-download** as a streamed background job (reusing the build install-job infra) with allow/ignore patterns; **verify**, **adopt-local**, **inspect**, **refresh**; **remove/GC** via `delete_revisions`, refusing if in use or pinned, dedup-aware reclaim; an optional default-off app download-dir; additive config schema (`revision`, `model_ref`) + precedence; CLI parity (`vela model …`).
 
 **Out of scope (v1):** producing/converting weights (quantizing, GGUF conversion, LoRA merge); browsing/searching the HF Hub beyond resolving a given repo; changing vLLM’s implicit download-on-launch (we *add* explicit pre-download, we don’t remove the fallback); datasets; cross-machine weight sync (the index is sync-*friendly* metadata, but the loader never moves weights); private-registry mirrors; Windows (Linux-primary, matching the build spec).
 
@@ -116,7 +116,7 @@ A launch is **build B × model M@rev**. The build resolver answers *which vLLM b
    │  +model_ref)  │  │ verify • GC(delete_revisions) • refcount      │  │ + process_mgr │
    └───────────────┘  └──────────────────────────────────────────────┘  └──────┬───────┘
                             │ writes (metadata only)        hands off          │ spawn
-                            ▼ ~/.local/state/vllm-loader/models/registry.json   ▼ vllm child
+                            ▼ ~/.local/state/vela/models/registry.json   ▼ vllm child
                         (KBs of JSON — NEVER weights)        model ref + HF env  (reads HF cache)
 ```
 
@@ -176,7 +176,7 @@ This is the baseline the feature extends; every claim is anchored.
 ### 6.1 Layout
 
 ```
-$XDG_STATE_HOME/vllm-loader/                # default ~/.local/state/vllm-loader  (STATE, not data)
+$XDG_STATE_HOME/vela/                # default ~/.local/state/vela  (STATE, not data)
 ├── runs/                                   # existing (canonical)
 └── models/
     ├── registry.json                       # the ENTIRE index — metadata only, atomic write, 0600
@@ -184,7 +184,7 @@ $XDG_STATE_HOME/vllm-loader/                # default ~/.local/state/vllm-loader
     └── downloads/<entry_id>.log            # 0600 download log (may carry tokened URLs); per-entry
                                             # NO weights, NO per-entry dirs of bytes
 $HF_HUB_CACHE  (e.g. ~/.cache/huggingface/hub)   # weights live HERE — owned by HF, not the loader
-$XDG_DATA_HOME/vllm-loader/models-cache/    # OPTIONAL app download-dir, DEFAULT OFF (§6.4)
+$XDG_DATA_HOME/vela/models-cache/    # OPTIONAL app download-dir, DEFAULT OFF (§6.4)
 ```
 
 **STATE not DATA — deliberately the *opposite* call from builds.** Builds are durable *artifacts* (DATA); the model index is a **regenerable pointer into external truth** — `scan_cache_dir()` rebuilds most of it any time, only curated pins/notes are user-authored — which is the textbook definition of STATE. Ownership is inverted, so the XDG category flips with it. **Single `registry.json`, not per-entry dirs:** entries own no bytes, so there is no payload to wrap a directory around; one small atomic JSON is simpler, diffable, and sync-friendly.
@@ -364,7 +364,7 @@ Matches canonical §8 + build-spec §9 conventions (header segments with `status
 **Header model segment** (peer to the active-build segment): `M <name> <dot> <size>`, dot from the model status vocab — `● cached`(green) · `○ remote-only`(grey) · `🔒 gated`(amber) · `◐ downloading`(amber, pulse) · `▲ partial/drift`(amber) · `✕ unresolved`(red); a revision-pinned config prefixes `📌`. Compacts to `M ● <size>` (`-narrow`) then `M ●` (`-compact`).
 
 ```
-┌ vLLM Loader ──  ▣ vllm-nightly ●  M 📌qwen3-32b ● 62GB  ●READY  http://127.0.0.1:8000  12:42:07 ┐
+┌ Vela ──  ▣ vllm-nightly ●  M 📌qwen3-32b ● 62GB  ●READY  http://127.0.0.1:8000  12:42:07 ┐
                   └ active build ┘  └─ active model ──┘   └status┘
 ```
 
@@ -398,14 +398,14 @@ Matches canonical §8 + build-spec §9 conventions (header segments with `status
 ## 14. CLI surface
 
 ```
-vllm-loader model list [--json] [--cached-only] [--pinned-only]
-vllm-loader model add     <repo_id> [--revision main] [--name <display>] [--tokenizer <ref>]
-vllm-loader model download <id|repo[@rev]> [--allow '*.safetensors'] [--ignore '*.pth'] [--app-dir]
-vllm-loader model verify  <id|repo[@rev]> [--deep]
-vllm-loader model adopt   <path> [--name <display>] [--tokenizer <ref>]
-vllm-loader model inspect <id|repo[@rev]> [--json]
-vllm-loader model remove  <id|repo[@rev]> [--yes] [--force]   # refuses if in-use or pinned (force overrides pin)
-vllm-loader model refresh                                     # re-scan + reconcile
+vela model list [--json] [--cached-only] [--pinned-only]
+vela model add     <repo_id> [--revision main] [--name <display>] [--tokenizer <ref>]
+vela model download <id|repo[@rev]> [--allow '*.safetensors'] [--ignore '*.pth'] [--app-dir]
+vela model verify  <id|repo[@rev]> [--deep]
+vela model adopt   <path> [--name <display>] [--tokenizer <ref>]
+vela model inspect <id|repo[@rev]> [--json]
+vela model remove  <id|repo[@rev]> [--yes] [--force]   # refuses if in-use or pinned (force overrides pin)
+vela model refresh                                     # re-scan + reconcile
 ```
 
 `download` streams through the scrubbed sink and exits non-zero on failure; `remove` reports dedup-aware reclaim; default cache = HF cache, `--app-dir` opts into the configured app download-dir.

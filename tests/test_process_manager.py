@@ -11,11 +11,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-import vllm_loader.engine.process_manager as process_manager_module
-from vllm_loader.config.schema import ModelConfig
-from vllm_loader.engine.command_builder import CommandBuildResult
-from vllm_loader.engine.log_sink import LogRecord
-from vllm_loader.engine.process_manager import (
+import vela.engine.process_manager as process_manager_module
+from vela.config.schema import ModelConfig
+from vela.engine.command_builder import CommandBuildResult
+from vela.engine.log_sink import LogRecord
+from vela.engine.process_manager import (
     _scrub_config_snapshot,
     _signal_group_with_escalation,
     start_attached,
@@ -31,7 +31,7 @@ async def test_attached_fake_child_streams_logs_progress_and_stops(tmp_path: Pat
         argv=[
             sys.executable,
             "-m",
-            "vllm_loader.fake_child",
+            "vela.fake_child",
             "serve",
             "fake/model",
             "--port",
@@ -96,7 +96,7 @@ async def test_attached_reader_keeps_draining_when_log_sink_feed_fails(
         argv=[
             sys.executable,
             "-m",
-            "vllm_loader.fake_child",
+            "vela.fake_child",
             "serve",
             "fake/model",
             "--port",

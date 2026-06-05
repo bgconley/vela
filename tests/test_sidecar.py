@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import vllm_loader.engine.sidecar as sidecar_module
-from vllm_loader.engine.sidecar import (
+import vela.engine.sidecar as sidecar_module
+from vela.engine.sidecar import (
     Manifest,
     ProcessIdentity,
     Sidecar,
@@ -304,10 +304,10 @@ def test_stop_sidecar_waits_after_final_sigkill(tmp_path: Path, monkeypatch) -> 
         return len(waits) >= 3
 
     monkeypatch.setattr(
-        "vllm_loader.engine.sidecar.signal_sidecar_from_system",
+        "vela.engine.sidecar.signal_sidecar_from_system",
         signal_sidecar,
     )
-    monkeypatch.setattr("vllm_loader.engine.sidecar._wait_process_exit", wait_process)
+    monkeypatch.setattr("vela.engine.sidecar._wait_process_exit", wait_process)
 
     stop_sidecar_from_system(sidecar_path, interrupt_timeout=0.1, terminate_timeout=0.2)
 

@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from conftest import write_yaml
 
-from vllm_loader.config.loader import discover_config_dirs, load_registry
-from vllm_loader.config.schema import ModelConfig
+from vela.config.loader import discover_config_dirs, load_registry
+from vela.config.schema import ModelConfig
 
 
 def test_valid_config_loads(config_dir: Path, valid_config_text: str) -> None:
@@ -137,7 +137,7 @@ def test_discovery_precedence(config_dir: Path, monkeypatch) -> None:
     env_dir.mkdir()
     cli_dir = config_dir / "cli"
     cli_dir.mkdir()
-    monkeypatch.setenv("VLLM_LOADER_CONFIGS", str(env_dir))
+    monkeypatch.setenv("VELA_CONFIGS", str(env_dir))
 
     assert discover_config_dirs(configs_dir=cli_dir, cwd=config_dir)[0] == cli_dir
     assert discover_config_dirs(cwd=config_dir)[0] == env_dir

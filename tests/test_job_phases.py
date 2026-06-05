@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from vllm_loader.agent.local import BUILD_INSTALL_PHASE_RULES, _build_install_phase_for_line
-from vllm_loader.engine.job_phases import BuildPhase, DownloadPhase
+from vela.agent.local import BUILD_INSTALL_PHASE_RULES, _build_install_phase_for_line
+from vela.engine.job_phases import BuildPhase, DownloadPhase
 
 
 def test_build_phase_enum_matches_spec_values() -> None:

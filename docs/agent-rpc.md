@@ -1,6 +1,6 @@
 # Agent RPC
 
-`vllm-loader` uses a controller/agent split. The controller is the TUI or CLI.
+`vela` uses a controller/agent split. The controller is the TUI or CLI.
 The agent runs on the target host and owns every host-local action.
 
 ## Authority Boundary
@@ -23,7 +23,7 @@ not hold PIDs, process handles, sidecar paths, manifest paths, or raw secrets.
 The `TargetClient` API is uniform:
 
 - `local` with a Unix socket daemon or in-process test agent
-- `ssh` with `ssh host 'vllm-loader agent connect'`
+- `ssh` with `ssh host 'vela agent connect'`
 
 Both use the same request/response shape and event stream.
 
@@ -108,9 +108,9 @@ Sidecars carry typed build/model identity fields such as `build_id`,
 guards do not need to infer managed resources from generic config snapshots or
 command argv. Path-bearing sidecar and manifest details remain agent-local.
 
-For shared-host hardening, set `VLLM_LOADER_AGENT_TOKEN` on both the target
+For shared-host hardening, set `VELA_AGENT_TOKEN` on both the target
 agent and the controller process. Generate the token with
-`vllm-loader agent gen-token`; configured tokens must be a single
+`vela agent gen-token`; configured tokens must be a single
 non-whitespace value with at least 128 bits of entropy. When the agent has this
 variable, the first successful `handshake` on each socket/SSH stream must include
 the matching capability token. Other RPC methods on that stream return

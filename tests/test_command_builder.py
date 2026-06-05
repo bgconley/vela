@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from vllm_loader.config.schema import ModelConfig
-from vllm_loader.engine.command_builder import (
+from vela.config.schema import ModelConfig
+from vela.engine.command_builder import (
     build_command,
     is_local_model_reference,
     mask_preview_value,
 )
-from vllm_loader.engine.profile import bundled_profile
+from vela.engine.profile import bundled_profile
 
 
 def cfg(data: dict) -> ModelConfig:
@@ -139,7 +139,7 @@ def test_request_logging_policy_matrix() -> None:
 def test_select_profile_hard_gates_require_flags_against_collected_help(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vllm_loader.engine import profile as profile_module
+    from vela.engine import profile as profile_module
 
     monkeypatch.setattr(
         profile_module,
@@ -161,7 +161,7 @@ def test_select_profile_hard_gates_require_flags_against_collected_help(
 def test_select_profile_ignores_summary_only_help_that_omits_serve_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vllm_loader.engine import profile as profile_module
+    from vela.engine import profile as profile_module
 
     monkeypatch.setattr(
         profile_module,
@@ -183,7 +183,7 @@ def test_select_profile_ignores_summary_only_help_that_omits_serve_flags(
 
 
 def test_profile_detection_refreshes_when_executable_path_changes(tmp_path: Path) -> None:
-    from vllm_loader.engine import profile as profile_module
+    from vela.engine import profile as profile_module
 
     executable = tmp_path / "vllm"
 

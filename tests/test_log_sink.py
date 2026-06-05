@@ -4,8 +4,8 @@ import errno
 import os
 from pathlib import Path
 
-from vllm_loader.engine.log_sink import LogSink, OSErrorByteReader, is_pty_eof
-from vllm_loader.engine.redaction import scrub_text
+from vela.engine.log_sink import LogSink, OSErrorByteReader, is_pty_eof
+from vela.engine.redaction import scrub_text
 
 
 def test_splits_carriage_return_and_newline_and_persists_only_committed(tmp_path: Path) -> None:

@@ -20,41 +20,41 @@ from types import SimpleNamespace
 import pytest
 from conftest import write_yaml
 
-from vllm_loader import __version__
-from vllm_loader.agent import local as local_agent_module
-from vllm_loader.agent.auth import configured_agent_token, generate_agent_token
-from vllm_loader.agent.local import AgentEvent, LocalAgent, LocalDetachedRun, TargetCallError
-from vllm_loader.config.loader import load_registry
-from vllm_loader.config.schema import ModelConfig
-from vllm_loader.engine import build_registry as build_registry_module
-from vllm_loader.engine import model_registry as model_registry_module
-from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
-from vllm_loader.engine.process_manager import DetachedLaunch
-from vllm_loader.engine.profile import bundled_profile
-from vllm_loader.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
-from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
-from vllm_loader.monitoring.health import HealthEvent
-from vllm_loader.transport.client import REQUIRED_AGENT_CAPABILITIES, handshake_params
-from vllm_loader.transport.inprocess import InProcessTargetClient
+from vela import __version__
+from vela.agent import local as local_agent_module
+from vela.agent.auth import configured_agent_token, generate_agent_token
+from vela.agent.local import AgentEvent, LocalAgent, LocalDetachedRun, TargetCallError
+from vela.config.loader import load_registry
+from vela.config.schema import ModelConfig
+from vela.engine import build_registry as build_registry_module
+from vela.engine import model_registry as model_registry_module
+from vela.engine.phases import ErrorKind, Phase, PhaseFSM
+from vela.engine.process_manager import DetachedLaunch
+from vela.engine.profile import bundled_profile
+from vela.engine.sidecar import Manifest, Sidecar, TrackedProcessMismatch
+from vela.monitoring.gpu import GpuPollResult, GpuSample
+from vela.monitoring.health import HealthEvent
+from vela.transport.client import REQUIRED_AGENT_CAPABILITIES, handshake_params
+from vela.transport.inprocess import InProcessTargetClient
 
 
 def _subprocess_target_client_class():
     try:
-        from vllm_loader.transport.subprocess import SubprocessTargetClient
+        from vela.transport.subprocess import SubprocessTargetClient
     except ModuleNotFoundError as exc:
         pytest.fail(f"SubprocessTargetClient missing: {exc}")
     return SubprocessTargetClient
 
 
 def _agent_connect_command() -> list[str]:
-    return [sys.executable, "-m", "vllm_loader.cli", "agent", "connect"]
+    return [sys.executable, "-m", "vela.cli", "agent", "connect"]
 
 
 def _agent_connect_socket_command(socket_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "vllm_loader.cli",
+        "vela.cli",
         "agent",
         "connect",
         "--socket",
@@ -63,7 +63,7 @@ def _agent_connect_socket_command(socket_path: Path) -> list[str]:
 
 
 def _short_socket_path() -> Path:
-    return Path("/tmp") / f"vllm-loader-agent-{uuid.uuid4().hex}.sock"
+    return Path("/tmp") / f"vela-agent-{uuid.uuid4().hex}.sock"
 
 
 def _free_port() -> int:
@@ -121,7 +121,7 @@ def test_target_client_requires_lifecycle_capabilities() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_connect_bridges_stdio_to_unix_socket_agent() -> None:
-    from vllm_loader.agent.socket import serve_unix_socket_agent
+    from vela.agent.socket import serve_unix_socket_agent
 
     socket_path = _short_socket_path()
     server = await serve_unix_socket_agent(
@@ -143,8 +143,8 @@ async def test_agent_connect_bridges_stdio_to_unix_socket_agent() -> None:
 
 @pytest.mark.asyncio
 async def test_unix_socket_target_client_handshake_exposes_socket_agent() -> None:
-    from vllm_loader.agent.socket import serve_unix_socket_agent
-    from vllm_loader.transport.socket import UnixSocketTargetClient
+    from vela.agent.socket import serve_unix_socket_agent
+    from vela.transport.socket import UnixSocketTargetClient
 
     socket_path = _short_socket_path()
     server = await serve_unix_socket_agent(
@@ -170,8 +170,8 @@ async def test_unix_socket_target_client_handshake_exposes_socket_agent() -> Non
 
 @pytest.mark.asyncio
 async def test_unix_socket_target_client_ping_returns_agent_timestamps() -> None:
-    from vllm_loader.agent.socket import serve_unix_socket_agent
-    from vllm_loader.transport.socket import UnixSocketTargetClient
+    from vela.agent.socket import serve_unix_socket_agent
+    from vela.transport.socket import UnixSocketTargetClient
 
     socket_path = _short_socket_path()
     server = await serve_unix_socket_agent(
@@ -197,8 +197,8 @@ async def test_unix_socket_target_client_ping_returns_agent_timestamps() -> None
 
 @pytest.mark.asyncio
 async def test_unix_socket_target_client_ping_method_uses_ping_rpc() -> None:
-    from vllm_loader.agent.socket import serve_unix_socket_agent
-    from vllm_loader.transport.socket import UnixSocketTargetClient
+    from vela.agent.socket import serve_unix_socket_agent
+    from vela.transport.socket import UnixSocketTargetClient
 
     socket_path = _short_socket_path()
     server = await serve_unix_socket_agent(
@@ -222,8 +222,8 @@ async def test_unix_socket_target_client_ping_method_uses_ping_rpc() -> None:
 
 @pytest.mark.asyncio
 async def test_unix_socket_target_client_auto_starts_missing_socket_daemon() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
-    from vllm_loader.transport.socket import UnixSocketTargetClient
+    from vela.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vela.transport.socket import UnixSocketTargetClient
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -243,9 +243,9 @@ async def test_unix_socket_target_client_auto_starts_missing_socket_daemon() -> 
 
 @pytest.mark.asyncio
 async def test_unix_socket_target_client_auto_starts_refused_stale_socket() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
-    from vllm_loader.agent.socket import serve_unix_socket_agent
-    from vllm_loader.transport.socket import UnixSocketTargetClient
+    from vela.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vela.agent.socket import serve_unix_socket_agent
+    from vela.transport.socket import UnixSocketTargetClient
 
     socket_path = _short_socket_path()
     identity_path = agent_identity_path(socket_path)
@@ -269,9 +269,9 @@ async def test_unix_socket_target_client_auto_starts_refused_stale_socket() -> N
 
 @pytest.mark.asyncio
 async def test_unix_socket_target_client_restarts_daemon_missing_required_capability() -> None:
-    from vllm_loader.agent.daemon import agent_identity_path, stop_agent_daemon
-    from vllm_loader.agent.socket import serve_unix_socket_agent
-    from vllm_loader.transport.socket import UnixSocketTargetClient
+    from vela.agent.daemon import agent_identity_path, stop_agent_daemon
+    from vela.agent.socket import serve_unix_socket_agent
+    from vela.transport.socket import UnixSocketTargetClient
 
     required_capabilities = (
         "health",
@@ -353,7 +353,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "unsubscribe" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
-    assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
+    assert result["host_info"]["vela_version"] == result["agent_version"]
     assert result["host_info"]["hostname"]
     assert result["host_info"]["platform"]
 
@@ -513,7 +513,7 @@ def test_local_agent_handshake_requires_configured_capability_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     token = generate_agent_token()
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
+    monkeypatch.setenv("VELA_AGENT_TOKEN", token)
     agent = LocalAgent(target_name="local")
 
     with pytest.raises(TargetCallError) as missing:
@@ -539,18 +539,18 @@ def test_local_agent_handshake_requires_configured_capability_token(
 def test_handshake_params_include_configured_agent_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("VLLM_LOADER_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
     assert "capability_token" not in handshake_params(1)
 
     token = generate_agent_token()
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
+    monkeypatch.setenv("VELA_AGENT_TOKEN", token)
     assert handshake_params(1)["capability_token"] == token
 
 
 def test_configured_agent_token_rejects_weak_env_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    monkeypatch.setenv("VELA_AGENT_TOKEN", "shared-secret")
 
     with pytest.raises(ValueError, match="at least 128 bits"):
         configured_agent_token()
@@ -560,7 +560,7 @@ def test_generated_agent_token_satisfies_configured_token_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     token = generate_agent_token()
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
+    monkeypatch.setenv("VELA_AGENT_TOKEN", token)
 
     assert len(token) >= 43
     assert configured_agent_token() == token
@@ -771,7 +771,7 @@ async def test_subprocess_target_client_handshake_exposes_agent() -> None:
     assert "unsubscribe" in result["capabilities"]
     assert result["daemon_pid"] > 0
     assert result["daemon_start_ts"]
-    assert result["host_info"]["vllm_loader_version"] == result["agent_version"]
+    assert result["host_info"]["vela_version"] == result["agent_version"]
     assert result["host_info"]["hostname"]
     assert result["host_info"]["platform"]
 
@@ -1905,7 +1905,7 @@ async def test_local_agent_starts_detached_run_from_prepared_launch(
 async def test_local_agent_records_build_ref_for_detached_launch(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01REFBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -2710,7 +2710,7 @@ async def test_target_client_samples_gpus_with_spec_named_gpu_method() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01BUILDREADY"
     build_dir.mkdir(parents=True)
     (builds_root / "active.json").write_text(
@@ -2809,7 +2809,7 @@ async def test_agent_lists_builds_from_agent_owned_data_root(tmp_path: Path) -> 
 async def test_agent_lists_builds_with_verified_live_refs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01LIVEBUILD"
     refs_dir = build_dir / "refs"
     refs_dir.mkdir(parents=True)
@@ -2872,7 +2872,7 @@ async def test_agent_lists_builds_with_verified_live_refs(
 
 @pytest.mark.asyncio
 async def test_agent_lists_builds_with_config_refs(config_dir: Path, tmp_path: Path) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01PINNEDBUILD"
     build_dir.mkdir(parents=True)
     (build_dir / "build.json").write_text(
@@ -2919,7 +2919,7 @@ async def test_agent_lists_builds_with_config_refs(config_dir: Path, tmp_path: P
 async def test_agent_selects_build_default_from_agent_owned_registry(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01BUILDREADY"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -2972,7 +2972,7 @@ async def test_agent_selects_build_default_from_agent_owned_registry(
 
 @pytest.mark.asyncio
 async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3042,7 +3042,7 @@ async def test_agent_adopts_and_inspects_external_build_venv(tmp_path: Path) -> 
 async def test_agent_adopts_external_build_by_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3108,7 +3108,7 @@ async def test_agent_adopts_external_build_by_copy(
 async def test_agent_run_build_job_uses_build_executable_and_env_overlay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01RUNBUILD"
     bin_dir = build_dir / "bin"
     venv_bin = build_dir / "venv" / "bin"
@@ -3230,7 +3230,7 @@ async def test_agent_run_build_job_uses_build_executable_and_env_overlay(
 async def test_agent_repair_build_regenerates_standalone_artifacts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01REPAIR"
     venv_bin = build_dir / "venv" / "bin"
     venv_bin.mkdir(parents=True)
@@ -3298,7 +3298,7 @@ async def test_agent_repair_build_regenerates_standalone_artifacts(
 async def test_agent_adopts_external_build_with_registry_minted_id(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3338,7 +3338,7 @@ async def test_agent_adopts_external_build_with_registry_minted_id(
 async def test_agent_adopt_build_ignores_caller_supplied_build_id(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "caller-id"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3375,7 +3375,7 @@ async def test_agent_adopt_build_ignores_caller_supplied_build_id(
 async def test_agent_adopt_build_takes_registry_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3419,7 +3419,7 @@ async def test_agent_adopt_build_takes_registry_lock(
 
 @pytest.mark.asyncio
 async def test_agent_rejects_invalid_external_build_adoption(tmp_path: Path) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "broken"
     (venv_dir / "bin").mkdir(parents=True)
     (venv_dir / "bin" / "python").write_text("#!/bin/sh\n", encoding="utf-8")
@@ -3448,7 +3448,7 @@ async def test_agent_rejects_invalid_external_build_adoption(tmp_path: Path) -> 
 async def test_agent_rejects_external_build_adoption_when_vllm_probe_fails(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "probe-broken"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3484,7 +3484,7 @@ async def test_agent_rejects_external_build_adoption_when_vllm_probe_fails(
 async def test_agent_rejects_external_build_adoption_when_versions_disagree(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "version-mismatch"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3519,7 +3519,7 @@ async def test_agent_rejects_external_build_adoption_when_versions_disagree(
 async def test_agent_verifies_ready_build_from_agent_owned_registry(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01BUILDREADY"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3574,7 +3574,7 @@ async def test_agent_verifies_ready_build_from_agent_owned_registry(
 async def test_agent_verify_marks_build_broken_when_executable_missing(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01BROKENBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3622,7 +3622,7 @@ async def test_agent_verify_marks_build_broken_when_executable_missing(
 async def test_agent_verify_marks_build_broken_when_vllm_probe_fails(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01PROBEFAIL"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3671,7 +3671,7 @@ async def test_agent_verify_marks_build_broken_when_vllm_probe_fails(
 async def test_agent_verify_marks_build_broken_when_executable_hash_drifts(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01HASHDRIFT"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3732,7 +3732,7 @@ async def test_agent_verify_marks_build_broken_when_executable_hash_drifts(
 async def test_local_agent_startup_demotes_stale_creating_build(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01STALECREATING"
     build_dir.mkdir(parents=True)
     (build_dir / "build.json").write_text(
@@ -3774,7 +3774,7 @@ async def test_local_agent_startup_demotes_stale_creating_build(
 async def test_local_agent_startup_leaves_locked_creating_build_in_progress(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01LOCKEDCREATING"
     build_dir.mkdir(parents=True)
     (build_dir / "build.json").write_text(
@@ -3878,7 +3878,7 @@ def _assert_minted_model_entry(
 async def test_agent_removes_unpinned_build_from_agent_owned_registry(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01REMOVEME"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3928,7 +3928,7 @@ async def test_agent_removes_unpinned_build_from_agent_owned_registry(
 def test_build_remove_takes_registry_and_build_locks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01LOCKREMOVE"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -3977,7 +3977,7 @@ def test_build_remove_takes_registry_and_build_locks(
 def test_build_remove_refuses_verified_live_ref(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01LIVEREF"
     bin_dir = build_dir / "bin"
     refs_dir = build_dir / "refs"
@@ -4044,7 +4044,7 @@ def test_build_remove_refuses_verified_live_ref(
 def test_build_remove_gc_stale_ref_after_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01STALEREF"
     bin_dir = build_dir / "bin"
     refs_dir = build_dir / "refs"
@@ -4108,7 +4108,7 @@ def test_build_remove_gc_stale_ref_after_verification(
 async def test_agent_refuses_to_remove_build_pinned_by_config(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01PINNEDBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4162,7 +4162,7 @@ async def test_agent_refuses_to_remove_build_pinned_by_config(
 async def test_agent_refuses_to_remove_build_used_by_live_run(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01LIVEBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4236,7 +4236,7 @@ async def test_agent_refuses_to_remove_build_used_by_live_run(
 async def test_agent_refuses_to_remove_build_used_by_typed_sidecar_build_id(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01LIVEBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4310,7 +4310,7 @@ async def test_agent_refuses_to_remove_build_used_by_typed_sidecar_build_id(
 async def test_agent_ignores_unverified_sidecar_when_removing_build(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01DEADSIDECAR"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4366,7 +4366,7 @@ async def test_agent_ignores_unverified_sidecar_when_removing_build(
 async def test_agent_remove_active_default_build_repoints_to_remaining_ready_build(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01ACTIVEBUILD"
     fallback_dir = builds_root / "02FALLBACK"
     _write_minimal_build_manifest(build_dir, "01ACTIVEBUILD", "active-build")
@@ -4397,7 +4397,7 @@ async def test_agent_remove_active_default_build_repoints_to_remaining_ready_bui
 async def test_agent_remove_only_active_default_build_clears_default(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01ACTIVEBUILD"
     _write_minimal_build_manifest(build_dir, "01ACTIVEBUILD", "active-build")
 
@@ -4423,7 +4423,7 @@ async def test_agent_remove_only_active_default_build_clears_default(
 async def test_agent_prepare_launch_resolves_pinned_build_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01BUILDREADY"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4494,7 +4494,7 @@ async def test_agent_prepare_launch_resolves_pinned_build_handoff(
 async def test_agent_prepare_launch_rechecks_build_executable_integrity(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01DRIFTBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4561,7 +4561,7 @@ async def test_agent_prepare_launch_rechecks_build_executable_integrity(
 async def test_agent_prepare_launch_uses_request_build_id_override(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     default_dir = builds_root / "01DEFAULTBUILD"
     override_dir = builds_root / "01OVERRIDEBUILD"
     for build_dir, label in (
@@ -4629,7 +4629,7 @@ async def test_agent_prepare_launch_uses_request_build_id_override(
 async def test_agent_prepare_launch_resolves_build_python_for_module_entrypoint(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01MODULEBUILD"
     bin_dir = build_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -4687,7 +4687,7 @@ async def test_agent_prepare_launch_resolves_build_python_for_module_entrypoint(
 
 @pytest.mark.asyncio
 async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -4781,7 +4781,7 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
 async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -4884,7 +4884,7 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
 async def test_agent_list_models_filters_cached_and_pinned_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -4975,7 +4975,7 @@ async def test_agent_list_models_filters_cached_and_pinned_rows(
 async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_url = "https://models.example/Qwen/example-q4.gguf"
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
 
@@ -5027,7 +5027,7 @@ async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
 
 @pytest.mark.asyncio
 async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
@@ -5069,7 +5069,7 @@ async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_agent_pins_model_with_registry_minted_id(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
@@ -5099,7 +5099,7 @@ async def test_agent_pins_model_with_registry_minted_id(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_agent_pin_model_ignores_caller_supplied_entry_id(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
@@ -5132,7 +5132,7 @@ async def test_agent_pin_model_ignores_caller_supplied_entry_id(tmp_path: Path) 
 async def test_agent_pin_model_takes_registry_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     flock_calls: list[tuple[str, int]] = []
 
     def fake_flock(handle: object, operation: int) -> None:
@@ -5173,7 +5173,7 @@ async def test_agent_pin_model_takes_registry_lock(
 def test_model_verify_takes_entry_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -5211,7 +5211,7 @@ def test_model_verify_takes_entry_lock(
 def test_model_download_holds_entry_lock_during_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     pinned = model_registry_module.pin_model(
         {
             "entry_id": "01REMOTE",
@@ -5284,7 +5284,7 @@ def test_model_download_holds_entry_lock_during_snapshot(
 def test_model_mark_partial_takes_entry_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     pinned = model_registry_module.pin_model(
         {
             "entry_id": "01REMOTE",
@@ -5333,7 +5333,7 @@ def test_model_mark_partial_takes_entry_lock(
 async def test_agent_adopts_local_model_path_for_launch_handoff(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -5388,7 +5388,7 @@ async def test_agent_adopts_local_model_path_for_launch_handoff(
 
 @pytest.mark.asyncio
 async def test_agent_rejects_invalid_local_model_adoption(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "broken"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -5415,7 +5415,7 @@ async def test_agent_rejects_invalid_local_model_adoption(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -5454,7 +5454,7 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -5499,7 +5499,7 @@ async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
 async def test_agent_deep_verifies_local_model_without_reading_files_into_memory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -5538,7 +5538,7 @@ async def test_agent_deep_verifies_local_model_without_reading_files_into_memory
 async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
     tmp_path: Path,
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
@@ -5571,7 +5571,7 @@ async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
 async def test_agent_verify_marks_cached_hf_model_missing_when_cache_scan_lacks_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     monkeypatch.setattr(
         model_registry_module,
         "_scan_hf_cache_info",
@@ -5617,7 +5617,7 @@ async def test_agent_verify_marks_cached_hf_model_missing_when_cache_scan_lacks_
 async def test_agent_verify_reconciles_cached_hf_model_from_cache_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     fake_revision = SimpleNamespace(
         commit_hash="abc123",
         size_on_disk=130,
@@ -5671,7 +5671,7 @@ async def test_agent_verify_reconciles_cached_hf_model_from_cache_scan(
 async def test_agent_deep_verifies_cached_hf_model_blobs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     cache_dir = tmp_path / "hf-cache" / "models--meta-llama--Llama-3.1-8B-Instruct"
     snapshot_dir = cache_dir / "snapshots" / "abc123"
     snapshot_dir.mkdir(parents=True)
@@ -5748,7 +5748,7 @@ async def test_agent_deep_verifies_cached_hf_model_blobs(
 async def test_agent_deep_verifies_cached_hf_model_without_reading_files_into_memory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     cache_dir = tmp_path / "hf-cache" / "models--meta-llama--Llama-3.1-8B-Instruct"
     snapshot_dir = cache_dir / "snapshots" / "abc123"
     snapshot_dir.mkdir(parents=True)
@@ -5818,7 +5818,7 @@ async def test_agent_deep_verifies_cached_hf_model_without_reading_files_into_me
 
 @pytest.mark.asyncio
 async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
@@ -5850,7 +5850,7 @@ async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
 async def test_agent_pin_model_resolves_revision_to_commit_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     calls: list[dict[str, str | None]] = []
 
     def fake_hf_model_info(repo_id: str, revision: str | None = None) -> object:
@@ -5890,7 +5890,7 @@ async def test_agent_pin_model_resolves_revision_to_commit_sha(
 
 @pytest.mark.asyncio
 async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     weights_path = model_dir / "model.safetensors"
@@ -5929,7 +5929,7 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
 async def test_agent_verify_marks_local_model_partial_after_integrity_drift(
     tmp_path: Path,
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     weights_path = model_dir / "model.safetensors"
@@ -5972,7 +5972,7 @@ async def test_agent_verify_marks_local_model_partial_after_integrity_drift(
 
 @pytest.mark.asyncio
 async def test_agent_refresh_reconciles_local_model_entries(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     weights_path = model_dir / "model.safetensors"
@@ -6008,7 +6008,7 @@ async def test_agent_refresh_reconciles_local_model_entries(tmp_path: Path) -> N
 async def test_agent_refresh_reconciles_hf_pin_from_cache_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     fake_revision = SimpleNamespace(
         commit_hash="abc123",
         size_on_disk=130,
@@ -6066,7 +6066,7 @@ async def test_agent_refresh_reconciles_hf_pin_from_cache_scan(
 async def test_agent_refresh_marks_missing_hf_cache_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     monkeypatch.setattr(
         model_registry_module,
         "_scan_hf_cache_info",
@@ -6106,7 +6106,7 @@ async def test_agent_refresh_marks_missing_hf_cache_entry(
 async def test_agent_removes_unpinned_local_model_metadata(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
     model_dir.mkdir(parents=True)
     weights_path = model_dir / "model.safetensors"
@@ -6151,7 +6151,7 @@ async def test_agent_removes_unpinned_local_model_metadata(
 async def test_agent_removes_cached_hf_model_via_cache_delete_revisions(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
     executed: list[tuple[str, ...]] = []
 
@@ -6212,7 +6212,7 @@ async def test_agent_removes_cached_hf_model_via_cache_delete_revisions(
 async def test_agent_removes_remote_only_hf_model_metadata_without_cache_access(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
 
     def fail_scan_cache() -> object:
@@ -6259,7 +6259,7 @@ async def test_agent_removes_remote_only_hf_model_metadata_without_cache_access(
 async def test_agent_refuses_to_remove_model_pinned_by_config(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(
         config_dir / "uses-pinned.yaml",
         """
@@ -6300,7 +6300,7 @@ async def test_agent_refuses_to_remove_model_pinned_by_config(
 async def test_agent_refuses_to_remove_model_pinned_by_bare_model_revision(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(
         config_dir / "uses-revision.yaml",
         """
@@ -6343,7 +6343,7 @@ async def test_agent_refuses_to_remove_model_pinned_by_bare_model_revision(
 async def test_agent_force_removes_model_pinned_by_config(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(
         config_dir / "uses-pinned.yaml",
         """
@@ -6390,7 +6390,7 @@ async def test_agent_force_removes_model_pinned_by_config(
 async def test_agent_refuses_to_force_remove_model_used_by_live_run(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
     sidecar_path = tmp_path / "runs" / "live-model.json"
     live_sidecar = Sidecar(
@@ -6470,7 +6470,7 @@ async def test_agent_refuses_to_force_remove_model_used_by_live_run(
 async def test_agent_refuses_to_remove_model_used_by_typed_sidecar_model_ref(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
     sidecar_path = tmp_path / "runs" / "typed-live-model.json"
     live_sidecar = Sidecar(
@@ -6541,7 +6541,7 @@ async def test_agent_refuses_to_remove_model_used_by_typed_sidecar_model_ref(
 async def test_agent_ignores_unverified_sidecar_when_removing_model(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     write_yaml(config_dir / "other.yaml", "name: other\nmodel: org/other")
     sidecar_path = tmp_path / "runs" / "dead-model.json"
     monkeypatch.setattr(
@@ -6593,7 +6593,7 @@ async def test_agent_ignores_unverified_sidecar_when_removing_model(
 async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -6666,7 +6666,7 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
 async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -6728,7 +6728,7 @@ async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override
 async def test_agent_prepare_launch_rejects_model_ref_repo_mismatch(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -6783,7 +6783,7 @@ async def test_agent_prepare_launch_rejects_model_ref_repo_mismatch(
 async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -6843,7 +6843,7 @@ async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref
     monkeypatch: pytest.MonkeyPatch,
     unused_tcp_port: int,
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -6898,7 +6898,7 @@ async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref
 async def test_agent_prepare_launch_blocks_remote_only_model_ref_when_offline(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -6957,7 +6957,7 @@ async def test_agent_prepare_launch_blocks_remote_only_model_ref_when_offline(
 async def test_agent_preview_renders_model_ref_even_when_launch_would_block(
     config_dir: Path, tmp_path: Path
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -7012,7 +7012,7 @@ async def test_agent_prepare_launch_resolves_local_model_ref_handoff(
 ) -> None:
     model_dir = tmp_path / "models" / "llama-local"
     model_dir.mkdir(parents=True)
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -7177,7 +7177,7 @@ async def test_gpu_method_starts_and_stops_agent_stream_by_sub_id() -> None:
 async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "vllm-nightly"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -7240,7 +7240,7 @@ async def test_agent_create_build_adopt_job_streams_and_writes_manifest(
 async def test_agent_create_build_adopt_job_reports_registry_errors(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "broken-vllm"
     (venv_dir / "bin").mkdir(parents=True)
     (venv_dir / "bin" / "python").write_text("#!/bin/sh\n", encoding="utf-8")
@@ -7285,7 +7285,7 @@ async def test_agent_create_build_adopt_job_reports_registry_errors(
 async def test_agent_create_build_adopt_job_mints_registry_build_id_when_omitted(
     tmp_path: Path,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     venv_dir = tmp_path / "external" / "generated-build-id"
     bin_dir = venv_dir / "bin"
     bin_dir.mkdir(parents=True)
@@ -7340,7 +7340,7 @@ async def test_agent_create_build_adopt_job_mints_registry_build_id_when_omitted
 async def test_agent_create_build_pip_job_installs_managed_venv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     command_calls: list[list[str]] = []
     command_cwds: list[Path] = []
 
@@ -7618,7 +7618,7 @@ def test_adopted_build_artifacts_write_python_wrapper(tmp_path: Path) -> None:
 async def test_agent_create_build_pip_job_prefers_uv_when_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     uv_path = "/opt/bin/uv"
     command_calls: list[list[str]] = []
 
@@ -7713,7 +7713,7 @@ async def test_agent_create_build_pip_job_prefers_uv_when_available(
 async def test_agent_create_build_nightly_requires_uv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
@@ -7747,7 +7747,7 @@ async def test_agent_create_build_nightly_requires_uv(
 async def test_agent_create_build_nightly_uses_uv_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     uv_path = "/opt/bin/uv"
     command_calls: list[list[str]] = []
 
@@ -7848,7 +7848,7 @@ async def test_agent_create_build_nightly_uses_uv_index(
 async def test_agent_create_build_commit_requires_uv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
@@ -7882,7 +7882,7 @@ async def test_agent_create_build_commit_requires_uv(
 async def test_agent_create_build_commit_uses_uv_commit_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     uv_path = "/opt/bin/uv"
     commit_sha = "0123456789abcdef0123456789abcdef01234567"
     command_calls: list[list[str]] = []
@@ -7983,7 +7983,7 @@ async def test_agent_create_build_commit_uses_uv_commit_index(
 async def test_agent_create_build_wheel_requires_existing_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     missing_wheel = tmp_path / "wheels" / "vllm-0.11.2.whl"
     monkeypatch.setattr(
         local_agent_module,
@@ -8022,7 +8022,7 @@ async def test_agent_create_build_wheel_requires_existing_file(
 async def test_agent_create_build_wheel_uses_uv_with_extra_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     uv_path = "/opt/bin/uv"
     wheel_path = tmp_path / "wheels" / "vllm-0.11.2+cu130.whl"
     wheel_path.parent.mkdir(parents=True)
@@ -8125,7 +8125,7 @@ async def test_agent_create_build_wheel_uses_uv_with_extra_index(
 async def test_agent_create_build_wheel_falls_back_to_pip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     wheel_path = tmp_path / "wheels" / "vllm-0.11.2.whl"
     wheel_path.parent.mkdir(parents=True)
     wheel_path.write_text("wheel", encoding="utf-8")
@@ -8228,7 +8228,7 @@ async def test_agent_create_build_wheel_falls_back_to_pip(
 async def test_agent_create_build_git_requires_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     monkeypatch.setattr(
         local_agent_module,
         "_find_uv_executable",
@@ -8265,7 +8265,7 @@ async def test_agent_create_build_git_requires_url(
 async def test_agent_create_build_git_clones_and_installs_with_uv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     uv_path = "/opt/bin/uv"
     git_url = "https://github.com/vllm-project/vllm.git"
     git_ref = "abc123"
@@ -8371,7 +8371,7 @@ async def test_agent_create_build_git_clones_and_installs_with_uv(
 async def test_agent_create_build_git_falls_back_to_pip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     git_url = "https://github.com/vllm-project/vllm.git"
     command_calls: list[list[str]] = []
 
@@ -8481,7 +8481,7 @@ async def test_agent_create_build_git_falls_back_to_pip(
 async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     index_url = "https://user:build-token-12345@packages.example/simple"
 
     async def fake_build_subprocess_exec(
@@ -8571,7 +8571,7 @@ async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
 async def test_agent_create_build_pip_job_marks_failed_when_verify_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
 
     async def fake_build_subprocess_exec(
         argv: list[str],
@@ -8756,7 +8756,7 @@ def _pid_alive(pid: int) -> bool:
 async def test_agent_create_build_pip_cancel_marks_failed_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
     install_started = asyncio.Event()
 
     async def fake_build_subprocess_exec(
@@ -8885,7 +8885,7 @@ async def test_agent_create_build_pip_job_classifies_install_failures(
     installer_line: str,
     expected_kind: str,
 ) -> None:
-    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    builds_root = tmp_path / "data" / "vela" / "builds"
 
     async def fake_build_subprocess_exec(
         argv: list[str],
@@ -9000,7 +9000,7 @@ async def test_agent_download_model_job_streams_by_job_id() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_download_url_model_reports_launch_time_only(tmp_path: Path) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_url = "https://models.example/Qwen/example-q4.gguf"
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
@@ -9086,7 +9086,7 @@ async def test_agent_download_model_job_scrubs_progress_before_wire(
 async def test_agent_download_model_job_verifies_cached_model_entry(
     tmp_path: Path,
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
         json.dumps(
@@ -9161,7 +9161,7 @@ async def test_agent_download_model_job_verifies_cached_model_entry(
 async def test_agent_download_model_job_downloads_uncached_hf_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     snapshot_calls: list[dict[str, object]] = []
 
     def fake_snapshot_download(**kwargs: object) -> str:
@@ -9280,7 +9280,7 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
 async def test_agent_download_model_job_streams_snapshot_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     def fake_snapshot_download(**kwargs: object) -> str:
         tqdm_class = kwargs.get("tqdm_class")
@@ -9368,7 +9368,7 @@ async def test_agent_download_model_job_streams_snapshot_progress(
 async def test_agent_download_model_job_injects_hf_token_without_persisting_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     snapshot_calls: list[dict[str, object]] = []
     hf_token = "hf_live_download_token"
 
@@ -9462,7 +9462,7 @@ async def test_agent_download_model_job_classifies_snapshot_failures(
     message: str,
     expected_kind: str,
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     def failing_snapshot_download(**_kwargs: object) -> str:
         raise RuntimeError(message)
@@ -9517,7 +9517,7 @@ async def test_agent_download_model_job_classifies_snapshot_failures(
 async def test_agent_cancelled_model_download_marks_entry_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
 
     def slow_snapshot_download(**_kwargs: object) -> str:
         time.sleep(0.2)
@@ -9573,7 +9573,7 @@ async def test_agent_cancelled_model_download_marks_entry_partial(
 async def test_agent_cancelled_model_download_interrupts_progress_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     first_progress = threading.Event()
     continue_download = threading.Event()
     worker_interrupted = threading.Event()

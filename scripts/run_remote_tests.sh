@@ -15,30 +15,30 @@ The default flow is safe on machines without vLLM/GPU access:
   - print host GPU/vLLM profile diagnostics
 
 If real-config-name is provided, the remote host also runs:
-  - vllm-loader preview REAL_CONFIG
-  - timeout-bound vllm-loader smoke-tui REAL_CONFIG
+  - vela preview REAL_CONFIG
+  - timeout-bound vela smoke-tui REAL_CONFIG
 
 Optional real artifact validation is enabled by local environment variables:
-  - VLLM_LOADER_REMOTE_PYTEST_ARGS overrides the remote pytest args (default: -q)
-  - VLLM_LOADER_REMOTE_TARGET runs build/model/config checks through a named target
-  - VLLM_LOADER_REMOTE_BUILD_SPEC='vllm==X.Y.Z' runs build add/verify
-  - VLLM_LOADER_REMOTE_BUILD_METHOD defaults to pip
-  - VLLM_LOADER_REMOTE_BUILD_LABEL defaults to remote-smoke-build
-  - VLLM_LOADER_REMOTE_MODEL_REPO pins a HF repo before download
-  - VLLM_LOADER_REMOTE_MODEL_ID defaults to remote-smoke-model
-  - VLLM_LOADER_REMOTE_MODEL_REF downloads an existing pinned entry instead
-  - VLLM_LOADER_REMOTE_MODEL_REVISION optionally pins/downloads a revision
-  - VLLM_LOADER_REMOTE_GATED_MODEL_REPO runs a no-token gated-auth probe
-  - VLLM_LOADER_REMOTE_GATED_MODEL_ID defaults to remote-gated-model
-  - VLLM_LOADER_REMOTE_GATED_MODEL_REVISION optionally probes a revision
-  - VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG runs real-model resume/restart validation
-  - VLLM_LOADER_REMOTE_ARTIFACT=1 writes a dated Markdown validation record
-  - VLLM_LOADER_REMOTE_ARTIFACT_DIR overrides artifacts/remote-validation
-  - VLLM_LOADER_REMOTE_ARTIFACT_NAME writes a deterministic artifact filename
+  - VELA_REMOTE_PYTEST_ARGS overrides the remote pytest args (default: -q)
+  - VELA_REMOTE_TARGET runs build/model/config checks through a named target
+  - VELA_REMOTE_BUILD_SPEC='vllm==X.Y.Z' runs build add/verify
+  - VELA_REMOTE_BUILD_METHOD defaults to pip
+  - VELA_REMOTE_BUILD_LABEL defaults to remote-smoke-build
+  - VELA_REMOTE_MODEL_REPO pins a HF repo before download
+  - VELA_REMOTE_MODEL_ID defaults to remote-smoke-model
+  - VELA_REMOTE_MODEL_REF downloads an existing pinned entry instead
+  - VELA_REMOTE_MODEL_REVISION optionally pins/downloads a revision
+  - VELA_REMOTE_GATED_MODEL_REPO runs a no-token gated-auth probe
+  - VELA_REMOTE_GATED_MODEL_ID defaults to remote-gated-model
+  - VELA_REMOTE_GATED_MODEL_REVISION optionally probes a revision
+  - VELA_REMOTE_REAL_RESUME_CONFIG runs real-model resume/restart validation
+  - VELA_REMOTE_ARTIFACT=1 writes a dated Markdown validation record
+  - VELA_REMOTE_ARTIFACT_DIR overrides artifacts/remote-validation
+  - VELA_REMOTE_ARTIFACT_NAME writes a deterministic artifact filename
 
 Example:
-  scripts/run_remote_tests.sh blackbird /srv/lab-tui
-  scripts/run_remote_tests.sh blackbird /srv/lab-tui llama-3.1-8b
+  scripts/run_remote_tests.sh blackbird /srv/vela
+  scripts/run_remote_tests.sh blackbird /srv/vela llama-3.1-8b
 EOF
 }
 
@@ -50,26 +50,26 @@ fi
 host="$1"
 remote_path="$2"
 real_config="${3:-}"
-remote_timeout="${VLLM_LOADER_REMOTE_TIMEOUT:-1800}"
-remote_python="${VLLM_LOADER_REMOTE_PYTHON:-auto}"
-remote_venv="${VLLM_LOADER_REMOTE_VENV:-/tank/venvs/lab-tui}"
-remote_build_method="${VLLM_LOADER_REMOTE_BUILD_METHOD:-pip}"
-remote_build_spec="${VLLM_LOADER_REMOTE_BUILD_SPEC:-}"
-remote_build_label="${VLLM_LOADER_REMOTE_BUILD_LABEL:-remote-smoke-build}"
-remote_model_id="${VLLM_LOADER_REMOTE_MODEL_ID:-remote-smoke-model}"
-remote_model_repo="${VLLM_LOADER_REMOTE_MODEL_REPO:-}"
-remote_model_ref="${VLLM_LOADER_REMOTE_MODEL_REF:-}"
-remote_model_revision="${VLLM_LOADER_REMOTE_MODEL_REVISION:-}"
-remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
-remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:-}"
-remote_real_resume_config="${VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG:-}"
-remote_gated_model_repo="${VLLM_LOADER_REMOTE_GATED_MODEL_REPO:-}"
-remote_gated_model_id="${VLLM_LOADER_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
-remote_gated_model_revision="${VLLM_LOADER_REMOTE_GATED_MODEL_REVISION:-}"
-artifact_enabled="${VLLM_LOADER_REMOTE_ARTIFACT:-}"
-artifact_dir="${VLLM_LOADER_REMOTE_ARTIFACT_DIR:-}"
-artifact_name="${VLLM_LOADER_REMOTE_ARTIFACT_NAME:-}"
-empty_arg="__VLLM_LOADER_EMPTY__"
+remote_timeout="${VELA_REMOTE_TIMEOUT:-1800}"
+remote_python="${VELA_REMOTE_PYTHON:-auto}"
+remote_venv="${VELA_REMOTE_VENV:-/tank/venvs/vela}"
+remote_build_method="${VELA_REMOTE_BUILD_METHOD:-pip}"
+remote_build_spec="${VELA_REMOTE_BUILD_SPEC:-}"
+remote_build_label="${VELA_REMOTE_BUILD_LABEL:-remote-smoke-build}"
+remote_model_id="${VELA_REMOTE_MODEL_ID:-remote-smoke-model}"
+remote_model_repo="${VELA_REMOTE_MODEL_REPO:-}"
+remote_model_ref="${VELA_REMOTE_MODEL_REF:-}"
+remote_model_revision="${VELA_REMOTE_MODEL_REVISION:-}"
+remote_target="${VELA_REMOTE_TARGET:-}"
+remote_pytest_args="${VELA_REMOTE_PYTEST_ARGS:-}"
+remote_real_resume_config="${VELA_REMOTE_REAL_RESUME_CONFIG:-}"
+remote_gated_model_repo="${VELA_REMOTE_GATED_MODEL_REPO:-}"
+remote_gated_model_id="${VELA_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
+remote_gated_model_revision="${VELA_REMOTE_GATED_MODEL_REVISION:-}"
+artifact_enabled="${VELA_REMOTE_ARTIFACT:-}"
+artifact_dir="${VELA_REMOTE_ARTIFACT_DIR:-}"
+artifact_name="${VELA_REMOTE_ARTIFACT_NAME:-}"
+empty_arg="__VELA_EMPTY__"
 append_remote_arg() {
   if [[ -n "$1" ]]; then
     ssh_cmd+=("$1")
@@ -81,26 +81,26 @@ quote_remote_word() {
   printf "%q" "$1"
 }
 ssh_cmd=(ssh)
-if [[ -n "${VLLM_LOADER_SSH_OPTS:-}" ]]; then
+if [[ -n "${VELA_SSH_OPTS:-}" ]]; then
   # shellcheck disable=SC2206
-  ssh_cmd+=(${VLLM_LOADER_SSH_OPTS})
+  ssh_cmd+=(${VELA_SSH_OPTS})
 fi
 ssh_cmd+=("$host")
 remote_env=()
 if [[ -n "$remote_target" ]]; then
-  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_TARGET=$remote_target")")
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_TARGET=$remote_target")")
 fi
 if [[ -n "$remote_pytest_args" ]]; then
-  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_PYTEST_ARGS=$remote_pytest_args")")
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_PYTEST_ARGS=$remote_pytest_args")")
 fi
 if [[ -n "$remote_real_resume_config" ]]; then
-  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=$remote_real_resume_config")")
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_REAL_RESUME_CONFIG=$remote_real_resume_config")")
 fi
 if [[ -n "$remote_gated_model_repo" ]]; then
-  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_GATED_MODEL_REPO=$remote_gated_model_repo")")
-  remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_GATED_MODEL_ID=$remote_gated_model_id")")
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_GATED_MODEL_REPO=$remote_gated_model_repo")")
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_GATED_MODEL_ID=$remote_gated_model_id")")
   if [[ -n "$remote_gated_model_revision" ]]; then
-    remote_env+=("$(quote_remote_word "VLLM_LOADER_REMOTE_GATED_MODEL_REVISION=$remote_gated_model_revision")")
+    remote_env+=("$(quote_remote_word "VELA_REMOTE_GATED_MODEL_REVISION=$remote_gated_model_revision")")
   fi
 fi
 if [[ ${#remote_env[@]} -gt 0 ]]; then
@@ -144,7 +144,7 @@ run_remote_validation() {
   "${ssh_cmd[@]}" <<'REMOTE'
 set -euo pipefail
 
-empty_arg="__VLLM_LOADER_EMPTY__"
+empty_arg="__VELA_EMPTY__"
 _remote_arg_or_empty() {
   if [[ "${1:-}" == "$empty_arg" ]]; then
     printf ''
@@ -156,7 +156,7 @@ _remote_arg_or_empty() {
 remote_path="$1"
 remote_timeout="$2"
 remote_python="${3:-auto}"
-remote_venv="${4:-/tank/venvs/lab-tui}"
+remote_venv="${4:-/tank/venvs/vela}"
 real_config="$(_remote_arg_or_empty "${5:-}")"
 remote_build_method="$(_remote_arg_or_empty "${6:-pip}")"
 remote_build_spec="$(_remote_arg_or_empty "${7:-}")"
@@ -165,12 +165,12 @@ remote_model_id="$(_remote_arg_or_empty "${9:-remote-smoke-model}")"
 remote_model_repo="$(_remote_arg_or_empty "${10:-}")"
 remote_model_ref="$(_remote_arg_or_empty "${11:-}")"
 remote_model_revision="$(_remote_arg_or_empty "${12:-}")"
-remote_target="${VLLM_LOADER_REMOTE_TARGET:-}"
-remote_pytest_args="${VLLM_LOADER_REMOTE_PYTEST_ARGS:--q}"
-remote_real_resume_config="${VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG:-}"
-remote_gated_model_repo="${VLLM_LOADER_REMOTE_GATED_MODEL_REPO:-}"
-remote_gated_model_id="${VLLM_LOADER_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
-remote_gated_model_revision="${VLLM_LOADER_REMOTE_GATED_MODEL_REVISION:-}"
+remote_target="${VELA_REMOTE_TARGET:-}"
+remote_pytest_args="${VELA_REMOTE_PYTEST_ARGS:--q}"
+remote_real_resume_config="${VELA_REMOTE_REAL_RESUME_CONFIG:-}"
+remote_gated_model_repo="${VELA_REMOTE_GATED_MODEL_REPO:-}"
+remote_gated_model_id="${VELA_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
+remote_gated_model_revision="${VELA_REMOTE_GATED_MODEL_REVISION:-}"
 read -r -a pytest_args <<< "$remote_pytest_args"
 target_args=()
 if [[ -n "$remote_target" ]]; then
@@ -210,21 +210,21 @@ if [[ ! -x "$venv_python" ]]; then
   "$remote_python" -m venv "$remote_venv"
 fi
 if [[ ! -x "$venv_python" ]]; then
-  echo "Remote venv was not created at $remote_venv; install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON to a venv-capable Python." >&2
+  echo "Remote venv was not created at $remote_venv; install python3-venv/ensurepip or set VELA_REMOTE_PYTHON to a venv-capable Python." >&2
   exit 127
 fi
 if ! "$venv_python" -m pip --version >/dev/null 2>&1; then
-  echo "Remote venv lacks pip; install python3-venv/ensurepip or set VLLM_LOADER_REMOTE_PYTHON to a venv-capable Python: $remote_python" >&2
+  echo "Remote venv lacks pip; install python3-venv/ensurepip or set VELA_REMOTE_PYTHON to a venv-capable Python: $remote_python" >&2
   exit 127
 fi
 export PATH="$venv_bin:$PATH"
 "$venv_python" -m pip install -e ".[dev]"
 echo "== Remote agent restart =="
-"$venv_bin/vllm-loader" agent restart
+"$venv_bin/vela" agent restart
 echo "== Remote host =="
 hostname
 "$venv_python" - <<'PY'
-from vllm_loader.monitoring.gpu import sample_gpus
+from vela.monitoring.gpu import sample_gpus
 
 result = sample_gpus()
 print(f"GPU unavailable={result.unavailable} note={result.note}")
@@ -247,8 +247,8 @@ else
 fi
 "$venv_python" -m ruff check .
 "$venv_python" -m pytest "${pytest_args[@]}"
-"$venv_bin/vllm-loader" list
-"$venv_bin/vllm-loader" preview fake-child
+"$venv_bin/vela" list
+"$venv_bin/vela" preview fake-child
 echo "== Daemon restart live-run survival =="
 "$venv_python" - "$remote_path" "$venv_bin" <<'PY'
 import asyncio
@@ -260,13 +260,13 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from vllm_loader.transport.subprocess import SubprocessTargetClient
+from vela.transport.subprocess import SubprocessTargetClient
 
 
 remote_path = Path(sys.argv[1])
 venv_bin = Path(sys.argv[2])
 config_name = "daemon-restart-fake"
-tmp_root = Path(tempfile.mkdtemp(prefix="vllm-loader-daemon-restart-"))
+tmp_root = Path(tempfile.mkdtemp(prefix="vela-daemon-restart-"))
 runs_dir = tmp_root / "runs"
 config_path = tmp_root / f"{config_name}.yaml"
 
@@ -279,7 +279,7 @@ def _free_port() -> int:
 
 def _agent_client() -> SubprocessTargetClient:
     return SubprocessTargetClient(
-        [str(venv_bin / "vllm-loader"), "agent", "connect"],
+        [str(venv_bin / "vela"), "agent", "connect"],
         cwd=remote_path,
     )
 
@@ -332,7 +332,7 @@ launch:
     finally:
         await client.disconnect()
 
-    subprocess.run([str(venv_bin / "vllm-loader"), "agent", "restart"], check=True)
+    subprocess.run([str(venv_bin / "vela"), "agent", "restart"], check=True)
 
     client = _agent_client()
     await client.connect()
@@ -386,13 +386,13 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from vllm_loader.transport.subprocess import SubprocessTargetClient
+from vela.transport.subprocess import SubprocessTargetClient
 
 
 remote_path = Path(sys.argv[1])
 venv_bin = Path(sys.argv[2])
 config_name = "disconnect-reconnect-fake"
-tmp_root = Path(tempfile.mkdtemp(prefix="vllm-loader-disconnect-reconnect-"))
+tmp_root = Path(tempfile.mkdtemp(prefix="vela-disconnect-reconnect-"))
 runs_dir = tmp_root / "runs"
 config_path = tmp_root / f"{config_name}.yaml"
 
@@ -405,7 +405,7 @@ def _free_port() -> int:
 
 def _agent_client() -> SubprocessTargetClient:
     return SubprocessTargetClient(
-        [str(venv_bin / "vllm-loader"), "agent", "connect"],
+        [str(venv_bin / "vela"), "agent", "connect"],
         cwd=remote_path,
     )
 
@@ -616,21 +616,21 @@ PY
 
 if [[ -n "$remote_build_spec" ]]; then
   echo "== Real build install =="
-  "$venv_bin/vllm-loader" build add "${target_args[@]}" \
+  "$venv_bin/vela" build add "${target_args[@]}" \
     --method "$remote_build_method" \
     --label "$remote_build_label" \
     --spec "$remote_build_spec"
-  "$venv_bin/vllm-loader" build verify "$remote_build_label" "${target_args[@]}"
+  "$venv_bin/vela" build verify "$remote_build_label" "${target_args[@]}"
 fi
 
 if [[ -n "$remote_model_repo" ]]; then
   echo "== Real model pin =="
   if [[ -n "$remote_model_revision" ]]; then
-    "$venv_bin/vllm-loader" model pin "$remote_model_id" "${target_args[@]}" \
+    "$venv_bin/vela" model pin "$remote_model_id" "${target_args[@]}" \
       --repo-id "$remote_model_repo" \
       --revision "$remote_model_revision"
   else
-    "$venv_bin/vllm-loader" model pin "$remote_model_id" "${target_args[@]}" \
+    "$venv_bin/vela" model pin "$remote_model_id" "${target_args[@]}" \
       --repo-id "$remote_model_repo"
   fi
   remote_model_ref="$remote_model_id"
@@ -639,12 +639,12 @@ fi
 if [[ -n "$remote_model_ref" ]]; then
   echo "== Real model download =="
   if [[ -n "$remote_model_revision" ]]; then
-    "$venv_bin/vllm-loader" model download "$remote_model_ref" "${target_args[@]}" \
+    "$venv_bin/vela" model download "$remote_model_ref" "${target_args[@]}" \
       --revision "$remote_model_revision"
   else
-    "$venv_bin/vllm-loader" model download "$remote_model_ref" "${target_args[@]}"
+    "$venv_bin/vela" model download "$remote_model_ref" "${target_args[@]}"
   fi
-  "$venv_bin/vllm-loader" model verify "$remote_model_ref" "${target_args[@]}"
+  "$venv_bin/vela" model verify "$remote_model_ref" "${target_args[@]}"
 fi
 
 if [[ -n "$remote_gated_model_repo" ]]; then
@@ -657,8 +657,8 @@ if [[ -n "$remote_gated_model_repo" ]]; then
 fi
 
 if [[ -n "$real_config" ]]; then
-  "$venv_bin/vllm-loader" preview "$real_config" "${target_args[@]}"
-  timeout "$remote_timeout" "$venv_bin/vllm-loader" smoke-tui "$real_config" "${target_args[@]}"
+  "$venv_bin/vela" preview "$real_config" "${target_args[@]}"
+  timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config" "${target_args[@]}"
 fi
 
 if [[ -n "$remote_real_resume_config" ]]; then
@@ -696,7 +696,7 @@ if [[ "$artifact_enabled" == "1" ]]; then
   local_head_full="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
   printf -v ssh_preview '%q ' "${ssh_cmd[@]}"
   {
-    echo "# vLLM Loader Remote Validation"
+    echo "# Vela Remote Validation"
     echo
     echo "- Started: \`$start_utc\`"
     echo "- Local commit: \`$local_head\` (\`$local_head_full\`)"

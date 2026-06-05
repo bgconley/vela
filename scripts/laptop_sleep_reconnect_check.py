@@ -11,9 +11,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from vllm_loader.config.targets import load_targets_file
-from vllm_loader.transport.client import TargetClient
-from vllm_loader.transport.factory import target_client_for_config
+from vela.config.targets import load_targets_file
+from vela.transport.client import TargetClient
+from vela.transport.factory import target_client_for_config
 
 
 class OperatorAbort(RuntimeError):
@@ -331,7 +331,7 @@ async def _run(
         _write_artifact(
             artifact,
             [
-                "# vLLM Loader Laptop Sleep Validation",
+                "# Vela Laptop Sleep Validation",
                 "",
                 f"- Started: `{started}`",
                 f"- Completed: `{completed}`",
@@ -404,7 +404,7 @@ async def _run(
     _write_artifact(
         artifact,
         [
-            "# vLLM Loader Laptop Sleep Validation",
+            "# Vela Laptop Sleep Validation",
             "",
             f"- Started: `{started}`",
             f"- Completed: `{completed}`",

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vllm_loader.engine.phases import ErrorKind, Phase, PhaseFSM
-from vllm_loader.engine.profile import bundled_profile
+from vela.engine.phases import ErrorKind, Phase, PhaseFSM
+from vela.engine.profile import bundled_profile
 
 FIXTURES = Path(__file__).parent / "fixtures" / "vllm_logs"
 

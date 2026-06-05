@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vllm_loader.tui.screens import adopt_build, create_build, pin_model
+from vela.tui.screens import adopt_build, create_build, pin_model
 
 
 def test_structured_tui_forms_do_not_export_legacy_free_form_parsers() -> None:

@@ -1,6 +1,6 @@
-# vLLM Loader — Agent/Controller Architecture (Remote Execution) — Specification & Implementation Plan (v1)
+# Vela — Agent/Controller Architecture (Remote Execution) — Specification & Implementation Plan (v1)
 
-**Feature:** "agent everywhere, controller anywhere" — a per-host agent that owns all lifecycle, an RPC protocol, and pluggable transports (local + SSH) · **Status:** spec-ready · **Audience:** the engineer(s) refactoring `vllm-loader`.
+**Feature:** "agent everywhere, controller anywhere" — a per-host agent that owns all lifecycle, an RPC protocol, and pluggable transports (local + SSH) · **Status:** spec-ready · **Audience:** the engineer(s) refactoring `vela`.
 
 > **Relationship to the existing specs.** This document is a **structural refactor** of the architecture in `vllm-tui-loader-spec-v2-CANONICAL.md`. It does **not** change *what* the loader does; it changes *where* the work runs. It supersedes the canonical assumption that "the TUI runs on the machine that launches vLLM" (canonical §2.3/§6) and replaces it with a controller↔agent split. It **composes with** `vllm-build-management-spec-v1.md` and `vllm-model-management-spec-v1.md`: builds and models are **per-target, agent-owned** resources surfaced over the same RPC. Where this document and the canonical spec disagree on *topology*, this document wins; on *behavior* (phases, scrubbing, identity rigor, UI conventions), the canonical spec and the sibling specs still govern — this document lifts that behavior behind an agent boundary unchanged.
 >
@@ -12,7 +12,7 @@
 
 ### 0.1 The shape we want
 
-> **Controller anywhere, agent everywhere.** Run the TUI on a workstation (P620‑01); use a GPU box (Blackbird) — or the local machine itself — as an execution *target*. Every target runs a `vllm-loader agent` that owns launch, stop/kill/restart, sidecar identity, durable logs, health, and GPU sampling. The controller asks; the agent acts. **Local is just another target.** The protocol is identical; only the transport changes.
+> **Controller anywhere, agent everywhere.** Run the TUI on a workstation (P620‑01); use a GPU box (Blackbird) — or the local machine itself — as an execution *target*. Every target runs a `vela agent` that owns launch, stop/kill/restart, sidecar identity, durable logs, health, and GPU sampling. The controller asks; the agent acts. **Local is just another target.** The protocol is identical; only the transport changes.
 
 ### 0.2 Why the current app cannot do this (grounded)
 
@@ -41,7 +41,7 @@ A new `agent` subsystem and a `targets` layer: (1) a per-host **agent daemon** t
 
 ### 1.2 Uniform shape: local is just another target
 
-One protocol, one `TargetClient` API. A `target` declares a **transport**: `local` (in-process agent — zero serialization) or `ssh` (`ssh host vllm-loader agent`, NDJSON over stdio). The TUI's call sites are transport-agnostic. This is non-negotiable: even "control the local GPUs" goes through the same agent API, so there is no privileged local path that drifts from the remote one.
+One protocol, one `TargetClient` API. A `target` declares a **transport**: `local` (in-process agent — zero serialization) or `ssh` (`ssh host vela agent`, NDJSON over stdio). The TUI's call sites are transport-agnostic. This is non-negotiable: even "control the local GPUs" goes through the same agent API, so there is no privileged local path that drifts from the remote one.
 
 ### 1.3 The launch/observe split (this refactor's key simplification)
 
@@ -65,7 +65,7 @@ A launch is scoped, outermost to innermost: **target** (which host) → **build*
 
 ## 2. Scope & non-goals
 
-**In scope (v1):** a controller-local `targets` registry (local + ssh); a uniform `TargetClient` over `LocalTransport` (in-process) and `SshStdioTransport`; an `Agent` that wraps the existing engine and owns authority; the NDJSON-RPC protocol (request/response + streamed events, idempotent launch, handshake/version/capability negotiation, reconnect + resume-by-offset); agent-side preflight/scrubbing/durable-logs/sidecars/FSM/health/GPU; per-target configs/builds/models over RPC with job streaming; the `vllm-loader agent` CLI and `--target` selection; controller UX (target segment, `TargetManagerScreen`, disconnected state).
+**In scope (v1):** a controller-local `targets` registry (local + ssh); a uniform `TargetClient` over `LocalTransport` (in-process) and `SshStdioTransport`; an `Agent` that wraps the existing engine and owns authority; the NDJSON-RPC protocol (request/response + streamed events, idempotent launch, handshake/version/capability negotiation, reconnect + resume-by-offset); agent-side preflight/scrubbing/durable-logs/sidecars/FSM/health/GPU; per-target configs/builds/models over RPC with job streaming; the `vela agent` CLI and `--target` selection; controller UX (target segment, `TargetManagerScreen`, disconnected state).
 
 **Out of scope (v1):** HTTP/WebSocket/gRPC transports (deferred — §17); a daemon **token/capability auth** for shared multi-tenant hosts (v1 gates on Unix-socket filesystem permissions + `SO_PEERCRED` + SSH; §13); simultaneous multi-host "runs overview" (deferred — one active target at a time); a control plane that fans launches across hosts; agent auto-install/bootstrap beyond a surfaced command; Windows targets (Linux-primary). The local in-process path keeps a true attached PTY as an internal optimization, but no new local-only features.
 
@@ -95,7 +95,7 @@ A launch is scoped, outermost to innermost: **target** (which host) → **build*
 **Composition & UX & CLI**
 - **FR-A12** Per-target `list_configs`/`list_builds`/`list_models` and their mutators are agent RPC methods; switching target re-scopes the config/build/model/run views.
 - **FR-A13** Controller UX: a header **target segment** with a connection dot, a `TargetManagerScreen`, a disconnected dashboard state, and **target-named confirm dialogs** for destructive actions.
-- **FR-A14** `vllm-loader agent` CLI (the agent entrypoint) and `--target` selection on controller commands.
+- **FR-A14** `vela agent` CLI (the agent entrypoint) and `--target` selection on controller commands.
 - **FR-A15** The agent runs as a **per-user daemon** on each target (Unix-socket listener; systemd-user / auto-spawn / explicit-CLI lifecycle), surviving controller disconnects and serving multiple controllers; runs survive a daemon restart via sidecar re-discovery.
 
 **Non-functional**
@@ -165,15 +165,15 @@ Derived from a full audit of today's `tui/app.py`/`cli.py` call sites into the e
 
 The agent is a **long-lived per-user daemon** on each target host, **independent of any controller connection** (the change from a session-scoped process: robustness over a flaky link, warm state, and decoupling from the orchestrator's connection). It holds no GPU memory and is near-idle when no run is active.
 
-- **Listener.** The daemon listens on a **Unix domain socket** at `$XDG_RUNTIME_DIR/vllm-loader/agent.sock` (fallback `~/.local/state/vllm-loader/agent.sock`), in a `0700` dir with a `0600` socket owned by the user. **No network port is opened** (NFR-A3 preserved). It accepts concurrent connections (multi-controller; §5.5).
-- **Remote reach.** The controller runs a tiny **stateless SSH stdio↔socket bridge** — `ssh [opts] host vllm-loader agent connect` — forwarding NDJSON between the SSH connection's stdio and the local socket. SSH provides transport + auth; the daemon is the authority and persists across bridges. The bridge is disposable; killing it (or an SSH drop) never touches the daemon or its runs.
+- **Listener.** The daemon listens on a **Unix domain socket** at `$XDG_RUNTIME_DIR/vela/agent.sock` (fallback `~/.local/state/vela/agent.sock`), in a `0700` dir with a `0600` socket owned by the user. **No network port is opened** (NFR-A3 preserved). It accepts concurrent connections (multi-controller; §5.5).
+- **Remote reach.** The controller runs a tiny **stateless SSH stdio↔socket bridge** — `ssh [opts] host vela agent connect` — forwarding NDJSON between the SSH connection's stdio and the local socket. SSH provides transport + auth; the daemon is the authority and persists across bridges. The bridge is disposable; killing it (or an SSH drop) never touches the daemon or its runs.
 - **Local reach.** The controller connects **directly to the local socket** (uniform with remote, minus SSH). An in-process `Agent` remains a zero-dependency dev/test mode, but the daemon-over-socket path is canonical so local and remote share warm-state/multi-controller semantics.
 - **Identity file.** The daemon writes `agent.json` beside the socket — `{pid, create_time, procfs_starttime, start_ts, version, protocol_versions, socket_path}` — so a connector detects a **stale socket** (dead/mismatched daemon) using the same identity discipline as sidecars and refuses an impostor.
 
 **Lifecycle (three complementary ways):**
-1. **systemd user service** (recommended for production): `systemctl --user enable --now vllm-loader-agent`; with lingering it survives logout and starts on boot — clean supervision, restart-on-crash, journald logs.
+1. **systemd user service** (recommended for production): `systemctl --user enable --now vela-agent`; with lingering it survives logout and starts on boot — clean supervision, restart-on-crash, journald logs.
 2. **Auto-spawn on first connect** (zero-config): the bridge / local connector, finding no live daemon (missing/stale `agent.json`, dead identity, refused connect), **double-forks a detached daemon** (`setsid`), waits for the socket, then connects. The spawned daemon **persists after the connector leaves** — that is the point.
-3. **Explicit CLI:** `vllm-loader agent start|stop|status|restart`.
+3. **Explicit CLI:** `vela agent start|stop|status|restart`.
 
 **Idle policy.** Default **persist** (robustness; an idle daemon is a tiny process). Optional `--idle-timeout <minutes>` self-exits when there are no connections **and** no active runs; default off (predictable).
 
@@ -181,7 +181,7 @@ The agent is a **long-lived per-user daemon** on each target host, **independent
 
 ### 5.5 Multiple controllers
 
-Because the daemon outlives connections and the socket accepts concurrent peers, **multiple controllers may attach simultaneously** (e.g. a live TUI plus a `vllm-loader status` CLI, or two operators). The daemon fans events out per `sub_id`. Destructive ops stay safe: verify-before-signal is per-call, and a second `stop` on an already-stopped run simply observes it gone. Each connection is authenticated by socket filesystem permission (same user) plus an `SO_PEERCRED` UID check.
+Because the daemon outlives connections and the socket accepts concurrent peers, **multiple controllers may attach simultaneously** (e.g. a live TUI plus a `vela status` CLI, or two operators). The daemon fans events out per `sub_id`. Destructive ops stay safe: verify-before-signal is per-call, and a second `stop` on an already-stopped run simply observes it gone. Each connection is authenticated by socket filesystem permission (same user) plus an `SO_PEERCRED` UID check.
 
 ### 5.2 Always-supervised execution (§1.3 applied)
 
@@ -267,7 +267,7 @@ Error codes: `-32700/-32600/-32601/-32602` (parse/invalid/no-method/bad-params),
 
 ```json
 {"id":"r1","method":"launch","params":{"run_id":"01JRUN…","config_name":"qwen36-…-blackbird","build_id":"01JB…"}}
-{"id":"r1","result":{"run_id":"01JRUN…","sidecar_path":"/home/bg/.local/state/vllm-loader/runs/01JRUN….json"}}
+{"id":"r1","result":{"run_id":"01JRUN…","sidecar_path":"/home/bg/.local/state/vela/runs/01JRUN….json"}}
 {"id":"r2","method":"subscribe","params":{"sub_id":"01JSUB…","run_ids":["01JRUN…"],"resume_from":"start"}}
 {"id":"r2","result":{"sub_id":"01JSUB…"}}
 {"event":"phase","run_id":"01JRUN…","phase":"STARTING","prev_phase":"IDLE","ts":"2026-06-02T18:00:01Z","mono":12042.11}
@@ -297,7 +297,7 @@ The controller connects to the local daemon's **Unix domain socket** and speaks 
 
 ### 7.2 SshStdioTransport (bridge to the remote socket)
 
-`subprocess` of `ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 [ControlMaster opts] host vllm-loader agent connect`, where `agent connect` is a **stateless stdio↔socket bridge** forwarding NDJSON between the SSH connection and the remote daemon's socket (auto-spawning the daemon if absent). Three loops: a stdout NDJSON reader (dispatch to futures/subscriptions), a stderr reader (bridge/daemon diagnostics, never parsed as protocol), and a write lock on stdin. `BatchMode=yes` prevents an interactive password hang; `ControlMaster` reuse makes connect near-instant. **No network port is opened** — the daemon is reached only via its local socket, and remotely only through SSH. Killing the bridge (or an SSH drop) leaves the daemon and its runs untouched.
+`subprocess` of `ssh -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 [ControlMaster opts] host vela agent connect`, where `agent connect` is a **stateless stdio↔socket bridge** forwarding NDJSON between the SSH connection and the remote daemon's socket (auto-spawning the daemon if absent). Three loops: a stdout NDJSON reader (dispatch to futures/subscriptions), a stderr reader (bridge/daemon diagnostics, never parsed as protocol), and a write lock on stdin. `BatchMode=yes` prevents an interactive password hang; `ControlMaster` reuse makes connect near-instant. **No network port is opened** — the daemon is reached only via its local socket, and remotely only through SSH. Killing the bridge (or an SSH drop) leaves the daemon and its runs untouched.
 
 ### 7.3 The uniform `TargetClient`
 
@@ -314,7 +314,7 @@ A factory selects the transport from the `TargetConfig`. The TUI never names a t
 
 ### 7.4 Handshake & negotiation
 
-First call must be `handshake`. **Version rule (conservative):** the agent advertises the highest protocol it supports; if `controller > agent`, the agent returns `-32006` (upgrade the agent); if `controller < agent`, the agent downgrades to the controller's version within one major. **Capabilities** are additive flags (`builds`,`models`,`gpu`,…); a method from an unadvertised capability returns `-32601`, surfaced as "feature not available on this target." `host_info` carries hostname/platform/driver/`vllm_loader_version` for the detail pane.
+First call must be `handshake`. **Version rule (conservative):** the agent advertises the highest protocol it supports; if `controller > agent`, the agent returns `-32006` (upgrade the agent); if `controller < agent`, the agent downgrades to the controller's version within one major. **Capabilities** are additive flags (`builds`,`models`,`gpu`,…); a method from an unadvertised capability returns `-32601`, surfaced as "feature not available on this target." `host_info` carries hostname/platform/driver/`vela_version` for the detail pane.
 
 ### 7.5 Keepalive
 
@@ -333,7 +333,7 @@ Every event carries the **agent's** `ts` (wall) and `mono` (monotonic). The cont
 | Failure | Detection | UI |
 |---|---|---|
 | SSH/bridge drop | stdout EOF | reconnect to the (still-running) daemon; resume by `seq`/offset |
-| Daemon not running | no live `agent.json` / refused connect | **auto-spawn** the daemon and connect; if spawn fails, `AGENT_UNREACHABLE` with `vllm-loader agent start` |
+| Daemon not running | no live `agent.json` / refused connect | **auto-spawn** the daemon and connect; if spawn fails, `AGENT_UNREACHABLE` with `vela agent start` |
 | Daemon crash/restart | `daemon_start_ts` changed on reconnect | `discover_runs` (runs survive) + resume by offset; toast "agent restarted, runs intact" |
 | SSH auth failure | exit 255 + stderr | `AGENT_UNREACHABLE` banner; no auto-retry |
 | Agent not installed | exit 127 / "command not found" | `AGENT_NOT_INSTALLED` banner with the install command |
@@ -368,7 +368,7 @@ Every event carries the **agent's** `ts` (wall) and `mono` (monotonic). The cont
 
 ### 10.1 Targets registry (controller-local — the only controller-owned state)
 
-`~/.config/vllm-loader/targets.yaml` (or `targets.json` beside the controller's state). `local` is implicit, always present, non-removable.
+`~/.config/vela/targets.yaml` (or `targets.json` beside the controller's state). `local` is implicit, always present, non-removable.
 
 ```yaml
 targets:
@@ -377,9 +377,9 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/lab-tui     # optional
-    venv: /home/bgconley/venvs/lab-tui        # optional; agent binary path
-    ssh_opts_env: VLLM_LOADER_SSH_OPTS         # optional extra ssh args
+    workdir: /home/bgconley/repos/vela     # optional
+    venv: /home/bgconley/venvs/vela        # optional; agent binary path
+    ssh_opts_env: VELA_SSH_OPTS         # optional extra ssh args
   p620-01:
     transport: ssh
     host: user@10.25.0.20
@@ -391,17 +391,17 @@ targets:
 
 ### 10.3 Config ownership: agent-side, with a push option (Opus decision)
 
-Configs reference **target-local** paths (model paths, `command.build`, scripts, `cwd`), so discovery (`load_registry`'s precedence: `--configs-dir › VLLM_LOADER_CONFIGS › ./configs › ~/.config/vllm-loader/configs`) runs **on the agent**, and `list_configs`/`preview` are agent methods. The controller's `ConfigRegistry` becomes a per-target **view cache** populated by RPC, not a filesystem scan. *Alternative considered (rejected as the default):* controller-authored configs pushed to the agent — kept as an optional `push_config` convenience for author-once-run-anywhere, but a config's host-local references make agent-side discovery the correct primary. (Configs that name only a `model_ref` + `build` are target-portable; encourage that style for multi-host.)
+Configs reference **target-local** paths (model paths, `command.build`, scripts, `cwd`), so discovery (`load_registry`'s precedence: `--configs-dir › VELA_CONFIGS › ./configs › ~/.config/vela/configs`) runs **on the agent**, and `list_configs`/`preview` are agent methods. The controller's `ConfigRegistry` becomes a per-target **view cache** populated by RPC, not a filesystem scan. *Alternative considered (rejected as the default):* controller-authored configs pushed to the agent — kept as an optional `push_config` convenience for author-once-run-anywhere, but a config's host-local references make agent-side discovery the correct primary. (Configs that name only a `model_ref` + `build` are target-portable; encourage that style for multi-host.)
 
 ### 10.4 CLI
 
-`vllm-loader agent start|stop|status|restart` manages the daemon; `vllm-loader agent connect` is the stdio↔socket bridge SSH invokes; `vllm-loader agent run` (foreground) aids debugging. Controller commands gain `--target <name>`; a `targets` group manages the registry (`targets list/add/remove/test`). The coder's `agent launch/status/tail/stop/kill/gpu` verbs are thin RPC clients that attach to the target's daemon (cross-connection continuity is the daemon's warm state; cross-restart continuity is via sidecars).
+`vela agent start|stop|status|restart` manages the daemon; `vela agent connect` is the stdio↔socket bridge SSH invokes; `vela agent run` (foreground) aids debugging. Controller commands gain `--target <name>`; a `targets` group manages the registry (`targets list/add/remove/test`). The coder's `agent launch/status/tail/stop/kill/gpu` verbs are thin RPC clients that attach to the target's daemon (cross-connection continuity is the daemon's warm state; cross-restart continuity is via sidecars).
 
 -----
 
 ## 11. Composition with builds & models (per-target, over RPC)
 
-Builds (`~/.local/share/vllm-loader/builds/`) and models (HF cache + `~/.local/state/vllm-loader/models/registry.json`) are **the agent's** — per host. `list_builds`/`create_build`/`select_build`/`verify_build`/`remove_build` and `list_models`/`pin_model`/`download_model`/`verify_model`/`remove_model` are agent RPC methods (§6.3). Their **install/download "streamed jobs"** (build spec §7.1, model spec §8) reuse this protocol's **same event stream** as `job_progress`/`job_done` — the controller renders them through the existing `RichLog`/`ProgressLine`/`ErrorBanner`, identical to run logs. At `launch`, the agent resolves the build handoff (build spec §7.5: executable + env-overlay + version) and model handoff (model spec §9: `model_arg` + `--revision` + HF env) **locally** and folds both into the supervisor payload — the controller passes only `build_id`/`model_ref`/`revision`. Switching target re-scopes every picker to that host's resources.
+Builds (`~/.local/share/vela/builds/`) and models (HF cache + `~/.local/state/vela/models/registry.json`) are **the agent's** — per host. `list_builds`/`create_build`/`select_build`/`verify_build`/`remove_build` and `list_models`/`pin_model`/`download_model`/`verify_model`/`remove_model` are agent RPC methods (§6.3). Their **install/download "streamed jobs"** (build spec §7.1, model spec §8) reuse this protocol's **same event stream** as `job_progress`/`job_done` — the controller renders them through the existing `RichLog`/`ProgressLine`/`ErrorBanner`, identical to run logs. At `launch`, the agent resolves the build handoff (build spec §7.5: executable + env-overlay + version) and model handoff (model spec §9: `model_arg` + `--revision` + HF env) **locally** and folds both into the supervisor payload — the controller passes only `build_id`/`model_ref`/`revision`. Switching target re-scopes every picker to that host's resources.
 
 -----
 
@@ -412,7 +412,7 @@ Matches canonical §8 + the sibling specs. Header order (outermost scope first):
 **Target segment** `⊕ <name> <conn-dot>` with the connection vocabulary `● connected` / `◐ connecting (pulse)` / `○ disconnected` / `▲ version-mismatch` / `✕ unreachable`. The **connection dot never disappears** (safety-critical, like "the log never disappears"); compacts `⊕ blackbird ●` → `⊕bbrd●` → `⊕●`. When disconnected, build/model segments show `—`.
 
 ```
- vLLM Loader  ⊕ blackbird ●  ▣ vllm-nightly ●  M 📌qwen3-32b ● 62GB  ●READY  http://10.25.0.51:18003  12:42
+ Vela  ⊕ blackbird ●  ▣ vllm-nightly ●  M 📌qwen3-32b ● 62GB  ●READY  http://10.25.0.51:18003  12:42
               └─ target ──┘  └── build ─────┘  └──── model ───────┘  └ status ┘
 ```
 
@@ -465,7 +465,7 @@ Without SSH or a GPU: a **FakeTransport** (scripted NDJSON in/out) + an **in-pro
 - **PA2 Always-supervised + PTY-owning supervisor (~2–3d):** unify launch onto the supervised path; give the supervisor a PTY so live `\r` bars survive; "attached" = a live subscription. *Done when:* live progress bars stream over the local subprocess transport; runs survive agent exit.
 - **PA3 Daemon + Unix-socket + SSH bridge + lifecycle (~3–4d):** the per-user daemon (socket listener, `agent.json` identity, `SO_PEERCRED`, warm per-run event buffer with `seq`); the `agent connect` stdio↔socket bridge; systemd-user unit + auto-spawn + `agent start/stop/status`; handshake/version/capability; ping/keepalive; reconnect with **seq-replay then offset-fallback**; named failure modes incl. daemon-restart detection. *Done when:* controller on host A drives the daemon on host B; killing the controller leaves the daemon+runs up; reconnect replays the gap gap-free; a daemon restart re-discovers runs.
 - **PA4 Agent-side authority hardening (~1–2d):** verify-before-signal, preflight, discover/reattach all agent-side over RPC; `-32002`/`-32005`. *Done when:* `test_agent_authority`/`test_discover_reattach` green; recycled-PID refusal works remotely.
-- **PA5 Targets registry + CLI + controller UX (~3d):** `targets.yaml`, `--target`, `vllm-loader agent`/`targets` CLI; header target segment, `TargetManagerScreen`, disconnected state, target-named confirms, reconnect. *Done when:* switch/connect/disconnect/reconnect from the TUI; the Blackbird end-to-end manual test passes.
+- **PA5 Targets registry + CLI + controller UX (~3d):** `targets.yaml`, `--target`, `vela agent`/`targets` CLI; header target segment, `TargetManagerScreen`, disconnected state, target-named confirms, reconnect. *Done when:* switch/connect/disconnect/reconnect from the TUI; the Blackbird end-to-end manual test passes.
 - **PA6 Builds/models over RPC (~2d, after sibling specs):** `list_*`/mutators + `job_progress`/`job_done`/`cancel_job`; `launch` folds handoffs. *Done when:* create-build and download-model stream through the controller against a remote target.
 - **PA7 Backpressure, scrubbing, polish, docs (~1–2d):** lossy coalescing, scrub-before-wire tests, capability-gated UI, README + the P620‑01↔Blackbird worked example.
 
@@ -501,11 +501,11 @@ HTTP/WebSocket/gRPC transports behind auth (for a hosted controller not reached 
 ## Appendix B — Example: controller on P620‑01 driving Blackbird
 
 ```yaml
-# ~/.config/vllm-loader/targets.yaml  (controller-local)
+# ~/.config/vela/targets.yaml  (controller-local)
 targets:
   local:     { transport: local }
   blackbird: { transport: ssh, host: bgconley@10.25.0.51,
-               workdir: /home/bgconley/repos/lab-tui, venv: /home/bgconley/venvs/lab-tui }
+               workdir: /home/bgconley/repos/vela, venv: /home/bgconley/venvs/vela }
 ```
 ```yaml
 # A config discovered BY THE BLACKBIRD AGENT (lives on Blackbird), target-portable:
@@ -517,8 +517,8 @@ engine: { kv_cache_dtype: fp8 }
 server: { host: 0.0.0.0, port: 18003, exposure: lan }
 launch: { ready_timeout_seconds: 1200 }
 ```
-One-time on Blackbird: `systemctl --user enable --now vllm-loader-agent` (or let the first connect auto-spawn it). Controller flow: `t` → select `blackbird` → the SSH bridge attaches to Blackbird's running daemon → handshake → `list_configs`/`list_builds`/`list_models` (Blackbird's) → `l` Load → the daemon preflights on Blackbird, supervises the run, streams `phase`/`log`/`ready` → header shows `⊕ blackbird ● … ●READY http://10.25.0.51:18003`. Close the laptop, reopen, reconnect → the daemon is still up and replays the gap gap-free. Stop re-verifies identity on Blackbird before signaling. The run also survives a daemon restart (re-discovered from sidecars) and reproduces standalone via `vllm serve … --revision …` — the controller is never required at runtime.
+One-time on Blackbird: `systemctl --user enable --now vela-agent` (or let the first connect auto-spawn it). Controller flow: `t` → select `blackbird` → the SSH bridge attaches to Blackbird's running daemon → handshake → `list_configs`/`list_builds`/`list_models` (Blackbird's) → `l` Load → the daemon preflights on Blackbird, supervises the run, streams `phase`/`log`/`ready` → header shows `⊕ blackbird ● … ●READY http://10.25.0.51:18003`. Close the laptop, reopen, reconnect → the daemon is still up and replays the gap gap-free. Stop re-verifies identity on Blackbird before signaling. The run also survives a daemon restart (re-discovered from sidecars) and reproduces standalone via `vllm serve … --revision …` — the controller is never required at runtime.
 
 ## Appendix C — Code anchors for the refactor (current tree, ~199 tests)
 
-Cut points to route through the `Agent` API (file:symbol): `tui/app.py` `_run_selected_config` (launch/preflight/build/profile/health), `action_stop`/`confirm_kill_running`/`action_restart` (lifecycle), `reattach_detached_run`/`_tail_detached_log`/`_sidecar_is_alive` (discover/tail/verify), `get_system_commands` (`discover_active_sidecars`), `_poll_gpu_panel`/`_sample_gpu_panel_once` (GPU), `_probe_until_ready`/`_server_url` (health), `_handle_committed_log`/`on_health_changed`/`on_process_exited` (FSM feeds); `cli.py` `run_config`/`smoke*`/`preview`/`list_configs`. Engine to wrap unchanged behind the agent: `engine/process_manager.py`, `engine/supervisor.py` (+PTY), `engine/sidecar.py`, `engine/log_sink.py` (+`engine/redaction.py` scrub), `engine/phases.py`, `engine/preflight.py`, `monitoring/gpu.py`, `monitoring/health.py`. New: `agent/` (daemon, Unix-socket server, run registry, warm `seq`-indexed event buffer, NDJSON, `agent connect` bridge, `agent.json` identity), `transport/` (uds-local, ssh-bridge, `TargetClient`), `config/targets.py`, `tui/screens/target_manager.py`, plus a `vllm-loader-agent` systemd user unit.
+Cut points to route through the `Agent` API (file:symbol): `tui/app.py` `_run_selected_config` (launch/preflight/build/profile/health), `action_stop`/`confirm_kill_running`/`action_restart` (lifecycle), `reattach_detached_run`/`_tail_detached_log`/`_sidecar_is_alive` (discover/tail/verify), `get_system_commands` (`discover_active_sidecars`), `_poll_gpu_panel`/`_sample_gpu_panel_once` (GPU), `_probe_until_ready`/`_server_url` (health), `_handle_committed_log`/`on_health_changed`/`on_process_exited` (FSM feeds); `cli.py` `run_config`/`smoke*`/`preview`/`list_configs`. Engine to wrap unchanged behind the agent: `engine/process_manager.py`, `engine/supervisor.py` (+PTY), `engine/sidecar.py`, `engine/log_sink.py` (+`engine/redaction.py` scrub), `engine/phases.py`, `engine/preflight.py`, `monitoring/gpu.py`, `monitoring/health.py`. New: `agent/` (daemon, Unix-socket server, run registry, warm `seq`-indexed event buffer, NDJSON, `agent connect` bridge, `agent.json` identity), `transport/` (uds-local, ssh-bridge, `TargetClient`), `config/targets.py`, `tui/screens/target_manager.py`, plus a `vela-agent` systemd user unit.

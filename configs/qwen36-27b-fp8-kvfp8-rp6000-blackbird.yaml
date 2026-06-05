@@ -20,7 +20,7 @@ logging:
   request_logging: false
   suppress_access_log_for: [/health]
 env:
-  CONTAINER: qwen36-27b-fp8-kvfp8-rp6000-vllm-loader
+  CONTAINER: qwen36-27b-fp8-kvfp8-rp6000-vela
   HF_CACHE_ROOT: /home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache
   ROOT: /home/bgconley/models/qwen36-27b-fp8-rp6000
   PULL_IMAGE: "0"
@@ -55,6 +55,6 @@ launch:
   ready_timeout_seconds: 1800
   health:
     interval_seconds: 2
-  runs_dir: /home/bgconley/models/qwen36-27b-fp8-rp6000/vllm-loader-runs
+  runs_dir: /home/bgconley/models/qwen36-27b-fp8-rp6000/vela-runs
 vllm:
   version_profile: "0.11"

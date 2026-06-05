@@ -1,6 +1,6 @@
-# vLLM Loader
+# Vela
 
-`vllm-loader` is a Python package and terminal TUI for launching vLLM servers
+`vela` is a Python package and terminal TUI for launching vLLM servers
 from named YAML configs, watching scrubbed logs, tracking load phases, probing
 readiness, and managing per-target builds and model pins.
 
@@ -11,34 +11,35 @@ the files and GPUs.
 
 ## Quickstart
 
-Install in editable mode and run the no-GPU smoke path:
+Install in editable mode and open the TUI:
 
 ```bash
 pip install -e ".[dev]"
-vllm-loader list
-vllm-loader preview fake-child
-vllm-loader run fake-child --preview
-vllm-loader smoke fake-child
+vela
 ```
 
-Open the TUI:
+The explicit TUI alias is equivalent:
 
 ```bash
-vllm-loader tui
+vela tui
 ```
 
-Useful first checks:
+Useful no-GPU checks:
 
 ```bash
-vllm-loader targets list
-vllm-loader build list
-vllm-loader model list
+vela list
+vela preview fake-child
+vela run fake-child --preview
+vela smoke fake-child
+vela targets list
+vela build list
+vela model list
 ```
 
 ## Remote Targets
 
-Targets are stored on the controller in `~/.config/vllm-loader/targets.yaml`.
-`local` is implicit. An SSH target runs `vllm-loader agent connect` on the
+Targets are stored on the controller in `~/.config/vela/targets.yaml`.
+`local` is implicit. An SSH target runs `vela agent connect` on the
 remote host; the remote daemon then performs all host-local work.
 
 Example target:
@@ -48,32 +49,32 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/lab-tui
-    venv: /home/bgconley/venvs/lab-tui
+    workdir: /home/bgconley/repos/vela
+    venv: /home/bgconley/venvs/vela
     local_transport: socket
 ```
 
 Register and test a target from the CLI:
 
 ```bash
-vllm-loader targets add blackbird \
+vela targets add blackbird \
   --host bgconley@10.25.0.51 \
-  --workdir /home/bgconley/repos/lab-tui \
-  --venv /home/bgconley/venvs/lab-tui
-vllm-loader targets test blackbird
+  --workdir /home/bgconley/repos/vela \
+  --venv /home/bgconley/venvs/vela
+vela targets test blackbird
 ```
 
 For Mac to P620 controller to Blackbird agent validation, use SSH agent
 forwarding and the nested target:
 
 ```bash
-VLLM_LOADER_SSH_OPTS="-A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 -o BatchMode=yes" \
-VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
-VLLM_LOADER_REMOTE_TARGET=blackbird \
-VLLM_LOADER_REMOTE_BUILD_SPEC=vllm==0.11.2 \
-VLLM_LOADER_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
-VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
+VELA_SSH_OPTS="-A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 -o BatchMode=yes" \
+VELA_REMOTE_VENV=/home/bgconley/venvs/vela \
+VELA_REMOTE_TARGET=blackbird \
+VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
+VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
+VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
@@ -86,9 +87,9 @@ Config discovery runs on the target agent, because configs usually reference
 target-local paths. Discovery order is:
 
 1. `--configs-dir`
-2. `VLLM_LOADER_CONFIGS`
+2. `VELA_CONFIGS`
 3. `./configs`
-4. `~/.config/vllm-loader/configs`
+4. `~/.config/vela/configs`
 
 Common YAML fields:
 
@@ -102,7 +103,7 @@ command:
   entrypoint: serve
   executable: ./scripts/launch_vllm.sh
   build: vllm-0-11-2
-  cwd: /home/user/repos/lab-tui
+  cwd: /home/user/repos/vela
 engine:
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.9
@@ -133,9 +134,9 @@ created, verified, selected, repaired, removed, or adopted from an external
 venv:
 
 ```bash
-vllm-loader build add --target blackbird --method pip --spec 'vllm==0.11.2' --label vllm-0-11-2
-vllm-loader build verify vllm-0-11-2 --target blackbird
-vllm-loader build select vllm-0-11-2 --target blackbird
+vela build add --target blackbird --method pip --spec 'vllm==0.11.2' --label vllm-0-11-2
+vela build verify vllm-0-11-2 --target blackbird
+vela build select vllm-0-11-2 --target blackbird
 ```
 
 Build methods: `pip`, `nightly`, `commit`, `git`, `wheel`, and `adopt`.
@@ -152,12 +153,12 @@ standard HF cache, while the loader stores metadata, pins, and verification
 state.
 
 ```bash
-vllm-loader model pin tiny-llama \
+vela model pin tiny-llama \
   --target blackbird \
   --repo-id hf-internal-testing/tiny-random-LlamaForCausalLM \
   --revision main
-vllm-loader model download tiny-llama --target blackbird
-vllm-loader model verify tiny-llama --target blackbird
+vela model download tiny-llama --target blackbird
+vela model verify tiny-llama --target blackbird
 ```
 
 Keep `HF_TOKEN` on the target host for gated repos. Tokens are scrubbed before
@@ -194,7 +195,7 @@ lane and update fixtures/profile rules if startup or error text changes.
 
 ## Security Notes
 
-Run artifacts default to `~/.local/state/vllm-loader/runs/` on the target.
+Run artifacts default to `~/.local/state/vela/runs/` on the target.
 Durable logs are scrubbed before display and persistence and are created with
 mode `0600`.
 
@@ -202,9 +203,9 @@ vLLM API keys do not protect every network-reachable endpoint, including
 `/invocations`. Keep the default localhost binding unless the host is protected
 by a firewall or reverse proxy.
 
-For stricter shared-host policy, set `VLLM_LOADER_AGENT_TOKEN` in both the
+For stricter shared-host policy, set `VELA_AGENT_TOKEN` in both the
 target agent environment and the controller environment. The token is checked
 during the first agent handshake and is optional for the default single-user
 P620/Blackbird topology. Generate a strong token with
-`vllm-loader agent gen-token`; configured tokens must be a single non-whitespace
+`vela agent gen-token`; configured tokens must be a single non-whitespace
 value with at least 128 bits of entropy.

