@@ -88,6 +88,11 @@ _WEAK_SSH_BOOLEAN_OPTION_VALUES = {"false", "no", "off"}
 _WEAK_SSH_KNOWN_HOSTS_FILE_VALUES = {"/dev/null", "none"}
 _SSH_TTY_ALLOCATING_OPTIONS = {"-t", "-tt"}
 _SSH_TTY_ALLOCATING_REQUEST_VALUES = {"auto", "force", "yes"}
+_SSH_STDIO_SUPPRESSING_OPTION_VALUES = {
+    "forkafterauthentication": {"on", "true", "yes"},
+    "sessiontype": {"none"},
+    "stdinnull": {"on", "true", "yes"},
+}
 
 
 def target_client_for_config(
@@ -214,10 +219,16 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
             f"{source} contains required SSH option {key!r}; "
             "BatchMode and keepalive SSH options are managed by vllm-loader"
         )
-    if key == "requesttty" and _ssh_option_value(value) in _SSH_TTY_ALLOCATING_REQUEST_VALUES:
+    option_value = _ssh_option_value(value)
+    if key == "requesttty" and option_value in _SSH_TTY_ALLOCATING_REQUEST_VALUES:
         raise ValueError(
             f"{source} contains tty SSH option {key!r}; "
             "TTY allocation is not allowed for the NDJSON agent transport"
+        )
+    if option_value in _SSH_STDIO_SUPPRESSING_OPTION_VALUES.get(key, set()):
+        raise ValueError(
+            f"{source} contains stdio SSH option {key!r}; "
+            "stdin/session suppression is not allowed for the NDJSON agent transport"
         )
     _validate_ssh_host_verification_assignment(value, key=key, source=source)
 

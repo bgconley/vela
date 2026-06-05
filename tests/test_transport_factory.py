@@ -388,3 +388,54 @@ def test_target_client_factory_accepts_tty_disabling_ssh_options(
     client = _target_client_for_config()(target)
 
     assert client._command[1:4] == ["-T", "-o", "RequestTTY=no"]
+
+
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-o ForkAfterAuthentication=yes",
+        "-oForkAfterAuthentication=yes",
+        "-o SessionType=none",
+        "-oSessionType=none",
+        "-o StdinNull=yes",
+        "-oStdinNull=yes",
+    ],
+)
+def test_target_client_factory_rejects_stdio_suppressing_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="stdio SSH option"):
+        _target_client_for_config()(target)
+
+
+def test_target_client_factory_accepts_stdio_preserving_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "VLLM_LOADER_SSH_OPTS",
+        "-o ForkAfterAuthentication=no -o StdinNull=no",
+    )
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    client = _target_client_for_config()(target)
+
+    assert client._command[1:5] == [
+        "-o",
+        "ForkAfterAuthentication=no",
+        "-o",
+        "StdinNull=no",
+    ]

@@ -42,7 +42,9 @@ Fields:
   managed by vLLM Loader and cannot be supplied through this environment hook.
   TTY allocation options (`-t`, `-tt`, `RequestTTY=yes`) are rejected because
   the agent transport is an NDJSON stdio stream; explicit TTY disabling (`-T` or
-  `RequestTTY=no`) is allowed.
+  `RequestTTY=no`) is allowed. Stdio/session suppression options
+  (`ForkAfterAuthentication=yes`, `SessionType=none`, `StdinNull=yes`) are also
+  rejected because they detach, omit, or starve the agent RPC stream.
   The configured target host and `agent connect` command cannot be replaced by
   the environment.
 
