@@ -95,7 +95,7 @@ async def _handle_frame(
     frame: dict[str, Any],
     write_frame,
     subscription_tasks: dict[str, asyncio.Task[None]],
-    auth_state: _ConnectionAuthState | None = None,
+    auth_state: _ConnectionAuthState,
 ) -> None:
     request_id = frame.get("id")
     method = frame.get("method")
@@ -137,7 +137,7 @@ async def _handle_frame(
         )
         return
     try:
-        if auth_state is not None and not auth_state.authenticated and method != "handshake":
+        if not auth_state.authenticated and method != "handshake":
             raise _agent_auth_required_error()
         if method == "subscribe":
             result = await _subscribe(agent, params, write_frame, subscription_tasks)
@@ -154,7 +154,7 @@ async def _handle_frame(
             result = agent.handle(method, params if isinstance(params, dict) else None)
             if inspect.isawaitable(result):
                 result = await result
-            if method == "handshake" and auth_state is not None:
+            if method == "handshake":
                 auth_state.authenticated = True
         await write_frame({"id": request_id, "result": result})
     except TargetCallError as exc:

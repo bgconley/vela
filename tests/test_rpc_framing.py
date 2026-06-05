@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import io
 import sys
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from vllm_loader.agent import socket as agent_socket_module
 from vllm_loader.agent import stdio as agent_stdio_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.agent.stdio import (
+    _ConnectionAuthState,
     _handle_frame,
     _PrioritizedFrameWriter,
     serve_agent_stream,
@@ -509,6 +511,51 @@ async def test_stdio_agent_requires_authenticated_handshake_before_other_methods
     assert writer.closed is True
 
 
+def test_stdio_frame_handler_requires_explicit_auth_state() -> None:
+    signature = inspect.signature(_handle_frame)
+
+    assert signature.parameters["auth_state"].default is inspect.Parameter.empty
+
+
+@pytest.mark.asyncio
+async def test_stdio_frame_handler_auth_state_blocks_direct_unauthenticated_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    called = False
+
+    class PingAgent:
+        def handle(self, _method: str, _params=None):
+            nonlocal called
+            called = True
+            return {"pong": True}
+
+    frames: list[dict] = []
+
+    async def write_frame(frame: dict) -> None:
+        frames.append(frame)
+
+    await _handle_frame(
+        PingAgent(),
+        {"id": "ping-1", "method": "ping", "params": {}},
+        write_frame,
+        {},
+        _ConnectionAuthState(),
+    )
+
+    assert called is False
+    assert frames == [
+        {
+            "id": "ping-1",
+            "error": {
+                "code": -32017,
+                "message": "target agent requires a valid capability token",
+                "data": {"reason": "capability-token-required"},
+            },
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_socket_client_fails_pending_calls_on_malformed_agent_frame(tmp_path) -> None:
     client = UnixSocketTargetClient(tmp_path / "agent.sock", auto_start=False)
@@ -726,11 +773,13 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
     async def write_frame(frame: dict) -> None:
         frames.append(frame)
 
+    auth_state = _ConnectionAuthState()
     await _handle_frame(
         FailingAgent(),
         {"id": "r1", "method": "launch", "params": {}},
         write_frame,
         {},
+        auth_state,
     )
 
     error = frames[-1]["error"]
@@ -744,6 +793,7 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
         {"id": "r2", "method": "missing", "params": {}},
         write_frame,
         {},
+        auth_state,
     )
 
     error = frames[-1]["error"]
@@ -755,6 +805,7 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
         {"id": "r3", "method": "stop", "params": {"run_id": "run-1"}},
         write_frame,
         {},
+        auth_state,
     )
 
     error = frames[-1]["error"]
@@ -762,7 +813,13 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
     assert error["message"] == "tracked process group does not match sidecar"
     assert error["data"] == {"run_id": "run-1"}
 
-    await _handle_frame(FailingAgent(), {"id": "r4", "params": {}}, write_frame, {})
+    await _handle_frame(
+        FailingAgent(),
+        {"id": "r4", "params": {}},
+        write_frame,
+        {},
+        auth_state,
+    )
 
     error = frames[-1]["error"]
     assert error["code"] == -32600
@@ -789,6 +846,7 @@ async def test_stdio_agent_rejects_request_without_string_id() -> None:
         {"method": "ping", "params": {}},
         write_frame,
         {},
+        _ConnectionAuthState(),
     )
 
     assert called is False
@@ -824,6 +882,7 @@ async def test_stdio_agent_rejects_non_object_params() -> None:
         {"id": "ping-1", "method": "ping", "params": []},
         write_frame,
         {},
+        _ConnectionAuthState(),
     )
 
     assert called is False
@@ -908,6 +967,7 @@ async def test_stdio_subscribe_all_registers_wildcard_event_stream() -> None:
         },
         write_frame,
         subscription_tasks,
+        _ConnectionAuthState(),
     )
     try:
         assert seen == {
@@ -943,6 +1003,7 @@ async def test_stdio_unsubscribe_stops_agent_gpu_stream() -> None:
         {"id": "gpu-1", "method": "gpu", "params": {"sub_id": "gpu-panel"}},
         write_frame,
         {},
+        _ConnectionAuthState(),
     )
     assert "gpu-panel" in agent._gpu_stream_tasks
 
@@ -951,6 +1012,7 @@ async def test_stdio_unsubscribe_stops_agent_gpu_stream() -> None:
         {"id": "unsub-1", "method": "unsubscribe", "params": {"sub_id": "gpu-panel"}},
         write_frame,
         {},
+        _ConnectionAuthState(),
     )
 
     assert frames[-1] == {"id": "unsub-1", "result": {"sub_id": "gpu-panel"}}
