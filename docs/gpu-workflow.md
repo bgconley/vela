@@ -22,8 +22,11 @@ the GPU host. Do not put `HF_TOKEN` or API keys in example configs.
 If the GPU host needs a specific SSH key or options, set them for validation:
 
 ```bash
-export VLLM_LOADER_SSH_OPTS="-i /path/to/gpu_key -o BatchMode=yes"
+export VLLM_LOADER_SSH_OPTS="-i /path/to/gpu_key"
 ```
+
+When the same environment variable is referenced by a target registry
+`ssh_opts_env`, vLLM Loader manages `BatchMode` and keepalive options itself.
 
 ## 2. Run remote validation
 

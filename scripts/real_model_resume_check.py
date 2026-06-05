@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import os
 import shlex
 import subprocess
 import sys
@@ -16,6 +15,7 @@ from vllm_loader.transport.client import TargetClient
 from vllm_loader.transport.factory import (
     DEFAULT_SSH_CONTROL_OPTIONS,
     _ssh_option_present,
+    _ssh_options_from_env,
     target_client_for_config,
 )
 
@@ -154,11 +154,7 @@ def _restart_target_agent(target: TargetConfig) -> None:
             "-o",
             "ServerAliveCountMax=3",
         ]
-        ssh_opts = (
-            shlex.split(os.environ.get(target.ssh_opts_env, ""))
-            if target.ssh_opts_env
-            else []
-        )
+        ssh_opts = _ssh_options_from_env(target)
         ssh_cmd.extend(ssh_opts)
         for key, value in DEFAULT_SSH_CONTROL_OPTIONS.items():
             if not _ssh_option_present(ssh_opts, key):

