@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -178,6 +180,56 @@ def test_select_profile_ignores_summary_only_help_that_omits_serve_flags(
     assert "--host" in result.argv
     assert "--port" in result.argv
     assert "--disable-log-requests" in selected.known_flags
+
+
+def test_profile_detection_refreshes_when_executable_path_changes(tmp_path: Path) -> None:
+    from vllm_loader.engine import profile as profile_module
+
+    executable = tmp_path / "vllm"
+
+    def clear_caches() -> None:
+        clear_profile_caches = getattr(profile_module, "clear_profile_caches", None)
+        if callable(clear_profile_caches):
+            clear_profile_caches()
+            return
+        for name in ("detect_vllm_version", "collect_serve_help"):
+            cache_clear = getattr(getattr(profile_module, name), "cache_clear", None)
+            if callable(cache_clear):
+                cache_clear()
+
+    def write_fake_vllm(version: str, help_text: str) -> None:
+        executable.write_text(
+            "\n".join(
+                [
+                    "#!/usr/bin/env python3",
+                    "import sys",
+                    f"version = {version!r}",
+                    f"help_text = {help_text!r}",
+                    "if sys.argv[1:] == ['--version']:",
+                    "    print(f'vllm version {version}')",
+                    "elif sys.argv[1:] in (['serve', '--help'], ['serve', '--help=all']):",
+                    "    print(help_text)",
+                    "else:",
+                    "    print('unexpected args', sys.argv[1:])",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        executable.chmod(0o755)
+        now = time.time()
+        os.utime(executable, (now, now))
+
+    clear_caches()
+    write_fake_vllm("0.9.0", "--host TEXT")
+    assert profile_module.detect_vllm_version(str(executable)) == "0.9.0"
+    assert profile_module.collect_serve_help(str(executable)) == "--host TEXT\n"
+
+    write_fake_vllm("0.11.0", "--host TEXT\n--kv-cache-dtype TEXT")
+    assert profile_module.detect_vllm_version(str(executable)) == "0.11.0"
+    assert profile_module.collect_serve_help(str(executable)) == (
+        "--host TEXT\n--kv-cache-dtype TEXT\n"
+    )
 
 
 def test_targeted_access_log_suppression_only_when_profile_supports_it() -> None:

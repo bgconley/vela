@@ -61,6 +61,13 @@ class VllmProfileError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class ExecutableCacheKey:
+    path: str
+    mtime_ns: int
+    size: int
+
+
 COMMON_FLAGS = {
     "served_model_name": "--served-model-name",
     "revision": "--revision",
@@ -150,10 +157,16 @@ def _with_collected_help_flags(profile: VllmProfile, executable: str) -> VllmPro
     )
 
 
-@lru_cache(maxsize=8)
 def detect_vllm_version(executable: str = "vllm") -> str | None:
-    if which(executable) is None:
+    cache_key = _executable_cache_key(executable)
+    if cache_key is None:
         return None
+    return _detect_vllm_version_cached(cache_key)
+
+
+@lru_cache(maxsize=8)
+def _detect_vllm_version_cached(cache_key: ExecutableCacheKey) -> str | None:
+    executable = cache_key.path
     for args in ([executable, "--version"], [executable, "serve", "--help"]):
         try:
             proc = subprocess.run(args, capture_output=True, text=True, timeout=5, check=False)
@@ -166,10 +179,16 @@ def detect_vllm_version(executable: str = "vllm") -> str | None:
     return None
 
 
-@lru_cache(maxsize=8)
 def collect_serve_help(executable: str = "vllm") -> str:
-    if which(executable) is None:
+    cache_key = _executable_cache_key(executable)
+    if cache_key is None:
         return ""
+    return _collect_serve_help_cached(cache_key)
+
+
+@lru_cache(maxsize=8)
+def _collect_serve_help_cached(cache_key: ExecutableCacheKey) -> str:
+    executable = cache_key.path
     for args, timeout in (
         ([executable, "serve", "--help=all"], 20),
         ([executable, "serve", "--help"], 8),
@@ -184,6 +203,22 @@ def collect_serve_help(executable: str = "vllm") -> str:
         if text:
             return text
     return ""
+
+
+def clear_profile_caches() -> None:
+    _detect_vllm_version_cached.cache_clear()
+    _collect_serve_help_cached.cache_clear()
+
+
+def _executable_cache_key(executable: str) -> ExecutableCacheKey | None:
+    resolved = which(executable)
+    if resolved is None:
+        return None
+    try:
+        stat = Path(resolved).stat()
+    except OSError:
+        return None
+    return ExecutableCacheKey(str(Path(resolved)), stat.st_mtime_ns, stat.st_size)
 
 
 def _make_profile(version: str, request_logging: bool | None, flags: dict[str, str]) -> VllmProfile:

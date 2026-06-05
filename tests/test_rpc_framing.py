@@ -269,6 +269,12 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
                     "preflight failed",
                     {"kind": "MODEL_NOT_FOUND"},
                 )
+            if method == "stop":
+                raise TargetCallError(
+                    "identity-verification-failed",
+                    "tracked process group does not match sidecar",
+                    {"run_id": "run-1"},
+                )
             raise TargetCallError("method-not-found", f"unknown method: {method}")
 
     frames: list[dict] = []
@@ -300,7 +306,19 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
     assert error["code"] == -32601
     assert error["data"] == {}
 
-    await _handle_frame(FailingAgent(), {"id": "r3", "params": {}}, write_frame, {})
+    await _handle_frame(
+        FailingAgent(),
+        {"id": "r3", "method": "stop", "params": {"run_id": "run-1"}},
+        write_frame,
+        {},
+    )
+
+    error = frames[-1]["error"]
+    assert error["code"] == -32002
+    assert error["message"] == "tracked process group does not match sidecar"
+    assert error["data"] == {"run_id": "run-1"}
+
+    await _handle_frame(FailingAgent(), {"id": "r4", "params": {}}, write_frame, {})
 
     error = frames[-1]["error"]
     assert error["code"] == -32600

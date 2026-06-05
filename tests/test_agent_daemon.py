@@ -111,6 +111,7 @@ def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:
 
     assert "[Unit]" in service
     assert "Description=vLLM Loader target agent daemon" in service
+    assert "After=network.target" not in service
     assert "[Service]" in service
     assert "Type=simple" in service
     assert "ExecStart=vllm-loader agent run" in service

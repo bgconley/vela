@@ -1,7 +1,6 @@
 [Unit]
 Description=vLLM Loader target agent daemon
 Documentation=https://github.com/vllm-project/vllm
-After=network.target
 
 [Service]
 Type=simple
