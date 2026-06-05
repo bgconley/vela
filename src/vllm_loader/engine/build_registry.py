@@ -611,6 +611,10 @@ def _build_verify_output(executable: Path, python: Path) -> tuple[str | None, di
     )
     if not version_probe["ok"]:
         return "vllm-version-probe-failed", output
+    import_version = str(import_probe["output"])
+    executable_version = str(version_probe["output"])
+    if import_version not in executable_version:
+        return "vllm-version-mismatch", output
     return None, output
 
 

@@ -3298,6 +3298,41 @@ async def test_agent_rejects_external_build_adoption_when_vllm_probe_fails(
 
 
 @pytest.mark.asyncio
+async def test_agent_rejects_external_build_adoption_when_versions_disagree(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    venv_dir = tmp_path / "external" / "version-mismatch"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.2'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.12.0'\n", encoding="utf-8")
+    (bin_dir / "activate").write_text("# activate\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "adopt_build",
+                {
+                    "label": "version-mismatch",
+                    "venv_path": str(venv_dir),
+                },
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.details["reason"] == "vllm-version-mismatch"
+    assert not list(builds_root.glob("*/build.json"))
+
+
+@pytest.mark.asyncio
 async def test_agent_verifies_ready_build_from_agent_owned_registry(
     tmp_path: Path,
 ) -> None:
@@ -3488,7 +3523,7 @@ async def test_agent_verify_marks_build_broken_when_executable_hash_drifts(
         ),
         encoding="utf-8",
     )
-    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.3'\n", encoding="utf-8")
+    vllm_bin.write_text("#!/bin/sh\n# patched\necho 'vLLM 0.11.2'\n", encoding="utf-8")
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
     await client.connect()
