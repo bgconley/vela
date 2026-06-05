@@ -28,12 +28,14 @@ Fields:
 - `venv`: remote venv whose `bin` directory is prepended to `PATH`.
 - `local_transport`: `socket` for the daemon path or `inprocess` for tests.
 - `ssh_opts_env`: optional environment variable containing SSH options. It may
-  add option flags such as `-A`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
-  positional SSH arguments, port forwarding, command-suppression, and
-  command-bearing `-o` options such as `ProxyCommand`, `RemoteCommand`, or
-  `LocalCommand` are rejected. External config/control socket options (`-F`,
-  `-S`, `Include`, `ControlPath`) and user/host override options (`-l`, `User`,
-  `HostName`) are also rejected. Provider-loading options (`-I`,
+  add option flags such as `-a`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
+  positional SSH arguments, agent forwarding (`-A`, `ForwardAgent=yes`), port
+  forwarding (`-L`, `-R`, `-D`, `LocalForward`, `RemoteForward`,
+  `DynamicForward`), command-suppression, and command-bearing `-o` options such
+  as `ProxyCommand`, `RemoteCommand`, or `LocalCommand` are rejected. External
+  config/control socket options (`-F`, `-S`, `Include`, `ControlPath`) and
+  user/host override options (`-l`, `User`, `HostName`) are also rejected.
+  Provider-loading options (`-I`,
   `PKCS11Provider`, `SecurityKeyProvider`) are rejected so `ssh_opts_env` cannot
   load local provider code while connecting. Host-verification weakening options
   such as `StrictHostKeyChecking=no`, `CheckHostIP=no`, null known-hosts files,
@@ -45,6 +47,8 @@ Fields:
   `RequestTTY=no`) is allowed. Stdio/session suppression options
   (`ForkAfterAuthentication=yes`, `SessionType=none`, `StdinNull=yes`) are also
   rejected because they detach, omit, or starve the agent RPC stream.
+  vLLM Loader also adds `-a` to the generated SSH command so agent forwarding
+  stays disabled even when a user's SSH config enables it by default.
   The configured target host and `agent connect` command cannot be replaced by
   the environment.
 

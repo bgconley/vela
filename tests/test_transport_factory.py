@@ -97,6 +97,7 @@ def test_target_client_factory_builds_ssh_subprocess_client(
         "/tmp/gpu-key",
         "-o",
         "ProxyJump=bastion",
+        "-a",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -203,6 +204,59 @@ def test_target_client_factory_rejects_opaque_ssh_routing_options(
     )
 
     with pytest.raises(ValueError, match="routing SSH option"):
+        _target_client_for_config()(target)
+
+
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-A",
+        "-o ForwardAgent=yes",
+        "-oForwardAgent=yes",
+        "-o ForwardAgent=true",
+        "-o ForwardAgent=/tmp/ssh-agent.sock",
+    ],
+)
+def test_target_client_factory_rejects_agent_forwarding_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="agent-forwarding SSH option"):
+        _target_client_for_config()(target)
+
+
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-o LocalForward=127.0.0.1:9000 127.0.0.1:22",
+        "-oLocalForward=127.0.0.1:9000 127.0.0.1:22",
+        "-o RemoteForward=127.0.0.1:9000 127.0.0.1:22",
+        "-oRemoteForward=127.0.0.1:9000 127.0.0.1:22",
+        "-o DynamicForward=127.0.0.1:9000",
+        "-oDynamicForward=127.0.0.1:9000",
+    ],
+)
+def test_target_client_factory_rejects_forwarding_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="forwarding SSH option"):
         _target_client_for_config()(target)
 
 
@@ -321,7 +375,7 @@ def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
 ) -> None:
     monkeypatch.setenv(
         "VLLM_LOADER_SSH_OPTS",
-        "-A -i/tmp/gpu-key -Jbastion -p2222 -oStrictHostKeyChecking=yes",
+        "-i/tmp/gpu-key -Jbastion -p2222 -oStrictHostKeyChecking=yes",
     )
     target = TargetConfig(
         name="blackbird",
@@ -334,12 +388,40 @@ def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
 
     assert isinstance(client, SubprocessTargetClient)
     assert client._command[1:6] == [
-        "-A",
         "-i/tmp/gpu-key",
         "-Jbastion",
         "-p2222",
         "-oStrictHostKeyChecking=yes",
+        "-a",
     ]
+
+
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-a",
+        "-o ForwardAgent=no",
+        "-oForwardAgent=no",
+        "-o ForwardAgent=false",
+        "-oForwardAgent=off",
+    ],
+)
+def test_target_client_factory_accepts_agent_forwarding_disabled_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    client = _target_client_for_config()(target)
+
+    assert isinstance(client, SubprocessTargetClient)
+    assert "-a" in client._command
 
 
 @pytest.mark.parametrize(

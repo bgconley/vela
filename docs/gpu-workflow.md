@@ -177,8 +177,11 @@ VLLM_LOADER_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
 Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
 controller host is `620-01` (`10.25.0.50`), and the GPU/agent target is
 `blackbird` (`10.25.0.51`) with the `RTX PRO 6000 Blackwell Max-Q` GPU and
-Qwen3.6 27B FP8. Use SSH agent forwarding from the Mac unless the shared key is
-installed directly on P620:
+Qwen3.6 27B FP8. If running the helper from a Mac that does not have the shared
+lab key installed on P620, SSH agent forwarding may be used only for the outer
+Mac-to-P620 shell session. Do not put `-A` or `ForwardAgent=yes` in a target's
+`ssh_opts_env`; vLLM Loader disables agent forwarding for the controller-to-agent
+NDJSON transport.
 
 ```bash
 VLLM_LOADER_REMOTE_VENV=/home/bgconley/venvs/lab-tui \

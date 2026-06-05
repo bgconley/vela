@@ -24,7 +24,7 @@ DEFAULT_SSH_CONTROL_OPTIONS = {
     "ControlPersist": "60s",
     "ControlPath": "~/.ssh/vllm-loader-%C",
 }
-_SAFE_SSH_FLAGS = {"-4", "-6", "-A", "-a", "-C", "-q", "-T", "-x"}
+_SAFE_SSH_FLAGS = {"-4", "-6", "-a", "-C", "-q", "-T", "-x"}
 _SAFE_SSH_VALUE_OPTIONS = {
     "-B",
     "-b",
@@ -53,6 +53,7 @@ _DISALLOWED_SSH_OPTIONS = {
     "-W",
     "-w",
 }
+_DISALLOWED_SSH_AGENT_FORWARDING_OPTIONS = {"-A"}
 _DISALLOWED_SSH_ROUTING_OPTIONS = {"-F", "-S"}
 _DISALLOWED_SSH_OPTION_KEYS = {
     "localcommand",
@@ -76,6 +77,14 @@ _DISALLOWED_SSH_HOST_VERIFICATION_OPTION_KEYS = {
     "hostkeyalgorithms",
     "knownhostscommand",
 }
+_DISALLOWED_SSH_FORWARDING_OPTION_KEYS = {
+    "dynamicforward",
+    "localforward",
+    "remoteforward",
+}
+_SSH_AGENT_FORWARDING_OPTION_KEYS = {
+    "forwardagent",
+}
 _SSH_HOST_VERIFICATION_BOOLEAN_OPTION_KEYS = {
     "checkhostip",
     "stricthostkeychecking",
@@ -85,6 +94,7 @@ _SSH_KNOWN_HOSTS_FILE_OPTION_KEYS = {
     "userknownhostsfile",
 }
 _WEAK_SSH_BOOLEAN_OPTION_VALUES = {"false", "no", "off"}
+_DISABLED_SSH_BOOLEAN_OPTION_VALUES = {"false", "no", "off"}
 _WEAK_SSH_KNOWN_HOSTS_FILE_VALUES = {"/dev/null", "none"}
 _SSH_TTY_ALLOCATING_OPTIONS = {"-t", "-tt"}
 _SSH_TTY_ALLOCATING_REQUEST_VALUES = {"auto", "force", "yes"}
@@ -116,6 +126,7 @@ def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> li
     command = ["ssh"]
     ssh_opts = _ssh_options_from_env(target)
     command.extend(ssh_opts)
+    command.append("-a")
     for key, value in REQUIRED_SSH_OPTIONS.items():
         command.extend(["-o", f"{key}={value}"])
     for key, value in DEFAULT_SSH_CONTROL_OPTIONS.items():
@@ -142,6 +153,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
             raise ValueError(
                 f"{source} contains positional SSH argument {option!r}; "
                 "only SSH options are allowed"
+            )
+        if _is_disallowed_ssh_agent_forwarding_option(option):
+            raise ValueError(
+                f"{source} contains agent-forwarding SSH option {option!r}; "
+                "agent forwarding is not allowed for the NDJSON agent transport"
             )
         if _is_disallowed_ssh_option(option):
             raise ValueError(
@@ -225,6 +241,19 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
             "BatchMode and keepalive SSH options are managed by vllm-loader"
         )
     option_value = _ssh_option_value(value)
+    if key in _DISALLOWED_SSH_FORWARDING_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains forwarding SSH option {key!r}; "
+            "port forwarding is not allowed for the NDJSON agent transport"
+        )
+    if (
+        key in _SSH_AGENT_FORWARDING_OPTION_KEYS
+        and option_value not in _DISABLED_SSH_BOOLEAN_OPTION_VALUES
+    ):
+        raise ValueError(
+            f"{source} contains agent-forwarding SSH option {key!r}; "
+            "agent forwarding is not allowed for the NDJSON agent transport"
+        )
     if key == "requesttty" and option_value in _SSH_TTY_ALLOCATING_REQUEST_VALUES:
         raise ValueError(
             f"{source} contains tty SSH option {key!r}; "
@@ -267,6 +296,13 @@ def _validate_ssh_host_verification_assignment(
 
 def _is_disallowed_ssh_option(option: str) -> bool:
     return option in _DISALLOWED_SSH_OPTIONS or option[:2] in _DISALLOWED_SSH_OPTIONS
+
+
+def _is_disallowed_ssh_agent_forwarding_option(option: str) -> bool:
+    return (
+        option in _DISALLOWED_SSH_AGENT_FORWARDING_OPTIONS
+        or option[:2] in _DISALLOWED_SSH_AGENT_FORWARDING_OPTIONS
+    )
 
 
 def _is_disallowed_ssh_routing_option(option: str) -> bool:
