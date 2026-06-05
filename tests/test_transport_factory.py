@@ -317,13 +317,22 @@ def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
     ]
 
 
-def test_target_client_factory_keeps_required_ssh_options_authoritative(
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-o BatchMode=no",
+        "-oBatchMode=no",
+        "-o ServerAliveInterval=1",
+        "-oServerAliveInterval=1",
+        "-o ServerAliveCountMax=0",
+        "-oServerAliveCountMax=0",
+    ],
+)
+def test_target_client_factory_rejects_required_ssh_option_overrides(
     monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
 ) -> None:
-    monkeypatch.setenv(
-        "VLLM_LOADER_SSH_OPTS",
-        "-o BatchMode=no -o ServerAliveInterval=1",
-    )
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
     target = TargetConfig(
         name="blackbird",
         transport=TransportKind.SSH,
@@ -331,19 +340,5 @@ def test_target_client_factory_keeps_required_ssh_options_authoritative(
         ssh_opts_env="VLLM_LOADER_SSH_OPTS",
     )
 
-    client = _target_client_for_config()(target)
-
-    batch_mode_positions = [
-        index
-        for index, value in enumerate(client._command)
-        if value.startswith("BatchMode=")
-    ]
-    alive_positions = [
-        index
-        for index, value in enumerate(client._command)
-        if value.startswith("ServerAliveInterval=")
-    ]
-    assert batch_mode_positions
-    assert alive_positions
-    assert client._command[batch_mode_positions[-1]] == "BatchMode=yes"
-    assert client._command[alive_positions[-1]] == "ServerAliveInterval=15"
+    with pytest.raises(ValueError, match="required SSH option"):
+        _target_client_for_config()(target)

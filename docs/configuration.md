@@ -38,7 +38,10 @@ Fields:
   load local provider code while connecting. Host-verification weakening options
   such as `StrictHostKeyChecking=no`, `CheckHostIP=no`, null known-hosts files,
   `HostKeyAlgorithms`, and `KnownHostsCommand` are rejected. The configured
-  target host and `agent connect` command cannot be replaced by the environment.
+  `BatchMode`, `ServerAliveInterval`, and `ServerAliveCountMax` options are also
+  managed by vLLM Loader and cannot be supplied through this environment hook.
+  The configured target host and `agent connect` command cannot be replaced by
+  the environment.
 
 ## Config Discovery
 

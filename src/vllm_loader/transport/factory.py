@@ -18,6 +18,7 @@ REQUIRED_SSH_OPTIONS = {
     "ServerAliveInterval": "15",
     "ServerAliveCountMax": "3",
 }
+_REQUIRED_SSH_OPTION_KEYS = {key.lower() for key in REQUIRED_SSH_OPTIONS}
 DEFAULT_SSH_CONTROL_OPTIONS = {
     "ControlMaster": "auto",
     "ControlPersist": "60s",
@@ -200,6 +201,11 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
         raise ValueError(
             f"{source} contains provider-loading SSH option {key!r}; "
             "provider-loading SSH options are not allowed"
+        )
+    if key in _REQUIRED_SSH_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains required SSH option {key!r}; "
+            "BatchMode and keepalive SSH options are managed by vllm-loader"
         )
     _validate_ssh_host_verification_assignment(value, key=key, source=source)
 
