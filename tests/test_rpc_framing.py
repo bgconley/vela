@@ -291,6 +291,66 @@ async def test_stdio_agent_reports_parse_error_and_continues_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_socket_client_fails_pending_calls_on_malformed_agent_frame(tmp_path) -> None:
+    client = UnixSocketTargetClient(tmp_path / "agent.sock", auto_start=False)
+    reader = asyncio.StreamReader()
+    client._reader = reader
+    client._connected = True
+    future: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+    client._pending["1"] = future
+    task = asyncio.create_task(client._read_socket())
+
+    try:
+        reader.feed_data(b"{not-json}\n")
+
+        with pytest.raises(TargetCallError) as exc_info:
+            await asyncio.wait_for(asyncio.shield(future), timeout=0.2)
+
+        assert exc_info.value.code == "parse-error"
+        assert "Expecting property name" in exc_info.value.message
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if future.done() and not future.cancelled():
+            future.exception()
+
+
+@pytest.mark.asyncio
+async def test_subprocess_client_fails_pending_calls_on_malformed_agent_frame() -> None:
+    client = SubprocessTargetClient([sys.executable, "-c", "pass"])
+    reader = asyncio.StreamReader()
+
+    class FakeProcess:
+        stdout = reader
+        returncode = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+    client._process = FakeProcess()
+    client._connected = True
+    future: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+    client._pending["1"] = future
+    task = asyncio.create_task(client._read_stdout())
+
+    try:
+        reader.feed_data(b"{not-json}\n")
+
+        with pytest.raises(TargetCallError) as exc_info:
+            await asyncio.wait_for(asyncio.shield(future), timeout=0.2)
+
+        assert exc_info.value.code == "parse-error"
+        assert "Expecting property name" in exc_info.value.message
+    finally:
+        client._disconnecting = True
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if future.done() and not future.cancelled():
+            future.exception()
+
+
+@pytest.mark.asyncio
 async def test_subprocess_target_client_requires_connection() -> None:
     client = SubprocessTargetClient([sys.executable, "-c", "pass"])
 

@@ -221,7 +221,8 @@ class UnixSocketTargetClient:
             while line := await self._reader.readline():
                 try:
                     frame = decode_frame(line)
-                except NdjsonFrameError:
+                except NdjsonFrameError as exc:
+                    self._fail_pending(_agent_parse_error(exc))
                     continue
                 if "id" in frame:
                     self._resolve_response(frame)
@@ -262,6 +263,13 @@ def _target_call_error_from_payload(payload: dict[str, Any]) -> TargetCallError:
 
 def _agent_unreachable_error(message: str) -> TargetCallError:
     return TargetCallError("agent-unreachable", message)
+
+
+def _agent_parse_error(exc: NdjsonFrameError) -> TargetCallError:
+    return TargetCallError(
+        "parse-error",
+        f"Malformed NDJSON frame from target agent: {exc}",
+    )
 
 
 def _agent_socket_unreachable_error(socket_path: Path) -> TargetCallError:
