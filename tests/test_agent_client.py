@@ -22,6 +22,7 @@ from conftest import write_yaml
 
 from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
+from vllm_loader.agent.auth import configured_agent_token, generate_agent_token
 from vllm_loader.agent.local import AgentEvent, LocalAgent, LocalDetachedRun, TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.config.schema import ModelConfig
@@ -511,7 +512,8 @@ def test_local_agent_handshake_downgrades_for_older_controller_protocol(
 def test_local_agent_handshake_requires_configured_capability_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    token = generate_agent_token()
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
     agent = LocalAgent(target_name="local")
 
     with pytest.raises(TargetCallError) as missing:
@@ -524,7 +526,7 @@ def test_local_agent_handshake_requires_configured_capability_token(
 
     result = agent.handle(
         "handshake",
-        {"protocol_version": 1, "capability_token": "shared-secret"},
+        {"protocol_version": 1, "capability_token": token},
     )
 
     assert missing.value.code == "agent-auth-required"
@@ -540,8 +542,28 @@ def test_handshake_params_include_configured_agent_token(
     monkeypatch.delenv("VLLM_LOADER_AGENT_TOKEN", raising=False)
     assert "capability_token" not in handshake_params(1)
 
+    token = generate_agent_token()
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
+    assert handshake_params(1)["capability_token"] == token
+
+
+def test_configured_agent_token_rejects_weak_env_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
-    assert handshake_params(1)["capability_token"] == "shared-secret"
+
+    with pytest.raises(ValueError, match="at least 128 bits"):
+        configured_agent_token()
+
+
+def test_generated_agent_token_satisfies_configured_token_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = generate_agent_token()
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
+
+    assert len(token) >= 43
+    assert configured_agent_token() == token
 
 
 @pytest.mark.asyncio

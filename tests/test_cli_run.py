@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -46,6 +47,15 @@ def test_cli_root_version_option_prints_version_without_launching_tui() -> None:
     assert proc.returncode == 0
     assert proc.stdout.strip() == __version__
     assert proc.stderr == ""
+
+
+def test_cli_agent_gen_token_prints_strong_urlsafe_token() -> None:
+    result = CliRunner().invoke(cli_module.app, ["agent", "gen-token"])
+
+    assert result.exit_code == 0, result.output
+    token = result.output.strip()
+    assert len(token) >= 43
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", token)
 
 
 def test_cli_root_target_option_launches_tui_with_target(

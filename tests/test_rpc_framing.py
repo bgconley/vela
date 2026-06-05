@@ -10,6 +10,7 @@ import pytest
 
 from vllm_loader.agent import socket as agent_socket_module
 from vllm_loader.agent import stdio as agent_stdio_module
+from vllm_loader.agent.auth import generate_agent_token
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.agent.stdio import (
     _ConnectionAuthState,
@@ -446,7 +447,8 @@ async def test_stdio_agent_reports_deep_json_parse_error_and_continues() -> None
 async def test_stdio_agent_requires_authenticated_handshake_before_other_methods(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    token = generate_agent_token()
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", token)
 
     class CaptureWriter:
         def __init__(self) -> None:
@@ -486,7 +488,7 @@ async def test_stdio_agent_requires_authenticated_handshake_before_other_methods
                 "method": "handshake",
                 "params": {
                     "protocol_version": 1,
-                    "capability_token": "shared-secret",
+                    "capability_token": token,
                 },
             }
         )
@@ -521,7 +523,7 @@ def test_stdio_frame_handler_requires_explicit_auth_state() -> None:
 async def test_stdio_frame_handler_auth_state_blocks_direct_unauthenticated_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", "shared-secret")
+    monkeypatch.setenv("VLLM_LOADER_AGENT_TOKEN", generate_agent_token())
     called = False
 
     class PingAgent:

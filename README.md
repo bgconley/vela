@@ -205,4 +205,6 @@ by a firewall or reverse proxy.
 For stricter shared-host policy, set `VLLM_LOADER_AGENT_TOKEN` in both the
 target agent environment and the controller environment. The token is checked
 during the first agent handshake and is optional for the default single-user
-P620/Blackbird topology.
+P620/Blackbird topology. Generate a strong token with
+`vllm-loader agent gen-token`; configured tokens must be a single non-whitespace
+value with at least 128 bits of entropy.

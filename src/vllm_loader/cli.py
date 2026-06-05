@@ -12,6 +12,11 @@ from typing import Annotated, Any
 import typer
 
 from vllm_loader import __version__
+from vllm_loader.agent.auth import (
+    DEFAULT_AGENT_TOKEN_BYTES,
+    MIN_AGENT_TOKEN_BYTES,
+    generate_agent_token,
+)
 from vllm_loader.agent.local import LocalAgent, TargetCallError
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.config.targets import (
@@ -1753,6 +1758,25 @@ def agent_connect(
     from vllm_loader.agent.stdio import serve_stdio_agent
 
     asyncio.run(serve_stdio_agent(LocalAgent()))
+
+
+@agent_app.command("gen-token")
+def agent_gen_token(
+    entropy_bytes: Annotated[
+        int,
+        typer.Option(
+            "--bytes",
+            help="Random bytes of token entropy; 16 bytes is the minimum.",
+        ),
+    ] = DEFAULT_AGENT_TOKEN_BYTES,
+) -> None:
+    if entropy_bytes < MIN_AGENT_TOKEN_BYTES:
+        typer.echo(
+            f"ERROR: agent token entropy must be at least {MIN_AGENT_TOKEN_BYTES} bytes",
+            err=True,
+        )
+        raise typer.Exit(2)
+    typer.echo(generate_agent_token(entropy_bytes))
 
 
 @agent_app.command("run")
