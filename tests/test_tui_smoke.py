@@ -4893,6 +4893,109 @@ async def test_build_manager_rejects_uv_less_target_before_create_job(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_keeps_create_form_open_on_uv_precheck_failure(
+    config_dir: Path,
+) -> None:
+    class BuildTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.subscribe_calls: list[tuple[list[str], object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/buildable.yaml",
+                            "name": "buildable",
+                            "model": "org/model",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": {
+                                "name": "buildable",
+                                "target": "blackbird",
+                                "model": "org/model",
+                            },
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "check_build_prerequisites":
+                raise TargetCallError(
+                    "feature-unavailable",
+                    "create_build method=nightly requires uv",
+                    {"reason": "uv-required", "method": "nightly"},
+                )
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            self.subscribe_calls.append((list(run_ids), resume_from))
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
+            raise AssertionError("create_build should not subscribe before uv precheck")
+
+    target_client = BuildTargetClient()
+    app = VllmLoaderApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open",
+        )
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build",
+            "create build screen did not open",
+        )
+        app.screen.query_one("#create-build-method", Select).value = "nightly"
+        app.screen.query_one("#create-build-label", Input).value = "nvfp4"
+        app.screen.query_one("#create-build-channel", Input).value = "cu130"
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build"
+            and "requires uv" in str(
+                app.screen.query_one("#create-build-error", Static).content
+            ),
+            "create build form did not reopen with uv precheck error",
+        )
+
+        assert app.screen.query_one("#create-build-method", Select).value == "nightly"
+        assert app.screen.query_one("#create-build-label", Input).value == "nvfp4"
+        assert app.screen.query_one("#create-build-channel", Input).value == "cu130"
+        assert all(method != "create_build" for method, _params in target_client.calls)
+        assert all(run_ids == ["__agent__"] for run_ids, _ in target_client.subscribe_calls)
+
+
+@pytest.mark.asyncio
 async def test_build_manager_adopts_external_venv_through_target_client(
     config_dir: Path,
 ) -> None:

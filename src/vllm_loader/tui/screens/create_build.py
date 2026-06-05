@@ -48,10 +48,18 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        initial: dict[str, Any] | None = None,
+        error_message: str = "",
+    ) -> None:
         super().__init__(id="create-build")
+        self.initial = dict(initial or {})
+        self.error_message = error_message
 
     def compose(self) -> ComposeResult:
+        method = self._initial_value("method") or "nightly"
         with Vertical(id="create-build-panel"):
             yield Static("Create Build", id="create-build-title")
             yield Static("Method", classes="create-build-field-label")
@@ -64,7 +72,7 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
                     ("Wheel", "wheel"),
                 ],
                 allow_blank=False,
-                value="nightly",
+                value=method,
                 id="create-build-method",
             )
             yield Static(
@@ -75,44 +83,52 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("Label", classes="create-build-field-label")
             yield Input(
                 placeholder="nvfp4-cu130",
+                value=self._initial_value("label"),
                 id="create-build-label",
             )
             yield Static("Package spec", classes="create-build-field-label")
             yield Input(
                 placeholder="vllm==0.11.2",
+                value=self._initial_value("spec"),
                 id="create-build-spec",
             )
             yield Static("Channel / variant", classes="create-build-field-label")
             yield Input(
                 placeholder="cu130",
+                value=self._initial_value("channel"),
                 id="create-build-channel",
             )
             yield Static("Python", classes="create-build-field-label")
             yield Input(
                 placeholder="3.12",
+                value=self._initial_value("python"),
                 id="create-build-python",
             )
             yield Static("Commit", classes="create-build-field-label")
             yield Input(
                 placeholder="abcdef123456",
+                value=self._initial_value("commit"),
                 id="create-build-commit",
             )
             yield Static("Git URL", classes="create-build-field-label")
             yield Input(
                 placeholder="https://github.com/vllm-project/vllm.git",
+                value=self._initial_value("url"),
                 id="create-build-url",
             )
             yield Static("Wheel / venv path", classes="create-build-field-label")
             yield Input(
                 placeholder="/agent/wheels/vllm.whl",
+                value=self._initial_value("path"),
                 id="create-build-path",
             )
             yield Static("Environment", classes="create-build-field-label")
             yield Input(
                 placeholder="KEY=value OTHER=value",
+                value=self._initial_env(),
                 id="create-build-env",
             )
-            yield Static("", id="create-build-error")
+            yield Static(self.error_message, id="create-build-error")
 
     def on_mount(self) -> None:
         self.query_one("#create-build-label", Input).focus()
@@ -132,6 +148,16 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
 
     def _field_value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()
+
+    def _initial_value(self, key: str) -> str:
+        value = self.initial.get(key)
+        return str(value) if value is not None else ""
+
+    def _initial_env(self) -> str:
+        value = self.initial.get("env")
+        if isinstance(value, list):
+            return " ".join(str(item) for item in value)
+        return str(value) if value is not None else ""
 
     def _collect_build_params(self) -> dict[str, Any]:
         method = self.query_one("#create-build-method", Select).value

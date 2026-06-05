@@ -1320,20 +1320,31 @@ class VllmLoaderApp(App):
         if not params:
             return
         self.run_worker(
-            self._create_build(params),
+            self._create_build(params, reopen_form_on_uv_failure=True),
             name="build-create",
             group="build-manager",
             exclusive=True,
             exit_on_error=False,
         )
 
-    async def _create_build(self, params: dict[str, Any]) -> None:
+    async def _create_build(
+        self,
+        params: dict[str, Any],
+        *,
+        reopen_form_on_uv_failure: bool = False,
+    ) -> None:
         try:
             await self._target_call(
                 "check_build_prerequisites",
                 _build_prerequisite_params(params),
             )
         except TargetCallError as exc:
+            if reopen_form_on_uv_failure and exc.details.get("reason") == "uv-required":
+                self._reopen_create_build_form(
+                    params,
+                    self._render_uv_prerequisite_error(params, exc),
+                )
+                return
             self._set_error_text(f"Unable to create build: {exc}", style=f"bold {BAD}")
             return
         job_params = dict(params)
@@ -1343,6 +1354,36 @@ class VllmLoaderApp(App):
             job_params,
             error_action="create build",
             incomplete_label="Build creation",
+        )
+
+    def _reopen_create_build_form(
+        self,
+        params: dict[str, Any],
+        error_message: str,
+    ) -> None:
+        self.call_later(self._push_create_build_form, dict(params), error_message)
+
+    def _push_create_build_form(
+        self,
+        params: dict[str, Any],
+        error_message: str,
+    ) -> None:
+        self.push_screen(
+            CreateBuildScreen(initial=params, error_message=error_message),
+            callback=self._handle_create_build_submission,
+        )
+
+    def _render_uv_prerequisite_error(
+        self,
+        params: dict[str, Any],
+        exc: TargetCallError,
+    ) -> str:
+        method = _optional_str(exc.details.get("method")) or _optional_str(params.get("method"))
+        method_label = f"{method} " if method else ""
+        target = self._target_label()
+        return (
+            f"{method_label}build creation requires uv on {target}. "
+            "Install uv on the target or choose pip, wheel, or git."
         )
 
     def _handle_adopt_build_submission(self, params: dict[str, Any] | None) -> None:
