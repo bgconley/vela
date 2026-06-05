@@ -260,6 +260,56 @@ async def test_subprocess_target_client_reports_bridge_exit_before_response() ->
 
 
 @pytest.mark.asyncio
+async def test_subprocess_target_client_reports_ssh_auth_bridge_failure() -> None:
+    client = SubprocessTargetClient(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stderr.write('Permission denied (publickey).\\n'); "
+                "sys.stderr.flush(); "
+                "sys.exit(255)"
+            ),
+        ]
+    )
+
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.connect()
+
+    assert exc_info.value.code == "agent-unreachable"
+    assert "SSH target agent bridge failed" in exc_info.value.message
+    assert exc_info.value.details["exit_code"] == 255
+    assert exc_info.value.details["reason"] == "ssh-auth"
+    assert "Permission denied" in exc_info.value.details["stderr"]
+
+
+@pytest.mark.asyncio
+async def test_subprocess_target_client_reports_remote_agent_command_not_found() -> None:
+    client = SubprocessTargetClient(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stderr.write('bash: vllm-loader: command not found\\n'); "
+                "sys.stderr.flush(); "
+                "sys.exit(127)"
+            ),
+        ]
+    )
+
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.connect()
+
+    assert exc_info.value.code == "command-not-found"
+    assert "Target agent command not found" in exc_info.value.message
+    assert exc_info.value.details["exit_code"] == 127
+    assert exc_info.value.details["command"] == "vllm-loader"
+    assert "command not found" in exc_info.value.details["stderr"]
+
+
+@pytest.mark.asyncio
 async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> None:
     class FailingAgent:
         def handle(self, method: str, _params=None):

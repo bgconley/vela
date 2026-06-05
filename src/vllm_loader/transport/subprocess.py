@@ -21,6 +21,10 @@ from vllm_loader.transport.ndjson import (
 )
 from vllm_loader.transport.rpc_errors import target_call_error_from_rpc_payload
 
+_STDERR_TAIL_LINES = 20
+_STDERR_TAIL_CHARS = 4000
+_EXIT_CONTEXT_TIMEOUT_SECONDS = 0.2
+
 
 class SubprocessTargetClient:
     def __init__(
@@ -45,6 +49,8 @@ class SubprocessTargetClient:
         self._stderr_task: asyncio.Task[None] | None = None
         self._write_lock = asyncio.Lock()
         self._agent_info: dict[str, Any] | None = None
+        self._stderr_tail: list[str] = []
+        self._disconnecting = False
 
     @property
     def connected(self) -> bool:
@@ -53,6 +59,8 @@ class SubprocessTargetClient:
     async def connect(self) -> dict[str, Any]:
         if self._connected:
             return self._agent_info or {}
+        self._disconnecting = False
+        self._stderr_tail.clear()
         env = os.environ.copy()
         if self._env is not None:
             env.update(self._env)
@@ -88,6 +96,7 @@ class SubprocessTargetClient:
 
     async def disconnect(self) -> None:
         process = self._process
+        self._disconnecting = True
         self._connected = False
         if process is not None and process.stdin is not None:
             process.stdin.close()
@@ -117,6 +126,7 @@ class SubprocessTargetClient:
         self._reader_task = None
         self._stderr_task = None
         self._agent_info = None
+        self._disconnecting = False
 
     async def call(
         self, method: str, params: dict[str, Any] | None = None
@@ -127,14 +137,20 @@ class SubprocessTargetClient:
             await asyncio.gather(*list(self._subscription_tasks))
         self._request_seq += 1
         request_id = str(self._request_seq)
+        frame = {"id": request_id, "method": method, "params": params or {}}
+        payload = encode_frame(frame)
         loop = asyncio.get_running_loop()
         future: asyncio.Future[dict[str, Any]] = loop.create_future()
         self._pending[request_id] = future
-        frame = {"id": request_id, "method": method, "params": params or {}}
         try:
             async with self._write_lock:
-                self._process.stdin.write(encode_frame(frame))
+                self._process.stdin.write(payload)
                 await self._process.stdin.drain()
+        except OSError as exc:
+            self._pending.pop(request_id, None)
+            raise await self._agent_exit_error(
+                "target agent process exited before accepting request"
+            ) from exc
         except Exception:
             self._pending.pop(request_id, None)
             raise
@@ -205,13 +221,58 @@ class SubprocessTargetClient:
                     self._publish_event(frame)
         finally:
             self._connected = False
-            self._fail_pending(_agent_unreachable_error("target agent process exited"))
+            if not self._disconnecting:
+                self._fail_pending(
+                    await self._agent_exit_error("target agent process exited")
+                )
 
     async def _drain_stderr(self) -> None:
         assert self._process is not None
         assert self._process.stderr is not None
-        while await self._process.stderr.readline():
-            pass
+        while line := await self._process.stderr.readline():
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if not text:
+                continue
+            self._stderr_tail.append(text)
+            del self._stderr_tail[:-_STDERR_TAIL_LINES]
+
+    async def _agent_exit_error(self, message: str) -> TargetCallError:
+        exit_code = await self._process_exit_code()
+        await self._wait_for_stderr_tail()
+        return _agent_process_exit_error(
+            message,
+            exit_code=exit_code,
+            stderr=_stderr_excerpt(self._stderr_tail),
+        )
+
+    async def _process_exit_code(self) -> int | None:
+        process = self._process
+        if process is None:
+            return None
+        if process.returncode is not None:
+            return process.returncode
+        try:
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=_EXIT_CONTEXT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return process.returncode
+        return process.returncode
+
+    async def _wait_for_stderr_tail(self) -> None:
+        stderr_task = self._stderr_task
+        if (
+            stderr_task is None
+            or stderr_task.done()
+            or stderr_task is asyncio.current_task()
+        ):
+            return
+        with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
+            await asyncio.wait_for(
+                asyncio.shield(stderr_task),
+                timeout=_EXIT_CONTEXT_TIMEOUT_SECONDS,
+            )
 
     def _resolve_response(self, frame: dict[str, Any]) -> None:
         request_id = str(frame.get("id"))
@@ -243,3 +304,81 @@ def _target_call_error_from_payload(payload: dict[str, Any]) -> TargetCallError:
 
 def _agent_unreachable_error(message: str) -> TargetCallError:
     return TargetCallError("agent-unreachable", message)
+
+
+def _agent_process_exit_error(
+    message: str,
+    *,
+    exit_code: int | None,
+    stderr: str,
+) -> TargetCallError:
+    details: dict[str, Any] = {}
+    if exit_code is not None:
+        details["exit_code"] = exit_code
+    if stderr:
+        details["stderr"] = stderr
+
+    missing_command = _missing_agent_command(stderr)
+    if exit_code == 127 or missing_command is not None:
+        command = missing_command or "vllm-loader"
+        details["command"] = command
+        return TargetCallError(
+            "command-not-found",
+            f"Target agent command not found: {command}",
+            details,
+        )
+
+    ssh_reason = _ssh_failure_reason(exit_code, stderr)
+    if ssh_reason is not None:
+        details["reason"] = ssh_reason
+        return TargetCallError(
+            "agent-unreachable",
+            "SSH target agent bridge failed",
+            details,
+        )
+
+    return TargetCallError("agent-unreachable", message, details)
+
+
+def _stderr_excerpt(lines: Sequence[str]) -> str:
+    text = "\n".join(lines)
+    if len(text) <= _STDERR_TAIL_CHARS:
+        return text
+    return text[-_STDERR_TAIL_CHARS:]
+
+
+def _missing_agent_command(stderr: str) -> str | None:
+    for line in reversed(stderr.splitlines()):
+        lowered = line.lower()
+        if "command not found" not in lowered and "not found" not in lowered:
+            continue
+        parts = [part.strip() for part in line.split(":")]
+        for part in reversed(parts[:-1]):
+            if not part or part.isdigit() or part.lower() in {"bash", "sh"}:
+                continue
+            return part.split()[0]
+    return None
+
+
+def _ssh_failure_reason(exit_code: int | None, stderr: str) -> str | None:
+    lowered = stderr.lower()
+    if "permission denied" in lowered:
+        return "ssh-auth"
+    if "host key verification failed" in lowered:
+        return "ssh-host-key"
+    if "could not resolve hostname" in lowered:
+        return "ssh-name-resolution"
+    if any(
+        phrase in lowered
+        for phrase in (
+            "connection refused",
+            "connection timed out",
+            "no route to host",
+            "connection closed",
+            "ssh_exchange_identification",
+        )
+    ):
+        return "ssh-connect"
+    if exit_code == 255:
+        return "ssh-failed"
+    return None
