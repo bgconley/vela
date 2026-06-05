@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 
 from vllm_loader.engine.ids import mint_ulid
 
+HASH_CHUNK_BYTES = 1024 * 1024
+
 
 @dataclass(frozen=True)
 class ModelRegistryError(RuntimeError):
@@ -1465,14 +1467,13 @@ def _hf_model_integrity_payload(entry: dict[str, Any]) -> dict[str, Any]:
                     "reason": "missing-cache-file",
                 },
             )
-        data = path.read_bytes()
-        total_bytes += len(data)
-        blob_hashes[relative] = _sha256_uri(data)
+        file_size = path.stat().st_size
+        total_bytes += file_size
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(str(len(data)).encode("ascii"))
+        digest.update(str(file_size).encode("ascii"))
         digest.update(b"\0")
-        digest.update(data)
+        blob_hashes[relative] = _stream_file_sha256_uri(path, aggregate=digest)
         digest.update(b"\0")
     return {
         "strategy": "hf_cache_blob_sha256",
@@ -1584,14 +1585,13 @@ def _local_model_integrity_payload(path: Path) -> dict[str, Any]:
     blob_hashes: dict[str, str] = {}
     for file in files:
         relative = file.relative_to(path).as_posix()
-        data = file.read_bytes()
-        total_bytes += len(data)
-        blob_hashes[relative] = _sha256_uri(data)
+        file_size = file.stat().st_size
+        total_bytes += file_size
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(str(len(data)).encode("ascii"))
+        digest.update(str(file_size).encode("ascii"))
         digest.update(b"\0")
-        digest.update(data)
+        blob_hashes[relative] = _stream_file_sha256_uri(file, aggregate=digest)
         digest.update(b"\0")
     return {
         "strategy": "local_files_sha256",
@@ -1789,3 +1789,12 @@ def _optional_str(value: object) -> str | None:
 
 def _sha256_uri(data: bytes) -> str:
     return f"sha256:{sha256(data).hexdigest()}"
+
+
+def _stream_file_sha256_uri(path: Path, *, aggregate) -> str:
+    digest = sha256()
+    with path.open("rb") as file:
+        while chunk := file.read(HASH_CHUNK_BYTES):
+            digest.update(chunk)
+            aggregate.update(chunk)
+    return f"sha256:{digest.hexdigest()}"

@@ -5297,6 +5297,45 @@ async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_deep_verifies_local_model_without_reading_files_into_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+
+        def fail_read_bytes(self: Path) -> bytes:
+            raise AssertionError(f"deep verification must stream file chunks: {self}")
+
+        monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+        verified = await client.call(
+            "verify_model", {"model_ref": "01LOCAL", "deep": "true"}
+        )
+    finally:
+        await client.disconnect()
+
+    assert verified["ok"] is True
+    assert verified["deep"] is True
+    assert verified["entry"]["integrity"]["strategy"] == "local_files_sha256"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
 async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
     tmp_path: Path,
 ) -> None:
@@ -5503,6 +5542,78 @@ async def test_agent_deep_verifies_cached_hf_model_blobs(
         "config.json": _sha256_uri(b"{}"),
         "model.safetensors": _sha256_uri(b"weights"),
     }
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_deep_verifies_cached_hf_model_without_reading_files_into_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    cache_dir = tmp_path / "hf-cache" / "models--meta-llama--Llama-3.1-8B-Instruct"
+    snapshot_dir = cache_dir / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    config = snapshot_dir / "config.json"
+    weights = snapshot_dir / "model.safetensors"
+    config.write_bytes(b"{}")
+    weights.write_bytes(b"weights")
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=len(b"{}") + len(b"weights"),
+        files=(
+            SimpleNamespace(
+                file_name="config.json",
+                size_on_disk=len(b"{}"),
+                file_path=config,
+            ),
+            SimpleNamespace(
+                file_name="model.safetensors",
+                size_on_disk=len(b"weights"),
+                file_path=weights,
+            ),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "remote-llama",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+
+        def fail_read_bytes(self: Path) -> bytes:
+            raise AssertionError(f"deep verification must stream file chunks: {self}")
+
+        monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+        verified = await client.call(
+            "verify_model", {"model_ref": "01REMOTE", "deep": "true"}
+        )
+    finally:
+        await client.disconnect()
+
+    assert verified["ok"] is True
+    assert verified["deep"] is True
+    assert verified["entry"]["integrity"]["strategy"] == "hf_cache_blob_sha256"
     json.dumps(verified)
 
 

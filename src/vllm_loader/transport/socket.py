@@ -13,8 +13,8 @@ from vllm_loader.agent.daemon import (
 )
 from vllm_loader.agent.local import PROTOCOL_VERSION, TargetCallError
 from vllm_loader.transport.client import (
-    agent_error_event,
     REQUIRED_AGENT_CAPABILITIES,
+    agent_error_event,
     event_matches_subscription,
     handshake_params,
 )
