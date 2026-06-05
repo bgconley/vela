@@ -25,6 +25,8 @@ def decode_frame(line: bytes, *, max_bytes: int = MAX_FRAME_BYTES) -> dict[str, 
         value = json.loads(line)
     except json.JSONDecodeError as exc:
         raise NdjsonFrameError(str(exc)) from exc
+    except RecursionError as exc:
+        raise NdjsonFrameError(str(exc)) from exc
     if not isinstance(value, dict):
         raise NdjsonFrameError("frame must be a JSON object")
     return value

@@ -344,6 +344,103 @@ async def test_stdio_agent_reports_parse_error_and_continues_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stdio_agent_closes_cleanly_on_reader_limit_error() -> None:
+    class PingAgent:
+        def handle(self, method: str, _params=None):
+            if method == "ping":
+                return {"pong": True}
+            raise TargetCallError("method-not-found", f"unknown method: {method}")
+
+    class LimitErrorReader:
+        async def readline(self) -> bytes:
+            raise ValueError("Separator is found, but chunk is longer than limit")
+
+    class CaptureWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.closed = False
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            return None
+
+    writer = CaptureWriter()
+
+    await asyncio.wait_for(serve_agent_stream(PingAgent(), LimitErrorReader(), writer), timeout=2)
+
+    assert writer.frames == [
+        {
+            "id": None,
+            "error": {
+                "code": -32700,
+                "message": "unable to read NDJSON frame: Separator is found, "
+                "but chunk is longer than limit",
+                "data": {},
+            },
+        }
+    ]
+    assert writer.closed is True
+
+
+@pytest.mark.asyncio
+async def test_stdio_agent_reports_deep_json_parse_error_and_continues() -> None:
+    class PingAgent:
+        def handle(self, method: str, _params=None):
+            if method == "ping":
+                return {"pong": True}
+            raise TargetCallError("method-not-found", f"unknown method: {method}")
+
+    class CaptureWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.closed = False
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            return None
+
+    reader = asyncio.StreamReader()
+    writer = CaptureWriter()
+    server = asyncio.create_task(serve_agent_stream(PingAgent(), reader, writer))
+    deep_json = b'{"x":' + b"[" * 1000 + b"0" + b"]" * 1000 + b"}\n"
+    reader.feed_data(deep_json)
+    reader.feed_data(encode_frame({"id": "ping-1", "method": "ping", "params": {}}))
+
+    async def ping_response_seen() -> bool:
+        for _ in range(20):
+            if any(frame.get("id") == "ping-1" for frame in writer.frames):
+                return True
+            await asyncio.sleep(0.01)
+        return False
+
+    assert await ping_response_seen()
+    reader.feed_eof()
+    await asyncio.wait_for(server, timeout=2)
+
+    error = writer.frames[0]["error"]
+    assert error["code"] == -32700
+    assert "maximum recursion depth exceeded" in error["message"]
+    assert writer.frames[-1] == {"id": "ping-1", "result": {"pong": True}}
+    assert writer.closed is True
+
+
+@pytest.mark.asyncio
 async def test_stdio_agent_requires_authenticated_handshake_before_other_methods(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

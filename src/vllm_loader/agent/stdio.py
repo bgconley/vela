@@ -47,7 +47,23 @@ async def serve_agent_stream(
         await frame_writer.write(frame)
 
     try:
-        while line := await reader.readline():
+        while True:
+            try:
+                line = await reader.readline()
+            except ValueError as exc:
+                await write_frame(
+                    {
+                        "id": None,
+                        "error": rpc_error_payload(
+                            "parse-error",
+                            f"unable to read NDJSON frame: {exc}",
+                            {},
+                        ),
+                    }
+                )
+                break
+            if not line:
+                break
             try:
                 frame = decode_frame(line)
             except NdjsonFrameError as exc:
