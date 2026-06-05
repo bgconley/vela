@@ -2734,7 +2734,7 @@ class VllmLoaderApp(App):
     async def _target_probe_run_until_ready(
         self, run_id: str, *, publish_result: bool = True
     ) -> None:
-        result = await self._target_call("health", {"run_id": run_id})
+        result = await self._target_call("probe_until_ready", {"run_id": run_id})
         if not publish_result:
             return
         error_kind = None

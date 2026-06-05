@@ -308,6 +308,70 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
 
 
 @pytest.mark.asyncio
+async def test_stdio_subscribe_all_registers_wildcard_event_stream() -> None:
+    seen: dict[str, object] = {}
+    event_written = asyncio.Event()
+
+    class SubscribeAllAgent:
+        def subscribe(self, run_ids, *, resume_from: object = "live", all_runs=False):
+            seen["run_ids"] = list(run_ids)
+            seen["resume_from"] = resume_from
+            seen["all_runs"] = all_runs
+
+            async def events():
+                if all_runs:
+                    yield {
+                        "event": "log",
+                        "run_id": "run-any",
+                        "kind": "committed",
+                        "text": "INFO all",
+                        "level": "INFO",
+                        "seq": 1,
+                        "ts": "2026-06-03T00:00:00Z",
+                        "mono": 1.0,
+                    }
+                    return
+                await asyncio.Event().wait()
+
+            return events()
+
+    frames: list[dict] = []
+
+    async def write_frame(frame: dict) -> None:
+        frames.append(frame)
+        if frame.get("event") == "log":
+            event_written.set()
+
+    subscription_tasks: dict[str, asyncio.Task[None]] = {}
+    await _handle_frame(
+        SubscribeAllAgent(),
+        {
+            "id": "sub-all-1",
+            "method": "subscribe",
+            "params": {"sub_id": "all-runs", "all": True, "resume_from": "start"},
+        },
+        write_frame,
+        subscription_tasks,
+    )
+    try:
+        assert seen == {
+            "run_ids": [],
+            "resume_from": "start",
+            "all_runs": True,
+        }
+        await asyncio.wait_for(event_written.wait(), timeout=2)
+    finally:
+        for task in subscription_tasks.values():
+            task.cancel()
+        await asyncio.gather(*subscription_tasks.values(), return_exceptions=True)
+
+    assert {"id": "sub-all-1", "result": {"sub_id": "all-runs"}} in frames
+    event = next(frame for frame in frames if frame.get("event") == "log")
+    assert event["run_id"] == "run-any"
+    assert event["text"] == "INFO all"
+
+
+@pytest.mark.asyncio
 async def test_stdio_unsubscribe_stops_agent_gpu_stream() -> None:
     def sampler() -> GpuPollResult:
         return GpuPollResult([])

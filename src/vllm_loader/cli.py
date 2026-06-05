@@ -1684,7 +1684,7 @@ async def _wait_target_until_ready_or_exit(
     *,
     read_task: asyncio.Task[dict[str, Any]] | None = None,
 ) -> int:
-    probe_task = asyncio.create_task(client.call("health", {"run_id": run_id}))
+    probe_task = asyncio.create_task(client.call("probe_until_ready", {"run_id": run_id}))
     wait_on = {probe_task}
     if read_task is not None:
         wait_on.add(read_task)

@@ -148,16 +148,19 @@ class SubprocessTargetClient:
         run_ids: list[str],
         *,
         resume_from: object = "live",
+        all_runs: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
         sub_id = uuid.uuid4().hex
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._event_subscribers[sub_id] = (set(run_ids), queue)
+        wire_all_runs = bool(all_runs or not run_ids)
         subscribe_task = asyncio.create_task(
             self.call(
                 "subscribe",
                 {
                     "sub_id": sub_id,
                     "run_ids": list(run_ids),
+                    "all": wire_all_runs,
                     "resume_from": resume_from,
                 },
             )

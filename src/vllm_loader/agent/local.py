@@ -90,7 +90,7 @@ from vllm_loader.engine.sidecar import (
 )
 from vllm_loader.monitoring.gpu import GpuPollResult, GpuSample
 from vllm_loader.monitoring.gpu import sample_gpus as default_gpu_sampler
-from vllm_loader.monitoring.health import HealthEvent, probe_host_for, probe_loop
+from vllm_loader.monitoring.health import HealthEvent, check_once, probe_host_for, probe_loop
 
 PROTOCOL_VERSION = 1
 AGENT_CAPABILITIES = [
@@ -344,6 +344,7 @@ class LocalAgent:
         self._event_buffers: dict[str, list[dict[str, Any]]] = {}
         self._event_buffer_size = 5000
         self._subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+        self._all_subscribers: list[asyncio.Queue[dict[str, Any]]] = []
         self._gpu_stream_tasks: dict[str, asyncio.Task[None]] = {}
         self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._controller_version: str | None = None
@@ -378,7 +379,9 @@ class LocalAgent:
             return self._restart(payload)
         if method == "status":
             return self._status(payload)
-        if method in {"health", "probe_until_ready"}:
+        if method == "health":
+            return self._health(payload)
+        if method == "probe_until_ready":
             return self._probe_until_ready(payload)
         if method == "tail_detached":
             return self._tail_detached(payload)
@@ -926,6 +929,17 @@ class LocalAgent:
         else:
             completed_task.cancel()
         return {"run_id": run_id, **last_event}
+
+    async def _health(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        run_config, fsm = self._run_config_and_fsm_or_error(run_id)
+        event = await check_once(run_config)
+        payload = _health_payload(event, run_config)
+        self._publish_health_events(run_id, run_config, fsm, event)
+        payload["phase"] = fsm.phase.value
+        if fsm.error_excerpt is not None:
+            payload["error_excerpt"] = fsm.error_excerpt
+        return {"run_id": run_id, **payload}
 
     def _spawn_detached_supervisor(
         self, prepared: dict[str, Any], *, run_id: str | None = None
@@ -2208,11 +2222,15 @@ class LocalAgent:
         run_ids: list[str] | tuple[str, ...] | set[str],
         *,
         resume_from: object = "live",
+        all_runs: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
-        selected_run_ids = {str(run_id) for run_id in run_ids}
+        selected_run_ids = None if all_runs else {str(run_id) for run_id in run_ids}
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        for run_id in selected_run_ids:
-            self._subscribers.setdefault(run_id, []).append(queue)
+        if selected_run_ids is None:
+            self._all_subscribers.append(queue)
+        else:
+            for run_id in selected_run_ids:
+                self._subscribers.setdefault(run_id, []).append(queue)
 
         async def iterator() -> AsyncIterator[dict[str, Any]]:
             try:
@@ -2221,12 +2239,16 @@ class LocalAgent:
                 while True:
                     yield await queue.get()
             finally:
-                for run_id in selected_run_ids:
-                    queues = self._subscribers.get(run_id, [])
-                    if queue in queues:
-                        queues.remove(queue)
-                    if not queues:
-                        self._subscribers.pop(run_id, None)
+                if selected_run_ids is None:
+                    if queue in self._all_subscribers:
+                        self._all_subscribers.remove(queue)
+                else:
+                    for run_id in selected_run_ids:
+                        queues = self._subscribers.get(run_id, [])
+                        if queue in queues:
+                            queues.remove(queue)
+                        if not queues:
+                            self._subscribers.pop(run_id, None)
 
         return iterator()
 
@@ -2247,6 +2269,8 @@ class LocalAgent:
         del buffer[:- self._event_buffer_size]
         for queue in list(self._subscribers.get(event.run_id, [])):
             queue.put_nowait(wire_event)
+        for queue in list(self._all_subscribers):
+            queue.put_nowait(wire_event)
         return wire_event
 
     def _wire_event(self, event: AgentEvent) -> dict[str, Any]:
@@ -2263,7 +2287,7 @@ class LocalAgent:
         }
 
     def _replay_events(
-        self, run_ids: set[str], resume_from: object
+        self, run_ids: set[str] | None, resume_from: object
     ) -> list[dict[str, Any]]:
         if resume_from == "live":
             return []
@@ -2276,7 +2300,8 @@ class LocalAgent:
             except (TypeError, ValueError):
                 min_seq = 0
         events: list[dict[str, Any]] = []
-        for run_id in run_ids:
+        replay_run_ids = set(self._event_buffers) if run_ids is None else run_ids
+        for run_id in replay_run_ids:
             for event in self._event_buffers.get(run_id, []):
                 if event["seq"] > min_seq:
                     events.append(event)
@@ -2286,17 +2311,20 @@ class LocalAgent:
         )
 
     def _replay_durable_log_events(
-        self, run_ids: set[str], resume_from: object
+        self, run_ids: set[str] | None, resume_from: object
     ) -> list[dict[str, Any]]:
         assert isinstance(resume_from, dict)
         expected_inode = int(resume_from["log_inode"])
         start_position = max(0, int(resume_from["byte_offset"]))
         events: list[dict[str, Any]] = []
-        for run_id in run_ids:
+        replay_run_ids = set(self._detached_runs) if run_ids is None else run_ids
+        for run_id in replay_run_ids:
             run = self._detached_run_or_error(run_id)
             active_log = run.manifest.active_log
             if active_log.inode != expected_inode:
                 if not _manifest_has_rotated_inode(run.manifest, expected_inode):
+                    if run_ids is None:
+                        continue
                     raise TargetCallError(
                         "identity-verification-failed",
                         "active log inode does not match resume cursor",
@@ -3815,7 +3843,7 @@ def _health_payload(event: HealthEvent, cfg: ModelConfig | None = None) -> dict[
         "models": list(event.models or []),
         "error_kind": event.error_kind.value if event.error_kind is not None else None,
     }
-    if event.ready and cfg is not None:
+    if cfg is not None:
         payload["reachable_url"] = _reachable_url(cfg)
     return payload
 

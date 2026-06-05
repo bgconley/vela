@@ -128,8 +128,12 @@ async def _subscribe(
 ) -> dict[str, Any]:
     payload = params if isinstance(params, dict) else {}
     run_ids = payload.get("run_ids", [])
+    all_value = payload.get("all", False)
     if not isinstance(run_ids, list):
         raise TargetCallError("invalid-params", "subscribe requires run_ids list")
+    if not isinstance(all_value, bool):
+        raise TargetCallError("invalid-params", "subscribe all must be a boolean")
+    all_runs = all_value
     sub_id = str(payload.get("sub_id") or uuid.uuid4().hex)
     resume_from = payload.get("resume_from", "live")
     existing = subscription_tasks.pop(sub_id, None)
@@ -138,7 +142,10 @@ async def _subscribe(
         with contextlib.suppress(asyncio.CancelledError):
             await existing
     task = asyncio.create_task(
-        _stream_events(agent.subscribe(run_ids, resume_from=resume_from), write_frame)
+        _stream_events(
+            agent.subscribe(run_ids, resume_from=resume_from, all_runs=all_runs),
+            write_frame,
+        )
     )
     subscription_tasks[sub_id] = task
 

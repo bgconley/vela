@@ -58,18 +58,33 @@ class InProcessTargetClient:
         run_ids: list[str],
         *,
         resume_from: object = "live",
+        all_runs: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
         if not self._connected:
             raise RuntimeError("target client is not connected")
+        wire_all_runs = bool(all_runs or not run_ids)
         request = _wire_round_trip(
-            {"run_ids": list(run_ids), "resume_from": resume_from}
+            {
+                "run_ids": list(run_ids),
+                "resume_from": resume_from,
+                "all": wire_all_runs,
+            }
         )
         wire_run_ids = request.get("run_ids")
         wire_resume_from = request.get("resume_from", "live")
-        source = self._agent.subscribe(
-            wire_run_ids if isinstance(wire_run_ids, list) else [],
-            resume_from=wire_resume_from,
-        )
+        wire_all = request.get("all")
+        source_run_ids = wire_run_ids if isinstance(wire_run_ids, list) else []
+        if wire_all is True:
+            source = self._agent.subscribe(
+                source_run_ids,
+                resume_from=wire_resume_from,
+                all_runs=True,
+            )
+        else:
+            source = self._agent.subscribe(
+                source_run_ids,
+                resume_from=wire_resume_from,
+            )
 
         async def events() -> AsyncIterator[dict[str, Any]]:
             try:

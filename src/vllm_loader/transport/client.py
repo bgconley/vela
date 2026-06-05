@@ -69,4 +69,5 @@ class TargetClient(Protocol):
         run_ids: list[str],
         *,
         resume_from: object = "live",
+        all_runs: bool = False,
     ) -> AsyncIterator[dict[str, Any]]: ...

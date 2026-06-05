@@ -22,7 +22,7 @@ from conftest import write_yaml
 
 from vllm_loader import __version__
 from vllm_loader.agent import local as local_agent_module
-from vllm_loader.agent.local import LocalAgent, LocalDetachedRun, TargetCallError
+from vllm_loader.agent.local import AgentEvent, LocalAgent, LocalDetachedRun, TargetCallError
 from vllm_loader.config.loader import load_registry
 from vllm_loader.config.schema import ModelConfig
 from vllm_loader.engine import build_registry as build_registry_module
@@ -1472,12 +1472,12 @@ async def test_local_agent_probes_attached_run_health_by_run_id(
     )
     seen: dict[str, object] = {}
 
-    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+    async def fake_check_once(cfg):
         seen["name"] = cfg.name
-        seen["alive"] = is_process_alive()
-        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+        seen["alive"] = agent.is_run_alive(run_id or "")
+        return HealthEvent(ready=True, detail="ready", models=["served"])
 
-    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    monkeypatch.setattr(local_agent_module, "check_once", fake_check_once)
     agent = LocalAgent()
     client = InProcessTargetClient(agent)
     await client.connect()
@@ -1536,12 +1536,12 @@ async def test_local_agent_restores_registry_api_key_for_health_probe(
     )
     seen: dict[str, object] = {}
 
-    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+    async def fake_check_once(cfg):
         seen["api_key"] = cfg.server.api_key
-        seen["alive"] = is_process_alive()
-        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+        seen["alive"] = agent.is_run_alive(run_id or "")
+        return HealthEvent(ready=True, detail="ready", models=["served"])
 
-    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    monkeypatch.setattr(local_agent_module, "check_once", fake_check_once)
     agent = LocalAgent()
     client = InProcessTargetClient(agent)
     await client.connect()
@@ -1561,6 +1561,64 @@ async def test_local_agent_restores_registry_api_key_for_health_probe(
             await client.call("kill", {"run_id": run_id})
             await client.call("wait", {"run_id": run_id})
         await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_local_agent_health_rpc_is_single_shot_snapshot(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = tmp_path / "child.py"
+    child.write_text(
+        "#!/usr/bin/env python3\nimport time\nwhile True:\n    time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "health-once.yaml",
+        f"""
+        name: health-once
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {child}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        server:
+          port: 8131
+        """,
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_check_once(cfg):
+        seen["name"] = cfg.name
+        return HealthEvent(ready=False, detail="not ready")
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        emit(HealthEvent(ready=True, detail="probe loop ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "check_once", fake_check_once, raising=False)
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    agent = LocalAgent()
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    run_id: str | None = None
+
+    try:
+        launch = await client.call(
+            "launch", {"name": "health-once", "configs_dir": str(config_dir)}
+        )
+        run_id = str(launch["run_id"])
+        result = await client.call("health", {"run_id": run_id})
+    finally:
+        if run_id is not None and agent.is_run_alive(run_id):
+            await client.call("kill", {"run_id": run_id})
+            await client.call("wait", {"run_id": run_id})
+        await client.disconnect()
+
+    assert seen == {"name": "health-once"}
+    assert result["ready"] is False
+    assert result["detail"] == "not ready"
+    assert result["reachable_url"] == "http://127.0.0.1:8131"
 
 
 @pytest.mark.asyncio
@@ -9361,6 +9419,28 @@ async def test_target_client_replays_buffered_run_events_from_sequence(
     assert replayed["run_id"] == "run-replay-1"
     assert replayed["seq"] > 1
     json.dumps(replayed)
+
+
+@pytest.mark.asyncio
+async def test_local_agent_subscribe_all_receives_events_from_any_run() -> None:
+    agent = LocalAgent()
+    events = agent.subscribe([], resume_from="live", all_runs=True)
+    try:
+        agent._publish_event(
+            AgentEvent(
+                "log",
+                "run-any",
+                {"kind": "committed", "text": "INFO all", "level": "INFO"},
+            )
+        )
+        event = await asyncio.wait_for(events.__anext__(), timeout=2)
+    finally:
+        await events.aclose()
+
+    assert event["event"] == "log"
+    assert event["run_id"] == "run-any"
+    assert event["text"] == "INFO all"
+    json.dumps(event)
 
 
 @pytest.mark.asyncio
