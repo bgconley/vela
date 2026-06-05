@@ -63,7 +63,7 @@ async def check_once(
             return HealthEvent(
                 ready=False,
                 detail=detail,
-                error_kind=ErrorKind.HF_AUTH,
+                error_kind=ErrorKind.API_KEY_AUTH,
             )
         if models.status_code != 200:
             return HealthEvent(
@@ -110,10 +110,14 @@ async def probe_loop(
         else:
             last_not_ready_detail = event.detail
             if event.error_kind is not None:
-                emit(event)
-                return
-            if was_ready:
+                if not was_ready:
+                    emit(event)
+                    return
                 if last_ready is not False:
+                    emit(HealthEvent(ready=False, detail=event.detail, models=event.models))
+                last_ready = False
+            if was_ready:
+                if event.error_kind is None and last_ready is not False:
                     emit(event)
                 last_ready = False
             elif clock() - started_at >= cfg.launch.ready_timeout_seconds:

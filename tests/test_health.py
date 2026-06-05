@@ -44,7 +44,7 @@ async def test_models_401_with_key_yields_specific_token_mismatch_hint() -> None
     event = await check_once(cfg, transport=httpx.MockTransport(handler))
 
     assert event.ready is False
-    assert event.error_kind is ErrorKind.HF_AUTH
+    assert event.error_kind is ErrorKind.API_KEY_AUTH
     assert "Bearer" in event.detail
 
 
@@ -60,7 +60,7 @@ async def test_models_401_without_configured_key_is_not_ready() -> None:
     event = await check_once(cfg, transport=httpx.MockTransport(handler))
 
     assert event.ready is False
-    assert event.error_kind is ErrorKind.HF_AUTH
+    assert event.error_kind is ErrorKind.API_KEY_AUTH
     assert "api_key" in event.detail
 
 
@@ -224,7 +224,48 @@ async def test_probe_loop_emits_health_error_kind_before_timeout() -> None:
     )
 
     assert [(event.error_kind, event.detail) for event in events] == [
-        (ErrorKind.HF_AUTH, "/v1/models requires auth; set server.api_key/VLLM_API_KEY")
+        (ErrorKind.API_KEY_AUTH, "/v1/models requires auth; set server.api_key/VLLM_API_KEY")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_probe_loop_degrades_and_recovers_after_ready_auth_blip() -> None:
+    responses = [
+        httpx.Response(200),
+        httpx.Response(200, json={"data": [{"id": "served"}]}),
+        httpx.Response(200),
+        httpx.Response(401),
+        httpx.Response(200),
+        httpx.Response(200, json={"data": [{"id": "served"}]}),
+    ]
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        response = responses[min(calls, len(responses) - 1)]
+        calls += 1
+        return response
+
+    cfg = ModelConfig.model_validate(
+        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0}}}
+    )
+    events: list[HealthEvent] = []
+
+    def alive() -> bool:
+        return len(events) < 3
+
+    await probe_loop(
+        cfg,
+        emit=events.append,
+        is_process_alive=alive,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _delay: None,
+    )
+
+    assert [(event.ready, event.error_kind, event.detail) for event in events] == [
+        (True, None, "ready"),
+        (False, None, "/v1/models requires auth; set server.api_key/VLLM_API_KEY"),
+        (True, None, "ready"),
     ]
 
 

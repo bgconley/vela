@@ -367,6 +367,7 @@ ERROR_GUIDANCE = {
     ErrorKind.MODEL_NOT_FOUND: "Check the model path/name and Hugging Face access.",
     ErrorKind.TP_MISMATCH: "Check tensor_parallel_size, pipeline_parallel_size, and visible GPUs.",
     ErrorKind.HF_AUTH: "Set HF_TOKEN and accept the model license if it is gated.",
+    ErrorKind.API_KEY_AUTH: "Check server.api_key/VLLM_API_KEY for the running server.",
     ErrorKind.COMMAND_NOT_FOUND: "install vLLM or set command.entrypoint: module.",
     ErrorKind.CONFIG_INVALID: "Fix the config or choose a compatible vLLM version_profile.",
     ErrorKind.CRASHED: "Check the last log lines and resolved command.",

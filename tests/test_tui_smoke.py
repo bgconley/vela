@@ -6780,13 +6780,13 @@ async def test_health_error_shows_named_banner_with_suggestion(config_dir: Path)
             HealthEvent(
                 ready=False,
                 detail="Bearer token mismatch for /v1/models; check VLLM_API_KEY/api_key",
-                error_kind=ErrorKind.HF_AUTH,
+                error_kind=ErrorKind.API_KEY_AUTH,
             )
         )
 
         assert app.phase is Phase.ERROR
-        assert "HF_AUTH" in app.error_text
-        assert "HF_TOKEN" in app.error_text
+        assert "API_KEY_AUTH" in app.error_text
+        assert "VLLM_API_KEY" in app.error_text
         assert "Bearer token mismatch" in app.error_text
 
 
