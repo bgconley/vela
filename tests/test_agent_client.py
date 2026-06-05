@@ -5465,11 +5465,11 @@ async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
     integrity = verified["entry"]["integrity"]
     assert integrity["strategy"] == "local_files_sha256"
     assert integrity["deep"] is True
-    assert sorted(integrity["blob_hashes"]) == [
-        "config.json",
-        "model.safetensors",
-        "tokenizer.json",
-    ]
+    assert integrity["blob_hashes"] == {
+        "config.json": _sha256_uri(b"{}"),
+        "model.safetensors": _sha256_uri(b"weights"),
+        "tokenizer.json": _sha256_uri(b"{}"),
+    }
     json.dumps(verified)
 
 
