@@ -116,6 +116,7 @@ LEVEL_FILTER_ALIASES = {
 WIDGET_MISSING_EXCEPTIONS = (NoMatches, ScreenStackError)
 SEARCH_HIGHLIGHT_STYLE = "black on yellow"
 PROGRESS_PERCENT_RE = re.compile(r"(?P<percent>\d{1,3}(?:\.\d+)?)%")
+PROGRESS_TRACK_WIDTH = 72
 LOADING_PHASES = {
     Phase.STARTING,
     Phase.RESOLVING_MODEL,
@@ -518,7 +519,13 @@ class VllmLoaderApp(App):
         text-style: bold;
     }
     #progress-line { height: 1; }
-    #progress { width: 30; height: 1; }
+    #progress { display: none; width: 0; height: 1; }
+    #progress-track { width: 1fr; height: 1; }
+    #progress-percent {
+        width: 8;
+        height: 1;
+        content-align: right middle;
+    }
     #progress-text { width: 1fr; height: 1; }
     #error { color: #ff6b6b; text-style: bold; height: auto; }
     #footer-bindings {
@@ -703,9 +710,11 @@ class VllmLoaderApp(App):
                         )
                     with Vertical(id="progress-panel"):
                         yield Static("", id="progress-label")
+                        yield Static("", id="progress-text")
                         with Horizontal(id="progress-line"):
                             yield ProgressBar(total=None, show_eta=False, id="progress")
-                            yield Static("", id="progress-text")
+                            yield Static("", id="progress-track")
+                            yield Static("", id="progress-percent")
             yield Static(self._render_footer_bindings(), id="footer-bindings")
 
     async def on_mount(self) -> None:
@@ -2211,16 +2220,26 @@ class VllmLoaderApp(App):
                 Text(self._progress_label(text), style=f"bold {WARN}")
             )
             self.query_one("#progress-line").display = True
-            self.query_one("#progress-text", Static).update(Text(text, style=MUTED))
+            self.query_one("#progress-text", Static).update(
+                Text(self._progress_sublabel(text), style=MUTED)
+            )
+            progress_track = self.query_one("#progress-track", Static)
+            progress_percent = self.query_one("#progress-percent", Static)
             progress = self.query_one("#progress", ProgressBar)
         except WIDGET_MISSING_EXCEPTIONS:
             return
         match = PROGRESS_PERCENT_RE.search(text)
         if match is None:
             progress.update(total=None, progress=0)
+            progress_track.update(self._render_progress_track(None, style=WARN))
+            progress_percent.update("")
             return
         percent = max(0.0, min(100.0, float(match.group("percent"))))
         progress.update(total=100, progress=percent)
+        progress_track.update(self._render_progress_track(percent, style=WARN))
+        progress_percent.update(
+            Text(self._format_progress_percent(percent), style=f"bold {WARN}")
+        )
 
     def _clear_progress(self) -> None:
         self.progress_text = ""
@@ -2228,6 +2247,8 @@ class VllmLoaderApp(App):
             self.query_one("#progress-panel").display = False
             self.query_one("#progress-label", Static).update("")
             self.query_one("#progress-text", Static).update("")
+            self.query_one("#progress-track", Static).update("")
+            self.query_one("#progress-percent", Static).update("")
             self.query_one("#progress", ProgressBar).update(total=None, progress=0)
             self.query_one("#progress-line").display = False
         except WIDGET_MISSING_EXCEPTIONS:
@@ -3133,6 +3154,45 @@ class VllmLoaderApp(App):
     def _progress_label(text: str) -> str:
         label, _separator, _tail = text.partition(":")
         return label.strip() or "Progress"
+
+    @staticmethod
+    def _progress_sublabel(text: str) -> str:
+        _label, separator, tail = text.partition(":")
+        return tail.strip() if separator else text.strip()
+
+    @staticmethod
+    def _format_progress_percent(percent: float) -> str:
+        if percent.is_integer():
+            return f"{int(percent)}%"
+        return f"{percent:.1f}%"
+
+    @staticmethod
+    def _render_progress_track(percent: float | None, *, style: str) -> Text:
+        tick_positions = {
+            max(
+                0,
+                min(
+                    PROGRESS_TRACK_WIDTH - 1,
+                    round(PROGRESS_TRACK_WIDTH * index / 10),
+                ),
+            )
+            for index in range(1, 10)
+        }
+        filled = 0
+        if percent is not None:
+            filled = max(
+                0,
+                min(PROGRESS_TRACK_WIDTH, round(PROGRESS_TRACK_WIDTH * percent / 100)),
+            )
+        text = Text()
+        for index in range(PROGRESS_TRACK_WIDTH):
+            if index in tick_positions:
+                text.append("│", style=MUTED)
+            elif index < filled:
+                text.append("━", style=style)
+            else:
+                text.append("─", style=MUTED)
+        return text
 
     def _apply_responsive_layout(self, width: int) -> None:
         previous_mode = self.responsive_mode

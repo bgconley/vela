@@ -9017,6 +9017,41 @@ async def test_transient_progress_updates_progress_bar_without_committing_log(
 
 
 @pytest.mark.asyncio
+async def test_progress_line_uses_figma_track_ticks_and_percent(
+    config_dir: Path,
+) -> None:
+    app = VllmLoaderApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        app.handle_log_record(
+            LogRecord(
+                "transient",
+                "Loading safetensors checkpoint shards: 68% | 29/42 [01:07<00:24]",
+                None,
+            )
+        )
+        await pilot.pause()
+
+        label = app.query_one("#progress-label", Static).content
+        sublabel = app.query_one("#progress-text", Static).content
+        track = app.query_one("#progress-track", Static).content
+        percent = app.query_one("#progress-percent", Static).content
+
+        assert isinstance(label, Text)
+        assert isinstance(sublabel, Text)
+        assert isinstance(track, Text)
+        assert isinstance(percent, Text)
+        assert label.plain == "Loading safetensors checkpoint shards"
+        assert "29/42" in sublabel.plain
+        assert track.plain.count("│") == 9
+        assert "━" in track.plain
+        assert "─" in track.plain
+        assert percent.plain == "68%"
+        assert _text_uses_style(track, tui_app_module.WARN)
+        assert _text_uses_style(percent, tui_app_module.WARN)
+
+
+@pytest.mark.asyncio
 async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
     config_dir: Path,
 ) -> None:
