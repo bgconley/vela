@@ -4083,24 +4083,34 @@ async def test_status_badge_uses_icons_and_phase_color_classes(config_dir: Path)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        status = app.query_one("#status", Static)
+        badge = app.query_one("#status-badge")
+        status_dot = app.query_one("#status-dot", Static)
+        status_label = app.query_one("#status-label", Static)
 
         assert app.status_text == "○ IDLE"
-        assert status.has_class("status--idle")
+        assert badge.has_class("status--idle")
+        assert status_dot.content.plain == "○"
+        assert status_label.content.plain == "IDLE"
 
         app._set_phase(Phase.STARTING)
         assert app.status_text == "● STARTING"
-        assert status.has_class("status--loading")
-        assert status.has_class("status--pulse")
+        assert badge.has_class("status--loading")
+        assert badge.has_class("status--pulse")
+        assert status_dot.content.plain == "●"
+        assert status_label.content.plain == "STARTING"
 
         app._set_phase(Phase.READY)
         assert app.status_text.startswith("● READY")
-        assert status.has_class("status--ready")
-        assert not status.has_class("status--pulse")
+        assert badge.has_class("status--ready")
+        assert not badge.has_class("status--pulse")
+        assert status_dot.content.plain == "●"
+        assert status_label.content.plain == "READY"
 
         app._set_phase(Phase.ERROR)
         assert app.status_text == "✕ ERROR"
-        assert status.has_class("status--error")
+        assert badge.has_class("status--error")
+        assert status_dot.content.plain == "✕"
+        assert status_label.content.plain == "ERROR"
 
 
 @pytest.mark.asyncio
@@ -4152,7 +4162,7 @@ async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
         assert "Tab Focus" in _static_text(app, "#footer-bindings")
         assert "^P Palette" in _static_text(app, "#footer-bindings")
 
-        status = app.query_one("#status")
+        status = app.query_one("#status-badge")
         status_strip = app.query_one("#status-strip")
         footer = app.query_one("#footer-bindings")
         assert status.region.height >= 3
@@ -6620,7 +6630,7 @@ async def test_dashboard_uses_intentional_rich_color_renderables(config_dir: Pat
             )
         )
 
-        status_content = app.query_one("#status", Static).content
+        status_content = app.query_one("#status-label", Static).content
         controls_content = app.query_one("#log-controls", Static).content
         strip_content = app.query_one("#status-strip", Static).content
         gpu_content = app.query_one("#gpu", Static).content
@@ -6714,7 +6724,7 @@ async def test_figma_dashboard_pills_and_selection_use_surface_styles(
 
         configs_title = app.query_one("#configs-title", Static).content
         configs = app.query_one("#configs", Static).content
-        status = app.query_one("#status", Static).content
+        status = app.query_one("#status-label", Static).content
         controls = app.query_one("#log-controls", Static).content
 
         assert isinstance(configs_title, Text)

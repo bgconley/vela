@@ -19,6 +19,7 @@ from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.screen import Screen
+from textual.widget import Widget
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
@@ -462,19 +463,54 @@ class VllmLoaderApp(App):
     #configs, #phases, #gpu, #status-strip {
         color: #e8f1f2;
     }
-    #status {
+    #status-badge {
         width: 26;
         height: 3;
         border: solid #526a75;
+        background: #14202b;
+        align: center middle;
+        padding: 0 1;
+    }
+    #status-dot {
+        width: 3;
+        height: 1;
         content-align: center middle;
     }
-    #status.status--idle { color: #8ba4ae; }
-    #status.status--loading { color: #f6c85f; border: solid #f6c85f; }
-    #status.status--ready { color: #67e8a5; border: solid #67e8a5; }
-    #status.status--degraded { color: #f6c85f; border: solid #f6c85f; }
-    #status.status--error { color: #ff6b6b; border: solid #ff6b6b; }
-    #status.status--stopped { color: #8ba4ae; }
-    #status.status--pulse { text-style: bold; }
+    #status-label {
+        width: 1fr;
+        height: 1;
+        content-align: left middle;
+        text-style: bold;
+    }
+    #status-badge.status--idle {
+        color: #8ba4ae;
+        background: #14202b;
+    }
+    #status-badge.status--loading {
+        color: #f6c85f;
+        border: solid #f6c85f;
+        background: #2b2410;
+    }
+    #status-badge.status--ready {
+        color: #67e8a5;
+        border: solid #67e8a5;
+        background: #0e2a21;
+    }
+    #status-badge.status--degraded {
+        color: #f6c85f;
+        border: solid #f6c85f;
+        background: #2b2410;
+    }
+    #status-badge.status--error {
+        color: #ff6b6b;
+        border: solid #ff6b6b;
+        background: #351b1f;
+    }
+    #status-badge.status--stopped {
+        color: #8ba4ae;
+        background: #14202b;
+    }
+    #status-badge.status--pulse { text-style: bold; }
     #status-strip {
         height: 3;
         background: #101923;
@@ -674,11 +710,12 @@ class VllmLoaderApp(App):
                 yield Static("vLLM Loader", id="app-title")
                 yield Static(self._render_target_segment(), id="target-segment")
                 yield Static("", id="active-model")
-                yield Static(
-                    self._render_status_badge(Phase.IDLE),
-                    id="status",
-                    classes="status--idle",
-                )
+                with Horizontal(id="status-badge", classes="status--idle"):
+                    yield Static(self._render_status_dot(Phase.IDLE), id="status-dot")
+                    yield Static(
+                        self._render_status_label(Phase.IDLE),
+                        id="status-label",
+                    )
                 yield Static("", id="server-url")
                 yield Static("", id="chrome-clock")
             with Horizontal(id="body"):
@@ -3495,9 +3532,12 @@ class VllmLoaderApp(App):
         self.phase_timeline_text = timeline.plain
         self._debug_event("phase.changed", phase=phase.value, status=self.status_text)
         try:
-            status = self.query_one("#status", Static)
-            self._apply_status_classes(status, phase)
-            status.update(self._render_status_badge(phase))
+            status_badge = self.query_one("#status-badge")
+            self._apply_status_classes(status_badge, phase)
+            self.query_one("#status-dot", Static).update(self._render_status_dot(phase))
+            self.query_one("#status-label", Static).update(
+                self._render_status_label(phase)
+            )
             self.query_one("#phases", Static).update(timeline)
         except WIDGET_MISSING_EXCEPTIONS:
             return
@@ -3539,15 +3579,17 @@ class VllmLoaderApp(App):
             return f"{icon} {phase.value} {self.ready_url}{detail}"
         return f"{icon} {phase.value}"
 
-    def _render_status_badge(self, phase: Phase) -> Text:
+    def _render_status_dot(self, phase: Phase) -> Text:
         style = self._status_style_for_phase(phase)
         surface = self._status_surface_for_phase(phase)
-        return Text(
-            f"{self._status_icon_for_phase(phase)} {phase.value}",
-            style=f"{style} on {surface}",
-        )
+        return Text(self._status_icon_for_phase(phase), style=f"{style} on {surface}")
 
-    def _apply_status_classes(self, status: Static, phase: Phase) -> None:
+    def _render_status_label(self, phase: Phase) -> Text:
+        style = self._status_style_for_phase(phase)
+        surface = self._status_surface_for_phase(phase)
+        return Text(phase.value, style=f"{style} on {surface}")
+
+    def _apply_status_classes(self, status: Widget, phase: Phase) -> None:
         for class_name in STATUS_CLASSES:
             status.remove_class(class_name)
         status.add_class(self._status_class_for_phase(phase))
