@@ -161,6 +161,40 @@ async def test_subprocess_transport_uses_protocol_frame_limit(
 
 
 @pytest.mark.asyncio
+async def test_subprocess_target_client_round_trips_large_frame_payload() -> None:
+    payload = "x" * (128 * 1024)
+    assert len(encode_frame({"id": "2", "result": {"payload": payload}})) > 64 * 1024
+
+    child_script = """
+import json
+import sys
+
+for raw in sys.stdin.buffer:
+    request = json.loads(raw)
+    method = request.get("method")
+    params = request.get("params") if isinstance(request.get("params"), dict) else {}
+    if method == "handshake":
+        result = {"target": "large-frame-agent", "capabilities": []}
+    else:
+        result = {"payload": params.get("payload", "")}
+    sys.stdout.write(json.dumps({"id": request.get("id"), "result": result}) + "\\n")
+    sys.stdout.flush()
+"""
+    client = SubprocessTargetClient([sys.executable, "-u", "-c", child_script])
+
+    try:
+        await client.connect()
+        result = await asyncio.wait_for(
+            client.call("echo", {"payload": payload}),
+            timeout=5,
+        )
+    finally:
+        await client.disconnect()
+
+    assert result == {"payload": payload}
+
+
+@pytest.mark.asyncio
 async def test_agent_socket_server_uses_protocol_frame_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
