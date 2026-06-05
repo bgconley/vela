@@ -418,7 +418,7 @@ async def test_stdio_agent_reports_deep_json_parse_error_and_continues() -> None
     reader = asyncio.StreamReader()
     writer = CaptureWriter()
     server = asyncio.create_task(serve_agent_stream(PingAgent(), reader, writer))
-    deep_json = b'{"x":' + b"[" * 1000 + b"0" + b"]" * 1000 + b"}\n"
+    deep_json = b'{"x":' + b"[" * 10000 + b"0" + b"]" * 10000 + b"}\n"
     reader.feed_data(deep_json)
     reader.feed_data(encode_frame({"id": "ping-1", "method": "ping", "params": {}}))
 
