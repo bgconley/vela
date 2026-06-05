@@ -54,6 +54,12 @@ _DISALLOWED_SSH_OPTIONS = {
     "-W",
     "-w",
 }
+_DISALLOWED_SSH_OPTION_KEYS = {
+    "localcommand",
+    "permitlocalcommand",
+    "proxycommand",
+    "remotecommand",
+}
 
 
 def target_client_for_config(
@@ -112,9 +118,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
         if option == "-o":
             if index + 1 >= len(options):
                 raise ValueError(f"{source} option '-o' requires a value")
+            _validate_ssh_option_assignment(options[index + 1], source=source)
             index += 2
             continue
         if option.startswith("-o") and len(option) > 2:
+            _validate_ssh_option_assignment(option[2:], source=source)
             index += 1
             continue
         if option in _SAFE_SSH_VALUE_OPTIONS:
@@ -128,6 +136,15 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
         raise ValueError(
             f"{source} contains unsupported SSH option {option!r}; "
             "use -o Key=Value or a documented identity/proxy option"
+        )
+
+
+def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
+    key = _ssh_option_key(value)
+    if key in _DISALLOWED_SSH_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains command-bearing SSH option {key!r}; "
+            "command-bearing SSH options are not allowed"
         )
 
 

