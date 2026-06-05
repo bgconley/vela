@@ -4901,6 +4901,7 @@ async def test_build_manager_keeps_create_form_open_on_uv_precheck_failure(
             self.connected = False
             self.calls: list[tuple[str, dict[str, object]]] = []
             self.subscribe_calls: list[tuple[list[str], object]] = []
+            self.precheck_attempted = asyncio.Event()
 
         async def connect(self) -> None:
             self.connected = True
@@ -4933,6 +4934,7 @@ async def test_build_manager_keeps_create_form_open_on_uv_precheck_failure(
             if method == "list_builds":
                 return {"builds": [], "skipped": []}
             if method == "check_build_prerequisites":
+                self.precheck_attempted.set()
                 raise TargetCallError(
                     "feature-unavailable",
                     "create_build method=nightly requires uv",
@@ -4966,12 +4968,14 @@ async def test_build_manager_keeps_create_form_open_on_uv_precheck_failure(
     async with app.run_test(size=(144, 45)) as pilot:
         await _wait_for_target_connection_state(app, "connected")
         await pilot.press("b")
-        await _wait_for_condition(
+        await _wait_for_textual_condition(
+            pilot,
             lambda: app.screen.id == "build-manager",
             "build manager did not open",
         )
         await pilot.press("n")
-        await _wait_for_condition(
+        await _wait_for_textual_condition(
+            pilot,
             lambda: app.screen.id == "create-build",
             "create build screen did not open",
         )
@@ -4980,7 +4984,9 @@ async def test_build_manager_keeps_create_form_open_on_uv_precheck_failure(
         app.screen.query_one("#create-build-channel", Input).value = "cu130"
         await pilot.press("enter")
 
-        await _wait_for_condition(
+        await asyncio.wait_for(target_client.precheck_attempted.wait(), timeout=5)
+        await _wait_for_textual_condition(
+            pilot,
             lambda: app.screen.id == "create-build"
             and "requires uv" in str(
                 app.screen.query_one("#create-build-error", Static).content
@@ -9511,6 +9517,27 @@ async def _wait_for_condition(condition, message: str) -> None:
         if condition():
             return
         await asyncio.sleep(0.05)
+    raise AssertionError(message)
+
+
+async def _wait_for_textual_condition(
+    pilot,
+    condition,
+    message: str,
+    *,
+    timeout: float = 5.0,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    last_error: Exception | None = None
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            if condition():
+                return
+        except Exception as exc:  # pragma: no cover - surfaced in assertion context
+            last_error = exc
+        await pilot.pause()
+    if last_error is not None:
+        raise AssertionError(f"{message}; last condition error: {last_error!r}") from last_error
     raise AssertionError(message)
 
 
