@@ -48,7 +48,13 @@ async def serve_agent_stream(
         while line := await reader.readline():
             try:
                 frame = decode_frame(line)
-            except NdjsonFrameError:
+            except NdjsonFrameError as exc:
+                await write_frame(
+                    {
+                        "id": None,
+                        "error": rpc_error_payload("parse-error", str(exc), {}),
+                    }
+                )
                 continue
             task = asyncio.create_task(
                 _handle_frame(agent, frame, write_frame, subscription_tasks)

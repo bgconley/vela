@@ -10,7 +10,11 @@ import pytest
 from vllm_loader.agent import socket as agent_socket_module
 from vllm_loader.agent import stdio as agent_stdio_module
 from vllm_loader.agent.local import LocalAgent, TargetCallError
-from vllm_loader.agent.stdio import _handle_frame, _PrioritizedFrameWriter
+from vllm_loader.agent.stdio import (
+    _handle_frame,
+    _PrioritizedFrameWriter,
+    serve_agent_stream,
+)
 from vllm_loader.monitoring.gpu import GpuPollResult
 from vllm_loader.transport import socket as socket_transport_module
 from vllm_loader.transport import subprocess as subprocess_transport_module
@@ -227,6 +231,63 @@ async def test_stdio_writer_coalesces_backpressured_progress_events() -> None:
         {"event": "progress", "run_id": "run-1", "seq": 4, "text": "30%"},
         {"event": "log", "run_id": "run-1", "seq": 5, "text": "done"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_stdio_agent_reports_parse_error_and_continues_stream() -> None:
+    class PingAgent:
+        def handle(self, method: str, _params=None):
+            if method == "ping":
+                return {"pong": True}
+            raise TargetCallError("method-not-found", f"unknown method: {method}")
+
+    class CaptureWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.closed = False
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            return None
+
+    reader = asyncio.StreamReader()
+    writer = CaptureWriter()
+    server = asyncio.create_task(serve_agent_stream(PingAgent(), reader, writer))
+    reader.feed_data(b"{not-json}\n")
+    reader.feed_data(encode_frame({"id": "ping-1", "method": "ping", "params": {}}))
+
+    async def ping_response_seen() -> bool:
+        for _ in range(20):
+            if any(frame.get("id") == "ping-1" for frame in writer.frames):
+                return True
+            await asyncio.sleep(0.01)
+        return False
+
+    assert await ping_response_seen()
+    reader.feed_eof()
+    await asyncio.wait_for(server, timeout=2)
+
+    assert writer.frames == [
+        {
+            "id": None,
+            "error": {
+                "code": -32700,
+                "message": "Expecting property name enclosed in double quotes: "
+                "line 1 column 2 (char 1)",
+                "data": {},
+            },
+        },
+        {"id": "ping-1", "result": {"pong": True}},
+    ]
+    assert writer.closed is True
 
 
 @pytest.mark.asyncio
