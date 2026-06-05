@@ -10,7 +10,7 @@ import pytest
 
 from vela.agent import socket as agent_socket_module
 from vela.agent import stdio as agent_stdio_module
-from vela.agent.auth import generate_agent_token
+from vela.agent.auth import generate_agent_token, validate_agent_token
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.agent.stdio import (
     _ConnectionAuthState,
@@ -517,6 +517,90 @@ def test_stdio_frame_handler_requires_explicit_auth_state() -> None:
     signature = inspect.signature(_handle_frame)
 
     assert signature.parameters["auth_state"].default is inspect.Parameter.empty
+
+
+def test_agent_token_validation_rejects_repeated_characters() -> None:
+    with pytest.raises(ValueError, match="entropy"):
+        validate_agent_token("a" * 22)
+
+
+@pytest.mark.asyncio
+async def test_stdio_agent_reports_misconfigured_token_on_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VELA_AGENT_TOKEN", "shared-secret")
+
+    class CaptureWriter:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+            self.closed = False
+
+        def write(self, data: bytes) -> None:
+            self.frames.append(decode_frame(data))
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            return None
+
+    reader = asyncio.StreamReader()
+    writer = CaptureWriter()
+    server = asyncio.create_task(serve_agent_stream(LocalAgent(), reader, writer))
+    reader.feed_data(
+        encode_frame(
+            {
+                "id": "handshake-1",
+                "method": "handshake",
+                "params": {"protocol_version": 1},
+            }
+        )
+    )
+
+    for _attempt in range(20):
+        if writer.frames:
+            break
+        await asyncio.sleep(0.01)
+    reader.feed_eof()
+    await asyncio.wait_for(server, timeout=2)
+
+    assert writer.frames == [
+        {
+            "id": "handshake-1",
+            "error": {
+                "code": -32017,
+                "message": (
+                    "VELA_AGENT_TOKEN must be a single high-entropy token with "
+                    "at least 128 bits of entropy; "
+                    "generate one with `vela agent gen-token`"
+                ),
+                "data": {"reason": "capability-token-misconfigured"},
+            },
+        }
+    ]
+    assert writer.closed is True
+
+
+@pytest.mark.asyncio
+async def test_subprocess_client_surfaces_misconfigured_agent_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    client = SubprocessTargetClient(
+        [sys.executable, "-m", "vela.cli", "agent", "connect"],
+        env={"VELA_AGENT_TOKEN": "shared-secret"},
+    )
+
+    with pytest.raises(TargetCallError) as exc:
+        await client.connect()
+
+    assert exc.value.code == "agent-auth-required"
+    assert exc.value.details == {"reason": "capability-token-misconfigured"}
+    assert "generate one with `vela agent gen-token`" in exc.value.message
+    assert client.connected is False
 
 
 @pytest.mark.asyncio

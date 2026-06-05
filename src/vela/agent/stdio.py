@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any, BinaryIO
 
-from vela.agent.auth import configured_agent_token
+from vela.agent.auth import AgentTokenError, configured_agent_token
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.transport.ndjson import (
     FRAME_STREAM_LIMIT,
@@ -137,6 +137,7 @@ async def _handle_frame(
         )
         return
     try:
+        auth_state.load()
         if not auth_state.authenticated and method != "handshake":
             raise _agent_auth_required_error()
         if method == "subscribe":
@@ -175,7 +176,21 @@ async def _handle_frame(
 
 class _ConnectionAuthState:
     def __init__(self) -> None:
-        self.authenticated = configured_agent_token() is None
+        self.authenticated = False
+        self._loaded = False
+
+    def load(self) -> None:
+        if self._loaded:
+            return
+        try:
+            self.authenticated = configured_agent_token() is None
+        except AgentTokenError as exc:
+            raise TargetCallError(
+                "agent-auth-required",
+                str(exc),
+                {"reason": "capability-token-misconfigured"},
+            ) from exc
+        self._loaded = True
 
 
 def _agent_auth_required_error() -> TargetCallError:

@@ -49,8 +49,9 @@ Managed builds write `build.json`, `install.log`, `bin/vllm`, `bin/python`,
 `activate`, and `run.sh`. `install.log` is mode `0600`; output is scrubbed
 before wire events and before durable log persistence.
 
-Removal refuses live verified sidecar usage even with `--force`. Config-pin
-protection can be overridden with `--force`; live-run protection cannot.
+Build removal has no --force override: it refuses live verified sidecar usage
+and refuses config pins. Model removal --force only overrides config-pin protection;
+live-run protection cannot be overridden.
 
 ## Model Registry
 

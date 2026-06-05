@@ -36,6 +36,10 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     assert "controller passes only run_id" in agent_rpc
     assert "subscribe" in agent_rpc
     assert "VELA_AGENT_TOKEN" in agent_rpc
+    assert "local_transport`: `socket` or `in_process`" in configuration
+    assert "inprocess" not in configuration
+    assert "Build removal has no --force override" in builds_models
+    assert "Model removal --force only overrides config-pin protection" in builds_models
 
 
 def test_build_model_docs_cover_operational_cli_surfaces() -> None:

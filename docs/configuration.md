@@ -26,7 +26,7 @@ Fields:
 - `host`: SSH host for remote targets.
 - `workdir`: remote directory used before starting `vela agent connect`.
 - `venv`: remote venv whose `bin` directory is prepended to `PATH`.
-- `local_transport`: `socket` for the daemon path or `inprocess` for tests.
+- `local_transport`: `socket` or `in_process`; use `in_process` only for tests.
 - `ssh_opts_env`: optional environment variable containing SSH options. It may
   add option flags such as `-a`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
   positional SSH arguments, agent forwarding (`-A`, `ForwardAgent=yes`), port
