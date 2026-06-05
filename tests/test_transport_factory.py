@@ -93,16 +93,16 @@ def test_target_client_factory_builds_ssh_subprocess_client(
     assert isinstance(client, SubprocessTargetClient)
     assert client._command == [
         "ssh",
+        "-i",
+        "/tmp/gpu-key",
+        "-o",
+        "ProxyJump=bastion",
         "-o",
         "BatchMode=yes",
         "-o",
         "ServerAliveInterval=15",
         "-o",
         "ServerAliveCountMax=3",
-        "-i",
-        "/tmp/gpu-key",
-        "-o",
-        "ProxyJump=bastion",
         "-o",
         "ControlMaster=auto",
         "-o",
@@ -112,3 +112,76 @@ def test_target_client_factory_builds_ssh_subprocess_client(
         "bgconley@10.25.0.51",
         "cd /tank/repos/lab-tui && PATH=/tank/venvs/lab-tui/bin:$PATH vllm-loader agent connect",
     ]
+
+
+def test_target_client_factory_rejects_positional_ssh_opts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", "-i /tmp/gpu-key evil.example.com")
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="positional SSH argument"):
+        _target_client_for_config()(target)
+
+
+def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "VLLM_LOADER_SSH_OPTS",
+        "-A -i/tmp/gpu-key -Jbastion -p2222 -oStrictHostKeyChecking=yes",
+    )
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    client = _target_client_for_config()(target)
+
+    assert isinstance(client, SubprocessTargetClient)
+    assert client._command[1:6] == [
+        "-A",
+        "-i/tmp/gpu-key",
+        "-Jbastion",
+        "-p2222",
+        "-oStrictHostKeyChecking=yes",
+    ]
+
+
+def test_target_client_factory_keeps_required_ssh_options_authoritative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "VLLM_LOADER_SSH_OPTS",
+        "-o BatchMode=no -o ServerAliveInterval=1",
+    )
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    client = _target_client_for_config()(target)
+
+    batch_mode_positions = [
+        index
+        for index, value in enumerate(client._command)
+        if value.startswith("BatchMode=")
+    ]
+    alive_positions = [
+        index
+        for index, value in enumerate(client._command)
+        if value.startswith("ServerAliveInterval=")
+    ]
+    assert batch_mode_positions
+    assert alive_positions
+    assert client._command[batch_mode_positions[-1]] == "BatchMode=yes"
+    assert client._command[alive_positions[-1]] == "ServerAliveInterval=15"

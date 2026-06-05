@@ -30,6 +30,7 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     assert "command.build" in configuration
     assert "model_ref" in configuration
     assert "targets.yaml" in configuration
+    assert "positional SSH arguments" in configuration
     assert "nightly and commit require uv" in builds_models
     assert "HF_TOKEN" in builds_models
     assert "controller passes only run_id" in agent_rpc

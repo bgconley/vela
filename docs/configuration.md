@@ -27,7 +27,11 @@ Fields:
 - `workdir`: remote directory used before starting `vllm-loader agent connect`.
 - `venv`: remote venv whose `bin` directory is prepended to `PATH`.
 - `local_transport`: `socket` for the daemon path or `inprocess` for tests.
-- `ssh_opts_env`: optional environment variable containing SSH options.
+- `ssh_opts_env`: optional environment variable containing SSH options. It may
+  add option flags such as `-A`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
+  positional SSH arguments, port forwarding, and command-suppression options are
+  rejected so the configured target host and `agent connect` command cannot be
+  replaced by the environment.
 
 ## Config Discovery
 

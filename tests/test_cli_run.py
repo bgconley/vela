@@ -2230,6 +2230,45 @@ def test_cli_targets_test_handshakes_with_selected_target(
     assert client_events == ["connect", "call:handshake", "disconnect"]
 
 
+def test_cli_targets_test_surfaces_invalid_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self):
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str):
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    def fake_target_client_for_config(_target):
+        raise ValueError("VLLM_LOADER_SSH_OPTS contains positional SSH argument 'evil'")
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(cli_module, "target_client_for_config", fake_target_client_for_config)
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "test", "blackbird"])
+
+    assert result.exit_code == 2
+    assert (
+        "ERROR: Unable to create target client: "
+        "VLLM_LOADER_SSH_OPTS contains positional SSH argument 'evil'"
+    ) in result.output
+
+
 def test_cli_targets_add_persists_ssh_target(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

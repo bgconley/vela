@@ -1186,7 +1186,11 @@ def _target_client_for_name_or_exit(target_name: str) -> TargetClient:
         typer.echo(f"ERROR: Unknown target: {target_name}", err=True)
         typer.echo(f"Available targets: {available}", err=True)
         raise typer.Exit(2) from exc
-    return target_client_for_config(target)
+    try:
+        return target_client_for_config(target)
+    except ValueError as exc:
+        typer.echo(f"ERROR: Unable to create target client: {exc}", err=True)
+        raise typer.Exit(2) from exc
 
 
 def _agent_call(

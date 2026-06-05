@@ -7045,9 +7045,57 @@ async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None
           port: 8126
         """,
     )
+    class QuietTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "messages.yaml"),
+                            "name": "messages",
+                            "model": "org/model",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "messages",
+                                "model": "org/model",
+                                "server": {"host": "127.0.0.1", "port": 8126},
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method == "gpu":
+                return {"ok": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            if list(run_ids) == ["__agent__"]:
+                async def events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return events()
+            raise AssertionError("message test should only subscribe to agent GPU events")
+
     app = VllmLoaderApp(
         configs_dir=config_dir,
         gpu_interval_seconds=60,
+        target_client=QuietTargetClient(),
     )
 
     async with app.run_test() as pilot:

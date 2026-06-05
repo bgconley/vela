@@ -13,10 +13,46 @@ from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.subprocess import SubprocessTargetClient
 
 DEFAULT_AGENT_COMMAND = ("vllm-loader", "agent", "connect")
+REQUIRED_SSH_OPTIONS = {
+    "BatchMode": "yes",
+    "ServerAliveInterval": "15",
+    "ServerAliveCountMax": "3",
+}
 DEFAULT_SSH_CONTROL_OPTIONS = {
     "ControlMaster": "auto",
     "ControlPersist": "60s",
     "ControlPath": "~/.ssh/vllm-loader-%C",
+}
+_SAFE_SSH_FLAGS = {"-4", "-6", "-A", "-a", "-C", "-q", "-T", "-t", "-tt", "-x"}
+_SAFE_SSH_VALUE_OPTIONS = {
+    "-B",
+    "-b",
+    "-c",
+    "-E",
+    "-e",
+    "-F",
+    "-I",
+    "-i",
+    "-J",
+    "-l",
+    "-m",
+    "-o",
+    "-p",
+    "-S",
+}
+_DISALLOWED_SSH_OPTIONS = {
+    "-D",
+    "-f",
+    "-G",
+    "-L",
+    "-N",
+    "-O",
+    "-Q",
+    "-R",
+    "-s",
+    "-V",
+    "-W",
+    "-w",
 }
 
 
@@ -38,27 +74,79 @@ def target_client_for_config(
 def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> list[str]:
     if target.host is None:
         raise ValueError(f"ssh target {target.name!r} requires host")
-    command = [
-        "ssh",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=15",
-        "-o",
-        "ServerAliveCountMax=3",
-    ]
-    ssh_opts = (
-        shlex.split(os.environ.get(target.ssh_opts_env, ""))
-        if target.ssh_opts_env
-        else []
-    )
+    command = ["ssh"]
+    ssh_opts = _ssh_options_from_env(target)
     command.extend(ssh_opts)
+    for key, value in REQUIRED_SSH_OPTIONS.items():
+        command.extend(["-o", f"{key}={value}"])
     for key, value in DEFAULT_SSH_CONTROL_OPTIONS.items():
         if not _ssh_option_present(ssh_opts, key):
             command.extend(["-o", f"{key}={value}"])
     command.append(target.host)
     command.append(_remote_agent_command(target, agent_command))
     return command
+
+
+def _ssh_options_from_env(target: TargetConfig) -> list[str]:
+    if not target.ssh_opts_env:
+        return []
+    options = shlex.split(os.environ.get(target.ssh_opts_env, ""))
+    _validate_extra_ssh_options(options, source=target.ssh_opts_env)
+    return options
+
+
+def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
+    index = 0
+    while index < len(options):
+        option = options[index]
+        if option == "--" or not option.startswith("-"):
+            raise ValueError(
+                f"{source} contains positional SSH argument {option!r}; "
+                "only SSH options are allowed"
+            )
+        if _is_disallowed_ssh_option(option):
+            raise ValueError(
+                f"{source} contains unsupported SSH option {option!r}; "
+                "forwarding, command-suppression, and query options are not allowed"
+            )
+        if option == "-o":
+            if index + 1 >= len(options):
+                raise ValueError(f"{source} option '-o' requires a value")
+            index += 2
+            continue
+        if option.startswith("-o") and len(option) > 2:
+            index += 1
+            continue
+        if option in _SAFE_SSH_VALUE_OPTIONS:
+            if index + 1 >= len(options):
+                raise ValueError(f"{source} option {option!r} requires a value")
+            index += 2
+            continue
+        if _is_concatenated_safe_value_option(option) or _is_safe_ssh_flag(option):
+            index += 1
+            continue
+        raise ValueError(
+            f"{source} contains unsupported SSH option {option!r}; "
+            "use -o Key=Value or a documented identity/proxy option"
+        )
+
+
+def _is_disallowed_ssh_option(option: str) -> bool:
+    return option in _DISALLOWED_SSH_OPTIONS or option[:2] in _DISALLOWED_SSH_OPTIONS
+
+
+def _is_concatenated_safe_value_option(option: str) -> bool:
+    return any(
+        option.startswith(prefix) and len(option) > len(prefix)
+        for prefix in _SAFE_SSH_VALUE_OPTIONS
+        if prefix != "-o"
+    )
+
+
+def _is_safe_ssh_flag(option: str) -> bool:
+    return option in _SAFE_SSH_FLAGS or (
+        len(option) > 1 and option[1:] and set(option[1:]) == {"v"}
+    )
 
 
 def _remote_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> str:
