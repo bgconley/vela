@@ -19,12 +19,16 @@ from vllm_loader.monitoring.gpu import GpuPollResult
 from vllm_loader.transport import socket as socket_transport_module
 from vllm_loader.transport import subprocess as subprocess_transport_module
 from vllm_loader.transport.ndjson import (
+    FRAME_STREAM_LIMIT,
     MAX_FRAME_BYTES,
     NdjsonFrameError,
     decode_frame,
     encode_frame,
 )
-from vllm_loader.transport.rpc_errors import rpc_error_payload
+from vllm_loader.transport.rpc_errors import (
+    rpc_error_payload,
+    target_call_error_from_rpc_payload,
+)
 from vllm_loader.transport.socket import UnixSocketTargetClient
 from vllm_loader.transport.socket import (
     _target_call_error_from_payload as socket_error_from_payload,
@@ -54,6 +58,21 @@ def test_ndjson_frame_rejects_oversized_payload() -> None:
 def test_ndjson_frame_rejects_non_object_payload() -> None:
     with pytest.raises(NdjsonFrameError, match="object"):
         decode_frame(b'["not", "an", "object"]\n')
+
+
+@pytest.mark.asyncio
+async def test_protocol_stream_reader_round_trips_large_frame_payload() -> None:
+    payload = "x" * (1024 * 1024)
+    frame = {"id": "large-1", "result": {"payload": payload}}
+    encoded = encode_frame(frame)
+    assert len(encoded) > 64 * 1024
+    assert len(encoded) <= MAX_FRAME_BYTES + 1
+    reader = asyncio.StreamReader(limit=FRAME_STREAM_LIMIT)
+
+    reader.feed_data(encoded)
+    line = await asyncio.wait_for(reader.readline(), timeout=0.2)
+
+    assert decode_frame(line) == frame
 
 
 @pytest.mark.asyncio
@@ -548,6 +567,29 @@ async def test_stdio_agent_errors_use_json_rpc_integer_codes_and_data_key() -> N
     error = frames[-1]["error"]
     assert error["code"] == -32600
     assert error["data"] == {}
+
+
+@pytest.mark.parametrize(
+    ("target_error_code", "wire_code"),
+    [
+        ("build-integrity-failed", -32014),
+        ("cancelled", -32015),
+        ("profile-error", -32016),
+    ],
+)
+def test_named_target_errors_have_specific_json_rpc_codes(
+    target_error_code: str, wire_code: int
+) -> None:
+    payload = rpc_error_payload(target_error_code, "target failure", {})
+
+    assert payload == {
+        "code": wire_code,
+        "message": "target failure",
+        "data": {},
+    }
+    recovered = target_call_error_from_rpc_payload(payload)
+    assert recovered.code == target_error_code
+    assert recovered.message == "target failure"
 
 
 @pytest.mark.asyncio

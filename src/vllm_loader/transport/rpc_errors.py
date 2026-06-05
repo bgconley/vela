@@ -26,6 +26,9 @@ ERROR_CODE_BY_NAME = {
     "feature-unavailable": -32011,
     "agent-unreachable": -32012,
     "command-not-found": -32013,
+    "build-integrity-failed": -32014,
+    "cancelled": -32015,
+    "profile-error": -32016,
 }
 
 ERROR_NAME_BY_CODE = {

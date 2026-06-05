@@ -224,6 +224,8 @@ class UnixSocketTargetClient:
                     frame = decode_frame(line)
                 except NdjsonFrameError as exc:
                     error = _agent_parse_error(exc)
+                    # A malformed inbound frame means the agent stream is no longer
+                    # trustworthy enough to correlate later responses to callers.
                     self._fail_pending(error)
                     self._publish_event(agent_error_event(error))
                     continue
