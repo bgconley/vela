@@ -50,6 +50,7 @@ from vllm_loader.engine.command_builder import (
     build_command,
     render_preview,
 )
+from vllm_loader.engine.job_phases import BuildPhase, DownloadPhase
 from vllm_loader.engine.log_sink import LogRecord, LogSink, level_for_line
 from vllm_loader.engine.model_registry import (
     ModelHandoff,
@@ -157,14 +158,14 @@ JOB_SECRET_ENV_MARKERS = (
     "CREDENTIAL",
 )
 URL_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+")
-BUILD_INSTALL_PHASE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+BUILD_INSTALL_PHASE_RULES: tuple[tuple[re.Pattern[str], BuildPhase], ...] = (
     (
         re.compile(
             r"\b(collecting|downloading|fetching|obtaining|cloning|checkout|"
             r"receiving objects|resolving deltas)\b",
             re.IGNORECASE,
         ),
-        "DOWNLOADING",
+        BuildPhase.DOWNLOADING,
     ),
     (
         re.compile(
@@ -172,7 +173,7 @@ BUILD_INSTALL_PHASE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"ninja|cmake|nvcc|build_ext|running build|pyproject\.toml)\b",
             re.IGNORECASE,
         ),
-        "BUILDING",
+        BuildPhase.BUILDING,
     ),
     (
         re.compile(
@@ -180,7 +181,7 @@ BUILD_INSTALL_PHASE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"requirement already satisfied|installed)\b",
             re.IGNORECASE,
         ),
-        "INSTALLING",
+        BuildPhase.INSTALLING,
     ),
 )
 BUILD_INSTALL_ERROR_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -1577,7 +1578,7 @@ class LocalAgent:
                 "kind": "committed",
                 "text": f"Creating build {label}",
                 "level": "INFO",
-                "phase": "RESOLVING",
+                "phase": BuildPhase.RESOLVING.value,
             }
         )
         build_dir.mkdir(parents=True)
@@ -1643,7 +1644,7 @@ class LocalAgent:
                 env=env,
                 cwd=build_dir,
                 emit=emit_install,
-                phase="RESOLVING",
+                phase=BuildPhase.RESOLVING.value,
                 cancel_event=cancel_event,
             )
             if venv_exit != 0:
@@ -1666,7 +1667,7 @@ class LocalAgent:
                     env=env,
                     cwd=build_dir,
                     emit=emit_install,
-                    phase="DOWNLOADING",
+                    phase=BuildPhase.DOWNLOADING.value,
                     cancel_event=cancel_event,
                 )
                 if preinstall_exit != 0:
@@ -1688,7 +1689,7 @@ class LocalAgent:
                 env=env,
                 cwd=build_dir,
                 emit=emit_install,
-                phase="INSTALLING",
+                phase=BuildPhase.INSTALLING.value,
                 cancel_event=cancel_event,
             )
             install_payload["exit_code"] = install_exit
@@ -1712,7 +1713,7 @@ class LocalAgent:
                     "kind": "committed",
                     "text": f"Verifying build {label}",
                     "level": "INFO",
-                    "phase": "VERIFYING",
+                    "phase": BuildPhase.VERIFYING.value,
                 }
             )
             try:
@@ -1807,7 +1808,7 @@ class LocalAgent:
                     "kind": "committed",
                     "text": f"Adopting build {label}",
                     "level": "INFO",
-                    "phase": "VERIFYING",
+                    "phase": BuildPhase.VERIFYING.value,
                 }
             )
             try:
@@ -1834,7 +1835,7 @@ class LocalAgent:
                 "kind": "committed",
                 "text": f"Build creation method is not implemented: {method or 'unknown'}",
                 "level": "WARNING",
-                "phase": "FAILED",
+                "phase": BuildPhase.FAILED.value,
             }
         )
         return {
@@ -1918,7 +1919,7 @@ class LocalAgent:
                 "kind": "committed",
                 "text": "Resolving model",
                 "level": "INFO",
-                "phase": "RESOLVING",
+                "phase": DownloadPhase.RESOLVING.value,
             }
         )
         try:
@@ -1949,7 +1950,7 @@ class LocalAgent:
                     "kind": "committed",
                     "text": "URL model is launch-time-only",
                     "level": "INFO",
-                    "phase": "READY",
+                    "phase": DownloadPhase.READY.value,
                 }
             )
             return {
@@ -1999,7 +2000,7 @@ class LocalAgent:
                         "kind": "committed",
                         "text": f"Downloading model {repo_id}",
                         "level": "INFO",
-                        "phase": "DOWNLOADING",
+                        "phase": DownloadPhase.DOWNLOADING.value,
                     }
                 )
                 loop = asyncio.get_running_loop()
@@ -2061,7 +2062,7 @@ class LocalAgent:
                         "kind": "committed",
                         "text": f"Verifying model {repo_id}",
                         "level": "INFO",
-                        "phase": "VERIFYING",
+                        "phase": DownloadPhase.VERIFYING.value,
                     }
                 )
                 return {
@@ -2670,7 +2671,7 @@ async def _build_subprocess_exec(
 def _build_install_phase_for_line(text: str, default_phase: str) -> str:
     for pattern, phase in BUILD_INSTALL_PHASE_RULES:
         if pattern.search(text):
-            return phase
+            return phase.value
     return default_phase
 
 
@@ -2957,7 +2958,7 @@ def _model_download_progress_payload(
         "kind": "transient",
         "text": text,
         "level": "INFO",
-        "phase": "DOWNLOADING",
+        "phase": DownloadPhase.DOWNLOADING.value,
     }
     if percent is not None:
         payload["percent"] = percent
