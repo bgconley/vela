@@ -359,6 +359,47 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert client.connected is False
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "params", "handler_name"),
+    [
+        ("list_builds", {}, "_list_builds"),
+        ("inspect_build", {"build": "example"}, "_inspect_build"),
+        ("verify_build", {"build": "example"}, "_verify_build"),
+        ("remove_build", {"build": "example"}, "_remove_build"),
+        ("list_models", {}, "_list_models"),
+        ("inspect_model", {"model": "example"}, "_inspect_model"),
+        ("verify_model", {"model": "example"}, "_verify_model"),
+        ("remove_model", {"model": "example"}, "_remove_model"),
+    ],
+)
+async def test_local_agent_registry_rpc_handlers_are_thread_offloaded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    params: dict[str, str],
+    handler_name: str,
+) -> None:
+    agent = LocalAgent(
+        builds_root=tmp_path / "builds",
+        models_registry_path=tmp_path / "models.json",
+    )
+    calls: list[str] = []
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        del args, kwargs
+        calls.append(fn.__name__)
+        return {"handler": fn.__name__}
+
+    monkeypatch.setattr(local_agent_module.asyncio, "to_thread", fake_to_thread)
+
+    result = agent.handle(method, params)
+
+    assert inspect.isawaitable(result)
+    assert await result == {"handler": handler_name}
+    assert calls == [handler_name]
+
+
 def test_local_agent_handshake_downgrades_for_older_controller_protocol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3378,6 +3419,93 @@ async def test_agent_verify_marks_build_broken_when_executable_hash_drifts(
     json.dumps(verified)
 
 
+@pytest.mark.asyncio
+async def test_local_agent_startup_demotes_stale_creating_build(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01STALECREATING"
+    build_dir.mkdir(parents=True)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01STALECREATING",
+                "label": "stale-creating",
+                "status": "creating",
+                "install": {"method": "pip", "installer": "pip", "exit_code": None},
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        listed = await client.call("list_builds")
+    finally:
+        await client.disconnect()
+
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert listed["builds"][0]["status"] == "failed"
+    assert listed["builds"][0]["verify"]["reason"] == "stale-creating"
+    assert manifest["status"] == "failed"
+    assert manifest["install"]["stale"] is True
+    assert manifest["verify"]["ok"] is False
+    assert manifest["verify"]["reason"] == "stale-creating"
+
+
+@pytest.mark.asyncio
+async def test_local_agent_startup_leaves_locked_creating_build_in_progress(
+    tmp_path: Path,
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01LOCKEDCREATING"
+    build_dir.mkdir(parents=True)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01LOCKEDCREATING",
+                "label": "locked-creating",
+                "status": "creating",
+                "install": {"method": "pip", "installer": "pip", "exit_code": None},
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    lock_handle = (build_dir / "build.lock").open("a", encoding="utf-8")
+    fcntl.flock(lock_handle, fcntl.LOCK_EX)
+    try:
+        client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+        await client.connect()
+        try:
+            listed = await client.call("list_builds")
+        finally:
+            await client.disconnect()
+    finally:
+        fcntl.flock(lock_handle, fcntl.LOCK_UN)
+        lock_handle.close()
+
+    manifest = json.loads((build_dir / "build.json").read_text(encoding="utf-8"))
+    assert listed["builds"][0]["status"] == "creating"
+    assert manifest["status"] == "creating"
+    assert "verify" not in manifest
+
+
 def _sha256_uri(data: bytes) -> str:
     return f"sha256:{sha256(data).hexdigest()}"
 
@@ -3936,6 +4064,73 @@ async def test_agent_prepare_launch_resolves_pinned_build_handoff(
     assert prepared["config"]["command"]["build"] == "nightly-cu130"
     assert prepared["config"]["command"]["executable"] is None
     json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_rechecks_build_executable_integrity(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    builds_root = tmp_path / "data" / "vllm-loader" / "builds"
+    build_dir = builds_root / "01DRIFTBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    original_vllm = b"#!/bin/sh\necho 'vLLM 0.11.2'\n"
+    vllm_bin.write_bytes(original_vllm)
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01DRIFTBUILD",
+                "label": "drift-build",
+                "status": "ready",
+                "integrity": {
+                    "strategy": "executable_sha256",
+                    "executable_sha256": _sha256_uri(original_vllm),
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.3'\n", encoding="utf-8")
+    write_yaml(
+        config_dir / "drift.yaml",
+        """
+        name: drift
+        model: org/model
+        command:
+          build: drift-build
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch", {"name": "drift", "configs_dir": str(config_dir)}
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "build-integrity-failed"
+    assert exc_info.value.details["reason"] == "executable-integrity-mismatch"
+    assert exc_info.value.details["expected_executable_sha256"] == _sha256_uri(
+        original_vllm
+    )
+    assert exc_info.value.details["current_executable_sha256"] == _sha256_uri(
+        vllm_bin.read_bytes()
+    )
 
 
 @pytest.mark.asyncio
@@ -5010,6 +5205,83 @@ async def test_agent_verify_reconciles_cached_hf_model_from_cache_scan(
 
 
 @pytest.mark.asyncio
+async def test_agent_deep_verifies_cached_hf_model_blobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    cache_dir = tmp_path / "hf-cache" / "models--meta-llama--Llama-3.1-8B-Instruct"
+    snapshot_dir = cache_dir / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    config = snapshot_dir / "config.json"
+    weights = snapshot_dir / "model.safetensors"
+    config.write_bytes(b"{}")
+    weights.write_bytes(b"weights")
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=len(b"{}") + len(b"weights"),
+        files=(
+            SimpleNamespace(
+                file_name="config.json",
+                size_on_disk=len(b"{}"),
+                file_path=config,
+            ),
+            SimpleNamespace(
+                file_name="model.safetensors",
+                size_on_disk=len(b"weights"),
+                file_path=weights,
+            ),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "remote-llama",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+        verified = await client.call(
+            "verify_model", {"model_ref": "01REMOTE", "deep": "true"}
+        )
+    finally:
+        await client.disconnect()
+
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert verified["entry_id"] == entry_id
+    assert verified["ok"] is True
+    assert verified["deep"] is True
+    assert verified["detail"] == "hf model deep verified"
+    integrity = verified["entry"]["integrity"]
+    assert integrity["strategy"] == "hf_cache_blob_sha256"
+    assert integrity["deep"] is True
+    assert integrity["files_sha256"].startswith("sha256:")
+    assert integrity["blob_hashes"] == {
+        "config.json": _sha256_uri(b"{}"),
+        "model.safetensors": _sha256_uri(b"weights"),
+    }
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
 async def test_agent_inspects_model_metadata(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
 
@@ -5957,6 +6229,59 @@ async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vllm-loader" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01GATED",
+                        "display_name": "gated",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "cached",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "gated-model.yaml",
+        """
+        name: gated-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01GATED
+        vllm:
+          version_profile: current
+        """,
+    )
+    monkeypatch.setenv("HF_TOKEN", "hf_runtime_token")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch",
+            {"name": "gated-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert prepared["build"]["env"]["HF_TOKEN"] == "hf_runtime_token"
+    assert prepared["build"]["metadata"]["model_token_required"] is True
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_blocks_remote_only_model_ref_when_offline(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -6517,6 +6842,10 @@ async def test_agent_create_build_pip_job_installs_managed_venv(
         "exit_code": 0,
     }
     assert manifest["resolved"]["vllm"] == "0.11.2"
+    assert manifest["integrity"]["strategy"] == "executable_sha256"
+    assert manifest["integrity"]["executable_sha256"] == _sha256_uri(
+        (build_dir / "bin" / "vllm").read_bytes()
+    )
     assert manifest["paths"] == {
         "root": str(build_dir),
         "venv": "venv",
@@ -7581,6 +7910,7 @@ async def test_agent_create_build_pip_job_scrubs_output_before_wire_and_log(
         fake_resolve_versions,
         raising=False,
     )
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: None, raising=False)
 
     client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
     await client.connect()
@@ -7905,6 +8235,28 @@ async def test_agent_create_build_pip_cancel_marks_failed_manifest(
         (
             "403 Client Error: Forbidden for url https://packages.example/simple",
             "auth",
+        ),
+        (
+            "The detected CUDA version (12.8) mismatches the version that was used "
+            "to compile PyTorch (13.0)",
+            "torch-cuda-mismatch",
+        ),
+        (
+            "CUDA driver version is insufficient for CUDA runtime version",
+            "driver-too-old",
+        ),
+        (
+            "CUDA error: no kernel image is available for execution on the device",
+            "arch-mismatch",
+        ),
+        (
+            "ImportError: undefined symbol: cutlass_moe_mm_sm100",
+            "arch-mismatch",
+        ),
+        (
+            "ninja: build stopped: subcommand failed\n"
+            "c++: fatal error: Killed signal terminated program cc1plus",
+            "compile-oom",
         ),
         (
             "ninja: build stopped: subcommand failed",
@@ -8356,7 +8708,7 @@ async def test_agent_download_model_job_streams_snapshot_progress(
     await client.connect()
     events = client.subscribe(["job-model-progress"], resume_from="live")
     try:
-        await client.call(
+        pinned = await client.call(
             "pin_model",
             {
                 "entry_id": "01REMOTE",
@@ -8387,6 +8739,13 @@ async def test_agent_download_model_job_streams_snapshot_progress(
     assert any(event.get("phase") == "VERIFYING" for event in progress_events)
     assert done["ok"] is True
     assert done["cache_state"] == "cached"
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    download_log = registry_path.parent / "downloads" / f"{entry_id}.log"
+    assert download_log.exists()
+    assert download_log.stat().st_mode & 0o077 == 0
+    download_log_text = download_log.read_text(encoding="utf-8")
+    assert "Downloading model meta-llama/Llama-3.1-8B-Instruct 25%" in download_log_text
+    assert "Downloading model meta-llama/Llama-3.1-8B-Instruct 100%" in download_log_text
     json.dumps({"progress": progress_events, "done": done})
 
 

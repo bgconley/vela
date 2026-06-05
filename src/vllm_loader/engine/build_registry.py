@@ -86,6 +86,109 @@ def resolve_build_handoff(
     )
 
 
+def check_build_launch_integrity(
+    reference: str, root: str | Path | None = None
+) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    with _registry_lock(builds_root):
+        manifest, build_dir = _manifest_for_reference(builds_root, reference)
+        status = str(manifest.get("status") or "unknown")
+        if status not in {"ready", "adopted"}:
+            raise BuildRegistryError(
+                "build-integrity-failed",
+                f"build {reference} is not launchable: {status}",
+                {"build": reference, "status": status, "reason": "status"},
+            )
+        paths = _dict_or_empty(manifest.get("paths"))
+        root_path = Path(str(paths.get("root") or build_dir)).expanduser()
+        executable = _resolve_build_path(root_path, paths.get("executable") or "bin/vllm")
+        python = _resolve_build_path(root_path, paths.get("python") or "bin/python")
+        reason = _missing_build_path_reason(executable, python)
+        if reason is not None:
+            raise BuildRegistryError(
+                "build-integrity-failed",
+                f"build {reference} failed prelaunch integrity check: {reason}",
+                {
+                    "build": reference,
+                    "build_id": str(manifest.get("build_id") or ""),
+                    "reason": reason,
+                    "executable": str(executable),
+                    "python": str(python),
+                },
+            )
+        integrity = _dict_or_empty(manifest.get("integrity"))
+        expected_executable_sha = _optional_str(integrity.get("executable_sha256"))
+        if expected_executable_sha is not None:
+            try:
+                current_executable_sha = _sha256_file(executable)
+            except OSError as exc:
+                raise BuildRegistryError(
+                    "build-integrity-failed",
+                    "build executable hash failed during prelaunch check",
+                    {
+                        "build": reference,
+                        "build_id": str(manifest.get("build_id") or ""),
+                        "reason": "executable-hash-failed",
+                        "executable": str(executable),
+                        "hash_error": str(exc),
+                    },
+                ) from exc
+            if current_executable_sha != expected_executable_sha:
+                raise BuildRegistryError(
+                    "build-integrity-failed",
+                    "build executable changed since verification",
+                    {
+                        "build": reference,
+                        "build_id": str(manifest.get("build_id") or ""),
+                        "reason": "executable-integrity-mismatch",
+                        "expected_executable_sha256": expected_executable_sha,
+                        "current_executable_sha256": current_executable_sha,
+                    },
+                )
+        return {
+            "build": reference,
+            "build_id": str(manifest.get("build_id") or ""),
+            "ok": True,
+            "status": status,
+            "executable": str(executable),
+            "python": str(python),
+        }
+
+
+def sweep_stale_creating_builds(root: str | Path | None = None) -> dict[str, Any]:
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    demoted: list[dict[str, str]] = []
+    if not builds_root.exists():
+        return {"demoted": demoted, "count": 0}
+    with _registry_lock(builds_root):
+        for manifest_path in sorted(builds_root.glob("*/build.json")):
+            build_dir = manifest_path.parent
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not isinstance(manifest, dict):
+                continue
+            if str(manifest.get("status") or "") != "creating":
+                continue
+            if _build_lock_is_held(build_dir):
+                continue
+            build_id = str(manifest.get("build_id") or build_dir.name)
+            label = str(manifest.get("label") or "")
+            install = _dict_or_empty(manifest.get("install"))
+            install["stale"] = True
+            manifest["install"] = install
+            manifest["status"] = "failed"
+            manifest["verify"] = {
+                "checked_at": _utc_now(),
+                "ok": False,
+                "reason": "stale-creating",
+            }
+            _write_json_atomic(manifest_path, manifest)
+            demoted.append({"build_id": build_id, "label": label})
+    return {"demoted": demoted, "count": len(demoted)}
+
+
 def select_build(
     reference: str,
     root: str | Path | None = None,
@@ -831,6 +934,21 @@ def _registry_lock(root: Path) -> _ExclusiveFileLock:
 
 def _build_lock(build_dir: Path) -> _ExclusiveFileLock:
     return _ExclusiveFileLock(build_dir / "build.lock")
+
+
+def _build_lock_is_held(build_dir: Path) -> bool:
+    lock_path = build_dir / "build.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a", encoding="utf-8")
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+    finally:
+        handle.close()
 
 
 def _verified_live_build_refs(build_dir: Path) -> list[dict[str, Any]]:

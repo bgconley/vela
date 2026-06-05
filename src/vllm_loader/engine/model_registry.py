@@ -61,6 +61,14 @@ class ModelHandoff:
             payload["model_tokenizer"] = self.tokenizer
         return payload
 
+    def env_contribution(self) -> dict[str, str]:
+        env: dict[str, str] = {}
+        if self.source == "hf_repo" and self.token_required:
+            token = os.environ.get("HF_TOKEN")
+            if token:
+                env["HF_TOKEN"] = token
+        return env
+
 
 MODEL_ENTRY_FIELDS = (
     "entry_id",
@@ -1325,6 +1333,36 @@ def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -
     entry_id = str(entry.get("entry_id") or "")
     status = _verify_hf_model_status(entry)
     entry["cache_state"] = status["cache_state"]
+    if bool(status["ok"]) and deep and entry.get("source") == "hf_repo":
+        current_integrity = _hf_model_integrity_payload(entry)
+        previous_integrity = entry.get("integrity")
+        expected_files_sha256 = (
+            previous_integrity.get("files_sha256")
+            if isinstance(previous_integrity, dict)
+            else None
+        )
+        current_files_sha256 = current_integrity["files_sha256"]
+        if expected_files_sha256 and expected_files_sha256 != current_files_sha256:
+            entry["cache_state"] = "partial"
+            return {
+                "entry_id": entry_id,
+                "ok": False,
+                "reason": "integrity-mismatch",
+                "cache_state": "partial",
+                "detail": "hf model integrity mismatch",
+                "deep": True,
+                "integrity": {
+                    "expected_files_sha256": expected_files_sha256,
+                    "current_files_sha256": current_files_sha256,
+                    "expected_file_count": _safe_int(previous_integrity.get("file_count"))
+                    if isinstance(previous_integrity, dict)
+                    else 0,
+                    "current_file_count": _safe_int(current_integrity.get("file_count")),
+                },
+                "entry": _model_payload(entry),
+            }
+        current_integrity["deep"] = True
+        entry["integrity"] = current_integrity
     payload = {
         "entry_id": entry_id,
         "ok": bool(status["ok"]),
@@ -1334,6 +1372,8 @@ def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -
     }
     if deep:
         payload["deep"] = True
+        if payload["ok"] and entry.get("source") == "hf_repo":
+            payload["detail"] = "hf model deep verified"
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
@@ -1395,6 +1435,100 @@ def _hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
         "cache_state": "cached",
         "detail": "model metadata is cached",
     }
+
+
+def _hf_model_integrity_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    revision = _hf_cache_revision_for_entry(entry)
+    files = sorted(
+        list(getattr(revision, "files", ()) or ()),
+        key=lambda item: str(getattr(item, "file_name", "")),
+    )
+    digest = sha256()
+    total_bytes = 0
+    blob_hashes: dict[str, str] = {}
+    for cached_file in files:
+        relative = _optional_str(getattr(cached_file, "file_name", None))
+        path = _hf_cache_file_path(cached_file)
+        if relative is None or path is None:
+            raise ModelRegistryError(
+                "feature-unavailable",
+                "Hugging Face cache file paths are required for deep verification",
+                {"model_ref": str(entry.get("entry_id") or ""), "reason": "missing-file-path"},
+            )
+        if not path.exists() or not path.is_file():
+            raise ModelRegistryError(
+                "model-not-found",
+                f"Hugging Face cache file is missing: {relative}",
+                {
+                    "model_ref": str(entry.get("entry_id") or ""),
+                    "path": str(path),
+                    "reason": "missing-cache-file",
+                },
+            )
+        data = path.read_bytes()
+        total_bytes += len(data)
+        blob_hashes[relative] = _sha256_uri(data)
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(len(data)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(data)
+        digest.update(b"\0")
+    return {
+        "strategy": "hf_cache_blob_sha256",
+        "files_sha256": f"sha256:{digest.hexdigest()}",
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "blob_hashes": blob_hashes,
+    }
+
+
+def _hf_cache_revision_for_entry(entry: dict[str, Any]) -> object:
+    cache_info = _scan_hf_cache_info()
+    if cache_info is None:
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "Hugging Face cache scan is required for deep verification",
+            {"model_ref": str(entry.get("entry_id") or ""), "reason": "cache-scan-unavailable"},
+        )
+    repo_id = _optional_str(entry.get("repo_id"))
+    commit_sha = _optional_str(entry.get("commit_sha"))
+    revision_ref = _optional_str(entry.get("revision"))
+    for repo in getattr(cache_info, "repos", ()) or ():
+        if _optional_str(getattr(repo, "repo_id", None)) != repo_id:
+            continue
+        for revision in getattr(repo, "revisions", ()) or ():
+            cached_commit = _optional_str(getattr(revision, "commit_hash", None))
+            refs = {
+                str(ref)
+                for ref in (getattr(revision, "refs", ()) or ())
+                if str(ref)
+            }
+            if commit_sha is not None and cached_commit == commit_sha:
+                return revision
+            if revision_ref is not None and (
+                cached_commit == revision_ref or revision_ref in refs
+            ):
+                return revision
+    raise ModelRegistryError(
+        "model-not-found",
+        "cached Hugging Face model revision is missing",
+        {
+            "model_ref": str(entry.get("entry_id") or ""),
+            "repo_id": repo_id,
+            "commit_sha": commit_sha,
+            "revision": revision_ref,
+            "reason": "missing-cache-entry",
+        },
+    )
+
+
+def _hf_cache_file_path(cached_file: object) -> Path | None:
+    for attr in ("file_path", "path", "blob_path"):
+        value = getattr(cached_file, attr, None)
+        if value:
+            return Path(value)
+    return None
 
 
 def _local_model_status(path: Path) -> dict[str, object]:

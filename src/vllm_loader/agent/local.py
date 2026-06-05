@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import json
 import os
 import platform
@@ -14,6 +15,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -28,6 +30,7 @@ from vllm_loader.engine.build_registry import (
     BuildRegistryError,
     adopt_build,
     build_reference_aliases,
+    check_build_launch_integrity,
     default_builds_root,
     inspect_build,
     list_builds,
@@ -37,9 +40,14 @@ from vllm_loader.engine.build_registry import (
     repair_build,
     resolve_build_handoff,
     select_build,
+    sweep_stale_creating_builds,
     verify_build,
 )
-from vllm_loader.engine.command_builder import CommandBuildResult, build_command
+from vllm_loader.engine.command_builder import (
+    CommandBuildResult,
+    build_command,
+    render_preview,
+)
 from vllm_loader.engine.log_sink import LogRecord, LogSink, level_for_line
 from vllm_loader.engine.model_registry import (
     ModelHandoff,
@@ -200,6 +208,39 @@ BUILD_INSTALL_ERROR_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
+            r"(detected CUDA version .*mismatch.*PyTorch|"
+            r"CUDA version .*used to compile PyTorch|"
+            r"torch.*CUDA.*mismatch|PyTorch.*CUDA.*mismatch)",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "torch-cuda-mismatch",
+    ),
+    (
+        re.compile(
+            r"(CUDA driver version is insufficient|driver .*too old|"
+            r"requires .*newer .*driver)",
+            re.IGNORECASE,
+        ),
+        "driver-too-old",
+    ),
+    (
+        re.compile(
+            r"(no kernel image .*available|cutlass_moe_mm_sm100|"
+            r"undefined symbol: .*sm100)",
+            re.IGNORECASE,
+        ),
+        "arch-mismatch",
+    ),
+    (
+        re.compile(
+            r"(Killed signal terminated program (cc1plus|nvcc)|"
+            r"(cc1plus|nvcc).*killed|out of memory|cannot allocate memory)",
+            re.IGNORECASE,
+        ),
+        "compile-oom",
+    ),
+    (
+        re.compile(
             r"(ninja.*failed|subcommand failed|failed building wheel|"
             r"building wheel .* failed|nvcc.*failed|cmake.*error|compilation failed)",
             re.IGNORECASE,
@@ -292,6 +333,7 @@ class LocalAgent:
             if models_registry_path is not None
             else default_models_registry_path()
         )
+        sweep_stale_creating_builds(self._builds_root)
         self._build_job_runner = build_job_runner or self._default_build_job_runner
         self._model_job_runner = model_job_runner or self._default_model_job_runner
         self._jobs: dict[str, LocalJob] = {}
@@ -345,35 +387,35 @@ class LocalAgent:
         if method in {"reattach", "reattach_detached"}:
             return self._reattach_detached(payload)
         if method == "list_builds":
-            return self._list_builds(payload)
+            return asyncio.to_thread(self._list_builds, payload)
         if method == "adopt_build":
-            return self._adopt_build(payload)
+            return asyncio.to_thread(self._adopt_build, payload)
         if method == "inspect_build":
-            return self._inspect_build(payload)
+            return asyncio.to_thread(self._inspect_build, payload)
         if method == "select_build":
-            return self._select_build(payload)
+            return asyncio.to_thread(self._select_build, payload)
         if method == "verify_build":
-            return self._verify_build(payload)
+            return asyncio.to_thread(self._verify_build, payload)
         if method == "repair_build":
-            return self._repair_build(payload)
+            return asyncio.to_thread(self._repair_build, payload)
         if method == "check_build_prerequisites":
             return self._check_build_prerequisites(payload)
         if method == "remove_build":
-            return self._remove_build(payload)
+            return asyncio.to_thread(self._remove_build, payload)
         if method == "run_build":
             return self._run_build(payload)
         if method == "list_models":
-            return self._list_models(payload)
+            return asyncio.to_thread(self._list_models, payload)
         if method == "pin_model":
-            return self._pin_model(payload)
+            return asyncio.to_thread(self._pin_model, payload)
         if method == "refresh_models":
-            return self._refresh_models()
+            return asyncio.to_thread(self._refresh_models)
         if method == "inspect_model":
-            return self._inspect_model(payload)
+            return asyncio.to_thread(self._inspect_model, payload)
         if method == "verify_model":
-            return self._verify_model(payload)
+            return asyncio.to_thread(self._verify_model, payload)
         if method == "remove_model":
-            return self._remove_model(payload)
+            return asyncio.to_thread(self._remove_model, payload)
         if method == "create_build":
             return self._create_build(payload)
         if method == "download_model":
@@ -575,6 +617,7 @@ class LocalAgent:
         self._remember_registry_runs_dirs(registry)
         cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         self._remember_run_config(cfg)
+        self._check_build_launch_integrity(cfg)
         try:
             preparation = self._prepare_command_for_config(
                 cfg, validate_model_handoff=True
@@ -601,6 +644,7 @@ class LocalAgent:
         self._remember_registry_runs_dirs(registry)
         cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         self._remember_run_config(cfg)
+        self._check_build_launch_integrity(cfg)
         try:
             preparation = self._prepare_command_for_config(
                 cfg, validate_model_handoff=True
@@ -665,6 +709,15 @@ class LocalAgent:
     def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
         return self._prepare_command_for_config(cfg).result
 
+    def _check_build_launch_integrity(self, cfg: ModelConfig) -> None:
+        build_ref = cfg.command.build
+        if build_ref is None:
+            return
+        try:
+            check_build_launch_integrity(build_ref, self._builds_root)
+        except BuildRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
     def _prepare_command_for_config(
         self, cfg: ModelConfig, *, validate_model_handoff: bool = False
     ) -> LocalCommandPreparation:
@@ -676,12 +729,18 @@ class LocalAgent:
             model_metadata = model_handoff.metadata()
             if resolved_cfg.revision is not None:
                 model_metadata["model_revision"] = resolved_cfg.revision
+            model_env = model_handoff.env_contribution()
+            result_env = {**result.env, **model_env}
+            if model_env:
+                model_metadata["model_env_keys"] = sorted(model_env)
             result = replace(
                 result,
+                env=result_env,
                 metadata={
                     **result.metadata,
                     **model_metadata,
                 },
+                preview=render_preview(result.argv, result_env, result.cwd),
             )
         return LocalCommandPreparation(result=result, preflight_config=resolved_cfg)
 
@@ -872,7 +931,13 @@ class LocalAgent:
     ) -> DetachedLaunch:
         cfg = ModelConfig.model_validate(prepared["config"])
         build = _build_result_from_payload(prepared["build"])
-        secrets = [cfg.server.api_key or "", cfg.env.get("HF_TOKEN", "")]
+        secrets = _dedupe_secret_values(
+            [
+                cfg.server.api_key or "",
+                cfg.env.get("HF_TOKEN", ""),
+                build.env.get("HF_TOKEN", ""),
+            ]
+        )
         launch_kwargs: dict[str, Any] = {}
         if run_id is not None:
             launch_kwargs["run_id"] = run_id
@@ -1477,6 +1542,7 @@ class LocalAgent:
             }
         )
         build_dir.mkdir(parents=True)
+        build_lock = _acquire_build_install_lock(build_dir)
         current_log_payload: dict[str, Any] = {}
         install_output_tail: list[str] = []
 
@@ -1613,6 +1679,7 @@ class LocalAgent:
             try:
                 _write_managed_build_artifacts(build_dir, venv_path)
                 resolved = _managed_build_resolved_versions(venv_path)
+                integrity = _managed_build_integrity(build_dir / "bin" / "vllm")
             except BuildRegistryError as exc:
                 result = _failed_build_result(
                     build_dir,
@@ -1642,6 +1709,7 @@ class LocalAgent:
                 install=install_payload,
                 resolved=resolved,
             )
+            manifest["integrity"] = integrity
             _write_build_manifest(build_dir, manifest)
             return {
                 "ok": True,
@@ -1665,6 +1733,7 @@ class LocalAgent:
             raise
         finally:
             log_sink.close()
+            _release_build_install_lock(build_lock)
 
     async def _default_build_job_runner(
         self,
@@ -1853,6 +1922,11 @@ class LocalAgent:
             }
         if source == "hf_repo":
             repo_id = str(entry.get("repo_id") or model_ref)
+            entry_id = (
+                _optional_param_str(verified.get("entry_id"))
+                or _optional_param_str(entry.get("entry_id"))
+                or str(model_ref)
+            )
             allow_patterns = _optional_str_list(params.get("allow_patterns"))
             ignore_patterns = _optional_str_list(params.get("ignore_patterns"))
             try:
@@ -1870,50 +1944,72 @@ class LocalAgent:
                 }
                 result.update(exc.details)
                 return result
-            emit(
-                {
-                    "kind": "committed",
-                    "text": f"Downloading model {repo_id}",
-                    "level": "INFO",
-                    "phase": "DOWNLOADING",
-                }
-            )
-            loop = asyncio.get_running_loop()
-
-            def emit_download_progress(progress: dict[str, Any]) -> None:
-                if cancel_event.is_set():
-                    raise ModelRegistryError(
-                        "cancelled",
-                        "model download cancelled",
-                        {
-                            "model_ref": str(model_ref),
-                            "repo_id": repo_id,
-                            "cache_state": "partial",
-                        },
-                    )
-                payload = _model_download_progress_payload(repo_id, progress)
-                loop.call_soon_threadsafe(emit, payload)
-
-            download_task = asyncio.create_task(
-                asyncio.to_thread(
-                    download_hf_model,
-                    model_ref,
-                    self._models_registry_path,
-                    revision=_optional_param_str(params.get("revision")),
-                    allow_patterns=allow_patterns,
-                    ignore_patterns=ignore_patterns,
-                    progress_callback=emit_download_progress,
-                )
+            download_log = LogSink(
+                _model_download_log_path(self._models_registry_path, entry_id),
+                secrets=_job_secret_values(params, _env_overrides(params.get("env"))),
             )
             try:
-                downloaded = await asyncio.shield(download_task)
-            except asyncio.CancelledError:
-                cancel_event.set()
+                def emit_download(payload: dict[str, Any]) -> None:
+                    text = _optional_param_str(payload.get("text"))
+                    if text is not None:
+                        download_log.feed((text + "\n").encode("utf-8"))
+                    emit(payload)
+
+                emit_download(
+                    {
+                        "kind": "committed",
+                        "text": f"Downloading model {repo_id}",
+                        "level": "INFO",
+                        "phase": "DOWNLOADING",
+                    }
+                )
+                loop = asyncio.get_running_loop()
+
+                def emit_download_progress(progress: dict[str, Any]) -> None:
+                    if cancel_event.is_set():
+                        raise ModelRegistryError(
+                            "cancelled",
+                            "model download cancelled",
+                            {
+                                "model_ref": str(model_ref),
+                                "repo_id": repo_id,
+                                "cache_state": "partial",
+                            },
+                        )
+                    payload = _model_download_progress_payload(repo_id, progress)
+                    loop.call_soon_threadsafe(emit_download, payload)
+
+                download_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        download_hf_model,
+                        model_ref,
+                        self._models_registry_path,
+                        revision=_optional_param_str(params.get("revision")),
+                        allow_patterns=allow_patterns,
+                        ignore_patterns=ignore_patterns,
+                        progress_callback=emit_download_progress,
+                    )
+                )
                 try:
-                    await asyncio.wait_for(asyncio.shield(download_task), timeout=2)
+                    downloaded = await asyncio.shield(download_task)
+                except asyncio.CancelledError:
+                    cancel_event.set()
+                    try:
+                        await asyncio.wait_for(asyncio.shield(download_task), timeout=2)
+                    except ModelRegistryError as exc:
+                        if exc.code != "cancelled":
+                            return _cancelled_model_download_result(model_ref, repo_id)
+                        result = {
+                            "ok": False,
+                            "error_kind": exc.code,
+                            "detail": exc.message,
+                        }
+                        result.update(exc.details)
+                        return result
+                    except asyncio.TimeoutError:
+                        raise
+                    return _cancelled_model_download_result(model_ref, repo_id)
                 except ModelRegistryError as exc:
-                    if exc.code != "cancelled":
-                        return _cancelled_model_download_result(model_ref, repo_id)
                     result = {
                         "ok": False,
                         "error_kind": exc.code,
@@ -1921,33 +2017,24 @@ class LocalAgent:
                     }
                     result.update(exc.details)
                     return result
-                except asyncio.TimeoutError:
-                    raise
-                return _cancelled_model_download_result(model_ref, repo_id)
-            except ModelRegistryError as exc:
-                result = {
-                    "ok": False,
-                    "error_kind": exc.code,
-                    "detail": exc.message,
+                emit_download(
+                    {
+                        "kind": "committed",
+                        "text": f"Verifying model {repo_id}",
+                        "level": "INFO",
+                        "phase": "VERIFYING",
+                    }
+                )
+                return {
+                    "ok": True,
+                    "detail": "model cached",
+                    "entry_id": downloaded.get("entry_id"),
+                    "cache_state": downloaded.get("cache_state"),
+                    "entry": downloaded.get("entry"),
+                    "snapshot_path": downloaded.get("snapshot_path"),
                 }
-                result.update(exc.details)
-                return result
-            emit(
-                {
-                    "kind": "committed",
-                    "text": f"Verifying model {repo_id}",
-                    "level": "INFO",
-                    "phase": "VERIFYING",
-                }
-            )
-            return {
-                "ok": True,
-                "detail": "model cached",
-                "entry_id": downloaded.get("entry_id"),
-                "cache_state": downloaded.get("cache_state"),
-                "entry": downloaded.get("entry"),
-                "snapshot_path": downloaded.get("snapshot_path"),
-            }
+            finally:
+                download_log.close()
 
         error_kind = "invalid-config" if source == "local_path" else "feature-unavailable"
         detail = str(verified.get("detail") or "model is not cached")
@@ -2701,6 +2788,35 @@ def _managed_build_manifest(
     }
 
 
+def _managed_build_integrity(executable: Path) -> dict[str, Any]:
+    return {
+        "strategy": "executable_sha256",
+        "executable_sha256": _file_sha256_uri(executable),
+    }
+
+
+def _acquire_build_install_lock(build_dir: Path) -> Any:
+    lock_path = build_dir / "build.lock"
+    handle = lock_path.open("a", encoding="utf-8")
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
+
+
+def _release_build_install_lock(handle: Any) -> None:
+    try:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+def _file_sha256_uri(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
 def _write_build_manifest(build_dir: Path, manifest: dict[str, Any]) -> None:
     payload = dict(manifest)
     paths = dict(payload.get("paths") if isinstance(payload.get("paths"), dict) else {})
@@ -2784,6 +2900,13 @@ def _model_download_progress_payload(
     if bytes_total is not None:
         payload["bytes_total"] = bytes_total
     return payload
+
+
+def _model_download_log_path(registry_path: Path, entry_id: str) -> Path:
+    safe_entry_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", entry_id).strip("._")
+    if not safe_entry_id:
+        safe_entry_id = "model"
+    return registry_path.parent / "downloads" / f"{safe_entry_id}.log"
 
 
 def _cancelled_model_download_result(model_ref: object, repo_id: str) -> dict[str, Any]:
@@ -3190,6 +3313,14 @@ def _job_secret_values(
             if _job_secret_key(key):
                 _append_secret_value(secrets, text)
             _append_url_userinfo_secrets(secrets, text)
+    return secrets
+
+
+def _dedupe_secret_values(values: list[str]) -> list[str]:
+    secrets: list[str] = []
+    for value in values:
+        if value and value not in secrets:
+            secrets.append(value)
     return secrets
 
 
