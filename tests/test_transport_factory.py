@@ -231,6 +231,33 @@ def test_target_client_factory_rejects_included_ssh_config_options(
         _target_client_for_config()(target)
 
 
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-I /tmp/pkcs11-provider.so",
+        "-I/tmp/pkcs11-provider.so",
+        "-o PKCS11Provider=/tmp/pkcs11-provider.so",
+        "-oPKCS11Provider=/tmp/pkcs11-provider.so",
+        "-o SecurityKeyProvider=/tmp/security-key-provider",
+        "-oSecurityKeyProvider=/tmp/security-key-provider",
+    ],
+)
+def test_target_client_factory_rejects_provider_loading_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="provider-loading SSH option"):
+        _target_client_for_config()(target)
+
+
 def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

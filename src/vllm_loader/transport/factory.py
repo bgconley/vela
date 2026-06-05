@@ -30,7 +30,6 @@ _SAFE_SSH_VALUE_OPTIONS = {
     "-c",
     "-E",
     "-e",
-    "-I",
     "-i",
     "-J",
     "-m",
@@ -38,6 +37,7 @@ _SAFE_SSH_VALUE_OPTIONS = {
     "-p",
 }
 _DISALLOWED_SSH_TARGET_OPTIONS = {"-l"}
+_DISALLOWED_SSH_PROVIDER_OPTIONS = {"-I"}
 _DISALLOWED_SSH_OPTIONS = {
     "-D",
     "-f",
@@ -66,6 +66,10 @@ _DISALLOWED_SSH_ROUTING_OPTION_KEYS = {
 _DISALLOWED_SSH_TARGET_OPTION_KEYS = {
     "hostname",
     "user",
+}
+_DISALLOWED_SSH_PROVIDER_OPTION_KEYS = {
+    "pkcs11provider",
+    "securitykeyprovider",
 }
 
 
@@ -132,6 +136,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
                 f"{source} contains target identity SSH option {option!r}; "
                 "target user and host must come from the target config"
             )
+        if _is_disallowed_ssh_provider_option(option):
+            raise ValueError(
+                f"{source} contains provider-loading SSH option {option!r}; "
+                "provider-loading SSH options are not allowed"
+            )
         if option == "-o":
             if index + 1 >= len(options):
                 raise ValueError(f"{source} option '-o' requires a value")
@@ -173,6 +182,11 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
             f"{source} contains target identity SSH option {key!r}; "
             "target user and host must come from the target config"
         )
+    if key in _DISALLOWED_SSH_PROVIDER_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains provider-loading SSH option {key!r}; "
+            "provider-loading SSH options are not allowed"
+        )
 
 
 def _is_disallowed_ssh_option(option: str) -> bool:
@@ -190,6 +204,13 @@ def _is_disallowed_ssh_target_option(option: str) -> bool:
     return (
         option in _DISALLOWED_SSH_TARGET_OPTIONS
         or option[:2] in _DISALLOWED_SSH_TARGET_OPTIONS
+    )
+
+
+def _is_disallowed_ssh_provider_option(option: str) -> bool:
+    return (
+        option in _DISALLOWED_SSH_PROVIDER_OPTIONS
+        or option[:2] in _DISALLOWED_SSH_PROVIDER_OPTIONS
     )
 
 

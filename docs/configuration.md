@@ -33,8 +33,10 @@ Fields:
   command-bearing `-o` options such as `ProxyCommand`, `RemoteCommand`, or
   `LocalCommand` are rejected. External config/control socket options (`-F`,
   `-S`, `Include`, `ControlPath`) and user/host override options (`-l`, `User`,
-  `HostName`) are also rejected so the configured target host and `agent
-  connect` command cannot be replaced by the environment.
+  `HostName`) are also rejected. Provider-loading options (`-I`,
+  `PKCS11Provider`, `SecurityKeyProvider`) are rejected so `ssh_opts_env` cannot
+  load local provider code while connecting. The configured target host and
+  `agent connect` command cannot be replaced by the environment.
 
 ## Config Discovery
 
