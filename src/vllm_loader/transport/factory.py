@@ -33,11 +33,11 @@ _SAFE_SSH_VALUE_OPTIONS = {
     "-I",
     "-i",
     "-J",
-    "-l",
     "-m",
     "-o",
     "-p",
 }
+_DISALLOWED_SSH_TARGET_OPTIONS = {"-l"}
 _DISALLOWED_SSH_OPTIONS = {
     "-D",
     "-f",
@@ -61,6 +61,11 @@ _DISALLOWED_SSH_OPTION_KEYS = {
 }
 _DISALLOWED_SSH_ROUTING_OPTION_KEYS = {
     "controlpath",
+    "include",
+}
+_DISALLOWED_SSH_TARGET_OPTION_KEYS = {
+    "hostname",
+    "user",
 }
 
 
@@ -122,6 +127,11 @@ def _validate_extra_ssh_options(options: Sequence[str], *, source: str) -> None:
                 f"{source} contains routing SSH option {option!r}; "
                 "external SSH config and control sockets are not allowed"
             )
+        if _is_disallowed_ssh_target_option(option):
+            raise ValueError(
+                f"{source} contains target identity SSH option {option!r}; "
+                "target user and host must come from the target config"
+            )
         if option == "-o":
             if index + 1 >= len(options):
                 raise ValueError(f"{source} option '-o' requires a value")
@@ -158,6 +168,11 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
             f"{source} contains routing SSH option {key!r}; "
             "external SSH config and control sockets are not allowed"
         )
+    if key in _DISALLOWED_SSH_TARGET_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains target identity SSH option {key!r}; "
+            "target user and host must come from the target config"
+        )
 
 
 def _is_disallowed_ssh_option(option: str) -> bool:
@@ -168,6 +183,13 @@ def _is_disallowed_ssh_routing_option(option: str) -> bool:
     return (
         option in _DISALLOWED_SSH_ROUTING_OPTIONS
         or option[:2] in _DISALLOWED_SSH_ROUTING_OPTIONS
+    )
+
+
+def _is_disallowed_ssh_target_option(option: str) -> bool:
+    return (
+        option in _DISALLOWED_SSH_TARGET_OPTIONS
+        or option[:2] in _DISALLOWED_SSH_TARGET_OPTIONS
     )
 
 

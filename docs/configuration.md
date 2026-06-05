@@ -32,8 +32,9 @@ Fields:
   positional SSH arguments, port forwarding, command-suppression, and
   command-bearing `-o` options such as `ProxyCommand`, `RemoteCommand`, or
   `LocalCommand` are rejected. External config/control socket options (`-F`,
-  `-S`, `ControlPath`) are also rejected so the configured target host and
-  `agent connect` command cannot be replaced by the environment.
+  `-S`, `Include`, `ControlPath`) and user/host override options (`-l`, `User`,
+  `HostName`) are also rejected so the configured target host and `agent
+  connect` command cannot be replaced by the environment.
 
 ## Config Discovery
 
