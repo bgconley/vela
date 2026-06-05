@@ -35,8 +35,10 @@ Fields:
   `-S`, `Include`, `ControlPath`) and user/host override options (`-l`, `User`,
   `HostName`) are also rejected. Provider-loading options (`-I`,
   `PKCS11Provider`, `SecurityKeyProvider`) are rejected so `ssh_opts_env` cannot
-  load local provider code while connecting. The configured target host and
-  `agent connect` command cannot be replaced by the environment.
+  load local provider code while connecting. Host-verification weakening options
+  such as `StrictHostKeyChecking=no`, `CheckHostIP=no`, null known-hosts files,
+  `HostKeyAlgorithms`, and `KnownHostsCommand` are rejected. The configured
+  target host and `agent connect` command cannot be replaced by the environment.
 
 ## Config Discovery
 

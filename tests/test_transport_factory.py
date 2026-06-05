@@ -258,6 +258,39 @@ def test_target_client_factory_rejects_provider_loading_ssh_options(
         _target_client_for_config()(target)
 
 
+@pytest.mark.parametrize(
+    "ssh_opts",
+    [
+        "-o StrictHostKeyChecking=no",
+        "-oStrictHostKeyChecking=off",
+        "-o CheckHostIP=no",
+        "-oCheckHostIP=false",
+        "-o UserKnownHostsFile=/dev/null",
+        "-oUserKnownHostsFile=none",
+        "-o GlobalKnownHostsFile=/dev/null",
+        "-oGlobalKnownHostsFile=none",
+        "-o HostKeyAlgorithms=+ssh-rsa",
+        "-oHostKeyAlgorithms=ssh-rsa",
+        "-o KnownHostsCommand=/tmp/known-hosts",
+        "-oKnownHostsCommand=/tmp/known-hosts",
+    ],
+)
+def test_target_client_factory_rejects_host_verification_weakening_ssh_options(
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_opts: str,
+) -> None:
+    monkeypatch.setenv("VLLM_LOADER_SSH_OPTS", ssh_opts)
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        ssh_opts_env="VLLM_LOADER_SSH_OPTS",
+    )
+
+    with pytest.raises(ValueError, match="host verification SSH option"):
+        _target_client_for_config()(target)
+
+
 def test_target_client_factory_accepts_concatenated_safe_ssh_opts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

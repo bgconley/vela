@@ -71,6 +71,20 @@ _DISALLOWED_SSH_PROVIDER_OPTION_KEYS = {
     "pkcs11provider",
     "securitykeyprovider",
 }
+_DISALLOWED_SSH_HOST_VERIFICATION_OPTION_KEYS = {
+    "hostkeyalgorithms",
+    "knownhostscommand",
+}
+_SSH_HOST_VERIFICATION_BOOLEAN_OPTION_KEYS = {
+    "checkhostip",
+    "stricthostkeychecking",
+}
+_SSH_KNOWN_HOSTS_FILE_OPTION_KEYS = {
+    "globalknownhostsfile",
+    "userknownhostsfile",
+}
+_WEAK_SSH_BOOLEAN_OPTION_VALUES = {"false", "no", "off"}
+_WEAK_SSH_KNOWN_HOSTS_FILE_VALUES = {"/dev/null", "none"}
 
 
 def target_client_for_config(
@@ -187,6 +201,34 @@ def _validate_ssh_option_assignment(value: str, *, source: str) -> None:
             f"{source} contains provider-loading SSH option {key!r}; "
             "provider-loading SSH options are not allowed"
         )
+    _validate_ssh_host_verification_assignment(value, key=key, source=source)
+
+
+def _validate_ssh_host_verification_assignment(
+    value: str, *, key: str, source: str
+) -> None:
+    option_value = _ssh_option_value(value)
+    if key in _DISALLOWED_SSH_HOST_VERIFICATION_OPTION_KEYS:
+        raise ValueError(
+            f"{source} contains host verification SSH option {key!r}; "
+            "host verification SSH options must not be weakened by ssh_opts_env"
+        )
+    if (
+        key in _SSH_HOST_VERIFICATION_BOOLEAN_OPTION_KEYS
+        and option_value in _WEAK_SSH_BOOLEAN_OPTION_VALUES
+    ):
+        raise ValueError(
+            f"{source} contains host verification SSH option {key!r}; "
+            "host verification SSH options must not be weakened by ssh_opts_env"
+        )
+    if (
+        key in _SSH_KNOWN_HOSTS_FILE_OPTION_KEYS
+        and option_value in _WEAK_SSH_KNOWN_HOSTS_FILE_VALUES
+    ):
+        raise ValueError(
+            f"{source} contains host verification SSH option {key!r}; "
+            "host verification SSH options must not be weakened by ssh_opts_env"
+        )
 
 
 def _is_disallowed_ssh_option(option: str) -> bool:
@@ -250,3 +292,9 @@ def _ssh_option_present(options: Sequence[str], key: str) -> bool:
 
 def _ssh_option_key(value: str) -> str:
     return value.split("=", 1)[0].strip().lower()
+
+
+def _ssh_option_value(value: str) -> str:
+    if "=" not in value:
+        return ""
+    return value.split("=", 1)[1].strip().lower()
