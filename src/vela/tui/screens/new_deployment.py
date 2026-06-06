@@ -175,9 +175,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             except ValueError as exc:
                 raise ValueError("Port must be an integer or blank") from exc
         if runtime == "docker":
-            if not image:
-                raise ValueError("Docker image is required")
-            spec["runtime"] = {"kind": "docker", "image": image}
+            spec["runtime"] = {"kind": "docker"}
+            if image:
+                spec["runtime"]["image"] = image
         return spec
 
     def _field_value(self, selector: str) -> str:

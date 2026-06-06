@@ -1,18 +1,66 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 
 import pytest
 from conftest import write_yaml
 
 from vela.agent.local import LocalAgent, TargetCallError
+from vela.engine import composer as composer_module
+
+BLACKBIRD_IMAGE = (
+    "vllm/vllm-openai@sha256:"
+    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+)
 
 
 def _call(agent: LocalAgent, method: str, params: dict) -> dict:
     result = agent.handle(method, params)
     assert not inspect.isawaitable(result)
     return result
+
+
+def _write_model_registry(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01QWENFP8",
+                        "display_name": "qwen36-fp8",
+                        "aliases": ["qwen-fp8"],
+                        "source": "hf_repo",
+                        "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "fp8",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 7,
+                            "total_bytes": 62000000000,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 62000000000,
+                        "cache_state": "remote_only",
+                        "gated": True,
+                        "token_required": True,
+                        "created_at": "2026-06-06T00:00:00Z",
+                        "last_used_at": None,
+                        "notes": "composer suggestion fixture",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> None:
@@ -70,6 +118,165 @@ def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> Non
         "command.docker.container_name",
     }
     assert result["warnings"] == []
+
+
+def test_agent_composes_blackbird_qwen36_fp8_from_lab_recipe(config_dir: Path) -> None:
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B-FP8",
+        },
+    )
+
+    config = result["config"]
+    docker = config["command"]["docker"]
+    assert config["served_model_name"] == "qwen36-27b-fp8-kvfp8-rp6000"
+    assert config["server"] == {
+        "host": "0.0.0.0",
+        "port": 18003,
+        "exposure": "lan",
+        "api_key": "EMPTY",
+        "probe_host": None,
+    }
+    assert config["engine"]["gpu_memory_utilization"] == 0.97
+    assert config["engine"]["max_model_len"] == 262144
+    assert config["engine"]["dtype"] == "auto"
+    assert config["engine"]["kv_cache_dtype"] == "fp8"
+    assert config["engine"]["max_num_seqs"] == 16
+    assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["shm_size"] == "32g"
+    assert docker["network"] == "host"
+    assert docker["hf_cache"] == "/home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache"
+    assert docker["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
+    assert docker["env"]["TRITON_CACHE_DIR"] == "/root/.cache/triton"
+    flashinfer_volume = (
+        "/home/bgconley/models/qwen36-27b-fp8-rp6000/"
+        "flashinfer-cache:/root/.cache/flashinfer"
+    )
+    assert flashinfer_volume in docker["volumes"]
+    assert docker["extra_run_args"] == [
+        "--ulimit",
+        "memlock=-1",
+        "--ulimit",
+        "stack=67108864",
+    ]
+    assert "--attention-backend" in config["extra_args"]
+    assert "FLASHINFER" in config["extra_args"]
+    assert "--kv-cache-memory-bytes" in config["extra_args"]
+    assert "64424509440" in config["extra_args"]
+    assert config["launch"]["ready_timeout_seconds"] == 1800
+    assert config["launch"]["runs_dir"] == "/home/bgconley/models/qwen36-27b-fp8-rp6000/vela-runs"
+    assert config["vllm"]["version_profile"] == "0.11"
+    assert any(
+        item["field"] == "deployment.recipe"
+        and item["value"] == "blackbird-qwen36-27b-fp8-rp6000"
+        for item in result["derived"]
+    )
+
+
+def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path) -> None:
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-bf16-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B",
+        },
+    )
+
+    config = result["config"]
+    docker = config["command"]["docker"]
+    assert config["served_model_name"] == "qwen36-27b-bf16-rp6000"
+    assert config["server"]["port"] == 18002
+    assert config["engine"]["dtype"] == "bfloat16"
+    assert config["engine"]["kv_cache_dtype"] == "bfloat16"
+    assert config["engine"]["max_num_seqs"] == 4
+    assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["shm_size"] == "32g"
+    assert "FLASHINFER_CUDA_ARCH_LIST" not in docker["env"]
+    assert "--kv-cache-memory-bytes" not in config["extra_args"]
+    assert "--attention-backend" not in config["extra_args"]
+
+
+def test_agent_suggests_defaults_from_pinned_model_registry(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_model_registry(registry_path)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_args, **_kwargs: {})
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "suggest_deployment_defaults",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen-fp8",
+            "runtime": {"kind": "docker"},
+            "model_ref": "qwen-fp8",
+        },
+    )
+
+    assert result["model"] == "Qwen/Qwen3.6-27B-FP8"
+    assert result["model_ref"] == "qwen-fp8"
+    assert result["served_model_name"] == "qwen36-fp8"
+    assert result["container_name"] == "vela-qwen-fp8"
+    assert result["engine_suggestions"] == {
+        "dtype": "auto",
+        "kv_cache_dtype": "fp8",
+        "tensor_parallel_size": 1,
+    }
+    assert "model_registry" in result["sources"]
+    assert "gated-needs-token" in result["warnings"]
+
+
+def test_agent_composes_model_ref_with_model_suggestions_without_clobbering_overrides(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_model_registry(registry_path)
+    monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_args, **_kwargs: {})
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen-fp8",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:abc",
+            },
+            "model_ref": "qwen-fp8",
+            "overrides": {"engine": {"kv_cache_dtype": "bfloat16"}},
+        },
+    )
+
+    config = result["config"]
+    assert config["model"] == "Qwen/Qwen3.6-27B-FP8"
+    assert config["model_ref"] == "qwen-fp8"
+    assert config["served_model_name"] == "qwen36-fp8"
+    assert config["engine"]["dtype"] == "auto"
+    assert config["engine"]["kv_cache_dtype"] == "bfloat16"
+    assert any(
+        item["field"] == "engine.tensor_parallel_size"
+        and item["source"] == "model_registry"
+        for item in result["derived"]
+    )
 
 
 def test_agent_validates_composed_draft(config_dir: Path) -> None:

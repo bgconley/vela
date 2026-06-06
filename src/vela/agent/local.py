@@ -646,7 +646,11 @@ class LocalAgent:
 
     def _compose_config(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            result = compose_config(params, configs_dir=_configs_dir(params))
+            result = compose_config(
+                params,
+                configs_dir=_configs_dir(params),
+                models_registry_path=self._models_registry_path,
+            )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
         return {
@@ -657,7 +661,11 @@ class LocalAgent:
 
     def _suggest_deployment_defaults(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            return suggest_deployment_defaults(params, configs_dir=_configs_dir(params))
+            return suggest_deployment_defaults(
+                params,
+                configs_dir=_configs_dir(params),
+                models_registry_path=self._models_registry_path,
+            )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
 
