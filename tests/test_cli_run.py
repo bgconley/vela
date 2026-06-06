@@ -2368,6 +2368,167 @@ def test_cli_targets_remove_deletes_named_target(
     assert [target.name for target in load_targets_file(targets_path).targets] == ["local"]
 
 
+def test_cli_deploy_create_preserves_blackbird_recipe_runtime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blackbird_config = {
+        "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+        "target": "blackbird",
+        "model": "Qwen/Qwen3.6-27B-FP8",
+        "served_model_name": "qwen36-27b-fp8-kvfp8-rp6000",
+        "command": {
+            "runtime": "docker",
+            "entrypoint": "serve",
+            "docker": {
+                "image": (
+                    "vllm/vllm-openai@sha256:"
+                    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+                ),
+                "container_name": "vela-qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+                "gpus": "all",
+                "ipc_host": True,
+                "shm_size": "32g",
+                "network": "host",
+                "hf_cache": "/home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache",
+                "env": {
+                    "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+                    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+                    "SAFETENSORS_FAST_GPU": "1",
+                },
+                "volumes": [
+                    (
+                        "/home/bgconley/models/qwen36-27b-fp8-rp6000/"
+                        "flashinfer-cache:/root/.cache/flashinfer"
+                    )
+                ],
+                "evict": ["qwen36-27b-bf16-rp6000-server"],
+                "extra_run_args": ["--ulimit", "memlock=-1"],
+            },
+        },
+        "engine": {
+            "gpu_memory_utilization": 0.97,
+            "max_model_len": 262144,
+            "dtype": "auto",
+            "kv_cache_dtype": "fp8",
+            "max_num_seqs": 16,
+        },
+        "server": {"host": "0.0.0.0", "port": 18003, "exposure": "lan"},
+        "extra_args": [
+            "--attention-backend",
+            "FLASHINFER",
+            "--kv-cache-memory-bytes",
+            "64424509440",
+            "--language-model-only",
+        ],
+        "launch": {
+            "mode": "attached",
+            "ready_timeout_seconds": 1800,
+            "runs_dir": "/home/bgconley/models/qwen36-27b-fp8-rp6000/vela-runs",
+        },
+        "vllm": {"version_profile": "0.11"},
+    }
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "compose_config":
+                assert params == {
+                    "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+                    "target": "blackbird",
+                    "runtime": {"kind": "docker"},
+                    "model": "Qwen/Qwen3.6-27B-FP8",
+                    "configs_dir": str(tmp_path),
+                }
+                return {
+                    "config": blackbird_config,
+                    "warnings": [],
+                    "derived": [
+                        {
+                            "field": "deployment.recipe",
+                            "value": "blackbird-qwen36-27b-fp8-rp6000",
+                            "source": "lab_recipe",
+                        }
+                    ],
+                }
+            if method == "validate_config":
+                assert params == {"config": blackbird_config}
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                assert params == {"config": blackbird_config, "configs_dir": str(tmp_path)}
+                return {
+                    "preview": (
+                        "docker run ... vllm/vllm-openai@sha256:b13d "
+                        "--attention-backend FLASHINFER"
+                    ),
+                    "warnings": [],
+                }
+            if method == "preflight":
+                assert params == {"config": blackbird_config, "configs_dir": str(tmp_path)}
+                return {"ok": True, "checks": []}
+            if method == "save_config":
+                assert params == {
+                    "configs_dir": str(tmp_path),
+                    "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+                    "config": blackbird_config,
+                }
+                return {
+                    "path": str(tmp_path / "qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml"),
+                    "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+                    "config": blackbird_config,
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path),
+            "--runtime",
+            "docker",
+            "--model",
+            "Qwen/Qwen3.6-27B-FP8",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    docker = payload["config"]["command"]["docker"]
+    assert payload["saved"]["path"].endswith("qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml")
+    assert docker["image"].endswith(
+        "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+    )
+    assert docker["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
+    assert "/root/.cache/flashinfer" in docker["volumes"][0]
+    assert "--attention-backend" in payload["config"]["extra_args"]
+    assert "FLASHINFER" in payload["config"]["extra_args"]
+    assert [method for method, _params in calls] == [
+        "compose_config",
+        "validate_config",
+        "preview",
+        "preflight",
+        "save_config",
+    ]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

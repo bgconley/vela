@@ -39,10 +39,12 @@ app = typer.Typer(
 )
 agent_app = typer.Typer(help="Run or connect to the local Vela agent.")
 build_app = typer.Typer(help="Manage target-local vLLM builds.")
+deploy_app = typer.Typer(help="Create and manage target-local deployments.")
 model_app = typer.Typer(help="Manage target-local model metadata.")
 targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
 app.add_typer(build_app, name="build")
+app.add_typer(deploy_app, name="deploy")
 app.add_typer(model_app, name="model")
 app.add_typer(targets_app, name="targets")
 
@@ -940,6 +942,176 @@ def model_remove(
     typer.echo("\t".join(fields))
 
 
+@deploy_app.command("create")
+def deploy_create(
+    name: Annotated[str, typer.Argument(help="Deployment/config name to create.")],
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Launch model repo id, URL, or target-local path."),
+    ] = None,
+    model_ref: Annotated[
+        str | None,
+        typer.Option("--model-ref", help="Target model registry entry/display name."),
+    ] = None,
+    revision: Annotated[
+        str | None,
+        typer.Option("--revision", help="Model revision override."),
+    ] = None,
+    runtime: Annotated[
+        str,
+        typer.Option("--runtime", help="Runtime: process, docker, build, or executable."),
+    ] = "process",
+    image: Annotated[
+        str | None,
+        typer.Option("--image", help="Pinned docker image/tag/digest for docker runtime."),
+    ] = None,
+    build: Annotated[
+        str | None,
+        typer.Option("--build", help="Target build id or label for process runtime."),
+    ] = None,
+    executable: Annotated[
+        Path | None,
+        typer.Option("--executable", help="Target-local vLLM executable path."),
+    ] = None,
+    preset: Annotated[
+        str | None,
+        typer.Option("--preset", help="Deployment composer preset."),
+    ] = None,
+    port: Annotated[
+        str | None,
+        typer.Option("--port", help="Preferred port, or 'auto' to allocate."),
+    ] = None,
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="Server bind host override."),
+    ] = None,
+    exposure: Annotated[
+        str | None,
+        typer.Option("--exposure", help="Exposure override: local, lan, or public."),
+    ] = None,
+    set_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set",
+            help="Override a config field, e.g. engine.kv_cache_dtype=fp8.",
+        ),
+    ] = None,
+    extra_args: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--extra-arg",
+            help="Append one raw vLLM serve arg. Use --extra-arg=--flag for flag values.",
+        ),
+    ] = None,
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Compose, validate, and preview without saving."),
+    ] = False,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Overwrite an existing config of the same name."),
+    ] = False,
+    smoke: Annotated[
+        bool,
+        typer.Option("--smoke", help="Run a bounded smoke after saving."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable compose result."),
+    ] = False,
+) -> None:
+    if model is None and model_ref is None:
+        typer.echo("ERROR: provide --model or --model-ref", err=True)
+        raise typer.Exit(2)
+    if smoke and json_output:
+        typer.echo("ERROR: --smoke cannot be combined with --json", err=True)
+        raise typer.Exit(2)
+    try:
+        spec = _deploy_create_spec(
+            name=name,
+            target=target,
+            runtime=runtime,
+            model=model,
+            model_ref=model_ref,
+            revision=revision,
+            image=image,
+            build=build,
+            executable=executable,
+            preset=preset,
+            port=port,
+            host=host,
+            exposure=exposure,
+            set_overrides=set_overrides,
+            extra_args=extra_args,
+            configs_dir=configs_dir,
+        )
+    except ValueError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    try:
+        composed = _agent_call("compose_config", spec, target_name=target)
+        config = composed["config"]
+        validation = _agent_call("validate_config", {"config": config}, target_name=target)
+        if not validation.get("ok"):
+            _echo_deploy_validation_errors_or_exit(validation)
+        preview_params: dict[str, Any] = {"config": config}
+        if configs_dir is not None:
+            preview_params["configs_dir"] = str(configs_dir)
+        preview_result = _agent_call("preview", preview_params, target_name=target)
+        preflight_result: dict[str, Any] | None = None
+        saved: dict[str, Any] | None = None
+        if not dry_run:
+            preflight_result = _agent_call("preflight", preview_params, target_name=target)
+            save_params: dict[str, Any] = {"name": name, "config": config}
+            if configs_dir is not None:
+                save_params["configs_dir"] = str(configs_dir)
+            if overwrite:
+                save_params["overwrite"] = True
+            saved = _agent_call("save_config", save_params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+
+    payload = {
+        "config": config,
+        "warnings": list(composed.get("warnings", [])),
+        "derived": list(composed.get("derived", [])),
+        "validation": validation,
+        "preview": preview_result.get("preview", ""),
+    }
+    if preflight_result is not None:
+        payload["preflight"] = preflight_result
+    if saved is not None:
+        payload["saved"] = {
+            "name": saved.get("name", name),
+            "path": saved.get("path"),
+        }
+    if json_output:
+        _echo_json(payload)
+        return
+
+    _echo_warnings(payload["warnings"])
+    _echo_warnings(validation.get("warnings", []))
+    _echo_warnings(preview_result.get("warnings", []))
+    if dry_run:
+        typer.echo(f"dry-run deployment\t{name}")
+    else:
+        typer.echo(f"saved deployment\t{name}\t{saved.get('path') if saved else ''}")
+    typer.echo(str(preview_result.get("preview", "")))
+
+    if smoke:
+        client = _target_client_for_name_or_exit(target)
+        prepared = _prepare_launch_with_client_or_exit(client, name, configs_dir)
+        raise typer.Exit(
+            asyncio.run(_smoke_config_cli(client, prepared, name, configs_dir))
+        )
+
+
 @app.command("list")
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
@@ -1124,6 +1296,154 @@ def smoke_tui_config(
             )
         )
     )
+
+
+def _deploy_create_spec(
+    *,
+    name: str,
+    target: str,
+    runtime: str,
+    model: str | None,
+    model_ref: str | None,
+    revision: str | None,
+    image: str | None,
+    build: str | None,
+    executable: Path | None,
+    preset: str | None,
+    port: str | None,
+    host: str | None,
+    exposure: str | None,
+    set_overrides: list[str] | None,
+    extra_args: list[str] | None,
+    configs_dir: Path | None,
+) -> dict[str, Any]:
+    overrides = _deploy_overrides(
+        port=port,
+        host=host,
+        exposure=exposure,
+        set_overrides=set_overrides,
+        extra_args=extra_args,
+    )
+    spec: dict[str, Any] = {
+        "name": name,
+        "target": target,
+        "runtime": _deploy_runtime_spec(
+            runtime,
+            image=image,
+            build=build,
+            executable=executable,
+        ),
+    }
+    if model is not None:
+        spec["model"] = model
+    if model_ref is not None:
+        spec["model_ref"] = model_ref
+    if revision is not None:
+        spec["revision"] = revision
+    if preset is not None:
+        spec["preset"] = preset
+    if overrides:
+        spec["overrides"] = overrides
+    if configs_dir is not None:
+        spec["configs_dir"] = str(configs_dir)
+    return spec
+
+
+def _deploy_runtime_spec(
+    runtime: str,
+    *,
+    image: str | None,
+    build: str | None,
+    executable: Path | None,
+) -> str | dict[str, str]:
+    kind = runtime.strip().lower()
+    if kind == "docker":
+        if build is not None or executable is not None:
+            raise ValueError("--runtime docker cannot be combined with --build or --executable")
+        payload = {"kind": "docker"}
+        if image is not None:
+            payload["image"] = image
+        return payload
+    if image is not None:
+        raise ValueError("--image requires --runtime docker")
+    if executable is not None:
+        if build is not None:
+            raise ValueError("--build cannot be combined with --executable")
+        return {"kind": "executable", "executable": str(executable)}
+    if build is not None:
+        return {"kind": "build", "build": build}
+    if kind in {"process", "build", "create_build", "adopt", "executable"}:
+        return kind
+    raise ValueError(f"unsupported runtime: {runtime}")
+
+
+def _deploy_overrides(
+    *,
+    port: str | None,
+    host: str | None,
+    exposure: str | None,
+    set_overrides: list[str] | None,
+    extra_args: list[str] | None,
+) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    if port is not None and port.lower() != "auto":
+        try:
+            parsed_port = int(port)
+        except ValueError as exc:
+            raise ValueError(f"--port must be an integer or 'auto': {port}") from exc
+        _deploy_put_override(overrides, ["server", "port"], parsed_port)
+    if host is not None:
+        _deploy_put_override(overrides, ["server", "host"], host)
+    if exposure is not None:
+        _deploy_put_override(overrides, ["server", "exposure"], exposure)
+    for item in set_overrides or []:
+        field, value = _deploy_parse_set(item)
+        _deploy_put_override(overrides, field, value)
+    if extra_args:
+        overrides["extra_args"] = list(extra_args)
+    return overrides
+
+
+def _deploy_parse_set(item: str) -> tuple[list[str], Any]:
+    if "=" not in item:
+        raise ValueError(f"--set requires FIELD=VALUE: {item}")
+    field, raw_value = item.split("=", 1)
+    parts = [part.strip() for part in field.split(".") if part.strip()]
+    if len(parts) < 2:
+        raise ValueError(f"--set field must include a section and key: {field}")
+    if parts[0] not in {"engine", "server", "launch", "env"}:
+        raise ValueError(
+            "--set supports engine.*, server.*, launch.*, and env.* overrides"
+        )
+    return parts, _deploy_parse_value(raw_value)
+
+
+def _deploy_parse_value(raw_value: str) -> Any:
+    try:
+        return json.loads(raw_value)
+    except json.JSONDecodeError:
+        return raw_value
+
+
+def _deploy_put_override(overrides: dict[str, Any], field: list[str], value: Any) -> None:
+    current = overrides.setdefault(field[0], {})
+    if not isinstance(current, dict):
+        raise ValueError(f"override section {field[0]} is already set")
+    for part in field[1:-1]:
+        nested = current.setdefault(part, {})
+        if not isinstance(nested, dict):
+            raise ValueError(f"override field {'.'.join(field[:-1])} is already set")
+        current = nested
+    current[field[-1]] = value
+
+
+def _echo_deploy_validation_errors_or_exit(validation: dict[str, Any]) -> None:
+    typer.echo("ERROR: composed deployment is invalid", err=True)
+    for item in validation.get("errors", []):
+        field = item.get("field", "config") if isinstance(item, dict) else "config"
+        message = item.get("message", str(item)) if isinstance(item, dict) else str(item)
+        typer.echo(f"{field}: {message}", err=True)
+    raise typer.Exit(2)
 
 
 def _echo_warnings(warnings) -> None:
