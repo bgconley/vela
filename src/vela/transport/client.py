@@ -10,6 +10,12 @@ GLOBAL_EVENTS = {"agent_error"}
 
 REQUIRED_AGENT_CAPABILITIES = (
     "list_configs",
+    "compose_config",
+    "suggest_deployment_defaults",
+    "allocate_port",
+    "list_presets",
+    "validate_config",
+    "save_config",
     "preview",
     "preflight",
     "prepare_launch",

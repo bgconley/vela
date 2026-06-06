@@ -50,6 +50,13 @@ from vela.engine.command_builder import (
     build_command,
     render_preview,
 )
+from vela.engine.composer import (
+    allocate_port,
+    compose_config,
+    list_presets,
+    suggest_deployment_defaults,
+    validate_config_payload,
+)
 from vela.engine.job_phases import BuildPhase, DownloadPhase
 from vela.engine.log_sink import LogRecord, LogSink, level_for_line
 from vela.engine.model_registry import (
@@ -101,6 +108,12 @@ AGENT_CAPABILITIES = [
     "ping",
     "list_configs",
     "update_config_flags",
+    "compose_config",
+    "suggest_deployment_defaults",
+    "allocate_port",
+    "list_presets",
+    "validate_config",
+    "save_config",
     "preview",
     "preflight",
     "prepare_launch",
@@ -365,6 +378,18 @@ class LocalAgent:
             return self._list_configs(payload)
         if method == "update_config_flags":
             return self._update_config_flags(payload)
+        if method == "compose_config":
+            return self._compose_config(payload)
+        if method == "suggest_deployment_defaults":
+            return self._suggest_deployment_defaults(payload)
+        if method == "allocate_port":
+            return self._allocate_port(payload)
+        if method == "list_presets":
+            return self._list_presets()
+        if method == "validate_config":
+            return self._validate_config(payload)
+        if method == "save_config":
+            return self._save_config(payload)
         if method == "preview":
             return self._preview(payload)
         if method == "preflight":
@@ -617,6 +642,73 @@ class LocalAgent:
         payload = _valid_config_payload(ValidConfig(item.path, cfg, item.warnings))
         payload["updated"] = True
         return payload
+
+    def _compose_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            result = compose_config(params, configs_dir=_configs_dir(params))
+        except Exception as exc:
+            raise TargetCallError("compose-invalid", str(exc)) from exc
+        return {
+            "config": result.config.model_dump(mode="json"),
+            "warnings": list(result.warnings),
+            "derived": list(result.derived),
+        }
+
+    def _suggest_deployment_defaults(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return suggest_deployment_defaults(params, configs_dir=_configs_dir(params))
+        except Exception as exc:
+            raise TargetCallError("compose-invalid", str(exc)) from exc
+
+    def _allocate_port(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            preferred = params.get("preferred")
+            return allocate_port(
+                preferred=int(preferred) if preferred is not None else None,
+                configs_dir=_configs_dir(params),
+            )
+        except Exception as exc:
+            raise TargetCallError("compose-invalid", str(exc)) from exc
+
+    def _list_presets(self) -> dict[str, Any]:
+        return {"presets": list_presets()}
+
+    def _validate_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        config = params.get("config")
+        if not isinstance(config, dict):
+            raise TargetCallError("invalid-params", "validate_config requires config mapping")
+        return validate_config_payload(config)
+
+    def _save_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise TargetCallError("invalid-params", "save_config requires config name")
+        config = params.get("config")
+        if not isinstance(config, dict):
+            raise TargetCallError("invalid-params", "save_config requires config mapping")
+        cfg = ModelConfig.model_validate(config)
+        if cfg.name != name:
+            raise TargetCallError(
+                "compose-invalid",
+                "save_config name must match config.name",
+                {"name": name, "config_name": cfg.name},
+            )
+        configs_dir = _configs_dir(params) or Path.cwd() / "configs"
+        config_path = Path(configs_dir).expanduser() / f"{_safe_config_file_stem(name)}.yaml"
+        if config_path.exists() and not bool(params.get("overwrite")):
+            raise TargetCallError(
+                "config-exists",
+                f"config already exists: {name}",
+                {"name": name, "path": str(config_path)},
+            )
+        _write_public_text_atomic(
+            config_path,
+            yaml.safe_dump(
+                cfg.model_dump(mode="json", exclude_none=True),
+                sort_keys=False,
+            ),
+        )
+        return {"path": str(config_path), "name": cfg.name, "config": cfg.model_dump(mode="json")}
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
         name = _config_name_param(params, method="preview")
@@ -2896,6 +2988,29 @@ def _write_private_text_atomic(path: Path, text: str) -> None:
         if fd >= 0:
             os.close(fd)
     os.replace(tmp, path)
+
+
+def _write_public_text_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            fd = -1
+            file.write(text)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    os.replace(tmp, path)
+    path.chmod(0o644)
+
+
+def _safe_config_file_stem(name: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", name.strip()).strip("-")
+    if not stem or stem in {".", ".."}:
+        raise TargetCallError("invalid-params", "config name cannot be used as a file name")
+    return stem
 
 
 def _failed_build_result(

@@ -75,6 +75,7 @@ from vela.tui.screens.flag_manager import FlagManagerScreen
 from vela.tui.screens.help import HelpScreen
 from vela.tui.screens.log_prompt import LogPromptScreen
 from vela.tui.screens.model_manager import ModelManagerScreen
+from vela.tui.screens.new_deployment import NewDeploymentScreen
 from vela.tui.screens.pin_model import PinModelScreen
 from vela.tui.screens.target_edit import TargetEditScreen
 from vela.tui.screens.target_manager import (
@@ -592,6 +593,7 @@ class VelaApp(App):
         ("s", "stop", "Stop"),
         ("K", "kill", "Kill"),
         ("r", "restart", "Restart"),
+        ("n", "new_deployment", "New"),
         ("c", "config_picker", "Configs"),
         ("t", "targets", "Targets"),
         ("b", "builds", "Builds"),
@@ -2011,6 +2013,80 @@ class VelaApp(App):
                 preview_cache=self._config_preview_cache,
             )
         )
+
+    def action_new_deployment(self) -> None:
+        if self._target_capability_blocked("compose_config", "deployment composer"):
+            return
+        self.run_worker(
+            self._open_new_deployment(),
+            name="new-deployment",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _open_new_deployment(self) -> None:
+        try:
+            presets_result = await self._target_call("list_presets", {})
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to load deployment presets: {exc}", style=f"bold {BAD}")
+            return
+        presets = presets_result.get("presets")
+        self.push_screen(
+            NewDeploymentScreen(
+                target_label=self.target_name,
+                presets=presets if isinstance(presets, list) else [],
+            ),
+            callback=self._handle_new_deployment_selection,
+        )
+
+    def _handle_new_deployment_selection(self, selection: object) -> None:
+        if not isinstance(selection, dict):
+            return
+        self.run_worker(
+            self._save_new_deployment(selection),
+            name="new-deployment-save",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _save_new_deployment(self, spec: dict[str, Any]) -> None:
+        params = dict(spec)
+        params.update(self._agent_params(configs_dir=self.configs_dir))
+        try:
+            draft = await self._target_call("compose_config", params)
+            config = draft.get("config")
+            if not isinstance(config, dict):
+                raise TargetCallError("compose-invalid", "composer returned no config")
+            validation = await self._target_call("validate_config", {"config": config})
+            if validation.get("ok") is not True:
+                self._set_error_text(
+                    _format_validation_errors(validation),
+                    style=f"bold {BAD}",
+                )
+                return
+            save_params = self._agent_params(
+                name=str(config.get("name") or spec.get("name") or ""),
+                configs_dir=self.configs_dir,
+            )
+            save_params["config"] = config
+            saved = await self._target_call("save_config", save_params)
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to save deployment: {exc}", style=f"bold {BAD}")
+            return
+        saved_config = saved.get("config")
+        if isinstance(saved_config, dict):
+            self.current_config = ModelConfig.model_validate(saved_config)
+        self.registry = await self._load_registry_from_agent()
+        if self.current_config is not None:
+            try:
+                self.current_config = self.registry.by_name(self.current_config.name)
+            except KeyError:
+                pass
+            await self._refresh_selected_config_preview()
+        self._refresh_chrome()
+        self.notify(f"Saved deployment: {saved.get('name') or spec.get('name')}")
 
     def action_search(self) -> None:
         self.push_screen(
@@ -4000,6 +4076,21 @@ class VelaApp(App):
 
 def _build_prerequisite_params(params: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in params.items() if key != "job_id"}
+
+
+def _format_validation_errors(payload: dict[str, Any]) -> str:
+    errors = payload.get("errors")
+    if not isinstance(errors, list) or not errors:
+        return "Deployment config did not validate"
+    lines = ["Deployment config did not validate:"]
+    for item in errors:
+        if isinstance(item, dict):
+            field = str(item.get("field") or "config")
+            message = str(item.get("message") or item)
+            lines.append(f"{field}: {message}")
+        else:
+            lines.append(str(item))
+    return "\n".join(lines)
 
 
 def _target_seen_timestamp(payload: dict[str, Any]) -> str:

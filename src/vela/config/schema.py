@@ -18,6 +18,11 @@ class LaunchMode(str, Enum):
     DETACHED = "detached"
 
 
+class RuntimeKind(str, Enum):
+    PROCESS = "process"
+    DOCKER = "docker"
+
+
 class Exposure(str, Enum):
     LOCAL = "local"
     LAN = "lan"
@@ -27,18 +32,57 @@ class Exposure(str, Enum):
 DType = Literal["auto", "half", "float16", "bfloat16", "float", "float32"]
 
 
+class DockerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    image: str
+    container_name: str | None = None
+    gpus: str | None = "all"
+    ipc_host: bool = True
+    shm_size: str | None = None
+    network: str = "host"
+    volumes: list[str] = Field(default_factory=list)
+    hf_cache: Path | None = None
+    hf_cache_target: str = "/root/.cache/huggingface"
+    env: dict[str, str] = Field(default_factory=dict)
+    restart: str = "no"
+    stop_grace_seconds: int = 90
+    entrypoint: str | None = None
+    pull: Literal["never", "missing", "always"] = "never"
+    evict: list[str] = Field(default_factory=list)
+    extra_run_args: list[str] = Field(default_factory=list)
+
+    @field_validator("env")
+    @classmethod
+    def env_values_are_strings(cls, value: dict[str, str]) -> dict[str, str]:
+        return {str(key): str(item) for key, item in value.items()}
+
+
 class CommandConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    runtime: RuntimeKind = RuntimeKind.PROCESS
     entrypoint: EntryPoint = EntryPoint.SERVE
     executable: str | None = None
     build: str | None = None
     cwd: Path | None = None
+    docker: DockerConfig | None = None
 
     @model_validator(mode="after")
     def executable_and_build_are_mutually_exclusive(self) -> CommandConfig:
         if self.executable and self.build:
             raise ValueError("command.build cannot be set with command.executable")
+        if self.runtime is RuntimeKind.DOCKER:
+            if self.docker is None:
+                raise ValueError("command.runtime docker requires command.docker")
+            if self.executable:
+                raise ValueError("command.runtime docker cannot be set with command.executable")
+            if self.build:
+                raise ValueError("command.runtime docker cannot be set with command.build")
+            if self.entrypoint is not EntryPoint.SERVE:
+                raise ValueError("command.runtime docker requires command.entrypoint: serve")
+        elif self.docker is not None:
+            raise ValueError("command.docker requires command.runtime: docker")
         return self
 
 

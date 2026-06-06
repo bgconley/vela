@@ -3368,6 +3368,161 @@ async def test_help_screen_opens(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_screen_opens_from_tui_binding(config_dir: Path) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "Balanced",
+                            "engine": {},
+                            "extra_args": [],
+                            "applies_to": ["all"],
+                        }
+                    ]
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment screen should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+
+        assert app.screen.id == "new-deployment"
+        assert isinstance(app.screen, ModalScreen)
+        assert app.screen.query_one("#new-deployment-panel").region.x > 0
+        assert ("list_presets", {}) in client.calls
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+            self.saved_config: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                if self.saved_config is None:
+                    return {"valid": [], "invalid": []}
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "qwen3.yaml"),
+                            "name": "qwen3",
+                            "model": "Qwen/Qwen3-32B",
+                            "target": "local",
+                            "warnings": [],
+                            "config": self.saved_config,
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "Balanced",
+                            "engine": {},
+                            "extra_args": [],
+                            "applies_to": ["all"],
+                        }
+                    ]
+                }
+            if method == "compose_config":
+                assert params["name"] == "qwen3"
+                assert params["model"] == "Qwen/Qwen3-32B"
+                assert params["runtime"] == "process"
+                assert params["overrides"]["server"]["port"] == 18001
+                return {
+                    "config": {
+                        "name": "qwen3",
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                        "server": {
+                            "host": "127.0.0.1",
+                            "port": 18001,
+                            "exposure": "local",
+                        },
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "save_config":
+                self.saved_config = dict(params["config"])
+                return {
+                    "path": str(config_dir / "qwen3.yaml"),
+                    "name": "qwen3",
+                    "config": self.saved_config,
+                }
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B", "warnings": []}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment save should not subscribe")
+
+    app = VelaApp(configs_dir=config_dir, target_client=ComposerClient())
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-port", Input).value = "18001"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert app.current_config is not None
+        assert app.current_config.name == "qwen3"
+        assert app.selected_config_preview == "cwd=/agent\nvllm serve Qwen/Qwen3-32B"
+
+
+@pytest.mark.asyncio
 async def test_prompt_and_picker_screens_render_as_modal_panels(config_dir: Path) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
     app = VelaApp(configs_dir=config_dir)

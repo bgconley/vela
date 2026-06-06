@@ -30,6 +30,11 @@ ERROR_CODE_BY_NAME = {
     "cancelled": -32015,
     "profile-error": -32016,
     "agent-auth-required": -32017,
+    "image-not-found": -32018,
+    "name-conflict": -32019,
+    "daemon-unreachable": -32020,
+    "compose-invalid": -32021,
+    "config-exists": -32022,
 }
 
 ERROR_NAME_BY_CODE = {

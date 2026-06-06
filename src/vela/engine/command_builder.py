@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vela.config.schema import EntryPoint, ModelConfig
+from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind
+from vela.engine.docker_runtime import build_docker_run
 from vela.engine.profile import VllmProfile, select_profile_for_config
 from vela.engine.redaction import MASK, scrub_text
 
@@ -75,13 +76,19 @@ def build_command(
     if cfg.server.api_key:
         env["VLLM_API_KEY"] = cfg.server.api_key
 
-    warnings.extend(_network_warnings(cfg))
-    preview = render_preview(argv, env, cwd)
     metadata = {
         "vllm_version_profile": cfg.vllm.version_profile or profile.version,
         "known_flags": sorted(profile.known_flags),
         "flag_map": dict(sorted(profile.flag_map.items())),
     }
+    if cfg.command.runtime is RuntimeKind.DOCKER:
+        docker_run = build_docker_run(cfg, argv[1:], env)
+        argv = docker_run.argv
+        env = docker_run.env
+        metadata.update(docker_run.metadata)
+
+    warnings.extend(_network_warnings(cfg))
+    preview = render_preview(argv, env, cwd)
     return CommandBuildResult(
         argv=argv,
         env=env,

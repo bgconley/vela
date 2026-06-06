@@ -6,7 +6,7 @@ import pytest
 from conftest import write_yaml
 
 from vela.config.loader import discover_config_dirs, load_registry
-from vela.config.schema import ModelConfig
+from vela.config.schema import ModelConfig, RuntimeKind
 
 
 def test_valid_config_loads(config_dir: Path, valid_config_text: str) -> None:
@@ -94,6 +94,73 @@ def test_command_build_and_executable_are_mutually_exclusive() -> None:
                 "command": {"executable": "/opt/vllm/bin/vllm", "build": "01BUILD"},
             }
         )
+
+
+def test_command_runtime_defaults_to_process() -> None:
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    assert cfg.command.runtime is RuntimeKind.PROCESS
+    assert cfg.command.docker is None
+
+
+def test_docker_runtime_accepts_docker_config() -> None:
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "x",
+            "model": "org/model",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "container_name": "vela-x",
+                    "hf_cache": "/tank/models/hf-cache",
+                    "volumes": ["/tank/models:/root/.cache/huggingface:rw"],
+                    "env": {"HF_HOME": "/root/.cache/huggingface"},
+                },
+            },
+        }
+    )
+
+    assert cfg.command.runtime is RuntimeKind.DOCKER
+    assert cfg.command.docker is not None
+    assert cfg.command.docker.image == "vllm/vllm-openai@sha256:abc"
+    assert cfg.command.docker.container_name == "vela-x"
+
+
+@pytest.mark.parametrize(
+    "command, message",
+    [
+        ({"runtime": "docker"}, "requires command.docker"),
+        (
+            {
+                "runtime": "docker",
+                "executable": "/opt/vllm/bin/vllm",
+                "docker": {"image": "vllm/vllm-openai@sha256:abc"},
+            },
+            "cannot be set with command.executable",
+        ),
+        (
+            {
+                "runtime": "docker",
+                "build": "01BUILD",
+                "docker": {"image": "vllm/vllm-openai@sha256:abc"},
+            },
+            "cannot be set with command.build",
+        ),
+        (
+            {
+                "runtime": "process",
+                "docker": {"image": "vllm/vllm-openai@sha256:abc"},
+            },
+            "command.docker requires command.runtime",
+        ),
+    ],
+)
+def test_docker_runtime_rejects_process_handoff_fields(
+    command: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        ModelConfig.model_validate({"name": "x", "model": "org/model", "command": command})
 
 
 def test_model_ref_and_explicit_local_model_path_are_mutually_exclusive() -> None:

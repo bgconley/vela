@@ -252,6 +252,92 @@ def test_max_log_len_and_extra_args_are_appended_verbatim() -> None:
     assert result.argv[-4:] == ["--max-log-len", "32", "--x", "1"]
 
 
+def test_docker_runtime_generates_masked_docker_run_without_double_serve(
+    tmp_path: Path,
+) -> None:
+    model_cfg = cfg(
+        {
+            "model": "Qwen/Qwen3-32B",
+            "served_model_name": "qwen3",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "container_name": "vela-qwen3",
+                    "hf_cache": str(tmp_path / "hf-cache"),
+                    "env": {"HF_HOME": "/root/.cache/huggingface"},
+                    "extra_run_args": ["--ulimit", "nofile=1048576:1048576"],
+                },
+            },
+            "engine": {
+                "tensor_parallel_size": 2,
+                "gpu_memory_utilization": 0.95,
+                "dtype": "auto",
+            },
+            "server": {
+                "host": "0.0.0.0",
+                "port": 18003,
+                "exposure": "lan",
+                "api_key": "sk-live",
+            },
+            "env": {"HF_TOKEN": "hf_live"},
+            "extra_args": ["--kv-cache-memory-bytes", "64424509440"],
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"), cwd=tmp_path)
+
+    assert result.argv[:3] == ["docker", "run", "--name"]
+    assert "vela-qwen3" in result.argv
+    assert ["--gpus", "all"] == result.argv[
+        result.argv.index("--gpus") : result.argv.index("--gpus") + 2
+    ]
+    assert "--ipc=host" in result.argv
+    assert ["--shm-size", "32g"] == result.argv[
+        result.argv.index("--shm-size") : result.argv.index("--shm-size") + 2
+    ]
+    assert ["--network", "host"] == result.argv[
+        result.argv.index("--network") : result.argv.index("--network") + 2
+    ]
+    assert ["--restart", "no"] == result.argv[
+        result.argv.index("--restart") : result.argv.index("--restart") + 2
+    ]
+    assert ["-e", "HF_TOKEN"] == result.argv[
+        result.argv.index("HF_TOKEN") - 1 : result.argv.index("HF_TOKEN") + 1
+    ]
+    assert ["-e", "VLLM_API_KEY"] == result.argv[
+        result.argv.index("VLLM_API_KEY") - 1 : result.argv.index("VLLM_API_KEY") + 1
+    ]
+    image_index = result.argv.index("vllm/vllm-openai@sha256:abc")
+    assert result.argv[image_index + 1] == "Qwen/Qwen3-32B"
+    assert "serve" not in result.argv[image_index + 1 :]
+    assert "--kv-cache-memory-bytes" in result.argv[image_index + 1 :]
+    assert result.env["HF_TOKEN"] == "hf_live"
+    assert result.env["VLLM_API_KEY"] == "sk-live"
+    assert "hf_live" not in result.preview
+    assert "sk-live" not in result.preview
+    assert result.metadata["runtime"] == "docker"
+
+
+def test_bf16_docker_runtime_does_not_inherit_fp8_kv_pin() -> None:
+    model_cfg = cfg(
+        {
+            "model": "Qwen/Qwen3-32B",
+            "command": {
+                "runtime": "docker",
+                "docker": {"image": "vllm/vllm-openai@sha256:abc"},
+            },
+            "engine": {"dtype": "bfloat16", "gpu_memory_utilization": 0.95},
+            "server": {"port": 18002},
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert "--kv-cache-memory-bytes" not in result.argv
+    assert "serve" not in result.argv[result.argv.index("vllm/vllm-openai@sha256:abc") + 1 :]
+
+
 def test_model_reference_local_vs_hf_repo_logic(tmp_path: Path) -> None:
     existing = tmp_path / "relative-model"
     existing.mkdir()
