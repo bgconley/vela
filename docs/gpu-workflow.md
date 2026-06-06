@@ -120,7 +120,7 @@ build/model jobs and the real-config preview/smoke commands:
 
 ```bash
 VELA_REMOTE_TARGET=blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
@@ -171,7 +171,7 @@ VELA_REMOTE_MODEL_ID=p620-target-tiny-llama \
 VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
 VELA_REMOTE_MODEL_REVISION=main \
 VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela
 ```
 
 Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
@@ -184,18 +184,18 @@ Mac-to-P620 shell session. Do not put `-A` or `ForwardAgent=yes` in a target's
 NDJSON transport.
 
 ```bash
-VELA_REMOTE_VENV=/home/bgconley/venvs/vela \
+VELA_REMOTE_VENV=/home/bgconley/venvs/current-vela \
 VELA_REMOTE_TIMEOUT=2700 \
 VELA_REMOTE_TARGET=blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
   -o BatchMode=yes bgconley@10.25.0.50 \
-  'cd /home/bgconley/repos/vela &&
-   /home/bgconley/venvs/vela/bin/vela targets test blackbird'
+  'cd /home/bgconley/repos/current-vela &&
+   /home/bgconley/venvs/current-vela/bin/vela targets test blackbird'
 ```
 
 Then run the real TUI smoke from P620 through the `blackbird` target:
@@ -203,8 +203,8 @@ Then run the real TUI smoke from P620 through the `blackbird` target:
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
   -o BatchMode=yes bgconley@10.25.0.50 \
-  'cd /home/bgconley/repos/vela &&
-   timeout 2700 /home/bgconley/venvs/vela/bin/vela smoke-tui \
+  'cd /home/bgconley/repos/current-vela &&
+   timeout 2700 /home/bgconley/venvs/current-vela/bin/vela smoke-tui \
      qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird'
 ```
 
@@ -214,6 +214,10 @@ from P620.
 
 The latest P620-to-Blackbird validation records are:
 
+- `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md`
+  for the native `command.runtime: docker` Qwen3.6 27B FP8 smoke on Blackbird.
+- `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-bf16-9b107b4.md`
+  for the native `command.runtime: docker` Qwen3.6 27B BF16 smoke on Blackbird.
 - `artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
   from GitHub Actions run `26976430928`, produced by the P620 self-hosted
   runner. It covers the managed vLLM build install, tiny HF model pin/download,
@@ -257,18 +261,18 @@ Direct Mac to Blackbird validation is still useful for host-local checks:
 
 ```bash
 git push origin main
-VELA_REMOTE_VENV=/home/bgconley/venvs/vela \
-  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/vela \
+VELA_REMOTE_VENV=/home/bgconley/venvs/current-vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/current-vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
-That config uses a repo-local foreground Docker wrapper,
-`./scripts/blackbird_qwen36_vllm_foreground.sh`, to launch the pinned
-`vllm/vllm-openai` image for `Qwen/Qwen3.6-27B-FP8`, stream container logs into
-the TUI, and stop the container when the TUI Stop flow runs. The config serves
-`qwen36-27b-fp8-kvfp8-rp6000` on host port `18003` and probes localhost. It may
-stop conflicting Blackbird Qwen containers while active, because the RP6000 GPU
-cannot host the full test lane alongside another large model.
+That config now uses native `command.runtime: docker`: the Blackbird agent
+generates the pinned `vllm/vllm-openai` `docker run`, streams `docker logs -f`
+into the TUI, waits on `docker wait`, and stops with `docker stop -t`. The
+config serves `qwen36-27b-fp8-kvfp8-rp6000` on host port `18003` and probes
+localhost. It may stop conflicting Blackbird Qwen containers while active,
+because the RP6000 GPU cannot host the full test lane alongside another large
+model.
 
 Historical/fallback real smoke target: `620-01` (`10.25.0.50`) with Qwen3-32B
 FP8:

@@ -15,8 +15,8 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/vela
-    venv: /home/bgconley/venvs/vela
+    workdir: /home/bgconley/repos/current-vela
+    venv: /home/bgconley/venvs/current-vela
     local_transport: socket
 ```
 
@@ -91,8 +91,14 @@ Important fields:
 - `revision`: optional model revision or resolved commit.
 - `served_model_name`: optional OpenAI-compatible served model name.
 - `command.entrypoint`: `serve` or module entrypoint.
-- `command.executable`: explicit vLLM executable or wrapper script.
-- `command.build`: managed build id/label; overrides the target default build.
+- `command.runtime`: `process` or `docker`.
+- `command.executable`: explicit vLLM executable or wrapper script for process
+  runtime.
+- `command.build`: managed build id/label for process runtime; overrides the
+  target default build.
+- `command.docker`: Docker runtime settings such as `image`, `container_name`,
+  `gpus`, `network`, `ipc_host`, `shm_size`, `hf_cache`, `volumes`, `env`,
+  `pull`, `evict`, and `extra_run_args`.
 - `command.cwd`: target-local working directory for relative paths.
 - `engine`: modeled vLLM flags. vLLM-owned values default to unset so the
   installed vLLM default wins.
@@ -113,10 +119,12 @@ Important fields:
 
 Build selection resolves as:
 
-1. `command.executable`
-2. `command.build`
-3. target default build
-4. bare `vllm` on `PATH`
+1. `command.runtime: docker` uses `command.docker.image`; there is no managed
+   venv.
+2. `command.executable`
+3. `command.build`
+4. target default build
+5. bare `vllm` on `PATH`
 
 Model selection resolves as:
 
@@ -126,6 +134,46 @@ Model selection resolves as:
 
 Preflight, flag detection, version/profile selection, and local-path checks run
 on the target agent.
+
+For Blackwell Docker deployments, local deployment scripts and proven configs
+are the compatibility source of truth. Hugging Face model metadata can help with
+model identity and safe generic defaults, but it must not be used to infer the
+vLLM image, CUDA arch, CUTLASS/FlashInfer backend, cache layout, or memory
+shape for `sm_120` cards.
+
+## Docker Runtime
+
+Docker configs are single-container deployments owned by the target agent. The
+agent generates `docker run`, records container name/id/image digest in the
+sidecar, streams `docker logs -f` through the scrubbed log sink, waits on
+`docker wait`, and verifies identity before every `docker stop` or `docker kill`.
+
+Example shape:
+
+```yaml
+command:
+  entrypoint: serve
+  runtime: docker
+  docker:
+    image: vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046
+    container_name: qwen36-27b-fp8-kvfp8-rp6000-vela
+    gpus: all
+    network: host
+    ipc_host: true
+    shm_size: 32g
+    pull: never
+    hf_cache: /home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache
+    volumes:
+      - /home/bgconley/models/qwen36-27b-fp8-rp6000/flashinfer-cache:/root/.cache/flashinfer
+    env:
+      FLASHINFER_CUDA_ARCH_LIST: 12.0f
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    extra_run_args: [--ulimit, memlock=-1, --ulimit, stack=67108864]
+```
+
+The `vllm/vllm-openai` image entrypoint already runs `vllm serve`, so Vela
+strips the leading `serve` token from the generated process argv and passes the
+model positionally after the image.
 
 ## Server Exposure
 

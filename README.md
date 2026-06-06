@@ -34,6 +34,7 @@ vela smoke fake-child
 vela targets list
 vela build list
 vela model list
+vela deploy create --help
 ```
 
 ## Remote Targets
@@ -49,8 +50,8 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/vela
-    venv: /home/bgconley/venvs/vela
+    workdir: /home/bgconley/repos/current-vela
+    venv: /home/bgconley/venvs/current-vela
     local_transport: socket
 ```
 
@@ -59,8 +60,8 @@ Register and test a target from the CLI:
 ```bash
 vela targets add blackbird \
   --host bgconley@10.25.0.51 \
-  --workdir /home/bgconley/repos/vela \
-  --venv /home/bgconley/venvs/vela
+  --workdir /home/bgconley/repos/current-vela \
+  --venv /home/bgconley/venvs/current-vela
 vela targets test blackbird
 ```
 
@@ -69,12 +70,12 @@ forwarding and the nested target:
 
 ```bash
 VELA_SSH_OPTS="-A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 -o BatchMode=yes" \
-VELA_REMOTE_VENV=/home/bgconley/venvs/vela \
+VELA_REMOTE_VENV=/home/bgconley/venvs/current-vela \
 VELA_REMOTE_TARGET=blackbird \
 VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
 VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
 VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
@@ -103,6 +104,7 @@ command:
   entrypoint: serve
   executable: ./scripts/launch_vllm.sh
   build: vllm-0-11-2
+  runtime: process
   cwd: /home/user/repos/vela
 engine:
   tensor_parallel_size: 1
@@ -126,6 +128,32 @@ vllm:
 Details are in [docs/configuration.md](docs/configuration.md).
 Use `exposure: lan` or `exposure: public` only when the target should bind a
 non-loopback or wildcard address; `exposure: local` is rejected for those binds.
+
+Docker deployments use `command.runtime: docker` plus `command.docker`. The
+agent generates `docker run`, owns container lifecycle, records container id and
+image digest in the sidecar, and stops with `docker stop -t`. Details are in
+[docs/docker-runtime.md](docs/docker-runtime.md).
+
+## New Deployments
+
+The TUI is the primary way to create a launchable config. Press `n` or choose
+**New Deployment** from the command palette, then step through target, runtime,
+model, customization, review, save, and smoke. The wizard calls the target agent
+for composition, validation, preview, preflight, save, and smoke; the controller
+does not run Docker or dereference target-local paths.
+
+Headless CI and operator scripts can use the same composer surface:
+
+```bash
+vela deploy create qwen36-bf16 \
+  --target blackbird \
+  --model Qwen/Qwen3.6-27B \
+  --runtime docker \
+  --port auto \
+  --json
+
+vela deploy export qwen36-bf16 --target blackbird --output /tmp/qwen36-bf16.sh
+```
 
 ## Build Methods
 
@@ -182,11 +210,17 @@ Details are in [docs/agent-rpc.md](docs/agent-rpc.md).
 ## Tested Matrix
 
 The preferred architecture smoke is P620-01 controller (`10.25.0.50`) to
-Blackbird agent (`10.25.0.51`) with the Qwen3.6 27B FP8 Docker stack. The latest
-repeatable artifact is
-`artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`.
-It was produced by the self-hosted GitHub Actions `Remote Validation` lane and
-covers real vLLM build install, tiny HF model pin/download, Qwen3.6 27B FP8
+Blackbird agent (`10.25.0.51`) with the Qwen3.6 27B native Docker stacks. The
+latest native-Docker artifacts are:
+
+- `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md`
+  for `qwen36-27b-fp8-kvfp8-rp6000-blackbird` on `:18003`.
+- `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-bf16-9b107b4.md`
+  for `qwen36-27b-bf16-rp6000-blackbird` on `:18002`.
+
+The earlier self-hosted GitHub Actions artifact,
+`artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`,
+covers managed vLLM build install, tiny HF model pin/download, Qwen3.6 27B FP8
 `smoke-tui`, and real-model resume/daemon restart.
 
 The fallback 620-01 host-local lane covers the Qwen3-32B FP8 lab surface. Treat

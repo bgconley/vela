@@ -53,3 +53,41 @@ def test_build_model_docs_cover_operational_cli_surfaces() -> None:
         "vela model verify tiny-llama --target blackbird --deep",
     ):
         assert phrase in text
+
+
+def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
+    readme = _read("README.md")
+    configuration = _read("docs/configuration.md")
+    agent_rpc = _read("docs/agent-rpc.md")
+    gpu_workflow = _read("docs/gpu-workflow.md")
+    docker_runtime = _read("docs/docker-runtime.md")
+
+    assert "New Deployment" in readme
+    assert "vela deploy create" in readme
+    assert "command.runtime" in configuration
+    assert "command.docker" in configuration
+    assert "compose_config" in agent_rpc
+    assert "export_config" in agent_rpc
+    assert "native `command.runtime: docker`" in docker_runtime
+    assert "2026-06-06-p620-blackbird-native-docker-fp8" in gpu_workflow
+    assert "2026-06-06-p620-blackbird-native-docker-bf16" in gpu_workflow
+
+
+def test_lab_topology_docs_use_current_repo_and_venv_paths() -> None:
+    for path in ("README.md", "docs/configuration.md", "docs/gpu-workflow.md"):
+        text = _read(path)
+        assert "/home/bgconley/repos/vela" not in text
+        assert "/home/bgconley/venvs/vela" not in text
+        assert "lab-tui" not in text
+
+
+def test_blackwell_docs_treat_local_recipes_as_runtime_truth() -> None:
+    docker_runtime = _read("docs/docker-runtime.md")
+    configuration = _read("docs/configuration.md")
+
+    assert "local Blackwell recipe" in docker_runtime
+    assert "Hugging Face metadata is advisory" in docker_runtime
+    assert "sm_120" in docker_runtime
+    assert "CUTLASS" in docker_runtime
+    assert "FlashInfer" in docker_runtime
+    assert "local deployment scripts" in configuration
