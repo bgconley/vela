@@ -105,13 +105,12 @@ QWEN36_BF16_EXTRA_ARGS = (
 )
 
 BLACKBIRD_QWEN36_EVICT = (
-    "vela-qwen36-27b-fp8-kvfp8-rp6000-blackbird",
-    "vela-qwen36-27b-bf16-rp6000-blackbird",
     "qwen36-27b-fp8-kvbf16-rp6000-server",
     "qwen36-27b-fp8-kvfp8-rp6000-server",
     "qwen36-27b-fp8-kvfp8-rp6000-vela",
     "qwen36-27b-fp8-rp6000-server",
     "qwen36-27b-bf16-rp6000-server",
+    "qwen36-27b-bf16-rp6000-vela",
     "qwen3-coder-next-nvfp4-server",
     "qwen3-coder-next-fp8-server",
     "qwen36-dual-27b-fp8-vlm",
@@ -143,10 +142,14 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
         },
         docker={
             "image": BLACKBIRD_QWEN36_IMAGE,
+            "container_name": "qwen36-27b-fp8-kvfp8-rp6000-vela",
             "gpus": "all",
             "ipc_host": True,
             "shm_size": "32g",
             "network": "host",
+            "restart": "no",
+            "stop_grace_seconds": 90,
+            "pull": "never",
             "hf_cache": "/home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache",
             "hf_cache_target": "/root/.cache/huggingface",
             "env": {
@@ -197,10 +200,14 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
         },
         docker={
             "image": BLACKBIRD_QWEN36_IMAGE,
+            "container_name": "qwen36-27b-bf16-rp6000-vela",
             "gpus": "all",
             "ipc_host": True,
             "shm_size": "32g",
             "network": "host",
+            "restart": "no",
+            "stop_grace_seconds": 90,
+            "pull": "never",
             "env": {
                 "HF_HOME": "/home/bgconley/models/qwen36-27b-bf16/hf-cache",
                 "HF_HUB_CACHE": "/home/bgconley/models/qwen36-27b-bf16/hf-cache/hub",

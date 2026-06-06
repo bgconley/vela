@@ -222,6 +222,7 @@ def test_agent_composes_blackbird_qwen36_fp8_from_lab_recipe(config_dir: Path) -
     assert config["engine"]["kv_cache_dtype"] == "fp8"
     assert config["engine"]["max_num_seqs"] == 16
     assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["container_name"] == "qwen36-27b-fp8-kvfp8-rp6000-vela"
     assert docker["shm_size"] == "32g"
     assert docker["network"] == "host"
     assert docker["hf_cache"] == "/home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache"
@@ -275,6 +276,7 @@ def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path)
     assert config["engine"]["kv_cache_dtype"] == "bfloat16"
     assert config["engine"]["max_num_seqs"] == 4
     assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["container_name"] == "qwen36-27b-bf16-rp6000-vela"
     assert docker["shm_size"] == "32g"
     assert "FLASHINFER_CUDA_ARCH_LIST" not in docker["env"]
     assert "--kv-cache-memory-bytes" not in config["extra_args"]
