@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vela.engine.sidecar import load_sidecar, verify_sidecar_from_system
+from vela.engine.sidecar import load_sidecar, verify_container_identity
 from vela.engine.supervisor import run_supervisor
 
 
@@ -75,7 +75,7 @@ def test_docker_supervisor_writes_container_identity_sidecar(tmp_path: Path) -> 
     assert sidecar.docker_image_digest == "sha256:image"
     assert sidecar.docker_stop_grace_seconds == 90
     assert "Uvicorn running" in log_path.read_text(encoding="utf-8")
-    assert verify_sidecar_from_system(sidecar_path)
+    assert verify_container_identity(sidecar)
 
 
 def _write_fake_docker(path: Path) -> None:

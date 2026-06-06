@@ -14,6 +14,7 @@ from vela.engine.sidecar import (
     command_hash,
     destructive_signal,
     stop_sidecar_from_system,
+    verify_sidecar_from_system,
     verify_sidecar_identity,
 )
 
@@ -327,6 +328,34 @@ def test_docker_stop_refuses_recycled_container_name(
         stop_sidecar_from_system(sidecar_path)
 
     assert calls == []
+
+
+def test_verify_docker_sidecar_requires_running_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.runtime = "docker"
+    sidecar.docker_container_name = "vela-qwen"
+    sidecar.docker_container_id = "abc123"
+    sidecar.docker_image_digest = "sha256:image"
+    sidecar.write_atomic(sidecar_path)
+    Manifest.from_active_log(_write_log(tmp_path)).write_atomic(tmp_path / "run.manifest.json")
+
+    monkeypatch.setattr(
+        sidecar_module,
+        "_docker_inspect_container",
+        lambda _binary, _container_id: {
+            "Id": "abc123",
+            "Name": "/vela-qwen",
+            "Image": "sha256:image",
+            "Config": {"Image": "vllm/vllm-openai@sha256:image"},
+            "State": {"Running": False},
+        },
+    )
+
+    with pytest.raises(TrackedProcessMismatch, match="not running"):
+        verify_sidecar_from_system(sidecar_path)
 
 
 def test_docker_kill_uses_verified_container_id(

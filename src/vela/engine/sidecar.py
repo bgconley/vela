@@ -215,7 +215,7 @@ def process_identity_from_pid(pid: int) -> ProcessIdentity:
 def verify_sidecar_from_system(path: Path | str) -> bool:
     sidecar = load_sidecar(path)
     if sidecar.runtime == "docker":
-        verify_container_identity(sidecar)
+        verify_container_running(sidecar)
         manifest = load_manifest(sidecar.manifest_path)
         active_path = Path(manifest.active_log.path)
         if _inode(active_path) != manifest.active_log.inode:
@@ -289,6 +289,20 @@ def discover_active_sidecars(runs_dirs: list[Path]) -> list[Path]:
 
 
 def verify_container_identity(sidecar: Sidecar) -> bool:
+    _verified_container_inspect(sidecar)
+    return True
+
+
+def verify_container_running(sidecar: Sidecar) -> bool:
+    inspect = _verified_container_inspect(sidecar)
+    state = inspect.get("State")
+    running = bool(state.get("Running")) if isinstance(state, dict) else False
+    if not running:
+        raise TrackedProcessMismatch("tracked docker container is not running")
+    return True
+
+
+def _verified_container_inspect(sidecar: Sidecar) -> dict:
     expected_id = _required_container_id(sidecar)
     expected_name = _required_container_name(sidecar)
     expected_digest = _required_image_digest(sidecar)
@@ -301,7 +315,7 @@ def verify_container_identity(sidecar: Sidecar) -> bool:
         raise TrackedProcessMismatch("tracked docker container name does not match sidecar")
     if not _inspect_matches_image_digest(inspect, expected_digest):
         raise TrackedProcessMismatch("tracked docker image digest does not match sidecar")
-    return True
+    return inspect
 
 
 def _required_container_id(sidecar: Sidecar) -> str:
