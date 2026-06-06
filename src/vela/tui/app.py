@@ -2126,9 +2126,10 @@ class VelaApp(App):
                 ),
             )
             return
+        smoke_after_save = selection.get("action") == "save_smoke"
         self.run_worker(
-            self._save_reviewed_new_deployment(config),
-            name="new-deployment-save",
+            self._save_reviewed_new_deployment(config, smoke=smoke_after_save),
+            name="new-deployment-smoke" if smoke_after_save else "new-deployment-save",
             group="new-deployment",
             exclusive=True,
             exit_on_error=False,
@@ -2277,7 +2278,9 @@ class VelaApp(App):
                 "metadata": {},
             }
 
-    async def _save_reviewed_new_deployment(self, config: dict[str, Any]) -> None:
+    async def _save_reviewed_new_deployment(
+        self, config: dict[str, Any], *, smoke: bool = False
+    ) -> None:
         save_params = self._agent_params(
             name=str(config.get("name") or ""),
             configs_dir=self.configs_dir,
@@ -2309,6 +2312,8 @@ class VelaApp(App):
             await self._refresh_selected_config_preview()
         self._refresh_chrome()
         self.notify(f"Saved deployment: {saved.get('name') or config.get('name')}")
+        if smoke:
+            await self._run_selected_config()
 
     def action_search(self) -> None:
         self.push_screen(

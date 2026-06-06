@@ -341,6 +341,7 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
 
     BINDINGS = [
         ("f", "customize", "Flags"),
+        Binding("s", "save_smoke", "Smoke", priority=True),
         ("ctrl+s", "save", "Save"),
         ("escape", "cancel", "Cancel"),
     ]
@@ -377,7 +378,7 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("Resolved command", classes="new-deployment-review-label")
             yield Static(self.preview, id="new-deployment-review-preview")
             yield Static(
-                "F Flags   Ctrl+S Save   Esc Cancel",
+                "F Flags   Ctrl+S Save   S Save & Smoke   Esc Cancel",
                 id="new-deployment-review-actions",
             )
 
@@ -395,6 +396,9 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
 
     def action_save(self) -> None:
         self.dismiss({"action": "save", "config": self.config})
+
+    def action_save_smoke(self) -> None:
+        self.dismiss({"action": "save_smoke", "config": self.config})
 
     def action_cancel(self) -> None:
         self.dismiss(None)

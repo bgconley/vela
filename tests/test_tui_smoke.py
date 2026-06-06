@@ -3859,6 +3859,159 @@ async def test_new_deployment_review_customizes_draft_with_flag_manager(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_review_save_and_smoke_launches_saved_config(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+            self.saved_config: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                if self.saved_config is None:
+                    return {"valid": [], "invalid": []}
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "qwen3.yaml"),
+                            "name": "qwen3",
+                            "model": "Qwen/Qwen3-32B",
+                            "target": "local",
+                            "warnings": [],
+                            "config": self.saved_config,
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "compose_config":
+                return {
+                    "config": {
+                        "name": "qwen3",
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                        "server": {
+                            "host": "127.0.0.1",
+                            "port": 18001,
+                            "exposure": "local",
+                        },
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B", "warnings": []}
+            if method == "preflight":
+                if "config" in params:
+                    assert params["config"]["name"] == "qwen3"
+                else:
+                    assert params["name"] == "qwen3"
+                return {"ok": True, "failures": []}
+            if method == "save_config":
+                self.saved_config = dict(params["config"])
+                return {
+                    "path": str(config_dir / "qwen3.yaml"),
+                    "name": "qwen3",
+                    "config": self.saved_config,
+                }
+            if method == "prepare_launch":
+                assert params["name"] == "qwen3"
+                return {
+                    "config": {
+                        "name": "qwen3",
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                        "server": {"host": "127.0.0.1", "port": 18001},
+                    },
+                    "build": {
+                        "argv": ["vllm", "serve", "Qwen/Qwen3-32B"],
+                        "env": {},
+                        "cwd": str(config_dir),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "current"},
+                        "preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B",
+                    },
+                    "preflight": None,
+                }
+            if method == "launch":
+                assert params["name"] == "qwen3"
+                return {"run_id": "smoke-run", "launch_mode": "attached", "status": "started"}
+            if method == "probe_until_ready":
+                assert params["run_id"] == "smoke-run"
+                return {
+                    "run_id": "smoke-run",
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["qwen3"],
+                    "error_kind": None,
+                }
+            if method == "wait":
+                assert params["run_id"] == "smoke-run"
+                return {"run_id": "smoke-run", "returncode": 0, "intentional": False}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            yield {
+                "event": "exited",
+                "run_id": "smoke-run",
+                "returncode": 0,
+                "intentional": False,
+                "phase": Phase.STOPPED.value,
+                "seq": 1,
+                "ts": "2026-06-06T00:00:00Z",
+                "mono": 1.0,
+            }
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["smoke-run"]
+            assert resume_from == "live"
+            return self._events()
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-port", Input).value = "18001"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert app.screen.id == "new-deployment-review"
+
+        await pilot.press("s")
+        await _wait_for_condition(
+            lambda: app.phase is Phase.STOPPED,
+            "save and smoke did not drive the launch lifecycle",
+        )
+
+    methods = [method for method, _params in client.calls]
+    assert methods.index("save_config") < methods.index("prepare_launch")
+    assert methods.index("prepare_launch") < methods.index("launch")
+    assert methods.index("launch") < methods.index("wait")
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_review_cancel_does_not_write(config_dir: Path) -> None:
     class ComposerClient:
         connected = False
