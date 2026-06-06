@@ -3310,6 +3310,28 @@ async def test_wait_for_tui_stopped_waits_for_target_run_id(config_dir: Path) ->
         assert await cli_module._wait_for_tui_stopped(app, timeout=0.2) is True
 
 
+def test_smoke_tui_stop_timeout_respects_docker_grace() -> None:
+    process_cfg = cli_module.ModelConfig.model_validate(
+        {"name": "process", "model": "fake/model"}
+    )
+    docker_cfg = cli_module.ModelConfig.model_validate(
+        {
+            "name": "docker",
+            "model": "fake/model",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "stop_grace_seconds": 90,
+                },
+            },
+        }
+    )
+
+    assert cli_module._smoke_tui_stop_timeout(process_cfg) == 10
+    assert cli_module._smoke_tui_stop_timeout(docker_cfg) == 100
+
+
 def test_cli_smoke_tui_prepares_through_target_client(
     config_dir: Path,
     tmp_path: Path,

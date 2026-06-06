@@ -18,7 +18,7 @@ from vela.agent.auth import (
     generate_agent_token,
 )
 from vela.agent.local import LocalAgent, TargetCallError
-from vela.config.schema import ModelConfig
+from vela.config.schema import ModelConfig, RuntimeKind
 from vela.config.targets import (
     TargetConfig,
     TargetsRegistry,
@@ -2243,7 +2243,9 @@ async def _smoke_tui_config_cli(
                 detail = tui.error_text or tui.health_detail or tui.status_text
                 typer.echo(f"ERROR: TUI smoke did not reach READY: {detail}", err=True)
                 tui.action_stop()
-                await _wait_for_tui_stopped(tui, timeout=10)
+                await _wait_for_tui_stopped(
+                    tui, timeout=_smoke_tui_stop_timeout(cfg)
+                )
                 return 2
             if not tui.ready_url:
                 typer.echo("ERROR: TUI smoke reached READY without reachable_url", err=True)
@@ -2253,14 +2255,26 @@ async def _smoke_tui_config_cli(
             suffix = f" models={models}" if models else ""
             typer.echo(f"READY {url}{suffix}")
             tui.action_stop()
-            if not await _wait_for_tui_stopped(tui, timeout=10):
+            if not await _wait_for_tui_stopped(
+                tui, timeout=_smoke_tui_stop_timeout(cfg)
+            ):
                 typer.echo("ERROR: TUI smoke server did not stop cleanly", err=True)
                 return 2
             return 0
     finally:
         if tui.current_run_id is not None or tui.reattached_run_id is not None:
             tui.action_stop()
-            await _wait_for_tui_stopped(tui, timeout=10)
+            await _wait_for_tui_stopped(
+                tui, timeout=_smoke_tui_stop_timeout(tui.current_config)
+            )
+
+
+def _smoke_tui_stop_timeout(cfg: ModelConfig | None) -> float:
+    if cfg is None:
+        return 10
+    if cfg.command.runtime is RuntimeKind.DOCKER and cfg.command.docker is not None:
+        return max(10, float(cfg.command.docker.stop_grace_seconds) + 10)
+    return 10
 
 
 async def _wait_for_tui_phase(tui: VelaApp, phase: Phase, *, timeout: float) -> bool:
