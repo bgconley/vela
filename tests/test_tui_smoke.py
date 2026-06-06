@@ -2191,6 +2191,84 @@ async def test_tui_attached_launch_uses_wait_error_metadata_without_terminal_eve
 
 
 @pytest.mark.asyncio
+async def test_tui_attached_launch_clears_run_when_exit_event_stream_hangs(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    class LaunchAgent(RecordingConfigAgent):
+        def handle(self, method: str, params: dict[str, str] | None = None):
+            if method == "prepare_launch":
+                self.calls.append((method, params))
+                return {
+                    "config": {"name": "alpha", "model": "org/alpha"},
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": str(tmp_path),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "agent-profile"},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            return super().handle(method, params)
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(LaunchAgent(), method, params)
+            if method == "launch":
+                return {
+                    "run_id": "run-1",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "probe_until_ready":
+                return {
+                    "run_id": "run-1",
+                    "ready": False,
+                    "detail": "not ready",
+                    "models": [],
+                    "error_kind": None,
+                }
+            if method == "wait":
+                return {
+                    "run_id": "run-1",
+                    "returncode": 0,
+                    "intentional": True,
+                    "phase": Phase.STOPPED.value,
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        async def _events(self):
+            await asyncio.Event().wait()
+            yield {"event": "unreachable"}
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            assert run_ids == ["run-1"]
+            assert resume_from == "live"
+            return self._events()
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=FakeTargetClient(),
+    )
+    app._target_exit_event_drain_timeout_seconds = 0.01
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await asyncio.wait_for(app._run_selected_config(), timeout=1)
+
+        assert app.current_run_id is None
+        assert app.phase is Phase.STOPPED
+
+
+@pytest.mark.asyncio
 async def test_tui_attached_launch_subscribes_before_probe(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

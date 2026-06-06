@@ -3718,7 +3718,7 @@ class VelaApp(App):
         await asyncio.sleep(0)
         try:
             wait_result = await self._target_call("wait", {"run_id": run_id})
-            terminal_phase = await events_task
+            terminal_phase = await self._await_target_exit_event_phase(events_task)
         finally:
             health_task.cancel()
             if not events_task.done():
@@ -3748,6 +3748,19 @@ class VelaApp(App):
             return
         self._set_error_text("Agent wait result did not include a terminal phase")
         self._set_phase(self.fsm.phase)
+
+    async def _await_target_exit_event_phase(
+        self, events_task: asyncio.Task[Phase | None]
+    ) -> Phase | None:
+        timeout = float(
+            getattr(self, "_target_exit_event_drain_timeout_seconds", 2.0)
+        )
+        if timeout <= 0:
+            return events_task.result() if events_task.done() else None
+        try:
+            return await asyncio.wait_for(events_task, timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
 
     async def _monitor_restart_result(
         self,
