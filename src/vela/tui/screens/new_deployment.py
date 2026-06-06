@@ -339,7 +339,11 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     }}
     """
 
-    BINDINGS = [("ctrl+s", "save", "Save"), ("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        ("f", "customize", "Flags"),
+        ("ctrl+s", "save", "Save"),
+        ("escape", "cancel", "Cancel"),
+    ]
 
     def __init__(
         self,
@@ -348,12 +352,14 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
         preview: str,
         derived: list[dict[str, Any]],
         warnings: list[str],
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(id="new-deployment-review")
         self.config = dict(config)
         self.preview = preview
         self.derived = [dict(item) for item in derived]
         self.warnings = list(warnings)
+        self.metadata = dict(metadata or {})
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-review-panel"):
@@ -371,12 +377,24 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("Resolved command", classes="new-deployment-review-label")
             yield Static(self.preview, id="new-deployment-review-preview")
             yield Static(
-                "Ctrl+S Save   Esc Cancel",
+                "F Flags   Ctrl+S Save   Esc Cancel",
                 id="new-deployment-review-actions",
             )
 
+    def action_customize(self) -> None:
+        self.dismiss(
+            {
+                "action": "customize",
+                "config": self.config,
+                "preview": self.preview,
+                "derived": list(self.derived),
+                "warnings": list(self.warnings),
+                "metadata": dict(self.metadata),
+            }
+        )
+
     def action_save(self) -> None:
-        self.dismiss({"config": self.config})
+        self.dismiss({"action": "save", "config": self.config})
 
     def action_cancel(self) -> None:
         self.dismiss(None)

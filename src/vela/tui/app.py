@@ -2091,6 +2091,7 @@ class VelaApp(App):
                 preview=str(preview.get("preview") or ""),
                 derived=derived if isinstance(derived, list) else [],
                 warnings=warnings,
+                metadata=_preview_metadata(preview),
             ),
             callback=self._handle_new_deployment_review,
         )
@@ -2101,6 +2102,30 @@ class VelaApp(App):
         config = selection.get("config")
         if not isinstance(config, dict):
             return
+        if selection.get("action") == "customize":
+            self._open_new_deployment_flag_manager(
+                config,
+                preview=str(selection.get("preview") or ""),
+                derived=(
+                    selection.get("derived")
+                    if isinstance(selection.get("derived"), list)
+                    else []
+                ),
+                warnings=[
+                    str(item)
+                    for item in (
+                        selection.get("warnings")
+                        if isinstance(selection.get("warnings"), list)
+                        else []
+                    )
+                ],
+                metadata=(
+                    selection.get("metadata")
+                    if isinstance(selection.get("metadata"), dict)
+                    else {}
+                ),
+            )
+            return
         self.run_worker(
             self._save_reviewed_new_deployment(config),
             name="new-deployment-save",
@@ -2108,6 +2133,149 @@ class VelaApp(App):
             exclusive=True,
             exit_on_error=False,
         )
+
+    def _open_new_deployment_flag_manager(
+        self,
+        config: dict[str, Any],
+        *,
+        preview: str,
+        derived: list[dict[str, Any]],
+        warnings: list[str],
+        metadata: dict[str, Any],
+    ) -> None:
+        try:
+            cfg = ModelConfig.model_validate(config)
+        except Exception as exc:
+            self._set_error_text(f"Unable to customize deployment: {exc}", style=f"bold {BAD}")
+            return
+        self.push_screen(
+            FlagManagerScreen(
+                cfg,
+                preview=preview,
+                metadata=metadata,
+                preview_resolver=lambda selection: self._preview_new_deployment_flag_draft(
+                    config, selection
+                ),
+            ),
+            callback=lambda selection: self._handle_new_deployment_flag_selection(
+                selection,
+                config=config,
+                preview=preview,
+                derived=derived,
+                warnings=warnings,
+                metadata=metadata,
+            ),
+        )
+
+    def _handle_new_deployment_flag_selection(
+        self,
+        selection: object,
+        *,
+        config: dict[str, Any],
+        preview: str,
+        derived: list[dict[str, Any]],
+        warnings: list[str],
+        metadata: dict[str, Any],
+    ) -> None:
+        if not isinstance(selection, dict) or selection.get("action") != "save_flags":
+            self.push_screen(
+                NewDeploymentReviewScreen(
+                    config=config,
+                    preview=preview,
+                    derived=derived,
+                    warnings=warnings,
+                    metadata=metadata,
+                ),
+                callback=self._handle_new_deployment_review,
+            )
+            return
+        self.run_worker(
+            self._review_customized_new_deployment(
+                config,
+                selection,
+                derived=derived,
+                warnings=warnings,
+            ),
+            name="new-deployment-customize",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _review_customized_new_deployment(
+        self,
+        config: dict[str, Any],
+        selection: dict[str, Any],
+        *,
+        derived: list[dict[str, Any]],
+        warnings: list[str],
+    ) -> None:
+        try:
+            updated_config = _draft_config_with_flag_updates(config, selection)
+            validation = await self._target_call(
+                "validate_config", {"config": updated_config}
+            )
+            if validation.get("ok") is not True:
+                self._set_error_text(
+                    _format_validation_errors(validation),
+                    style=f"bold {BAD}",
+                )
+                return
+            preview = await self._target_call(
+                "preview",
+                {
+                    "config": updated_config,
+                    **self._agent_params(configs_dir=self.configs_dir),
+                },
+            )
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to review deployment: {exc}", style=f"bold {BAD}")
+            return
+        except Exception as exc:
+            self._set_error_text(f"Unable to customize deployment: {exc}", style=f"bold {BAD}")
+            return
+        refreshed_warnings = [
+            *warnings,
+            *[str(item) for item in validation.get("warnings") or []],
+            *[str(item) for item in preview.get("warnings") or []],
+        ]
+        self.push_screen(
+            NewDeploymentReviewScreen(
+                config=updated_config,
+                preview=str(preview.get("preview") or ""),
+                derived=derived,
+                warnings=refreshed_warnings,
+                metadata=_preview_metadata(preview),
+            ),
+            callback=self._handle_new_deployment_review,
+        )
+
+    async def _preview_new_deployment_flag_draft(
+        self,
+        config: dict[str, Any],
+        selection: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            updated_config = _draft_config_with_flag_updates(config, selection)
+            return await self._target_call(
+                "preview",
+                {
+                    "config": updated_config,
+                    **self._agent_params(configs_dir=self.configs_dir),
+                },
+            )
+        except TargetCallError as exc:
+            return {
+                "preview": f"Preview unavailable: {exc}",
+                "warnings": [],
+                "metadata": {},
+            }
+        except Exception as exc:
+            return {
+                "preview": f"Preview unavailable: {exc}",
+                "warnings": [],
+                "metadata": {},
+            }
 
     async def _save_reviewed_new_deployment(self, config: dict[str, Any]) -> None:
         save_params = self._agent_params(
@@ -4145,6 +4313,30 @@ def _format_validation_errors(payload: dict[str, Any]) -> str:
         else:
             lines.append(str(item))
     return "\n".join(lines)
+
+
+def _draft_config_with_flag_updates(
+    config: dict[str, Any], selection: dict[str, Any]
+) -> dict[str, Any]:
+    payload = ModelConfig.model_validate(config).model_dump(mode="python")
+    engine_updates = selection.get("engine")
+    if isinstance(engine_updates, dict):
+        engine = dict(payload.get("engine") or {})
+        for key, value in engine_updates.items():
+            if value is None or value == "":
+                engine.pop(str(key), None)
+            else:
+                engine[str(key)] = value
+        payload["engine"] = engine
+    extra_args = selection.get("extra_args")
+    if isinstance(extra_args, list):
+        payload["extra_args"] = [str(item) for item in extra_args]
+    return ModelConfig.model_validate(payload).model_dump(mode="json", exclude_none=True)
+
+
+def _preview_metadata(preview: dict[str, Any]) -> dict[str, Any]:
+    metadata = preview.get("metadata")
+    return dict(metadata) if isinstance(metadata, dict) else {}
 
 
 def _target_seen_timestamp(payload: dict[str, Any]) -> str:

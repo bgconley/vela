@@ -3722,6 +3722,143 @@ async def test_new_deployment_review_preflights_draft_before_save(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_review_customizes_draft_with_flag_manager(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+            self.saved_config: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                if self.saved_config is None:
+                    return {"valid": [], "invalid": []}
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "qwen3.yaml"),
+                            "name": "qwen3",
+                            "model": "Qwen/Qwen3-32B",
+                            "target": "local",
+                            "warnings": [],
+                            "config": self.saved_config,
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "compose_config":
+                return {
+                    "config": {
+                        "name": "qwen3",
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                        "engine": {"tensor_parallel_size": 2},
+                        "server": {
+                            "host": "127.0.0.1",
+                            "port": 18001,
+                            "exposure": "local",
+                        },
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                config = params.get("config") if isinstance(params, dict) else {}
+                engine = config.get("engine") if isinstance(config, dict) else {}
+                tensor_parallel_size = (
+                    engine.get("tensor_parallel_size")
+                    if isinstance(engine, dict)
+                    else 2
+                )
+                return {
+                    "preview": (
+                        "cwd=/agent\n"
+                        f"vllm serve Qwen/Qwen3-32B --tensor-parallel-size "
+                        f"{tensor_parallel_size}"
+                    ),
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": ["--tensor-parallel-size"],
+                        "flag_map": {"tensor_parallel_size": "--tensor-parallel-size"},
+                    },
+                }
+            if method == "preflight":
+                assert params["config"]["engine"]["tensor_parallel_size"] == 4
+                return {"ok": True, "failures": []}
+            if method == "save_config":
+                self.saved_config = dict(params["config"])
+                assert self.saved_config["engine"]["tensor_parallel_size"] == 4
+                return {
+                    "path": str(config_dir / "qwen3.yaml"),
+                    "name": "qwen3",
+                    "config": self.saved_config,
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment flag manager should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-port", Input).value = "18001"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert app.screen.id == "new-deployment-review"
+
+        await pilot.press("f")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "new deployment flag manager did not open",
+        )
+        value_input = app.screen.query_one("#flag-manager-value", Input)
+        value_input.value = "4"
+        await _wait_for_condition(
+            lambda: "--tensor-parallel-size 4"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "new deployment draft preview did not update after flag edit",
+        )
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review"
+            and "--tensor-parallel-size 4"
+            in str(app.screen.query_one("#new-deployment-review-preview", Static).content),
+            "customized deployment review did not render updated preview",
+        )
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.pause()
+
+    assert client.saved_config is not None
+    assert client.saved_config["engine"]["tensor_parallel_size"] == 4
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_review_cancel_does_not_write(config_dir: Path) -> None:
     class ComposerClient:
         connected = False
