@@ -91,3 +91,13 @@ def test_blackwell_docs_treat_local_recipes_as_runtime_truth() -> None:
     assert "CUTLASS" in docker_runtime
     assert "FlashInfer" in docker_runtime
     assert "local deployment scripts" in configuration
+
+
+def test_docker_examples_doc_matches_native_docker_cutover() -> None:
+    text = _read("vela-docker-runtime-examples-v1.md")
+
+    assert "runtime has shipped" in text
+    assert "configs/qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml" in text
+    assert "wrappers are retained as reference" in text
+    assert "Do not drop these into `configs/` yet" not in text
+    assert "delete the wrapper scripts" not in text

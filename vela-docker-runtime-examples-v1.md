@@ -2,9 +2,9 @@
 
 **Purpose:** convert the two **proven** Blackbird wrapper deployments into native `runtime: docker` configs, as the concrete acceptance target for the Docker runtime feature (`vela-docker-runtime-spec-v1.md`). These anchor:
 - **DK0** — `build_docker_run(cfg)` must generate the exact `docker run` shown below from each config.
-- **DK4** — launching these on Blackbird via the native runtime must reach READY (FP8 `:18003`, BF16 `:18002`) and Stop via `docker stop`, retiring the hand-written wrappers.
+- **DK4** — launching these on Blackbird via the native runtime must reach READY (FP8 `:18003`, BF16 `:18002`) and Stop via `docker stop`, with the hand-written wrappers retained only as recipe provenance/reference.
 
-> **Do not drop these into `configs/` yet.** `runtime: docker` / `command.docker` don't exist in `config/schema.py` until DK0/S1 land; with `extra="forbid"` they'd surface as *invalid* configs in `vela list`. Keep them here until the runtime ships, then move them into `configs/` (and retire `scripts/blackbird_qwen36_*_vllm_foreground.sh`).
+> **Current cutover:** the native Docker runtime has shipped, and these examples now live as real configs in `configs/qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml` and `configs/qwen36-27b-bf16-rp6000-blackbird.yaml`. The wrapper scripts are retained as reference for the Blackwell Docker recipe shape; active Vela configs should use `command.runtime: docker`.
 
 > **Source of truth:** these reproduce `configs/qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml` + `scripts/blackbird_qwen36_vllm_foreground.sh` and `configs/qwen36-27b-bf16-rp6000-blackbird.yaml` + `scripts/blackbird_qwen36_bf16_vllm_foreground.sh` — i.e. the wrappers' Docker shell moves into `command.docker`, while the vLLM serve flags stay as the existing top-level `model`/`engine`/`server`/`extra_args` fields (the command builder still emits them).
 
@@ -292,7 +292,7 @@ docker run -d --name qwen36-27b-bf16-rp6000-vela --restart no \
 
 **DK3 (`test_docker_eviction_portguard`)** — the `evict` list is `docker stop`-ed before run; `:18003`/`:18002` already-bound → `PORT_IN_USE` pre-run.
 
-**DK4 (manual, real Blackbird)** — `vela run qwen36-27b-fp8-rp6000-blackbird` / `…bf16…` reach READY (`http://127.0.0.1:18003` / `:18002`), `vela` Stop → `docker stop`, run survives agent restart (re-discovered by container name+id). Commit a dated artifact; then delete `scripts/blackbird_qwen36_*_vllm_foreground.sh`.
+**DK4 (manual, real Blackbird)** — `vela run qwen36-27b-fp8-kvfp8-rp6000-blackbird` / `…bf16…` reach READY (`http://127.0.0.1:18003` / `:18002`), `vela` Stop → `docker stop`, run survives agent restart (re-discovered by container name+id). Commit a dated artifact; keep `scripts/blackbird_qwen36_*_vllm_foreground.sh` as provenance/reference only.
 
 ---
 
@@ -301,6 +301,6 @@ docker run -d --name qwen36-27b-bf16-rp6000-vela --restart no \
 - **Two mount styles on purpose:** FP8 uses the `hf_cache` convenience + per-cache mounts under `/root/.cache/*`; BF16 mounts `ROOT:ROOT` with `HF_HOME` pointed inside it. Both must work — they exercise the schema's flexibility and mirror the two real wrappers exactly.
 - **`evict` is shared** across both (the RP6000 fits one big model); launching FP8 stops the BF16 container and vice-versa. Keep both lists supersetted so either lane cleanly preempts the other.
 - **`--network host`** means the container binds the host's `0.0.0.0:<port>` → non-loopback → `exposure: lan` + the canonical bind warning (already set).
-- When DK0/DK1 land, move these two YAMLs into `configs/` (replacing the wrapper-based ones) and delete the wrapper scripts — that retirement is the DK4 "done" signal.
+- DK0/DK1/DK4 have landed: the two YAMLs are in `configs/`, and the wrappers are retained as reference only. Do not wire new active configs through those scripts unless deliberately testing wrapper parity.
 
 > No application code written in this document — it is the worked-example anchor for the Docker runtime feature.
