@@ -174,6 +174,12 @@ def _run_docker_supervisor(
 ) -> int:
     docker = payload.get("docker") if isinstance(payload.get("docker"), dict) else {}
     docker_binary = str(docker.get("binary") or argv[0])
+    _evict_docker_containers(
+        docker_binary,
+        docker.get("evict"),
+        cwd=cwd,
+        env=env,
+    )
     run = subprocess.run(
         argv,
         cwd=cwd,
@@ -260,6 +266,38 @@ def _run_docker_supervisor(
     returncode = _docker_wait_returncode(wait)
     _write_exit_status(payload, returncode)
     return returncode
+
+
+def _evict_docker_containers(
+    docker_binary: str,
+    names: object,
+    *,
+    cwd: str | None,
+    env: dict[str, str],
+) -> None:
+    if not isinstance(names, list):
+        return
+    seen: set[str] = set()
+    effective_env = {**os.environ, **env}
+    for raw_name in names:
+        if not isinstance(raw_name, str):
+            continue
+        name = raw_name.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        for action in ("stop", "rm"):
+            try:
+                subprocess.run(
+                    [docker_binary, action, name],
+                    cwd=cwd,
+                    env=effective_env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except OSError:
+                continue
 
 
 def _set_winsize(fd: int, *, rows: int, cols: int) -> None:

@@ -181,6 +181,9 @@ def start_detached(
                 build.metadata.get("docker_stop_grace_seconds") or 90
             ),
         }
+        docker_evict = list(build.metadata.get("docker_evict") or [])
+        if docker_evict:
+            payload["docker"]["evict"] = docker_evict
     if log_rotate_bytes is not None:
         payload["log_rotate_bytes"] = log_rotate_bytes
     _write_secret_payload(payload_path, payload)

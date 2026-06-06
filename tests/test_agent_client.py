@@ -76,6 +76,9 @@ def _write_fake_docker_runtime(path: Path) -> None:
                 "if args[:2] == ['run', '-d']:",
                 "    print('container-123')",
                 "    raise SystemExit(0)",
+                "if args[:1] == ['ps']:",
+                "    print(os.environ.get('FAKE_DOCKER_PS', ''))",
+                "    raise SystemExit(0)",
                 "if args[:2] == ['logs', '-f']:",
                 "    print('INFO Uvicorn running on http://0.0.0.0:8000', flush=True)",
                 "    raise SystemExit(0)",
@@ -92,6 +95,8 @@ def _write_fake_docker_runtime(path: Path) -> None:
                 "    print(json.dumps(payload))",
                 "    raise SystemExit(0)",
                 "if args[:1] in (['stop'], ['kill']):",
+                "    raise SystemExit(0)",
+                "if args[:1] == ['rm']:",
                 "    raise SystemExit(0)",
                 "raise SystemExit(f'unexpected docker args: {args}')",
             ]
@@ -1963,6 +1968,8 @@ async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
             image: vllm/vllm-openai@sha256:image
             container_name: vela-qwen
             stop_grace_seconds: 90
+            evict:
+              - stale-qwen
         server:
           port: {unused_tcp_port}
         launch:
@@ -1997,8 +2004,55 @@ async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
     assert sidecar.docker_container_name == "vela-qwen"
     assert sidecar.docker_container_id == "container-123"
     assert sidecar.docker_image_digest == "sha256:image"
-    assert "run -d --name vela-qwen" in docker_log.read_text(encoding="utf-8")
-    assert "stop -t 90 container-123" in docker_log.read_text(encoding="utf-8")
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert "stop stale-qwen" in docker_commands
+    assert "rm stale-qwen" in docker_commands
+    assert docker_commands.index("stop stale-qwen") < docker_commands.index(
+        "run -d --name vela-qwen"
+    )
+    assert "run -d --name vela-qwen" in docker_commands
+    assert "stop -t 90 container-123" in docker_commands
+
+
+@pytest.mark.asyncio
+async def test_local_agent_preflight_reports_docker_published_port_conflict(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    docker = tmp_path / "docker"
+    _write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_PS", "0.0.0.0:18003->8000/tcp")
+    write_yaml(
+        config_dir / "docker-port.yaml",
+        """
+        name: docker-port
+        model: org/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:image
+            container_name: vela-qwen
+        server:
+          host: 127.0.0.1
+          port: 18003
+        vllm:
+          version_profile: current
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {"config_name": "docker-port", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["failures"][0]["kind"] == "PORT_IN_USE"
+    assert "Docker container" in result["failures"][0]["detail"]
 
 
 @pytest.mark.asyncio

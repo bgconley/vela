@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import errno
+import re
+import shutil
 import socket
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from vela.config.schema import ModelConfig
+from vela.config.schema import ModelConfig, RuntimeKind
 from vela.engine.command_builder import is_local_model_reference
 from vela.engine.phases import ErrorKind
 from vela.monitoring.gpu import parse_cuda_visible_devices
@@ -71,4 +74,34 @@ def occupied_port_detail(cfg: ModelConfig) -> str | None:
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
             return f"Port {cfg.server.port} is already in use on {cfg.server.host}."
+    if docker_port_detail := docker_published_port_detail(cfg):
+        return docker_port_detail
     return None
+
+
+def docker_published_port_detail(cfg: ModelConfig) -> str | None:
+    if cfg.command.runtime is not RuntimeKind.DOCKER:
+        return None
+    docker_binary = shutil.which("docker")
+    if docker_binary is None:
+        return None
+    try:
+        result = subprocess.run(
+            [docker_binary, "ps", "--format", "{{.Ports}}"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    if not _docker_ports_include_host_port(result.stdout, cfg.server.port):
+        return None
+    return f"Port {cfg.server.port} is already published by a Docker container."
+
+
+def _docker_ports_include_host_port(ports_output: str, port: int) -> bool:
+    host_port = re.escape(str(port))
+    return re.search(rf"(?<!\d){host_port}->", ports_output) is not None

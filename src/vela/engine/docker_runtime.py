@@ -59,6 +59,7 @@ def build_docker_run(
             "docker_image": docker.image,
             "docker_image_digest": _image_digest_for_sidecar(docker.image),
             "docker_container_name": container_name,
+            "docker_evict": list(docker.evict),
             "docker_stop_grace_seconds": docker.stop_grace_seconds,
         },
     )
