@@ -17,6 +17,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "list_deployment_recipes",
     "validate_config",
     "save_config",
+    "edit_config",
     "clone_config",
     "delete_config",
     "list_config_files",

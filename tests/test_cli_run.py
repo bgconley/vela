@@ -2676,6 +2676,78 @@ def test_cli_deploy_list_clone_delete_call_target_agent(
     ]
 
 
+def test_cli_deploy_edit_calls_target_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "edit_config":
+                assert params == {
+                    "configs_dir": str(tmp_path),
+                    "name": "qwen3",
+                    "overrides": {
+                        "engine": {"dtype": "bfloat16", "max_num_seqs": 4},
+                        "server": {"port": 18009},
+                        "extra_args": ["--max-num-batched-tokens", "4096"],
+                    },
+                }
+                return {
+                    "name": "qwen3",
+                    "path": str(tmp_path / "qwen3.yaml"),
+                    "config": {
+                        "name": "qwen3",
+                        "model": "Qwen/Qwen3-32B",
+                        "engine": {"dtype": "bfloat16", "max_num_seqs": 4},
+                        "server": {"port": 18009},
+                    },
+                    "warnings": ["preview-warning"],
+                    "updated": True,
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "edit",
+            "qwen3",
+            "--configs-dir",
+            str(tmp_path),
+            "--set",
+            "engine.dtype=bfloat16",
+            "--set",
+            "engine.max_num_seqs=4",
+            "--set",
+            "server.port=18009",
+            "--extra-arg=--max-num-batched-tokens",
+            "--extra-arg",
+            "4096",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["path"] == str(tmp_path / "qwen3.yaml")
+    assert payload["config"]["engine"]["dtype"] == "bfloat16"
+    assert [method for method, _params in calls] == ["edit_config"]
+
+
 def test_cli_config_push_pull_lint_call_target_agent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -117,6 +117,7 @@ AGENT_CAPABILITIES = [
     "list_deployment_recipes",
     "validate_config",
     "save_config",
+    "edit_config",
     "clone_config",
     "delete_config",
     "list_config_files",
@@ -403,6 +404,8 @@ class LocalAgent:
             return self._validate_config(payload)
         if method == "save_config":
             return self._save_config(payload)
+        if method == "edit_config":
+            return self._edit_config(payload)
         if method == "clone_config":
             return self._clone_config(payload)
         if method == "delete_config":
@@ -752,6 +755,46 @@ class LocalAgent:
             ),
         )
         return {"path": str(config_path), "name": cfg.name, "config": cfg.model_dump(mode="json")}
+
+    def _edit_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = _config_name_param(params, method="edit_config")
+        configs_dir = _configs_dir(params) or Path.cwd() / "configs"
+        registry = load_registry(configs_dir)
+        self._remember_registry_runs_dirs(registry)
+        item = _valid_config_item_by_name(registry, name)
+        overrides = _mapping_param(params.get("overrides"), field_name="overrides")
+        payload = item.config.model_dump(mode="json", exclude_none=True)
+        _apply_config_overrides(payload, overrides)
+        try:
+            cfg = ModelConfig.model_validate(payload)
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"edited config is invalid: {exc}",
+                {"name": name, "path": str(item.path)},
+            ) from exc
+        validation = validate_config_payload(cfg.model_dump(mode="json", exclude_none=True))
+        if validation.get("ok") is not True:
+            raise TargetCallError(
+                "invalid-config",
+                "edited config is invalid",
+                {"name": name, "path": str(item.path), "validation": validation},
+            )
+        if not bool(params.get("dry_run")):
+            _write_public_text_atomic(
+                item.path,
+                yaml.safe_dump(
+                    cfg.model_dump(mode="json", exclude_none=True),
+                    sort_keys=False,
+                ),
+            )
+        return {
+            "name": cfg.name,
+            "path": str(item.path),
+            "config": cfg.model_dump(mode="json"),
+            "warnings": list(validation.get("warnings") or []),
+            "updated": not bool(params.get("dry_run")),
+        }
 
     def _clone_config(self, params: dict[str, Any]) -> dict[str, Any]:
         src_name = _required_param_name(params, "src_name", method="clone_config")

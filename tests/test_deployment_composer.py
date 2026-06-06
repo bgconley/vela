@@ -426,6 +426,53 @@ def test_agent_clones_deployment_with_fresh_runtime_identity(config_dir: Path) -
     assert any(item["field"] == "server.port" for item in result["derived"])
 
 
+def test_agent_edits_deployment_config_with_overrides(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "editable.yaml",
+        """
+        name: editable
+        model: Qwen/Qwen3-32B
+        engine:
+          dtype: auto
+        server:
+          host: 127.0.0.1
+          port: 18001
+        extra_args:
+          - --enable-prefix-caching
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "edit_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "editable",
+            "overrides": {
+                "engine": {"dtype": "bfloat16", "max_num_seqs": 4},
+                "server": {"port": 18009},
+                "extra_args": ["--max-num-batched-tokens", "4096"],
+            },
+        },
+    )
+
+    config = result["config"]
+    assert result["updated"] is True
+    assert result["path"] == str(config_dir / "editable.yaml")
+    assert config["engine"]["dtype"] == "bfloat16"
+    assert config["engine"]["max_num_seqs"] == 4
+    assert config["server"]["port"] == 18009
+    assert config["extra_args"] == [
+        "--enable-prefix-caching",
+        "--max-num-batched-tokens",
+        "4096",
+    ]
+    written = (config_dir / "editable.yaml").read_text(encoding="utf-8")
+    assert "dtype: bfloat16" in written
+    assert "port: 18009" in written
+
+
 def test_agent_delete_config_refuses_live_run(
     config_dir: Path, tmp_path: Path, monkeypatch
 ) -> None:

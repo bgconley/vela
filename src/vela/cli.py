@@ -1220,6 +1220,77 @@ def deploy_create(
         )
 
 
+@deploy_app.command("edit")
+def deploy_edit(
+    name: Annotated[str, typer.Argument(help="Deployment/config name to edit.")],
+    port: Annotated[
+        str | None,
+        typer.Option("--port", help="Preferred port, or 'auto' to leave unchanged."),
+    ] = None,
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="Server bind host override."),
+    ] = None,
+    exposure: Annotated[
+        str | None,
+        typer.Option("--exposure", help="Exposure override: local, lan, or public."),
+    ] = None,
+    set_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set",
+            help="Override a config field, e.g. engine.kv_cache_dtype=fp8.",
+        ),
+    ] = None,
+    extra_args: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--extra-arg",
+            help="Append one raw vLLM serve arg. Use --extra-arg=--flag for flag values.",
+        ),
+    ] = None,
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Validate edits without saving."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable edit result."),
+    ] = False,
+) -> None:
+    try:
+        overrides = _deploy_overrides(
+            port=port,
+            host=host,
+            exposure=exposure,
+            set_overrides=set_overrides,
+            extra_args=extra_args,
+        )
+    except ValueError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    params: dict[str, Any] = {"name": name, "overrides": overrides}
+    if configs_dir is not None:
+        params["configs_dir"] = str(configs_dir)
+    if dry_run:
+        params["dry_run"] = True
+    try:
+        result = _agent_call("edit_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    if json_output:
+        _echo_json(result)
+        return
+    _echo_warnings(result.get("warnings", []))
+    verb = "dry-run deployment" if dry_run else "edited deployment"
+    typer.echo(f"{verb}\t{result.get('name', name)}\t{result.get('path', '')}")
+
+
 @deploy_app.command("list")
 def deploy_list(
     configs_dir: Annotated[
