@@ -315,6 +315,44 @@ def test_agent_composer_preserves_blackbird_recipe_container_name_when_live_name
     assert "container-name-reassigned" not in result["warnings"]
 
 
+def test_agent_composer_ignores_existing_same_name_config_port_for_idempotent_create(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml",
+        """
+        name: qwen36-27b-fp8-kvfp8-rp6000-blackbird
+        model: Qwen/Qwen3.6-27B-FP8
+        served_model_name: qwen36-27b-fp8-kvfp8-rp6000
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+            container_name: qwen36-27b-fp8-kvfp8-rp6000-vela
+        server:
+          host: 0.0.0.0
+          port: 18003
+          exposure: lan
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B-FP8",
+        },
+    )
+
+    assert result["config"]["server"]["port"] == 18003
+    assert "port-reassigned" not in result["warnings"]
+
+
 def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path) -> None:
     agent = LocalAgent()
 

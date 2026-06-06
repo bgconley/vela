@@ -369,6 +369,7 @@ def compose_config(
         preferred=_preferred_port(overrides) or _recipe_port(recipe),
         configs_dir=configs_dir,
         occupied_ports=occupied_ports,
+        exclude_config_name=name,
     )
     engine, engine_sources = _seed_engine(preset, recipe, suggestions)
     server = {
@@ -441,8 +442,9 @@ def allocate_port(
     configs_dir: str | Path | None = None,
     port_range: tuple[int, int] = DEFAULT_PORT_RANGE,
     occupied_ports: Mapping[str, Iterable[int]] | None = None,
+    exclude_config_name: str | None = None,
 ) -> dict[str, Any]:
-    configured_ports = _configured_ports(configs_dir)
+    configured_ports = _configured_ports(configs_dir, exclude_config_name=exclude_config_name)
     occupied = _occupied_ports_by_source(occupied_ports)
     used = set(configured_ports)
     for ports in occupied.values():
@@ -478,6 +480,7 @@ def suggest_deployment_defaults(
         preferred=_optional_int(params.get("preferred_port")) or _recipe_port(recipe),
         configs_dir=configs_dir,
         occupied_ports=occupied_ports,
+        exclude_config_name=name,
     )
     engine_suggestions = _recipe_engine(recipe) if recipe is not None else dict(suggestions.engine)
     sources = ["configured_ports", "defaults"]
@@ -688,9 +691,18 @@ def _engine_derived(
     return derived
 
 
-def _configured_ports(configs_dir: str | Path | None) -> set[int]:
+def _configured_ports(
+    configs_dir: str | Path | None,
+    *,
+    exclude_config_name: str | None = None,
+) -> set[int]:
     registry = load_registry(configs_dir)
-    return {item.config.server.port for item in registry.valid}
+    excluded = _optional_str(exclude_config_name)
+    return {
+        item.config.server.port
+        for item in registry.valid
+        if excluded is None or item.config.name != excluded
+    }
 
 
 def _occupied_ports_by_source(
