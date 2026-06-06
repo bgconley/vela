@@ -2116,6 +2116,15 @@ class VelaApp(App):
         )
         save_params["config"] = config
         try:
+            preflight = await self._target_call(
+                "preflight",
+                {
+                    "config": config,
+                    **self._agent_params(configs_dir=self.configs_dir),
+                },
+            )
+            if not self._handle_preflight_result(preflight):
+                return
             saved = await self._target_call("save_config", save_params)
         except TargetCallError as exc:
             self._set_error_text(f"Unable to save deployment: {exc}", style=f"bold {BAD}")

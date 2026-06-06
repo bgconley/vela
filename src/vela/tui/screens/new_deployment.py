@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Select, Static
@@ -40,6 +41,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         color: {ACCENT};
     }}
 
+    #new-deployment-current-step {{
+        margin-bottom: 1;
+        color: {TEXT};
+        text-style: bold;
+    }}
+
     .new-deployment-field-label {{
         margin-top: 1;
         color: {TEXT};
@@ -65,7 +72,28 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     }}
     """
 
-    BINDINGS = [("ctrl+s", "submit", "Save"), ("escape", "cancel", "Cancel")]
+    STEP_TITLES = (
+        "Target",
+        "Runtime",
+        "Model",
+        "Customize",
+        "Review",
+        "Save & Smoke",
+    )
+    STEP_IDS = (
+        "#new-deployment-step-target",
+        "#new-deployment-step-runtime",
+        "#new-deployment-step-model",
+        "#new-deployment-step-customize",
+        "#new-deployment-step-review",
+        "#new-deployment-step-save",
+    )
+    BINDINGS = [
+        Binding("ctrl+n", "next_step", "Next", priority=True),
+        Binding("ctrl+b", "previous_step", "Back", priority=True),
+        ("ctrl+s", "submit", "Review"),
+        ("escape", "cancel", "Cancel"),
+    ]
 
     def __init__(
         self,
@@ -76,6 +104,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         super().__init__(id="new-deployment")
         self.target_label = target_label
         self.presets = [dict(preset) for preset in presets]
+        self.step_index = 0
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-panel"):
@@ -85,59 +114,89 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 "Target -> Runtime -> Model -> Customize -> Review -> Save",
                 id="new-deployment-steps",
             )
-            with Horizontal(classes="new-deployment-row"):
-                with Vertical(classes="new-deployment-column"):
-                    yield Static("Name", classes="new-deployment-field-label")
-                    yield Input(placeholder="qwen3-32b-bf16", id="new-deployment-name")
-                    yield Static("Runtime", classes="new-deployment-field-label")
-                    yield Select(
-                        [("Process", "process"), ("Docker", "docker")],
-                        value="process",
-                        allow_blank=False,
-                        id="new-deployment-runtime",
-                    )
-                    yield Static("Model", classes="new-deployment-field-label")
-                    yield Input(
-                        placeholder="Qwen/Qwen3-32B",
-                        id="new-deployment-model",
-                    )
-                    yield Static("Docker image", classes="new-deployment-field-label")
-                    yield Input(
-                        placeholder="vllm/vllm-openai@sha256:...",
-                        id="new-deployment-image",
-                    )
-                with Vertical(classes="new-deployment-column"):
-                    yield Static("Preset", classes="new-deployment-field-label")
-                    yield Select(
-                        self._preset_options(),
-                        value=self._default_preset(),
-                        allow_blank=False,
-                        id="new-deployment-preset",
-                    )
-                    yield Static("Host", classes="new-deployment-field-label")
-                    yield Input(
-                        value="127.0.0.1",
-                        placeholder="127.0.0.1",
-                        id="new-deployment-host",
-                    )
-                    yield Static("Port", classes="new-deployment-field-label")
-                    yield Input(placeholder="auto", id="new-deployment-port")
-                    yield Static("Exposure", classes="new-deployment-field-label")
-                    yield Select(
-                        [("Local", "local"), ("LAN", "lan"), ("Public", "public")],
-                        value="local",
-                        allow_blank=False,
-                        id="new-deployment-exposure",
-                    )
+            yield Static("", id="new-deployment-current-step")
+            with Vertical(id="new-deployment-step-target"):
+                yield Static("Target", classes="new-deployment-field-label")
+                yield Static(
+                    f"Active target: {self.target_label}",
+                    id="new-deployment-target-summary",
+                )
+                yield Static("Name", classes="new-deployment-field-label")
+                yield Input(placeholder="qwen3-32b-bf16", id="new-deployment-name")
+            with Vertical(id="new-deployment-step-runtime"):
+                yield Static("Runtime", classes="new-deployment-field-label")
+                yield Select(
+                    [("Process", "process"), ("Docker", "docker")],
+                    value="process",
+                    allow_blank=False,
+                    id="new-deployment-runtime",
+                )
+                yield Static("Docker image", classes="new-deployment-field-label")
+                yield Input(
+                    placeholder="vllm/vllm-openai@sha256:...",
+                    id="new-deployment-image",
+                )
+            with Vertical(id="new-deployment-step-model"):
+                yield Static("Model", classes="new-deployment-field-label")
+                yield Input(
+                    placeholder="Qwen/Qwen3-32B",
+                    id="new-deployment-model",
+                )
+            with Vertical(id="new-deployment-step-customize"):
+                with Horizontal(classes="new-deployment-row"):
+                    with Vertical(classes="new-deployment-column"):
+                        yield Static("Preset", classes="new-deployment-field-label")
+                        yield Select(
+                            self._preset_options(),
+                            value=self._default_preset(),
+                            allow_blank=False,
+                            id="new-deployment-preset",
+                        )
+                        yield Static("Host", classes="new-deployment-field-label")
+                        yield Input(
+                            value="127.0.0.1",
+                            placeholder="127.0.0.1",
+                            id="new-deployment-host",
+                        )
+                    with Vertical(classes="new-deployment-column"):
+                        yield Static("Port", classes="new-deployment-field-label")
+                        yield Input(placeholder="auto", id="new-deployment-port")
+                        yield Static("Exposure", classes="new-deployment-field-label")
+                        yield Select(
+                            [("Local", "local"), ("LAN", "lan"), ("Public", "public")],
+                            value="local",
+                            allow_blank=False,
+                            id="new-deployment-exposure",
+                        )
+            with Vertical(id="new-deployment-step-review"):
+                yield Static("Review", classes="new-deployment-field-label")
+                yield Static(
+                    "Press Ctrl+S to compose, validate, and preview the deployment.",
+                    id="new-deployment-review-summary",
+                )
+            with Vertical(id="new-deployment-step-save"):
+                yield Static("Save & Smoke", classes="new-deployment-field-label")
+                yield Static(
+                    "The next screen writes the target-local config after review.",
+                    id="new-deployment-save-summary",
+                )
             yield Static("", id="new-deployment-error")
-            yield Static("Ctrl+S Save   Esc Cancel", id="new-deployment-actions")
+            yield Static("", id="new-deployment-actions")
 
     def on_mount(self) -> None:
-        self.query_one("#new-deployment-name", Input).focus()
+        self._refresh_step()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
         self.action_submit()
+
+    def action_next_step(self) -> None:
+        self.step_index = min(self.step_index + 1, len(self.STEP_TITLES) - 1)
+        self._refresh_step()
+
+    def action_previous_step(self) -> None:
+        self.step_index = max(self.step_index - 1, 0)
+        self._refresh_step()
 
     def action_submit(self) -> None:
         try:
@@ -194,6 +253,40 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def _default_preset(self) -> str:
         names = {value for _, value in self._preset_options()}
         return "balanced" if "balanced" in names else next(iter(names))
+
+    def _refresh_step(self) -> None:
+        for index, selector in enumerate(self.STEP_IDS):
+            self.query_one(selector).display = index == self.step_index
+        self.query_one("#new-deployment-current-step", Static).update(
+            f"Step {self.step_index + 1} of {len(self.STEP_TITLES)}: "
+            f"{self.STEP_TITLES[self.step_index]}"
+        )
+        self.query_one("#new-deployment-actions", Static).update(self._actions_text())
+        self._focus_current_step()
+
+    def _actions_text(self) -> str:
+        parts: list[str] = []
+        if self.step_index > 0:
+            parts.append("Ctrl+B Back")
+        if self.step_index < len(self.STEP_TITLES) - 1:
+            parts.append("Ctrl+N Next")
+        parts.append("Ctrl+S Review")
+        parts.append("Esc Cancel")
+        return "   ".join(parts)
+
+    def _focus_current_step(self) -> None:
+        selector = {
+            0: "#new-deployment-name",
+            1: "#new-deployment-runtime",
+            2: "#new-deployment-model",
+            3: "#new-deployment-preset",
+        }.get(self.step_index)
+        if selector is None:
+            return
+        try:
+            self.query_one(selector).focus()
+        except Exception:
+            return
 
 
 class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):

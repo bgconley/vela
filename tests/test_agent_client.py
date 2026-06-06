@@ -1418,6 +1418,32 @@ async def test_local_agent_preflight_reports_structured_failures_without_launchi
 
 
 @pytest.mark.asyncio
+async def test_local_agent_preflight_accepts_unsaved_config_mapping(
+    unused_tcp_port: int,
+) -> None:
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {
+                "config": {
+                    "name": "draft-preflight",
+                    "model": "org/model",
+                    "command": {"executable": sys.executable},
+                    "server": {"host": "127.0.0.1", "port": unused_tcp_port},
+                    "vllm": {"version_profile": "current"},
+                }
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert result == {"ok": True, "failures": []}
+
+
+@pytest.mark.asyncio
 async def test_local_agent_restart_rpc_stops_waits_and_launches_new_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

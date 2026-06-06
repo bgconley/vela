@@ -767,10 +767,14 @@ class LocalAgent:
         }
 
     def _preflight(self, params: dict[str, Any]) -> dict[str, Any]:
-        name = _config_name_param(params, method="preflight")
-        registry = load_registry(_configs_dir(params))
-        self._remember_registry_runs_dirs(registry)
-        cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+        draft_config = params.get("config")
+        if isinstance(draft_config, dict):
+            cfg = ModelConfig.model_validate(draft_config)
+        else:
+            name = _config_name_param(params, method="preflight")
+            registry = load_registry(_configs_dir(params))
+            self._remember_registry_runs_dirs(registry)
+            cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         self._remember_run_config(cfg)
         self._check_build_launch_integrity(cfg)
         try:
