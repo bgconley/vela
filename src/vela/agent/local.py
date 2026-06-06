@@ -679,6 +679,7 @@ class LocalAgent:
                 params,
                 configs_dir=_configs_dir(params),
                 models_registry_path=self._models_registry_path,
+                occupied_ports=self._occupied_port_sources(),
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -694,6 +695,7 @@ class LocalAgent:
                 params,
                 configs_dir=_configs_dir(params),
                 models_registry_path=self._models_registry_path,
+                occupied_ports=self._occupied_port_sources(),
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -704,6 +706,7 @@ class LocalAgent:
             return allocate_port(
                 preferred=int(preferred) if preferred is not None else None,
                 configs_dir=_configs_dir(params),
+                occupied_ports=self._occupied_port_sources(),
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -1822,6 +1825,14 @@ class LocalAgent:
             except Exception:
                 continue
         return verified
+
+    def _occupied_port_sources(self) -> dict[str, list[int]]:
+        return {
+            "live_sidecar_ports": sorted(
+                {sidecar.port for sidecar in self._verified_live_sidecars() if sidecar.port > 0}
+            ),
+            "listener_ports": sorted(_listening_ports()),
+        }
 
     async def _create_build(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("create_build", params, self._build_job_runner)
@@ -3014,6 +3025,44 @@ def _config_payload_from_params(params: dict[str, Any], *, method: str) -> dict[
     if not isinstance(payload, dict):
         raise TargetCallError("invalid-config", "config root must be a mapping")
     return dict(payload)
+
+
+def _listening_ports() -> set[int]:
+    try:
+        proc = subprocess.run(
+            ["ss", "-ltn"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return set()
+    if proc.returncode != 0:
+        return set()
+    ports: set[int] = set()
+    for line in proc.stdout.splitlines():
+        port = _listening_port_from_ss_line(line)
+        if port is not None:
+            ports.add(port)
+    return ports
+
+
+def _listening_port_from_ss_line(line: str) -> int | None:
+    parts = line.split()
+    if len(parts) < 4 or parts[0] != "LISTEN":
+        return None
+    return _port_from_sockaddr(parts[-2])
+
+
+def _port_from_sockaddr(value: str) -> int | None:
+    candidate = value.rsplit(":", 1)[-1]
+    if candidate == "*" or not candidate:
+        return None
+    try:
+        port = int(candidate)
+    except ValueError:
+        return None
+    return port if port > 0 else None
 
 
 async def _build_subprocess_exec(

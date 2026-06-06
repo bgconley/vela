@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -327,6 +328,7 @@ def compose_config(
     *,
     configs_dir: str | Path | None = None,
     models_registry_path: str | Path | None = None,
+    occupied_ports: Mapping[str, Iterable[int]] | None = None,
 ) -> ComposeResult:
     model_context = _model_context(spec, models_registry_path=models_registry_path)
     model = model_context.model
@@ -341,6 +343,7 @@ def compose_config(
     port = allocate_port(
         preferred=_preferred_port(overrides) or _recipe_port(recipe),
         configs_dir=configs_dir,
+        occupied_ports=occupied_ports,
     )
     engine, engine_sources = _seed_engine(preset, recipe, suggestions)
     server = {
@@ -404,10 +407,16 @@ def allocate_port(
     preferred: int | None = None,
     configs_dir: str | Path | None = None,
     port_range: tuple[int, int] = DEFAULT_PORT_RANGE,
+    occupied_ports: Mapping[str, Iterable[int]] | None = None,
 ) -> dict[str, Any]:
-    used = _configured_ports(configs_dir)
+    configured_ports = _configured_ports(configs_dir)
+    occupied = _occupied_ports_by_source(occupied_ports)
+    used = set(configured_ports)
+    for ports in occupied.values():
+        used.update(ports)
     start, end = port_range
-    scanned = {"configured_ports": sorted(used), "range": [start, end]}
+    scanned: dict[str, Any] = {"configured_ports": sorted(configured_ports), "range": [start, end]}
+    scanned.update({source: sorted(ports) for source, ports in occupied.items()})
     if preferred is not None and preferred not in used:
         return {"port": preferred, "scanned": scanned, "warnings": []}
     for port in range(start, end + 1):
@@ -422,6 +431,7 @@ def suggest_deployment_defaults(
     *,
     configs_dir: str | Path | None = None,
     models_registry_path: str | Path | None = None,
+    occupied_ports: Mapping[str, Iterable[int]] | None = None,
 ) -> dict[str, Any]:
     model_context = _model_context(params, models_registry_path=models_registry_path)
     model = model_context.model
@@ -433,6 +443,7 @@ def suggest_deployment_defaults(
     allocation = allocate_port(
         preferred=_optional_int(params.get("preferred_port")) or _recipe_port(recipe),
         configs_dir=configs_dir,
+        occupied_ports=occupied_ports,
     )
     engine_suggestions = _recipe_engine(recipe) if recipe is not None else dict(suggestions.engine)
     sources = ["configured_ports", "defaults"]
@@ -578,6 +589,25 @@ def _engine_derived(
 def _configured_ports(configs_dir: str | Path | None) -> set[int]:
     registry = load_registry(configs_dir)
     return {item.config.server.port for item in registry.valid}
+
+
+def _occupied_ports_by_source(
+    occupied_ports: Mapping[str, Iterable[int]] | None,
+) -> dict[str, set[int]]:
+    occupied: dict[str, set[int]] = {}
+    for source, values in (occupied_ports or {}).items():
+        source_key = str(source)
+        ports: set[int] = set()
+        for value in values:
+            try:
+                port = int(value)
+            except (TypeError, ValueError):
+                continue
+            if port > 0:
+                ports.add(port)
+        if ports:
+            occupied[source_key] = ports
+    return occupied
 
 
 def _model_context(

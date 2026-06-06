@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import write_yaml
@@ -120,6 +121,74 @@ def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> Non
         "command.docker.container_name",
     }
     assert result["warnings"] == []
+
+
+def test_agent_composer_skips_live_sidecar_and_listener_ports(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "taken.yaml",
+        """
+        name: taken
+        model: org/taken
+        server:
+          port: 18000
+        """,
+    )
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    log_path = runs_dir / "live.log"
+    log_path.write_text("", encoding="utf-8")
+    manifest_path = runs_dir / "live.manifest.json"
+    Manifest.from_active_log(log_path).write_atomic(manifest_path)
+    sidecar_path = runs_dir / "live.json"
+    Sidecar(
+        run_id="run-live",
+        config_name="live",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:live",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=18001,
+        served_model_names=["fake"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+    ).write_atomic(sidecar_path)
+
+    def fake_run(args, **_kwargs):
+        assert args[:2] == ["ss", "-ltn"]
+        return SimpleNamespace(
+            returncode=0,
+            stdout="LISTEN 0 128 127.0.0.1:18002 0.0.0.0:*\n",
+            stderr="",
+        )
+
+    agent = LocalAgent()
+    agent._detached_sidecar_paths["run-live"] = sidecar_path
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda _path: True)
+    monkeypatch.setattr(local_agent_module.subprocess, "run", fake_run)
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "new",
+            "runtime": "process",
+            "model": "Qwen/Qwen3-32B",
+        },
+    )
+
+    assert result["config"]["server"]["port"] == 18003
+    assert any(
+        item["field"] == "server.port" and item["value"] == "18003"
+        for item in result["derived"]
+    )
 
 
 def test_agent_composes_blackbird_qwen36_fp8_from_lab_recipe(config_dir: Path) -> None:
