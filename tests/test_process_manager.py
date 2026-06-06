@@ -225,7 +225,9 @@ def test_detached_launch_uses_requested_run_id(
         "Popen",
         lambda *args, **kwargs: FakeSupervisor(),
     )
-    monkeypatch.setattr(process_manager_module, "_wait_for_sidecar", lambda *args: None)
+    monkeypatch.setattr(
+        process_manager_module, "_wait_for_sidecar", lambda *args, **kwargs: None
+    )
 
     launch = start_detached(
         cfg,
@@ -301,7 +303,9 @@ def test_detached_docker_launch_payload_records_container_identity_inputs(
         "Popen",
         lambda *args, **kwargs: FakeSupervisor(),
     )
-    monkeypatch.setattr(process_manager_module, "_wait_for_sidecar", lambda *args: None)
+    monkeypatch.setattr(
+        process_manager_module, "_wait_for_sidecar", lambda *args, **kwargs: None
+    )
 
     start_detached(cfg, build, secrets=["secret"], run_id="docker-run-1")
 
@@ -316,6 +320,7 @@ def test_detached_docker_launch_payload_records_container_identity_inputs(
         "container_name": "vela-qwen",
         "image": "vllm/vllm-openai@sha256:image",
         "image_digest": "sha256:image",
+        "pull": "never",
         "stop_grace_seconds": 90,
     }
     assert payload["argv"][:3] == ["docker", "run", "-d"]

@@ -146,7 +146,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             with Vertical(id="new-deployment-step-runtime"):
                 yield Static("Runtime", classes="new-deployment-field-label")
                 yield Select(
-                    [("Process", "process"), ("Docker", "docker")],
+                    [
+                        ("Process", "process"),
+                        ("Docker", "docker"),
+                        ("Build", "build"),
+                        ("Executable", "executable"),
+                    ],
                     value="process",
                     allow_blank=False,
                     id="new-deployment-runtime",
@@ -155,6 +160,16 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 yield Input(
                     placeholder="vllm/vllm-openai@sha256:...",
                     id="new-deployment-image",
+                )
+                yield Static("Build", classes="new-deployment-field-label")
+                yield Input(
+                    placeholder="target build id or label",
+                    id="new-deployment-build",
+                )
+                yield Static("Executable", classes="new-deployment-field-label")
+                yield Input(
+                    placeholder="/path/to/vllm",
+                    id="new-deployment-executable",
                 )
             with Vertical(id="new-deployment-step-model"):
                 yield Static("Model", classes="new-deployment-field-label")
@@ -238,6 +253,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         model = self._field_value("#new-deployment-model")
         runtime = str(self.query_one("#new-deployment-runtime", Select).value or "process")
         image = self._field_value("#new-deployment-image")
+        build = self._field_value("#new-deployment-build")
+        executable = self._field_value("#new-deployment-executable")
         preset = str(self.query_one("#new-deployment-preset", Select).value or "balanced")
         host = self._field_value("#new-deployment-host") or "127.0.0.1"
         port = self._field_value("#new-deployment-port")
@@ -263,6 +280,14 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             spec["runtime"] = {"kind": "docker"}
             if image:
                 spec["runtime"]["image"] = image
+        elif runtime == "build":
+            if not build:
+                raise ValueError("Build is required for build runtime")
+            spec["runtime"] = {"kind": "build", "build": build}
+        elif runtime == "executable":
+            if not executable:
+                raise ValueError("Executable is required for executable runtime")
+            spec["runtime"] = {"kind": "executable", "executable": executable}
         return spec
 
     def _field_value(self, selector: str) -> str:
@@ -299,7 +324,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         if name:
             self.query_one("#new-deployment-name", Input).value = name
         runtime = str(recipe.get("runtime") or "process")
-        if runtime in {"process", "docker"}:
+        if runtime in {"process", "docker", "build", "executable"}:
             self.query_one("#new-deployment-runtime", Select).value = runtime
         model = str(recipe.get("model") or "").strip()
         if not model:
@@ -311,6 +336,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         image = str(recipe.get("image") or "").strip()
         if image:
             self.query_one("#new-deployment-image", Input).value = image
+        build = str(recipe.get("build") or "").strip()
+        if build:
+            self.query_one("#new-deployment-build", Input).value = build
+        executable = str(recipe.get("executable") or "").strip()
+        if executable:
+            self.query_one("#new-deployment-executable", Input).value = executable
         server = recipe.get("server")
         if isinstance(server, dict):
             host = str(server.get("host") or "").strip()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,7 +12,7 @@ from conftest import write_yaml
 from vela.agent import local as local_agent_module
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.engine import composer as composer_module
-from vela.engine.sidecar import Manifest, Sidecar
+from vela.engine.sidecar import Manifest, Sidecar, command_hash, process_identity_from_pid
 
 BLACKBIRD_IMAGE = (
     "vllm/vllm-openai@sha256:"
@@ -120,7 +121,7 @@ def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> Non
         "launch.runs_dir",
         "command.docker.container_name",
     }
-    assert result["warnings"] == []
+    assert "non-local-bind" in "\n".join(result["warnings"])
 
 
 def test_agent_composer_skips_live_sidecar_and_listener_ports(
@@ -283,6 +284,30 @@ def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path)
     assert "--attention-backend" not in config["extra_args"]
 
 
+def test_agent_composer_preserves_blackbird_recipe_when_preset_changes(config_dir: Path) -> None:
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "preset": "throughput",
+        },
+    )
+
+    config = result["config"]
+    docker = config["command"]["docker"]
+    assert config["extra_args"] == list(composer_module.QWEN36_FP8_EXTRA_ARGS)
+    assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
+    assert config["engine"]["kv_cache_dtype"] == "fp8"
+
+
 def test_agent_lists_lab_deployment_recipes_for_tui() -> None:
     agent = LocalAgent()
 
@@ -313,6 +338,17 @@ def test_agent_lists_lab_deployment_recipes_for_tui() -> None:
     assert bf16["engine"]["kv_cache_dtype"] == "bfloat16"
     assert "--kv-cache-memory-bytes" not in bf16["extra_args"]
     assert "FLASHINFER_CUDA_ARCH_LIST" not in bf16["docker"]["env"]
+
+
+def test_agent_lists_spec_aligned_composer_presets_for_wizard() -> None:
+    result = _call(LocalAgent(), "list_presets", {})
+    presets = {item["name"]: item for item in result["presets"]}
+
+    assert "--enable-chunked-prefill" in presets["balanced"]["extra_args"]
+    assert "--max-num-batched-tokens" in presets["throughput"]["extra_args"]
+    assert "--compilation-config" in presets["throughput"]["extra_args"]
+    assert presets["long-context"]["engine"]["max_model_len"] == 131072
+    assert presets["low-memory"]["engine"]["enforce_eager"] is True
 
 
 def test_agent_suggests_defaults_from_pinned_model_registry(
@@ -458,7 +494,9 @@ def test_agent_save_config_writes_yaml_and_refuses_clobber(config_dir: Path) -> 
     assert exc_info.value.code == "config-exists"
 
 
-def test_agent_clones_deployment_with_fresh_runtime_identity(config_dir: Path) -> None:
+def test_agent_clones_deployment_with_fresh_runtime_identity(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     write_yaml(
         config_dir / "source.yaml",
         """
@@ -476,6 +514,7 @@ def test_agent_clones_deployment_with_fresh_runtime_identity(config_dir: Path) -
         """,
     )
     agent = LocalAgent()
+    monkeypatch.setattr(local_agent_module, "_listening_ports", lambda: {18000, 18001})
 
     result = _call(
         agent,
@@ -490,7 +529,7 @@ def test_agent_clones_deployment_with_fresh_runtime_identity(config_dir: Path) -
     config = result["config"]
     assert result["path"] == str(config_dir / "copy.yaml")
     assert config["name"] == "copy"
-    assert config["server"]["port"] != 18003
+    assert config["server"]["port"] == 18002
     assert config["launch"]["runs_dir"] == "/tmp/vela-runs/copy"
     assert config["command"]["docker"]["container_name"] == "vela-copy"
     assert (config_dir / "copy.yaml").exists()
@@ -544,9 +583,7 @@ def test_agent_edits_deployment_config_with_overrides(config_dir: Path) -> None:
     assert "port: 18009" in written
 
 
-def test_agent_delete_config_refuses_live_run(
-    config_dir: Path, tmp_path: Path, monkeypatch
-) -> None:
+def test_agent_delete_config_refuses_live_run(config_dir: Path, tmp_path: Path) -> None:
     write_yaml(
         config_dir / "active.yaml",
         """
@@ -563,17 +600,19 @@ def test_agent_delete_config_refuses_live_run(
     manifest_path = runs_dir / "active.manifest.json"
     Manifest.from_active_log(log_path).write_atomic(manifest_path)
     sidecar_path = runs_dir / "active.json"
+    identity = process_identity_from_pid(os.getpid())
     Sidecar(
         run_id="run-live",
         config_name="active",
-        command_argv=["vllm", "serve", "fake/model"],
-        command_hash="sha256:active",
-        pid=123,
-        pgid=123,
-        process_create_time=1.0,
-        executable="vllm",
+        command_argv=identity.cmdline,
+        command_hash=command_hash(identity.cmdline),
+        pid=identity.pid,
+        pgid=identity.pgid,
+        process_create_time=identity.create_time,
+        procfs_starttime=identity.procfs_starttime,
+        executable=identity.executable,
         cwd=str(tmp_path),
-        launch_mode="detached",
+        launch_mode="attached",
         host="127.0.0.1",
         port=18000,
         served_model_names=["fake"],
@@ -582,7 +621,6 @@ def test_agent_delete_config_refuses_live_run(
     ).write_atomic(sidecar_path)
     agent = LocalAgent()
     agent._detached_sidecar_paths["run-live"] = sidecar_path
-    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda _path: True)
 
     with pytest.raises(TargetCallError) as exc_info:
         _call(agent, "delete_config", {"configs_dir": str(config_dir), "name": "active"})
@@ -656,6 +694,39 @@ def test_agent_push_pull_list_and_lint_config_round_trip(config_dir: Path) -> No
     with pytest.raises(TargetCallError) as exc_info:
         _call(agent, "push_config", {"configs_dir": str(config_dir), "yaml": raw_yaml})
     assert exc_info.value.code == "config-exists"
+
+
+def test_agent_lints_docker_pinning_gpus_and_exposure_mismatch() -> None:
+    agent = LocalAgent()
+
+    linted = _call(
+        agent,
+        "lint_config",
+        {
+            "config": {
+                "name": "docker-lint",
+                "model": "Qwen/Qwen3-32B",
+                "command": {
+                    "runtime": "docker",
+                    "docker": {
+                        "image": "vllm/vllm-openai:latest",
+                        "gpus": "",
+                    },
+                },
+                "server": {
+                    "host": "127.0.0.1",
+                    "port": 18000,
+                    "exposure": "lan",
+                },
+            }
+        },
+    )
+
+    warnings = "\n".join(linted["warnings"])
+    assert "uses :latest" in warnings
+    assert "not digest-pinned" in warnings
+    assert "command.docker.gpus is blank" in warnings
+    assert "server.exposure is lan but server.host is loopback" in warnings
 
 
 def test_agent_exports_docker_config_as_target_local_standalone_script(

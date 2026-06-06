@@ -177,6 +177,7 @@ def start_detached(
             "container_name": str(build.metadata.get("docker_container_name") or ""),
             "image": str(build.metadata.get("docker_image") or ""),
             "image_digest": str(build.metadata.get("docker_image_digest") or ""),
+            "pull": str(build.metadata.get("docker_pull_policy") or "never"),
             "stop_grace_seconds": int(
                 build.metadata.get("docker_stop_grace_seconds") or 90
             ),
@@ -203,7 +204,7 @@ def start_detached(
             start_new_session=True,
             close_fds=True,
         )
-        _wait_for_sidecar(sidecar_path, proc, wait_timeout)
+        _wait_for_sidecar(sidecar_path, proc, wait_timeout, log_path=log_path)
     except Exception:
         if proc is not None and proc.poll() is None:
             _signal_group_with_escalation(
@@ -311,17 +312,36 @@ def _write_secret_payload(path: Path, payload: dict) -> None:
         json.dump(payload, file)
 
 
-def _wait_for_sidecar(path: Path, proc: subprocess.Popen[bytes], timeout: float) -> None:
+def _wait_for_sidecar(
+    path: Path,
+    proc: subprocess.Popen[bytes],
+    timeout: float,
+    *,
+    log_path: Path | None = None,
+) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.exists():
             return
         if proc.poll() is not None:
+            detail = _log_tail(log_path)
+            suffix = f"; {detail}" if detail else ""
             raise RuntimeError(
-                f"detached supervisor exited before writing sidecar: {proc.returncode}"
+                f"detached supervisor exited before writing sidecar: {proc.returncode}{suffix}"
             )
         time.sleep(0.05)
     raise TimeoutError(f"detached supervisor did not write sidecar within {timeout}s")
+
+
+def _log_tail(path: Path | None, *, limit: int = 1000) -> str:
+    if path is None or not path.exists():
+        return ""
+    try:
+        data = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    tail = data[-limit:].strip()
+    return f"log tail: {tail}" if tail else ""
 
 
 def _scrub_config_snapshot(

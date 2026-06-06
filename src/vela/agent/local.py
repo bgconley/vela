@@ -76,7 +76,7 @@ from vela.engine.model_registry import (
     resolve_model_handoff,
     verify_model,
 )
-from vela.engine.phases import PhaseFSM
+from vela.engine.phases import ErrorKind, PhaseFSM
 from vela.engine.preflight import check_launch_preflight
 from vela.engine.process_manager import (
     DetachedLaunch,
@@ -809,7 +809,14 @@ class LocalAgent:
         overrides = _mapping_param(params.get("overrides"), field_name="overrides")
         payload = source.config.model_dump(mode="json", exclude_none=True)
         payload["name"] = new_name
-        derived = _prepare_clone_payload(payload, source.config, new_name, overrides, configs_dir)
+        derived = _prepare_clone_payload(
+            payload,
+            source.config,
+            new_name,
+            overrides,
+            configs_dir,
+            occupied_ports=self._occupied_port_sources(),
+        )
         _apply_config_overrides(payload, overrides)
         try:
             cfg = ModelConfig.model_validate(payload)
@@ -1049,6 +1056,20 @@ class LocalAgent:
             preparation = self._prepare_command_for_config(
                 cfg, validate_model_handoff=True
             )
+        except TargetCallError as exc:
+            if exc.code == "hf-auth-required":
+                return {
+                    "ok": False,
+                    "failures": [{"kind": ErrorKind.HF_AUTH.value, "detail": exc.message}],
+                }
+            if exc.code == "model-unavailable":
+                return {
+                    "ok": False,
+                    "failures": [
+                        {"kind": ErrorKind.MODEL_NOT_FOUND.value, "detail": exc.message}
+                    ],
+                }
+            raise
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
         failure = check_launch_preflight(
@@ -1124,12 +1145,18 @@ class LocalAgent:
         resolved_cfg, model_handoff = self._resolve_model_handoff_config(
             cfg, validate=validate_model_handoff
         )
+        model_env: dict[str, str] = {}
+        if model_handoff is not None:
+            model_env = model_handoff.env_contribution()
+            if model_env:
+                resolved_cfg = resolved_cfg.model_copy(
+                    update={"env": {**resolved_cfg.env, **model_env}}
+                )
         result = self._build_command_for_resolved_config(resolved_cfg)
         if model_handoff is not None:
             model_metadata = model_handoff.metadata()
             if resolved_cfg.revision is not None:
                 model_metadata["model_revision"] = resolved_cfg.revision
-            model_env = model_handoff.env_contribution()
             result_env = {**result.env, **model_env}
             if model_env:
                 model_metadata["model_env_keys"] = sorted(model_env)
@@ -4361,10 +4388,12 @@ def _prepare_clone_payload(
     new_name: str,
     overrides: dict[str, Any],
     configs_dir: Path,
+    *,
+    occupied_ports: dict[str, list[int]] | None = None,
 ) -> list[dict[str, str]]:
     derived: list[dict[str, str]] = []
     if not _override_has(overrides, "server", "port"):
-        allocation = allocate_port(configs_dir=configs_dir)
+        allocation = allocate_port(configs_dir=configs_dir, occupied_ports=occupied_ports)
         server = dict(payload.get("server") if isinstance(payload.get("server"), dict) else {})
         server["port"] = allocation["port"]
         payload["server"] = server

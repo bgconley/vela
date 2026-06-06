@@ -95,6 +95,7 @@ def build_command(
         "flag_map": dict(sorted(profile.flag_map.items())),
     }
     if cfg.command.runtime is RuntimeKind.DOCKER:
+        warnings.extend(_docker_warnings(cfg))
         docker_run = build_docker_run(cfg, argv[1:], env)
         argv = docker_run.argv
         env = docker_run.env
@@ -153,6 +154,18 @@ def _request_logging_flags(
         return [flag]
     warnings.append("request logging policy could not be enforced for this vLLM profile")
     return []
+
+
+def _docker_warnings(cfg: ModelConfig) -> list[str]:
+    docker = cfg.command.docker
+    if cfg.command.runtime is not RuntimeKind.DOCKER or docker is None:
+        return []
+    warnings: list[str] = []
+    if docker.gpus is not None and not str(docker.gpus).strip():
+        warnings.append(
+            "command.docker.gpus is blank; Docker will launch without an explicit GPU reservation"
+        )
+    return warnings
 
 
 def _network_warnings(cfg: ModelConfig) -> list[str]:

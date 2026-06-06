@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import write_yaml
+from fakes.fake_docker import write_fake_docker_runtime
 
 from vela import __version__
 from vela.agent import local as local_agent_module
@@ -28,6 +29,7 @@ from vela.config.loader import load_registry
 from vela.config.schema import ModelConfig
 from vela.engine import build_registry as build_registry_module
 from vela.engine import model_registry as model_registry_module
+from vela.engine import preflight as preflight_module
 from vela.engine.phases import ErrorKind, Phase, PhaseFSM
 from vela.engine.process_manager import DetachedLaunch
 from vela.engine.profile import bundled_profile
@@ -60,51 +62,6 @@ def _agent_connect_socket_command(socket_path: Path) -> list[str]:
         "--socket",
         str(socket_path),
     ]
-
-
-def _write_fake_docker_runtime(path: Path) -> None:
-    path.write_text(
-        "\n".join(
-            [
-                "#!/usr/bin/env python3",
-                "import json, os, sys",
-                "args = sys.argv[1:]",
-                "log = os.environ.get('FAKE_DOCKER_COMMAND_LOG')",
-                "if log:",
-                "    with open(log, 'a', encoding='utf-8') as file:",
-                "        file.write(' '.join(args) + '\\n')",
-                "if args[:2] == ['run', '-d']:",
-                "    print('container-123')",
-                "    raise SystemExit(0)",
-                "if args[:1] == ['ps']:",
-                "    print(os.environ.get('FAKE_DOCKER_PS', ''))",
-                "    raise SystemExit(0)",
-                "if args[:2] == ['logs', '-f']:",
-                "    print('INFO Uvicorn running on http://0.0.0.0:8000', flush=True)",
-                "    raise SystemExit(0)",
-                "if args[:1] == ['wait']:",
-                "    print('0')",
-                "    raise SystemExit(0)",
-                "if args[:1] == ['inspect']:",
-                "    payload = [{",
-                "        'Id': 'container-123',",
-                "        'Name': '/vela-qwen',",
-                "        'Image': 'sha256:image',",
-                "        'Config': {'Image': 'vllm/vllm-openai@sha256:image'},",
-                "    }]",
-                "    print(json.dumps(payload))",
-                "    raise SystemExit(0)",
-                "if args[:1] in (['stop'], ['kill']):",
-                "    raise SystemExit(0)",
-                "if args[:1] == ['rm']:",
-                "    raise SystemExit(0)",
-                "raise SystemExit(f'unexpected docker args: {args}')",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    path.chmod(0o755)
 
 
 def _short_socket_path() -> Path:
@@ -1418,6 +1375,42 @@ async def test_local_agent_preflight_reports_structured_failures_without_launchi
 
 
 @pytest.mark.asyncio
+async def test_local_agent_preflight_reports_low_disk_space(
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
+) -> None:
+    monkeypatch.setenv("VELA_MIN_FREE_DISK_BYTES", "1024")
+    monkeypatch.setattr(
+        preflight_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(total=2048, used=2038, free=10),
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {
+                "config": {
+                    "name": "low-disk",
+                    "model": "org/model",
+                    "command": {"executable": sys.executable},
+                    "server": {"host": "127.0.0.1", "port": unused_tcp_port},
+                    "launch": {"runs_dir": "runs/low-disk"},
+                    "vllm": {"version_profile": "current"},
+                }
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["failures"][0]["kind"] == ErrorKind.DISK_FULL.value
+    assert "free" in result["failures"][0]["detail"]
+
+
+@pytest.mark.asyncio
 async def test_local_agent_preflight_accepts_unsaved_config_mapping(
     unused_tcp_port: int,
 ) -> None:
@@ -1980,7 +1973,7 @@ async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
 ) -> None:
     docker = tmp_path / "docker"
     docker_log = tmp_path / "docker-commands.log"
-    _write_fake_docker_runtime(docker)
+    write_fake_docker_runtime(docker)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
     write_yaml(
@@ -2041,11 +2034,154 @@ async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
 
 
 @pytest.mark.asyncio
+async def test_local_agent_docker_launch_honors_pull_and_records_inspected_digest(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    docker = tmp_path / "docker"
+    docker_log = tmp_path / "docker-commands.log"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
+    monkeypatch.setenv("FAKE_DOCKER_IMAGE_DIGEST", "sha256:resolved")
+    write_yaml(
+        config_dir / "docker-pull.yaml",
+        f"""
+        name: docker-pull
+        model: fake/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai:stable
+            container_name: vela-qwen
+            pull: always
+        server:
+          port: {unused_tcp_port}
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        vllm:
+          version_profile: current
+        """,
+    )
+    agent = LocalAgent()
+    client = InProcessTargetClient(agent)
+    await client.connect()
+
+    try:
+        await client.call(
+            "launch",
+            {
+                "name": "docker-pull",
+                "configs_dir": str(config_dir),
+                "run_id": "docker-pull-run-1",
+            },
+        )
+        await client.call("stop", {"run_id": "docker-pull-run-1"})
+    finally:
+        await client.disconnect()
+
+    sidecar = agent._detached_runs["docker-pull-run-1"].sidecar
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert "pull vllm/vllm-openai:stable" in docker_commands
+    assert "image inspect vllm/vllm-openai:stable" in docker_commands
+    assert docker_commands.index("pull vllm/vllm-openai:stable") < docker_commands.index(
+        "run -d --name vela-qwen"
+    )
+    assert sidecar.docker_image_digest == "sha256:resolved"
+
+
+@pytest.mark.asyncio
+async def test_local_agent_docker_log_replay_and_probe_walk_to_ready(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    docker = tmp_path / "docker"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        assert cfg.name == "docker-ready"
+        assert is_process_alive() in {True, False}
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    write_yaml(
+        config_dir / "docker-ready.yaml",
+        f"""
+        name: docker-ready
+        model: fake/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:image
+            container_name: vela-qwen
+        server:
+          host: 127.0.0.1
+          port: {unused_tcp_port}
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        vllm:
+          version_profile: current
+        """,
+    )
+    agent = LocalAgent()
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    try:
+        launch = await client.call(
+            "launch",
+            {
+                "name": "docker-ready",
+                "configs_dir": str(config_dir),
+                "run_id": "docker-ready-run",
+            },
+        )
+        run = agent._detached_runs["docker-ready-run"]
+        log_path = Path(run.manifest.active_log.path)
+        for _ in range(100):
+            if log_path.exists() and "Uvicorn running" in log_path.read_text(
+                encoding="utf-8"
+            ):
+                break
+            await asyncio.sleep(0.01)
+        assert "Uvicorn running" in log_path.read_text(encoding="utf-8")
+        replayed = client.subscribe(
+            ["docker-ready-run"],
+            resume_from={
+                "log_inode": run.manifest.active_log.inode,
+                "byte_offset": 0,
+            },
+        )
+        try:
+            log_event = await asyncio.wait_for(
+                _next_event(replayed, event_name="log"),
+                timeout=2,
+            )
+            phase_event = await asyncio.wait_for(
+                _next_event(replayed, event_name="phase"),
+                timeout=2,
+            )
+        finally:
+            await replayed.aclose()
+
+        ready = await client.call("probe_until_ready", {"run_id": "docker-ready-run"})
+    finally:
+        await client.disconnect()
+
+    assert launch["status"] == "started"
+    assert "Uvicorn running" in log_event["text"]
+    assert phase_event["phase"] == Phase.SERVER_STARTING.value
+    assert ready["ready"] is True
+    assert ready["phase"] == Phase.READY.value
+    assert ready["models"] == ["served"]
+
+
+@pytest.mark.asyncio
 async def test_local_agent_preflight_reports_docker_published_port_conflict(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     docker = tmp_path / "docker"
-    _write_fake_docker_runtime(docker)
+    write_fake_docker_runtime(docker)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setenv("FAKE_DOCKER_PS", "0.0.0.0:18003->8000/tcp")
     write_yaml(
@@ -2079,6 +2215,47 @@ async def test_local_agent_preflight_reports_docker_published_port_conflict(
     assert result["ok"] is False
     assert result["failures"][0]["kind"] == "PORT_IN_USE"
     assert "Docker container" in result["failures"][0]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_local_agent_preflight_reports_missing_docker_image_when_pull_never(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    docker = tmp_path / "docker"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_IMAGE_MISSING", "1")
+    write_yaml(
+        config_dir / "docker-image-missing.yaml",
+        f"""
+        name: docker-image-missing
+        model: org/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai:missing
+            pull: never
+        server:
+          host: 127.0.0.1
+          port: {unused_tcp_port}
+        vllm:
+          version_profile: current
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {"config_name": "docker-image-missing", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["failures"][0]["kind"] == "IMAGE_NOT_FOUND"
+    assert "vllm/vllm-openai:missing" in result["failures"][0]["detail"]
 
 
 @pytest.mark.asyncio
@@ -7017,6 +7194,65 @@ async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
 
 
 @pytest.mark.asyncio
+async def test_agent_preflight_reports_gated_model_missing_hf_token(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01GATED",
+                        "display_name": "llama-gated",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "cached",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "gated-model.yaml",
+        """
+        name: gated-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01GATED
+        """,
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {"name": "gated-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["failures"] == [
+        {
+            "kind": ErrorKind.HF_AUTH.value,
+            "detail": (
+                "model llama-gated requires HF_TOKEN; "
+                "accept the model license and set HF_TOKEN"
+            ),
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref(
     config_dir: Path,
     tmp_path: Path,
@@ -7071,6 +7307,78 @@ async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_model_ref
         await client.disconnect()
 
     assert prepared["build"]["env"]["HF_TOKEN"] == "hf_runtime_token"
+    assert prepared["build"]["metadata"]["model_token_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_prepare_launch_injects_runtime_hf_token_for_gated_docker_model_ref(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01GATED",
+                        "display_name": "gated",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "cached",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "gated-docker.yaml",
+        f"""
+        name: gated-docker
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01GATED
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+        server:
+          port: {unused_tcp_port}
+        vllm:
+          version_profile: current
+        """,
+    )
+    monkeypatch.setenv("HF_TOKEN", "hf_runtime_token")
+    docker = tmp_path / "docker"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        prepared = await client.call(
+            "prepare_launch",
+            {"name": "gated-docker", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert prepared["build"]["env"]["HF_TOKEN"] == "hf_runtime_token"
+    assert ["-e", "HF_TOKEN"] == prepared["build"]["argv"][
+        prepared["build"]["argv"].index("HF_TOKEN") - 1 : prepared["build"]["argv"].index(
+            "HF_TOKEN"
+        )
+        + 1
+    ]
+    assert "hf_runtime_token" not in prepared["build"]["preview"]
     assert prepared["build"]["metadata"]["model_token_required"] is True
 
 

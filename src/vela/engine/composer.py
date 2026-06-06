@@ -244,27 +244,44 @@ PRESETS: tuple[dict[str, Any], ...] = (
         "name": "balanced",
         "description": "Default safe starting point for general serving.",
         "engine": {"gpu_memory_utilization": 0.9, "dtype": "auto"},
-        "extra_args": ["--enable-prefix-caching"],
+        "extra_args": ["--enable-prefix-caching", "--enable-chunked-prefill"],
         "applies_to": ["all"],
     },
     {
         "name": "throughput",
         "description": "Favor higher batch volume when memory headroom exists.",
         "engine": {"gpu_memory_utilization": 0.92, "dtype": "auto", "max_num_seqs": 32},
-        "extra_args": ["--enable-prefix-caching"],
+        "extra_args": [
+            "--enable-prefix-caching",
+            "--enable-chunked-prefill",
+            "--max-num-batched-tokens",
+            "8192",
+            "--compilation-config",
+            '{"cudagraph_capture_sizes":[1,2,4,8,16],"cudagraph_num_of_warmups":1}',
+        ],
         "applies_to": ["all"],
     },
     {
         "name": "long-context",
         "description": "Reserve memory for longer prompts and conservative concurrency.",
-        "engine": {"gpu_memory_utilization": 0.9, "dtype": "auto", "max_num_seqs": 4},
+        "engine": {
+            "gpu_memory_utilization": 0.9,
+            "dtype": "auto",
+            "max_num_seqs": 4,
+            "max_model_len": 131072,
+        },
         "extra_args": ["--enable-prefix-caching"],
         "applies_to": ["all"],
     },
     {
         "name": "low-memory",
         "description": "Conservative memory profile for tight cards or experiments.",
-        "engine": {"gpu_memory_utilization": 0.85, "dtype": "auto", "max_num_seqs": 2},
+        "engine": {
+            "gpu_memory_utilization": 0.85,
+            "dtype": "auto",
+            "max_num_seqs": 2,
+            "enforce_eager": True,
+        },
         "extra_args": ["--enable-prefix-caching"],
         "applies_to": ["all"],
     },
@@ -391,6 +408,7 @@ def compose_config(
     cfg = ModelConfig.model_validate(payload)
     warnings = [*suggestions.warnings, *(recipe.warnings if recipe is not None else ())]
     warnings.extend(port["warnings"])
+    warnings.extend(_compose_config_warnings(cfg))
     return ComposeResult(
         config=cfg,
         warnings=warnings,
@@ -962,7 +980,61 @@ def _lint_config(cfg: ModelConfig) -> list[str]:
     for key, value in sorted(cfg.env.items()):
         if _secretish_key(key) and _literal_secret(value):
             warnings.append(f"env.{key} contains a literal secret; prefer target env injection")
+    if cfg.command.runtime is RuntimeKind.DOCKER and cfg.command.docker is not None:
+        warnings.extend(_docker_lint_warnings(cfg))
+    warnings.extend(_exposure_lint_warnings(cfg))
     return warnings
+
+
+def _compose_config_warnings(cfg: ModelConfig) -> list[str]:
+    warnings: list[str] = []
+    warnings.extend(_docker_lint_warnings(cfg))
+    warnings.extend(_canonical_bind_warnings(cfg))
+    return warnings
+
+
+def _docker_lint_warnings(cfg: ModelConfig) -> list[str]:
+    docker = cfg.command.docker
+    if cfg.command.runtime is not RuntimeKind.DOCKER or docker is None:
+        return []
+    warnings: list[str] = []
+    image = docker.image.strip()
+    if image.endswith(":latest") or ":latest@" in image:
+        warnings.append(
+            "command.docker.image uses :latest; pin a version tag or sha256 digest "
+            "for reproducible Docker deployments"
+        )
+    if "@sha256:" not in image:
+        warnings.append(
+            "command.docker.image is not digest-pinned; prefer a sha256 image digest "
+            "for reproducible Docker deployments"
+        )
+    if docker.gpus is not None and not str(docker.gpus).strip():
+        warnings.append(
+            "command.docker.gpus is blank; Docker will launch without an explicit GPU reservation"
+        )
+    return warnings
+
+
+def _exposure_lint_warnings(cfg: ModelConfig) -> list[str]:
+    if cfg.server.host not in {"127.0.0.1", "localhost", "::1"}:
+        return []
+    if cfg.server.exposure is Exposure.LOCAL:
+        return []
+    return [
+        (
+            f"server.exposure is {cfg.server.exposure.value} but server.host is loopback; "
+            "bind 0.0.0.0 or set exposure: local"
+        )
+    ]
+
+
+def _canonical_bind_warnings(cfg: ModelConfig) -> list[str]:
+    if cfg.server.host in {"127.0.0.1", "localhost", "::1"}:
+        return []
+    return [
+        "non-local-bind: server.host exposes beyond loopback; verify target firewall/API key"
+    ]
 
 
 def _secretish_key(key: str) -> bool:

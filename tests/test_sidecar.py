@@ -330,6 +330,69 @@ def test_docker_stop_refuses_recycled_container_name(
     assert calls == []
 
 
+def test_docker_stop_refuses_container_name_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.runtime = "docker"
+    sidecar.docker_container_name = "vela-qwen"
+    sidecar.docker_container_id = "abc123"
+    sidecar.docker_image_digest = "sha256:image"
+    sidecar.write_atomic(sidecar_path)
+    Manifest.from_active_log(_write_log(tmp_path)).write_atomic(tmp_path / "run.manifest.json")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        sidecar_module,
+        "_docker_inspect_container",
+        lambda _binary, _container_id: {
+            "Id": "abc123",
+            "Name": "/other-qwen",
+            "Image": "sha256:image",
+            "Config": {"Image": "vllm/vllm-openai@sha256:image"},
+        },
+    )
+    monkeypatch.setattr(sidecar_module, "_run_docker_command", lambda argv: calls.append(argv))
+
+    with pytest.raises(TrackedProcessMismatch, match="container name"):
+        stop_sidecar_from_system(sidecar_path)
+
+    assert calls == []
+
+
+def test_docker_stop_refuses_container_image_digest_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.runtime = "docker"
+    sidecar.docker_container_name = "vela-qwen"
+    sidecar.docker_container_id = "abc123"
+    sidecar.docker_image_digest = "sha256:image"
+    sidecar.write_atomic(sidecar_path)
+    Manifest.from_active_log(_write_log(tmp_path)).write_atomic(tmp_path / "run.manifest.json")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        sidecar_module,
+        "_docker_inspect_container",
+        lambda _binary, _container_id: {
+            "Id": "abc123",
+            "Name": "/vela-qwen",
+            "Image": "sha256:other",
+            "Config": {"Image": "vllm/vllm-openai@sha256:other"},
+            "RepoDigests": ["vllm/vllm-openai@sha256:other"],
+        },
+    )
+    monkeypatch.setattr(sidecar_module, "_run_docker_command", lambda argv: calls.append(argv))
+
+    with pytest.raises(TrackedProcessMismatch, match="image digest"):
+        stop_sidecar_from_system(sidecar_path)
+
+    assert calls == []
+
+
 def test_verify_docker_sidecar_requires_running_container(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

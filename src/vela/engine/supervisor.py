@@ -15,6 +15,11 @@ from pathlib import Path
 
 import psutil
 
+from vela.engine.docker_runtime import (
+    DockerCommandError,
+    classify_docker_error,
+    prepare_docker_image,
+)
 from vela.engine.log_sink import LogRecord, LogSink, is_pty_eof
 from vela.engine.redaction import scrub_text as scrub_secret_text
 from vela.engine.sidecar import Manifest, Sidecar, command_hash, procfs_starttime_from_pid
@@ -180,6 +185,27 @@ def _run_docker_supervisor(
         cwd=cwd,
         env=env,
     )
+    try:
+        image_info = prepare_docker_image(
+            docker_binary,
+            str(docker.get("image") or ""),
+            str(docker.get("pull") or "never"),
+            cwd=cwd,
+            env=env,
+        )
+        docker["image_digest"] = image_info.digest
+    except DockerCommandError as exc:
+        _write_docker_failure_log(
+            payload,
+            log_path,
+            secrets,
+            label="docker image preparation failed",
+            detail=exc.detail,
+            returncode=exc.returncode,
+            kind=exc.kind.value,
+        )
+        _write_exit_status(payload, exc.returncode)
+        return int(exc.returncode)
     run = subprocess.run(
         argv,
         cwd=cwd,
@@ -188,6 +214,16 @@ def _run_docker_supervisor(
         check=False,
     )
     if run.returncode != 0:
+        detail = _docker_result_text(run)
+        _write_docker_failure_log(
+            payload,
+            log_path,
+            secrets,
+            label="docker run failed",
+            detail=detail,
+            returncode=int(run.returncode),
+            kind=classify_docker_error(detail).value,
+        )
         _write_exit_status(payload, run.returncode)
         return int(run.returncode)
     container_id = _container_id_from_run_stdout(run.stdout)
@@ -266,6 +302,43 @@ def _run_docker_supervisor(
     returncode = _docker_wait_returncode(wait)
     _write_exit_status(payload, returncode)
     return returncode
+
+
+def _write_docker_failure_log(
+    payload: dict,
+    log_path: Path,
+    secrets: list[str],
+    *,
+    label: str,
+    detail: str,
+    returncode: int,
+    kind: str,
+) -> None:
+    event_spool = _EventSpool(_event_log_path(payload))
+    sink, _durable_log_available = _open_log_sink(
+        log_path,
+        secrets,
+        emit=event_spool.emit,
+    )
+    try:
+        line = f"ERROR {label} ({kind}, exit {returncode}): {detail or 'no output'}"
+        sink.feed((line + "\n").encode("utf-8", errors="replace"))
+    finally:
+        try:
+            sink.close()
+        finally:
+            event_spool.close()
+
+
+def _docker_result_text(result: subprocess.CompletedProcess[bytes]) -> str:
+    data = b""
+    if result.stderr:
+        data += result.stderr
+    if result.stdout:
+        if data:
+            data += b"\n"
+        data += result.stdout
+    return data.decode("utf-8", errors="replace").strip()
 
 
 def _evict_docker_containers(

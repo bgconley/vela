@@ -2477,6 +2477,7 @@ def test_cli_deploy_create_preserves_blackbird_recipe_runtime(
                     "configs_dir": str(tmp_path),
                     "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
                     "config": blackbird_config,
+                    "overwrite": True,
                 }
                 return {
                     "path": str(tmp_path / "qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml"),
@@ -2526,6 +2527,132 @@ def test_cli_deploy_create_preserves_blackbird_recipe_runtime(
         "preview",
         "preflight",
         "save_config",
+    ]
+
+
+def test_cli_deploy_create_dry_run_does_not_preflight_or_save(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "dry-run",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "compose_config":
+                return {"config": config, "warnings": [], "derived": []}
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method in {"preflight", "save_config"}:
+                raise AssertionError(f"dry-run should not call {method}")
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "dry-run",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["config"]["name"] == "dry-run"
+    assert "saved" not in payload
+    assert [method for method, _params in calls] == [
+        "compose_config",
+        "validate_config",
+        "preview",
+    ]
+
+
+def test_cli_deploy_create_is_idempotent_by_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "repeatable",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    save_params: list[dict[str, object]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            if method == "compose_config":
+                return {"config": config, "warnings": [], "derived": []}
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "preflight":
+                return {"ok": True, "checks": []}
+            if method == "save_config":
+                save_params.append(dict(params))
+                return {
+                    "path": str(tmp_path / "repeatable.yaml"),
+                    "name": "repeatable",
+                    "config": config,
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "repeatable",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert save_params == [
+        {
+            "name": "repeatable",
+            "config": config,
+            "configs_dir": str(tmp_path),
+            "overwrite": True,
+        }
     ]
 
 

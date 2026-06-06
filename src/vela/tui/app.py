@@ -399,6 +399,7 @@ ERROR_GUIDANCE = {
     ErrorKind.TP_MISMATCH: "Check tensor_parallel_size, pipeline_parallel_size, and visible GPUs.",
     ErrorKind.HF_AUTH: "Set HF_TOKEN and accept the model license if it is gated.",
     ErrorKind.API_KEY_AUTH: "Check server.api_key/VLLM_API_KEY for the running server.",
+    ErrorKind.DISK_FULL: "Free disk space on the target or move runs/cache paths.",
     ErrorKind.COMMAND_NOT_FOUND: "install vLLM or set command.entrypoint: module.",
     ErrorKind.CONFIG_INVALID: "Fix the config or choose a compatible vLLM version_profile.",
     ErrorKind.CRASHED: "Check the last log lines and resolved command.",
@@ -838,6 +839,11 @@ class VelaApp(App):
         )
         yield SystemCommand(
             "Open config picker", "Choose a model config", self.action_config_picker
+        )
+        yield SystemCommand(
+            "New Deployment",
+            "Create a target-local deployment config",
+            self.action_new_deployment,
         )
         yield SystemCommand(
             "Manage targets", "View and switch controller targets", self.action_targets
@@ -2323,7 +2329,87 @@ class VelaApp(App):
         self._refresh_chrome()
         self.notify(f"Saved deployment: {saved.get('name') or config.get('name')}")
         if smoke:
-            await self._run_selected_config()
+            await self._run_saved_config_smoke()
+
+    async def _run_saved_config_smoke(self) -> None:
+        cfg = self.current_config
+        if cfg is None:
+            self._set_error_text("No saved deployment selected for smoke")
+            return
+        self._reset_run_state()
+        self.fsm = PhaseFSM(bundled_profile("current"))
+        self._set_phase(Phase.STARTING)
+        try:
+            preflight = await self._preflight_from_agent(cfg.name)
+            if not self._handle_preflight_result(preflight):
+                return
+            prepared = await self._prepare_launch_from_agent(cfg.name)
+        except TargetCallError as exc:
+            self._handle_launch_agent_error(exc)
+            return
+        cfg = ModelConfig.model_validate(prepared["config"])
+        self.current_config = cfg
+        build = _command_build_result_from_agent_payload(prepared["build"])
+        self.fsm = _phase_fsm_from_agent_metadata(build.metadata)
+        self._record_warnings(build.warnings)
+        try:
+            launch = await self._target_call(
+                "launch",
+                self._launch_agent_params(
+                    name=cfg.name,
+                    configs_dir=self.configs_dir,
+                    **self._launch_overrides,
+                ),
+            )
+        except TargetCallError as exc:
+            self._handle_attached_start_agent_error(exc, build.argv[0])
+            return
+        run_id = str(launch["run_id"])
+        self.current_run_id = run_id
+        wait_needed = True
+        try:
+            probe = await self._target_call("probe_until_ready", {"run_id": run_id})
+            error_kind = None
+            if probe.get("error_kind") is not None:
+                error_kind = _error_kind_from_agent_payload(probe.get("error_kind"))
+            ready = bool(probe.get("ready"))
+            detail = str(probe.get("detail") or "")
+            self._handle_health_changed(
+                ready=ready,
+                detail=detail,
+                models=[str(model) for model in probe.get("models") or []],
+                error_kind=error_kind,
+                reachable_url=_optional_str(probe.get("reachable_url")),
+            )
+            if not ready:
+                self._set_error_text(f"Smoke did not reach READY: {detail}")
+                return
+            suffix = f" ({', '.join(self.served_models)})" if self.served_models else ""
+            self.notify(f"Smoke READY: {self.ready_url or self._server_url(cfg)}{suffix}")
+        except TargetCallError as exc:
+            self._handle_launch_agent_error(exc)
+            return
+        finally:
+            if self.current_run_id == run_id:
+                await self._target_stop_run(
+                    run_id,
+                    interrupt_timeout=2,
+                    terminate_timeout=2,
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._target_call("wait", {"run_id": run_id}),
+                        timeout=_smoke_stop_timeout_seconds(cfg),
+                    )
+                except asyncio.TimeoutError:
+                    wait_needed = False
+                    self._set_error_text(f"Smoke stop timed out for {run_id}")
+                except Exception as exc:
+                    wait_needed = False
+                    self._set_error_text(f"Unable to wait for smoke stop: {exc}")
+                if wait_needed:
+                    self.current_run_id = None
+                    self._set_phase(Phase.STOPPED)
 
     def action_search(self) -> None:
         self.push_screen(
@@ -4360,6 +4446,12 @@ def _draft_config_with_flag_updates(
     if isinstance(extra_args, list):
         payload["extra_args"] = [str(item) for item in extra_args]
     return ModelConfig.model_validate(payload).model_dump(mode="json", exclude_none=True)
+
+
+def _smoke_stop_timeout_seconds(cfg: ModelConfig) -> float:
+    if cfg.command.runtime.value == "docker" and cfg.command.docker is not None:
+        return max(10.0, float(cfg.command.docker.stop_grace_seconds) + 10.0)
+    return 10.0
 
 
 def _preview_metadata(preview: dict[str, Any]) -> dict[str, Any]:

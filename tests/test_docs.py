@@ -61,6 +61,7 @@ def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     agent_rpc = _read("docs/agent-rpc.md")
     gpu_workflow = _read("docs/gpu-workflow.md")
     docker_runtime = _read("docs/docker-runtime.md")
+    deployments = _read("docs/deployments.md")
 
     assert "New Deployment" in readme
     assert "vela deploy create" in readme
@@ -69,6 +70,9 @@ def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     assert "compose_config" in agent_rpc
     assert "export_config" in agent_rpc
     assert "native `command.runtime: docker`" in docker_runtime
+    assert "TUI is the primary deployment composer" in deployments
+    assert "local Blackwell recipe" in deployments
+    assert "Hugging Face metadata is advisory" in deployments
     assert "2026-06-06-p620-blackbird-native-docker-fp8" in gpu_workflow
     assert "2026-06-06-p620-blackbird-native-docker-bf16" in gpu_workflow
 

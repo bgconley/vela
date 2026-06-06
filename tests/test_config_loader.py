@@ -113,6 +113,7 @@ def test_docker_runtime_accepts_docker_config() -> None:
                 "docker": {
                     "image": "vllm/vllm-openai@sha256:abc",
                     "container_name": "vela-x",
+                    "runtime": "nvidia",
                     "hf_cache": "/tank/models/hf-cache",
                     "volumes": ["/tank/models:/root/.cache/huggingface:rw"],
                     "env": {"HF_HOME": "/root/.cache/huggingface"},
@@ -125,6 +126,7 @@ def test_docker_runtime_accepts_docker_config() -> None:
     assert cfg.command.docker is not None
     assert cfg.command.docker.image == "vllm/vllm-openai@sha256:abc"
     assert cfg.command.docker.container_name == "vela-x"
+    assert cfg.command.docker.runtime == "nvidia"
 
 
 @pytest.mark.parametrize(

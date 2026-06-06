@@ -339,6 +339,30 @@ def test_bf16_docker_runtime_does_not_inherit_fp8_kv_pin() -> None:
     assert "serve" not in result.argv[result.argv.index("vllm/vllm-openai@sha256:abc") + 1 :]
 
 
+def test_docker_runtime_emits_explicit_runtime_and_warns_on_blank_gpus() -> None:
+    model_cfg = cfg(
+        {
+            "model": "Qwen/Qwen3-32B",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "runtime": "nvidia",
+                    "gpus": "",
+                },
+            },
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert ["--runtime", "nvidia"] == result.argv[
+        result.argv.index("--runtime") : result.argv.index("--runtime") + 2
+    ]
+    assert "--gpus" not in result.argv
+    assert "command.docker.gpus is blank" in "\n".join(result.warnings)
+
+
 def test_standalone_docker_export_redacts_secrets_and_reproduces_run(tmp_path: Path) -> None:
     model_cfg = cfg(
         {

@@ -37,6 +37,7 @@ class DockerConfig(BaseModel):
 
     image: str
     container_name: str | None = None
+    runtime: str | None = None
     gpus: str | None = "all"
     ipc_host: bool = True
     shm_size: str | None = None

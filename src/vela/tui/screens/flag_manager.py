@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -85,8 +86,11 @@ class FlagManagerScreen(ModalScreen):
         self.selected_index = 0
         self._preview_revision = 0
         self._updating_value_input = False
+        self._updating_extra_args_input = False
+        self.extra_args = list(config.extra_args)
+        self.extra_args_error: str | None = None
         self.passthrough, self.unknown = _partition_extra_args(
-            config.extra_args,
+            self.extra_args,
             known_flags=_known_flags(self.metadata),
         )
 
@@ -100,9 +104,15 @@ class FlagManagerScreen(ModalScreen):
                         placeholder="Flag value",
                         id="flag-manager-value",
                     )
+                    yield Input(
+                        value=_quote_extra_args(self.extra_args),
+                        placeholder="Raw passthrough args",
+                        id="flag-manager-extra-args",
+                    )
                     yield Static(self._render_detail(), id="flag-manager-detail")
             yield Static(
-                "↑↓ Select   edit value   d Reset-to-default   Ctrl+S Save   Esc Close",
+                "↑↓ Select   edit value   edit raw args   d Reset-to-default   "
+                "Ctrl+S Save   Esc Close",
                 id="flag-manager-footer",
             )
 
@@ -140,7 +150,7 @@ class FlagManagerScreen(ModalScreen):
                 "action": "save_flags",
                 "name": self.config.name,
                 "engine": dict(self.engine_updates),
-                "extra_args": list(self.config.extra_args),
+                "extra_args": list(self.extra_args),
             }
         )
 
@@ -164,6 +174,8 @@ class FlagManagerScreen(ModalScreen):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "flag-manager-value":
+            if event.input.id == "flag-manager-extra-args":
+                self._handle_extra_args_changed(event.value)
             return
         if self._updating_value_input:
             return
@@ -178,6 +190,24 @@ class FlagManagerScreen(ModalScreen):
             return
         item["value"] = value
         self.engine_updates[item["field"]] = value
+        self._refresh()
+        self._queue_preview_refresh()
+
+    def _handle_extra_args_changed(self, value: str) -> None:
+        if self._updating_extra_args_input:
+            return
+        try:
+            parsed = shlex.split(value)
+        except ValueError as exc:
+            self.extra_args_error = f"Raw passthrough args: {exc}"
+            self._refresh()
+            return
+        self.extra_args_error = None
+        self.extra_args = parsed
+        self.passthrough, self.unknown = _partition_extra_args(
+            self.extra_args,
+            known_flags=_known_flags(self.metadata),
+        )
         self._refresh()
         self._queue_preview_refresh()
 
@@ -210,7 +240,7 @@ class FlagManagerScreen(ModalScreen):
             {
                 "name": self.config.name,
                 "engine": dict(self.engine_updates),
-                "extra_args": list(self.config.extra_args),
+                "extra_args": list(self.extra_args),
             }
         )
         if revision != self._preview_revision:
@@ -221,6 +251,10 @@ class FlagManagerScreen(ModalScreen):
         metadata = result.get("metadata")
         if isinstance(metadata, dict):
             self.metadata = {**self.metadata, **metadata}
+            self.passthrough, self.unknown = _partition_extra_args(
+                self.extra_args,
+                known_flags=_known_flags(self.metadata),
+            )
         self._refresh()
 
     def _render_list(self) -> str:
@@ -257,6 +291,9 @@ class FlagManagerScreen(ModalScreen):
 
     def _render_detail(self) -> str:
         lines = ["Editor + live preview", "", "Resolved command"]
+        if self.extra_args_error:
+            lines.append(self.extra_args_error)
+            lines.append("")
         if self.preview:
             lines.extend(self.preview.splitlines())
         else:
@@ -368,6 +405,10 @@ def _flag_name(token: str) -> str | None:
 
 def _flag_value_text(item: dict[str, str]) -> str:
     return f"{item['label']} = {item['value']} -> {item['target']}"
+
+
+def _quote_extra_args(extra_args: list[str]) -> str:
+    return shlex.join(extra_args)
 
 
 def _build_label(config: ModelConfig, metadata: dict[str, Any]) -> str:

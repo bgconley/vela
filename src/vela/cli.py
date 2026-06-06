@@ -1179,8 +1179,7 @@ def deploy_create(
             save_params: dict[str, Any] = {"name": name, "config": config}
             if configs_dir is not None:
                 save_params["configs_dir"] = str(configs_dir)
-            if overwrite:
-                save_params["overwrite"] = True
+            save_params["overwrite"] = True
             saved = _agent_call("save_config", save_params, target_name=target)
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, fallback_name=name)

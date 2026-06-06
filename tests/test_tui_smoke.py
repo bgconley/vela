@@ -3489,6 +3489,8 @@ async def test_new_deployment_screen_opens_from_tui_binding(config_dir: Path) ->
 
     async with app.run_test() as pilot:
         await pilot.pause()
+        palette_titles = {command.title for command in app.get_system_commands(app.screen)}
+        assert "New Deployment" in palette_titles
         await pilot.press("n")
         await pilot.pause()
 
@@ -3580,6 +3582,94 @@ async def test_new_deployment_wizard_steps_forward_and_back_preserve_edits(
             app.screen.query_one("#new-deployment-current-step", Static).content
         )
         assert app.screen.query_one("#new-deployment-port", Input).value == "18001"
+
+
+@pytest.mark.parametrize(
+    ("runtime_value", "field_id", "field_value", "expected_runtime"),
+    [
+        (
+            "build",
+            "#new-deployment-build",
+            "vllm-nightly-cu130-sm120",
+            {"kind": "build", "build": "vllm-nightly-cu130-sm120"},
+        ),
+        (
+            "executable",
+            "#new-deployment-executable",
+            "/opt/vllm/bin/vllm",
+            {"kind": "executable", "executable": "/opt/vllm/bin/vllm"},
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_new_deployment_runtime_picker_hands_build_and_executable_to_composer(
+    config_dir: Path,
+    runtime_value: str,
+    field_id: str,
+    field_value: str,
+    expected_runtime: dict[str, str],
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.compose_params: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen3-runtime",
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                        "command": {"runtime": "process"},
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B", "warnings": []}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment runtime picker should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3-runtime"
+        app.screen.query_one("#new-deployment-runtime", Select).value = runtime_value
+        app.screen.query_one(field_id, Input).value = field_value
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open for runtime picker selection",
+        )
+
+    assert client.compose_params is not None
+    assert client.compose_params["runtime"] == expected_runtime
 
 
 @pytest.mark.asyncio
@@ -4189,8 +4279,12 @@ async def test_new_deployment_review_save_and_smoke_launches_saved_config(
                     "ready": True,
                     "detail": "ready",
                     "models": ["qwen3"],
+                    "reachable_url": "http://127.0.0.1:18001",
                     "error_kind": None,
                 }
+            if method == "stop":
+                assert params["run_id"] == "smoke-run"
+                return {"run_id": "smoke-run", "status": "stopped"}
             if method == "wait":
                 assert params["run_id"] == "smoke-run"
                 return {"run_id": "smoke-run", "returncode": 0, "intentional": False}
@@ -4241,7 +4335,9 @@ async def test_new_deployment_review_save_and_smoke_launches_saved_config(
     methods = [method for method, _params in client.calls]
     assert methods.index("save_config") < methods.index("prepare_launch")
     assert methods.index("prepare_launch") < methods.index("launch")
-    assert methods.index("launch") < methods.index("wait")
+    assert methods.index("launch") < methods.index("probe_until_ready")
+    assert methods.index("probe_until_ready") < methods.index("stop")
+    assert methods.index("stop") < methods.index("wait")
 
 
 @pytest.mark.asyncio
@@ -4775,6 +4871,82 @@ async def test_flag_manager_opens_from_binding_and_partitions_flags(
         assert "Resolved command" in detail
         assert "--kv-cache-dtype fp8" in detail
         assert "--moe-backend flashinfer_cutlass" in detail
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_edits_raw_passthrough_args(
+    config_dir: Path,
+    tmp_path: Path,
+) -> None:
+    fake_vllm = tmp_path / "fake-vllm"
+    fake_vllm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('vllm 0.11.2')\n"
+        "elif len(sys.argv) >= 2 and sys.argv[1] == 'serve':\n"
+        "    print('usage: vllm serve')\n"
+        "    print('  --tensor-parallel-size INTEGER')\n"
+        "    print('  --moe-backend TEXT')\n"
+        "    print('  --max-num-batched-tokens INTEGER')\n",
+        encoding="utf-8",
+    )
+    fake_vllm.chmod(0o755)
+    write_yaml(
+        config_dir / "raw-flags.yaml",
+        f"""
+        name: raw-flags
+        model: org/model
+        command:
+          executable: {fake_vllm}
+        engine:
+          tensor_parallel_size: 2
+        extra_args:
+          - --moe-backend
+          - flashinfer_cutlass
+        """,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=InProcessTargetClient(LocalAgent()),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+        raw_input = app.screen.query_one("#flag-manager-extra-args", Input)
+        assert "--moe-backend flashinfer_cutlass" in raw_input.value
+
+        raw_input.value = (
+            "--moe-backend flashinfer_cutlass "
+            "--max-num-batched-tokens 8192"
+        )
+        await _wait_for_condition(
+            lambda: "--max-num-batched-tokens 8192"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "flag manager preview did not refresh with raw passthrough args",
+        )
+
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "_default",
+            "flag manager did not close after saving raw passthrough args",
+        )
+
+    assert app.current_config is not None
+    assert app.current_config.extra_args == [
+        "--moe-backend",
+        "flashinfer_cutlass",
+        "--max-num-batched-tokens",
+        "8192",
+    ]
+    text = (config_dir / "raw-flags.yaml").read_text(encoding="utf-8")
+    assert "--max-num-batched-tokens" in text
 
 
 @pytest.mark.asyncio

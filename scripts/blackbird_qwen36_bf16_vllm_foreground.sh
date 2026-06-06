@@ -7,6 +7,10 @@ set -euo pipefail
 # supervise it as an attached child: it runs the pinned vLLM container, streams
 # the container logs to the TUI, and stops the container when vela signals stop.
 #
+# Reference-only: native Vela configs now carry this Docker recipe directly via
+# command.runtime: docker. Keep this wrapper as provenance/manual comparison for
+# the validated Blackwell image, cache, and BF16 memory shape.
+#
 # Differences vs the FP8 launcher (intentional):
 #   * Defaults target the BF16 weights / container / port (18002, not 18003).
 #   * It does NOT pin --kv-cache-memory-bytes. BF16 weights are ~2x larger, so a

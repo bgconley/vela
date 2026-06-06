@@ -97,8 +97,8 @@ Important fields:
 - `command.build`: managed build id/label for process runtime; overrides the
   target default build.
 - `command.docker`: Docker runtime settings such as `image`, `container_name`,
-  `gpus`, `network`, `ipc_host`, `shm_size`, `hf_cache`, `volumes`, `env`,
-  `pull`, `evict`, and `extra_run_args`.
+  optional Docker `runtime`, `gpus`, `network`, `ipc_host`, `shm_size`,
+  `hf_cache`, `volumes`, `env`, `pull`, `evict`, and `extra_run_args`.
 - `command.cwd`: target-local working directory for relative paths.
 - `engine`: modeled vLLM flags. vLLM-owned values default to unset so the
   installed vLLM default wins.
