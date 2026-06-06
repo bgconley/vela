@@ -2582,6 +2582,100 @@ def test_cli_deploy_export_prints_agent_generated_script(
     ]
 
 
+def test_cli_deploy_list_clone_delete_call_target_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "list_configs":
+                assert params == {"configs_dir": str(tmp_path)}
+                return {
+                    "valid": [
+                        {
+                            "name": "source",
+                            "model": "Qwen/Qwen3.6-27B-FP8",
+                            "path": str(tmp_path / "source.yaml"),
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "clone_config":
+                assert params == {
+                    "configs_dir": str(tmp_path),
+                    "src_name": "source",
+                    "new_name": "copy",
+                    "overrides": {
+                        "server": {"port": 18005},
+                        "extra_args": ["--attention-backend", "FLASHINFER"],
+                    },
+                }
+                return {
+                    "name": "copy",
+                    "path": str(tmp_path / "copy.yaml"),
+                    "config": {"name": "copy", "model": "Qwen/Qwen3.6-27B-FP8"},
+                    "derived": [],
+                }
+            if method == "delete_config":
+                assert params == {
+                    "configs_dir": str(tmp_path),
+                    "name": "copy",
+                }
+                return {"name": "copy", "path": str(tmp_path / "copy.yaml"), "deleted": True}
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    list_result = CliRunner().invoke(
+        cli_module.app,
+        ["deploy", "list", "--configs-dir", str(tmp_path)],
+    )
+    clone_result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "clone",
+            "source",
+            "copy",
+            "--configs-dir",
+            str(tmp_path),
+            "--set",
+            "server.port=18005",
+            "--extra-arg=--attention-backend",
+            "--extra-arg",
+            "FLASHINFER",
+        ],
+    )
+    delete_result = CliRunner().invoke(
+        cli_module.app,
+        ["deploy", "delete", "copy", "--configs-dir", str(tmp_path), "--yes"],
+    )
+
+    assert list_result.exit_code == 0, list_result.output
+    assert "source\tQwen/Qwen3.6-27B-FP8" in list_result.output
+    assert clone_result.exit_code == 0, clone_result.output
+    assert clone_result.output == f"cloned deployment\tcopy\t{tmp_path / 'copy.yaml'}\n"
+    assert delete_result.exit_code == 0, delete_result.output
+    assert delete_result.output == f"deleted deployment\tcopy\t{tmp_path / 'copy.yaml'}\n"
+    assert [method for method, _params in calls] == [
+        "list_configs",
+        "clone_config",
+        "delete_config",
+    ]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

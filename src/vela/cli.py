@@ -1112,6 +1112,126 @@ def deploy_create(
         )
 
 
+@deploy_app.command("list")
+def deploy_list(
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable deployment list."),
+    ] = False,
+) -> None:
+    try:
+        result = _agent_call(
+            "list_configs",
+            _agent_params(configs_dir=configs_dir),
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    for item in result.get("valid", []):
+        typer.echo(f"{item['name']}\t{item['model']}")
+    for item in result.get("invalid", []):
+        typer.echo(f"INVALID {Path(item['path']).name}\t{'; '.join(item['errors'])}")
+
+
+@deploy_app.command("clone")
+def deploy_clone(
+    src_name: Annotated[str, typer.Argument(help="Existing deployment/config name.")],
+    new_name: Annotated[str, typer.Argument(help="New deployment/config name.")],
+    set_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set",
+            help="Override a config field, e.g. server.port=18005.",
+        ),
+    ] = None,
+    extra_args: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--extra-arg",
+            help="Append one raw vLLM serve arg. Use --extra-arg=--flag for flag values.",
+        ),
+    ] = None,
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Overwrite an existing cloned config."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable clone result."),
+    ] = False,
+) -> None:
+    try:
+        overrides = _deploy_overrides(
+            port=None,
+            host=None,
+            exposure=None,
+            set_overrides=set_overrides,
+            extra_args=extra_args,
+        )
+    except ValueError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    params: dict[str, Any] = {"src_name": src_name, "new_name": new_name}
+    if configs_dir is not None:
+        params["configs_dir"] = str(configs_dir)
+    if overrides:
+        params["overrides"] = overrides
+    if overwrite:
+        params["overwrite"] = True
+    try:
+        result = _agent_call("clone_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=new_name)
+    if json_output:
+        _echo_json(result)
+        return
+    typer.echo(f"cloned deployment\t{result.get('name', new_name)}\t{result.get('path', '')}")
+
+
+@deploy_app.command("delete")
+def deploy_delete(
+    name: Annotated[str, typer.Argument(help="Deployment/config name to delete.")],
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Confirm deleting the target-local config."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable delete result."),
+    ] = False,
+) -> None:
+    if not yes:
+        typer.echo("ERROR: use --yes to delete a deployment", err=True)
+        raise typer.Exit(2)
+    params = _agent_params(name=name, configs_dir=configs_dir)
+    try:
+        result = _agent_call("delete_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    if json_output:
+        _echo_json(result)
+        return
+    typer.echo(f"deleted deployment\t{name}\t{result.get('path', '')}")
+
+
 @deploy_app.command("export")
 def deploy_export(
     name: Annotated[str, typer.Argument(help="Deployment/config name to export.")],

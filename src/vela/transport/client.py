@@ -16,6 +16,8 @@ REQUIRED_AGENT_CAPABILITIES = (
     "list_presets",
     "validate_config",
     "save_config",
+    "clone_config",
+    "delete_config",
     "export_config",
     "preview",
     "preflight",

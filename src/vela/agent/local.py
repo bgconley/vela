@@ -115,6 +115,8 @@ AGENT_CAPABILITIES = [
     "list_presets",
     "validate_config",
     "save_config",
+    "clone_config",
+    "delete_config",
     "export_config",
     "preview",
     "preflight",
@@ -393,6 +395,10 @@ class LocalAgent:
             return self._validate_config(payload)
         if method == "save_config":
             return self._save_config(payload)
+        if method == "clone_config":
+            return self._clone_config(payload)
+        if method == "delete_config":
+            return self._delete_config(payload)
         if method == "export_config":
             return self._export_config(payload)
         if method == "preview":
@@ -723,6 +729,62 @@ class LocalAgent:
         )
         return {"path": str(config_path), "name": cfg.name, "config": cfg.model_dump(mode="json")}
 
+    def _clone_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        src_name = _required_param_name(params, "src_name", method="clone_config")
+        new_name = _required_param_name(params, "new_name", method="clone_config")
+        configs_dir = _configs_dir(params) or Path.cwd() / "configs"
+        registry = load_registry(configs_dir)
+        self._remember_registry_runs_dirs(registry)
+        source = _valid_config_item_by_name(registry, src_name)
+        overrides = _mapping_param(params.get("overrides"), field_name="overrides")
+        payload = source.config.model_dump(mode="json", exclude_none=True)
+        payload["name"] = new_name
+        derived = _prepare_clone_payload(payload, source.config, new_name, overrides, configs_dir)
+        _apply_config_overrides(payload, overrides)
+        try:
+            cfg = ModelConfig.model_validate(payload)
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"cloned config is invalid: {exc}",
+                {"src_name": src_name, "new_name": new_name},
+            ) from exc
+        config_path = Path(configs_dir).expanduser() / f"{_safe_config_file_stem(new_name)}.yaml"
+        if config_path.exists() and not bool(params.get("overwrite")):
+            raise TargetCallError(
+                "config-exists",
+                f"config already exists: {new_name}",
+                {"name": new_name, "path": str(config_path)},
+            )
+        _write_public_text_atomic(
+            config_path,
+            yaml.safe_dump(
+                cfg.model_dump(mode="json", exclude_none=True),
+                sort_keys=False,
+            ),
+        )
+        return {
+            "name": cfg.name,
+            "path": str(config_path),
+            "config": cfg.model_dump(mode="json"),
+            "derived": derived,
+        }
+
+    def _delete_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = _config_name_param(params, method="delete_config")
+        configs_dir = _configs_dir(params)
+        registry = load_registry(configs_dir)
+        self._remember_registry_runs_dirs(registry)
+        item = _valid_config_item_by_name(registry, name)
+        if self._config_has_live_run(name):
+            raise TargetCallError(
+                "config-in-use",
+                f"config has an active run: {name}",
+                {"name": name},
+            )
+        item.path.unlink()
+        return {"name": name, "path": str(item.path), "deleted": True}
+
     def _export_config(self, params: dict[str, Any]) -> dict[str, Any]:
         draft_config = params.get("config")
         if isinstance(draft_config, dict):
@@ -766,6 +828,31 @@ class LocalAgent:
             _write_executable_text_atomic(path, script)
             payload["path"] = str(path)
         return payload
+
+    def _config_has_live_run(self, name: str) -> bool:
+        for run in self._detached_runs.values():
+            if run.sidecar.config_name != name:
+                continue
+            if _detached_run_alive(run):
+                return True
+        for run_id, sidecar_path in list(self._detached_sidecar_paths.items()):
+            if run_id in self._detached_runs:
+                continue
+            try:
+                sidecar = load_sidecar(sidecar_path)
+            except Exception:
+                continue
+            if sidecar.config_name != name:
+                continue
+            try:
+                if verify_sidecar_from_system(sidecar_path):
+                    return True
+            except Exception:
+                continue
+        for summary in self._discover_detached_sidecars(sorted(self._known_runs_dirs)):
+            if summary.config_name == name:
+                return True
+        return False
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
         draft_config = params.get("config")
@@ -4056,6 +4143,99 @@ def _config_name_param(params: dict[str, Any], *, method: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TargetCallError("invalid-params", f"{method} requires config name")
     return value.strip()
+
+
+def _required_param_name(params: dict[str, Any], key: str, *, method: str) -> str:
+    value = params.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise TargetCallError("invalid-params", f"{method} requires {key}")
+    return value.strip()
+
+
+def _mapping_param(value: object, *, field_name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise TargetCallError("invalid-params", f"{field_name} must be a mapping")
+    return dict(value)
+
+
+def _prepare_clone_payload(
+    payload: dict[str, Any],
+    source: ModelConfig,
+    new_name: str,
+    overrides: dict[str, Any],
+    configs_dir: Path,
+) -> list[dict[str, str]]:
+    derived: list[dict[str, str]] = []
+    if not _override_has(overrides, "server", "port"):
+        allocation = allocate_port(configs_dir=configs_dir)
+        server = dict(payload.get("server") if isinstance(payload.get("server"), dict) else {})
+        server["port"] = allocation["port"]
+        payload["server"] = server
+        derived.append(
+            {"field": "server.port", "value": str(allocation["port"]), "source": "allocate_port"}
+        )
+    if not _override_has(overrides, "launch", "runs_dir"):
+        launch = dict(payload.get("launch") if isinstance(payload.get("launch"), dict) else {})
+        runs_dir = _clone_runs_dir(source, new_name)
+        launch["runs_dir"] = str(runs_dir)
+        payload["launch"] = launch
+        derived.append({"field": "launch.runs_dir", "value": str(runs_dir), "source": "clone"})
+    if source.command.runtime is RuntimeKind.DOCKER and not _override_has(
+        overrides, "command", "docker", "container_name"
+    ):
+        command = dict(payload.get("command") if isinstance(payload.get("command"), dict) else {})
+        docker = dict(command.get("docker") if isinstance(command.get("docker"), dict) else {})
+        container_name = f"vela-{_safe_config_file_stem(new_name)}"
+        docker["container_name"] = container_name
+        command["docker"] = docker
+        payload["command"] = command
+        derived.append(
+            {
+                "field": "command.docker.container_name",
+                "value": container_name,
+                "source": "clone",
+            }
+        )
+    return derived
+
+
+def _override_has(overrides: dict[str, Any], *path: str) -> bool:
+    current: Any = overrides
+    for part in path:
+        if not isinstance(current, dict) or part not in current:
+            return False
+        current = current[part]
+    return True
+
+
+def _clone_runs_dir(source: ModelConfig, new_name: str) -> Path:
+    if source.launch.runs_dir is not None:
+        return source.launch.runs_dir.parent / _safe_config_file_stem(new_name)
+    return default_run_artifacts_dir() / _safe_config_file_stem(new_name)
+
+
+def _apply_config_overrides(payload: dict[str, Any], overrides: dict[str, Any]) -> None:
+    for section in ("engine", "server", "launch", "env"):
+        section_overrides = overrides.get(section)
+        if section_overrides is None:
+            continue
+        if not isinstance(section_overrides, dict):
+            raise TargetCallError("invalid-params", f"overrides.{section} must be a mapping")
+        current = dict(payload.get(section) if isinstance(payload.get(section), dict) else {})
+        current.update(section_overrides)
+        payload[section] = current
+    if "extra_args" in overrides:
+        extra_args = overrides["extra_args"]
+        if not isinstance(extra_args, list) or not all(
+            isinstance(item, str) for item in extra_args
+        ):
+            raise TargetCallError(
+                "invalid-params",
+                "overrides.extra_args must be a list of strings",
+            )
+        payload["extra_args"] = [*list(payload.get("extra_args") or []), *extra_args]
 
 
 def _job_id_param(params: dict[str, Any]) -> str:

@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from conftest import write_yaml
 
+from vela.agent import local as local_agent_module
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.engine import composer as composer_module
+from vela.engine.sidecar import Manifest, Sidecar
 
 BLACKBIRD_IMAGE = (
     "vllm/vllm-openai@sha256:"
@@ -351,6 +353,108 @@ def test_agent_save_config_writes_yaml_and_refuses_clobber(config_dir: Path) -> 
             {"configs_dir": str(config_dir), "name": "qwen3", "config": draft},
         )
     assert exc_info.value.code == "config-exists"
+
+
+def test_agent_clones_deployment_with_fresh_runtime_identity(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: Qwen/Qwen3.6-27B-FP8
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+            container_name: vela-source
+        server:
+          port: 18003
+        launch:
+          runs_dir: /tmp/vela-runs/source
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "clone_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "source",
+            "new_name": "copy",
+        },
+    )
+
+    config = result["config"]
+    assert result["path"] == str(config_dir / "copy.yaml")
+    assert config["name"] == "copy"
+    assert config["server"]["port"] != 18003
+    assert config["launch"]["runs_dir"] == "/tmp/vela-runs/copy"
+    assert config["command"]["docker"]["container_name"] == "vela-copy"
+    assert (config_dir / "copy.yaml").exists()
+    assert any(item["field"] == "server.port" for item in result["derived"])
+
+
+def test_agent_delete_config_refuses_live_run(
+    config_dir: Path, tmp_path: Path, monkeypatch
+) -> None:
+    write_yaml(
+        config_dir / "active.yaml",
+        """
+        name: active
+        model: fake/model
+        launch:
+          runs_dir: /tmp/vela-runs/active
+        """,
+    )
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    log_path = runs_dir / "active.log"
+    log_path.write_text("", encoding="utf-8")
+    manifest_path = runs_dir / "active.manifest.json"
+    Manifest.from_active_log(log_path).write_atomic(manifest_path)
+    sidecar_path = runs_dir / "active.json"
+    Sidecar(
+        run_id="run-live",
+        config_name="active",
+        command_argv=["vllm", "serve", "fake/model"],
+        command_hash="sha256:active",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=18000,
+        served_model_names=["fake"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+    ).write_atomic(sidecar_path)
+    agent = LocalAgent()
+    agent._detached_sidecar_paths["run-live"] = sidecar_path
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda _path: True)
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(agent, "delete_config", {"configs_dir": str(config_dir), "name": "active"})
+
+    assert exc_info.value.code == "config-in-use"
+    assert (config_dir / "active.yaml").exists()
+
+
+def test_agent_delete_config_removes_inactive_file(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "old.yaml",
+        """
+        name: old
+        model: fake/model
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(agent, "delete_config", {"configs_dir": str(config_dir), "name": "old"})
+
+    assert result == {"name": "old", "path": str(config_dir / "old.yaml"), "deleted": True}
+    assert not (config_dir / "old.yaml").exists()
 
 
 def test_agent_exports_docker_config_as_target_local_standalone_script(
