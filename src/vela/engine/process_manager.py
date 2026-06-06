@@ -170,6 +170,17 @@ def start_detached(
         "model_revision": model_revision,
         "model_commit_sha": model_commit_sha,
     }
+    if build.metadata.get("runtime") == "docker":
+        payload["runtime"] = "docker"
+        payload["docker"] = {
+            "binary": str(build.metadata.get("docker_binary") or build.argv[0]),
+            "container_name": str(build.metadata.get("docker_container_name") or ""),
+            "image": str(build.metadata.get("docker_image") or ""),
+            "image_digest": str(build.metadata.get("docker_image_digest") or ""),
+            "stop_grace_seconds": int(
+                build.metadata.get("docker_stop_grace_seconds") or 90
+            ),
+        }
     if log_rotate_bytes is not None:
         payload["log_rotate_bytes"] = log_rotate_bytes
     _write_secret_payload(payload_path, payload)

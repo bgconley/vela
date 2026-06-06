@@ -133,6 +133,7 @@ AGENT_CAPABILITIES = [
     "reattach",
     "reattach_detached",
     "typed_sidecar_resources",
+    "docker_runtime_sidecar_identity",
     "list_builds",
     "adopt_build",
     "inspect_build",

@@ -287,7 +287,7 @@ def test_docker_runtime_generates_masked_docker_run_without_double_serve(
 
     result = build_command(model_cfg, bundled_profile("current"), cwd=tmp_path)
 
-    assert result.argv[:3] == ["docker", "run", "--name"]
+    assert result.argv[:4] == ["docker", "run", "-d", "--name"]
     assert "vela-qwen3" in result.argv
     assert ["--gpus", "all"] == result.argv[
         result.argv.index("--gpus") : result.argv.index("--gpus") + 2

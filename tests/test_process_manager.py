@@ -248,6 +248,79 @@ def test_detached_launch_uses_requested_run_id(
     assert payload["sidecar_path"] == str(runs_dir / "controller-run-1.json")
 
 
+def test_detached_docker_launch_payload_records_container_identity_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_dir = tmp_path / "runs"
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "docker-detached",
+            "model": "org/model",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:image",
+                    "container_name": "vela-qwen",
+                    "stop_grace_seconds": 90,
+                },
+            },
+            "launch": {"mode": "detached", "runs_dir": runs_dir},
+        }
+    )
+    build = CommandBuildResult(
+        argv=[
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            "vela-qwen",
+            "vllm/vllm-openai@sha256:image",
+            "org/model",
+        ],
+        env={"VLLM_API_KEY": "secret"},
+        cwd=tmp_path,
+        metadata={
+            "runtime": "docker",
+            "docker_binary": "docker",
+            "docker_container_name": "vela-qwen",
+            "docker_image": "vllm/vllm-openai@sha256:image",
+            "docker_image_digest": "sha256:image",
+            "docker_stop_grace_seconds": 90,
+        },
+    )
+
+    class FakeSupervisor:
+        pid = 4321
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(process_manager_module, "_require_executable", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        process_manager_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeSupervisor(),
+    )
+    monkeypatch.setattr(process_manager_module, "_wait_for_sidecar", lambda *args: None)
+
+    start_detached(cfg, build, secrets=["secret"], run_id="docker-run-1")
+
+    payload = json.loads(
+        (runs_dir / "docker-run-1.supervisor-payload.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["runtime"] == "docker"
+    assert payload["docker"] == {
+        "binary": "docker",
+        "container_name": "vela-qwen",
+        "image": "vllm/vllm-openai@sha256:image",
+        "image_digest": "sha256:image",
+        "stop_grace_seconds": 90,
+    }
+    assert payload["argv"][:3] == ["docker", "run", "-d"]
+
+
 def test_detached_launch_cleans_up_supervisor_when_sidecar_handshake_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

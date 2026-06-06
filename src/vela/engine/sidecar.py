@@ -5,6 +5,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -74,7 +75,13 @@ class Sidecar:
     exposure: str
     manifest_path: str
     schema_version: int = 1
+    runtime: str = "process"
     config_snapshot: dict | None = None
+    docker_binary: str = "docker"
+    docker_container_name: str | None = None
+    docker_container_id: str | None = None
+    docker_image_digest: str | None = None
+    docker_stop_grace_seconds: int | None = None
     build_id: str | None = None
     build_label: str | None = None
     model_ref: str | None = None
@@ -105,6 +112,8 @@ def verify_sidecar_identity(
     child: ProcessIdentity,
     supervisor: ProcessIdentity | None,
 ) -> bool:
+    if sidecar.runtime == "docker":
+        return verify_container_identity(sidecar)
     if child.pid != sidecar.pid or abs(child.create_time - sidecar.process_create_time) > 0.001:
         raise TrackedProcessMismatch(
             "tracked process is gone; refusing to signal a possibly-recycled PID"
@@ -152,6 +161,28 @@ def destructive_signal(
     child: ProcessIdentity,
     supervisor: ProcessIdentity | None,
 ) -> None:
+    if sidecar.runtime == "docker":
+        verify_container_identity(sidecar)
+        if signal_number == signal.SIGKILL:
+            _run_docker_command(
+                [
+                    sidecar.docker_binary,
+                    "kill",
+                    _required_container_id(sidecar),
+                ]
+            )
+            return
+        timeout = sidecar.docker_stop_grace_seconds or 90
+        _run_docker_command(
+            [
+                sidecar.docker_binary,
+                "stop",
+                "-t",
+                str(timeout),
+                _required_container_id(sidecar),
+            ]
+        )
+        return
     verify_sidecar_identity(sidecar, child, supervisor)
     _signal_process_group(sidecar.pgid, signal_number)
 
@@ -183,6 +214,13 @@ def process_identity_from_pid(pid: int) -> ProcessIdentity:
 
 def verify_sidecar_from_system(path: Path | str) -> bool:
     sidecar = load_sidecar(path)
+    if sidecar.runtime == "docker":
+        verify_container_identity(sidecar)
+        manifest = load_manifest(sidecar.manifest_path)
+        active_path = Path(manifest.active_log.path)
+        if _inode(active_path) != manifest.active_log.inode:
+            raise TrackedProcessMismatch("active log inode does not match manifest")
+        return True
     child = process_identity_from_pid(sidecar.pid)
     supervisor = None
     if sidecar.supervisor_pid is not None:
@@ -197,6 +235,14 @@ def verify_sidecar_from_system(path: Path | str) -> bool:
 
 def signal_sidecar_from_system(path: Path | str, signal_number: int) -> None:
     sidecar = load_sidecar(path)
+    if sidecar.runtime == "docker":
+        destructive_signal(
+            sidecar,
+            signal_number,
+            child=ProcessIdentity(0, 0.0, 0, "", []),
+            supervisor=None,
+        )
+        return
     child = process_identity_from_pid(sidecar.pid)
     supervisor = None
     if sidecar.supervisor_pid is not None:
@@ -208,6 +254,9 @@ def stop_sidecar_from_system(
     path: Path | str, *, interrupt_timeout: float = 5, terminate_timeout: float = 5
 ) -> None:
     sidecar = load_sidecar(path)
+    if sidecar.runtime == "docker":
+        signal_sidecar_from_system(path, signal.SIGTERM)
+        return
     signal_sidecar_from_system(path, signal.SIGINT)
     if _wait_process_exit(sidecar.pid, sidecar.process_create_time, interrupt_timeout):
         return
@@ -237,6 +286,92 @@ def discover_active_sidecars(runs_dirs: list[Path]) -> list[Path]:
             except Exception:
                 continue
     return active
+
+
+def verify_container_identity(sidecar: Sidecar) -> bool:
+    expected_id = _required_container_id(sidecar)
+    expected_name = _required_container_name(sidecar)
+    expected_digest = _required_image_digest(sidecar)
+    inspect = _docker_inspect_container(sidecar.docker_binary, expected_id)
+    live_id = str(inspect.get("Id") or "")
+    if live_id != expected_id:
+        raise TrackedProcessMismatch("tracked docker container id does not match sidecar")
+    live_name = str(inspect.get("Name") or "").lstrip("/")
+    if live_name != expected_name:
+        raise TrackedProcessMismatch("tracked docker container name does not match sidecar")
+    if not _inspect_matches_image_digest(inspect, expected_digest):
+        raise TrackedProcessMismatch("tracked docker image digest does not match sidecar")
+    return True
+
+
+def _required_container_id(sidecar: Sidecar) -> str:
+    if sidecar.docker_container_id:
+        return sidecar.docker_container_id
+    raise TrackedProcessMismatch("docker sidecar is missing container id")
+
+
+def _required_container_name(sidecar: Sidecar) -> str:
+    if sidecar.docker_container_name:
+        return sidecar.docker_container_name
+    raise TrackedProcessMismatch("docker sidecar is missing container name")
+
+
+def _required_image_digest(sidecar: Sidecar) -> str:
+    if sidecar.docker_image_digest:
+        return sidecar.docker_image_digest
+    raise TrackedProcessMismatch("docker sidecar is missing image digest")
+
+
+def _docker_inspect_container(docker_binary: str, container_id: str) -> dict:
+    proc = subprocess.run(
+        [docker_binary, "inspect", container_id],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "docker inspect failed").strip()
+        raise TrackedProcessMismatch(f"tracked docker container is unavailable: {detail}")
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise TrackedProcessMismatch("docker inspect returned invalid JSON") from exc
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return payload[0]
+    if isinstance(payload, dict):
+        return payload
+    raise TrackedProcessMismatch("docker inspect returned no container metadata")
+
+
+def _run_docker_command(argv: list[str]) -> None:
+    proc = subprocess.run(argv, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "docker command failed").strip()
+        raise TrackedProcessMismatch(detail)
+
+
+def _inspect_matches_image_digest(inspect: dict, expected_digest: str) -> bool:
+    candidates = {
+        str(inspect.get("Image") or ""),
+    }
+    config = inspect.get("Config")
+    if isinstance(config, dict):
+        candidates.add(str(config.get("Image") or ""))
+    repo_digests = inspect.get("RepoDigests")
+    if isinstance(repo_digests, list):
+        candidates.update(str(item) for item in repo_digests)
+    return any(
+        _image_candidate_matches_digest(candidate, expected_digest)
+        for candidate in candidates
+    )
+
+
+def _image_candidate_matches_digest(candidate: str, expected_digest: str) -> bool:
+    if not candidate:
+        return False
+    if candidate == expected_digest:
+        return True
+    return candidate.endswith(f"@{expected_digest}") or candidate.endswith(expected_digest)
 
 
 def command_hash(argv: list[str]) -> str:

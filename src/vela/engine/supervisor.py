@@ -81,6 +81,8 @@ def run_supervisor(
     *,
     payload: dict | None = None,
 ) -> int:
+    if payload is not None and payload.get("runtime") == "docker":
+        return _run_docker_supervisor(argv, env, cwd, log_path, secrets, payload=payload)
     master_fd, slave_fd = os.openpty()
     _set_winsize(slave_fd, rows=40, cols=200)
     try:
@@ -158,6 +160,105 @@ def run_supervisor(
     thread.join(timeout=5)
     if payload is not None:
         _write_exit_status(payload, returncode)
+    return returncode
+
+
+def _run_docker_supervisor(
+    argv: list[str],
+    env: dict[str, str],
+    cwd: str | None,
+    log_path: Path,
+    secrets: list[str],
+    *,
+    payload: dict,
+) -> int:
+    docker = payload.get("docker") if isinstance(payload.get("docker"), dict) else {}
+    docker_binary = str(docker.get("binary") or argv[0])
+    run = subprocess.run(
+        argv,
+        cwd=cwd,
+        env={**os.environ, **env},
+        capture_output=True,
+        check=False,
+    )
+    if run.returncode != 0:
+        _write_exit_status(payload, run.returncode)
+        return int(run.returncode)
+    container_id = _container_id_from_run_stdout(run.stdout)
+    if not container_id:
+        _write_exit_status(payload, 1)
+        return 1
+
+    event_spool = _EventSpool(_event_log_path(payload))
+    sink, durable_log_available = _open_log_sink(
+        log_path,
+        secrets,
+        emit=event_spool.emit,
+    )
+    manifest_path = Path(payload["manifest_path"])
+    manifest: Manifest | None = None
+    rotate_bytes = _log_rotate_bytes(payload)
+    rotation_index = 0
+    if durable_log_available:
+        try:
+            manifest = _write_docker_run_artifacts(payload, container_id, log_path)
+        except Exception:
+            manifest = None
+
+    logs = subprocess.Popen(
+        [docker_binary, "logs", "-f", container_id],
+        cwd=cwd,
+        env={**os.environ, **env},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+    )
+
+    def drain_logs() -> None:
+        nonlocal rotation_index
+        try:
+            assert logs.stdout is not None
+            while True:
+                chunk = logs.stdout.read(4096)
+                if not chunk:
+                    break
+                try:
+                    sink.feed(chunk)
+                except Exception:
+                    continue
+                rotation_index = _rotate_log_if_needed(
+                    sink,
+                    log_path,
+                    manifest_path,
+                    manifest,
+                    rotate_bytes,
+                    rotation_index,
+                )
+        finally:
+            try:
+                sink.close()
+            except Exception:
+                pass
+            event_spool.close()
+
+    thread = threading.Thread(target=drain_logs, daemon=True)
+    thread.start()
+    wait = subprocess.run(
+        [docker_binary, "wait", container_id],
+        cwd=cwd,
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        logs.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logs.terminate()
+        logs.wait(timeout=5)
+    thread.join(timeout=5)
+    returncode = _docker_wait_returncode(wait)
+    _write_exit_status(payload, returncode)
     return returncode
 
 
@@ -261,6 +362,59 @@ def _write_run_artifacts(
     return manifest
 
 
+def _write_docker_run_artifacts(
+    payload: dict, container_id: str, log_path: Path
+) -> Manifest:
+    manifest_path = Path(payload["manifest_path"])
+    sidecar_path = Path(payload["sidecar_path"])
+    manifest = Manifest.from_active_log(log_path)
+    manifest.write_atomic(manifest_path)
+
+    supervisor_proc = psutil.Process(os.getpid())
+    secrets = [secret for secret in payload.get("secrets", []) if secret]
+    docker = payload.get("docker") if isinstance(payload.get("docker"), dict) else {}
+    sidecar = Sidecar(
+        run_id=payload["run_id"],
+        config_name=payload["config_name"],
+        config_snapshot=payload.get("config_snapshot"),
+        command_argv=_scrub_argv_for_artifact(payload["argv"], secrets),
+        command_hash=payload["command_hash"],
+        runtime="docker",
+        docker_binary=str(docker.get("binary") or payload["argv"][0]),
+        docker_container_name=str(docker.get("container_name") or ""),
+        docker_container_id=container_id,
+        docker_image_digest=str(docker.get("image_digest") or docker.get("image") or ""),
+        docker_stop_grace_seconds=int(docker.get("stop_grace_seconds") or 90),
+        build_id=payload.get("build_id"),
+        build_label=payload.get("build_label"),
+        model_ref=payload.get("model_ref"),
+        model_entry_id=payload.get("model_entry_id"),
+        model_repo_id=payload.get("model_repo_id"),
+        model_revision=payload.get("model_revision"),
+        model_commit_sha=payload.get("model_commit_sha"),
+        vllm_version=payload.get("vllm_version"),
+        vllm_version_profile=payload.get("vllm_version_profile"),
+        executable=str(docker.get("binary") or payload["argv"][0]),
+        cwd=payload.get("cwd") or os.getcwd(),
+        pid=0,
+        pgid=0,
+        process_create_time=0.0,
+        procfs_starttime=None,
+        supervisor_pid=os.getpid(),
+        supervisor_create_time=_safe_create_time(supervisor_proc, fallback=0.0),
+        supervisor_procfs_starttime=procfs_starttime_from_pid(os.getpid()),
+        supervisor_executable=_safe_exe(supervisor_proc, fallback=sys.executable),
+        host=payload["host"],
+        port=int(payload["port"]),
+        served_model_names=payload.get("served_model_names", []),
+        exposure=payload["exposure"],
+        launch_mode=payload["launch_mode"],
+        manifest_path=str(manifest_path),
+    )
+    sidecar.write_atomic(sidecar_path)
+    return manifest
+
+
 def _log_rotate_bytes(payload: dict | None) -> int:
     if payload is None:
         return DEFAULT_LOG_ROTATE_BYTES
@@ -268,6 +422,28 @@ def _log_rotate_bytes(payload: dict | None) -> int:
     if value is None:
         return 0
     return max(0, int(value))
+
+
+def _container_id_from_run_stdout(stdout: bytes) -> str:
+    for line in reversed(stdout.decode(errors="replace").splitlines()):
+        value = line.strip()
+        if value:
+            return value
+    return ""
+
+
+def _docker_wait_returncode(wait: subprocess.CompletedProcess[str]) -> int:
+    if wait.returncode != 0:
+        return int(wait.returncode)
+    for line in wait.stdout.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        try:
+            return int(value)
+        except ValueError:
+            continue
+    return 0
 
 
 def _rotate_log_if_needed(

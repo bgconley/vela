@@ -32,6 +32,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "discover_runs_no_paths",
     "reattach",
     "typed_sidecar_resources",
+    "docker_runtime_sidecar_identity",
     "subscribe",
     "unsubscribe",
 )

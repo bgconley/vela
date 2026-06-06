@@ -62,6 +62,46 @@ def _agent_connect_socket_command(socket_path: Path) -> list[str]:
     ]
 
 
+def _write_fake_docker_runtime(path: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json, os, sys",
+                "args = sys.argv[1:]",
+                "log = os.environ.get('FAKE_DOCKER_COMMAND_LOG')",
+                "if log:",
+                "    with open(log, 'a', encoding='utf-8') as file:",
+                "        file.write(' '.join(args) + '\\n')",
+                "if args[:2] == ['run', '-d']:",
+                "    print('container-123')",
+                "    raise SystemExit(0)",
+                "if args[:2] == ['logs', '-f']:",
+                "    print('INFO Uvicorn running on http://0.0.0.0:8000', flush=True)",
+                "    raise SystemExit(0)",
+                "if args[:1] == ['wait']:",
+                "    print('0')",
+                "    raise SystemExit(0)",
+                "if args[:1] == ['inspect']:",
+                "    payload = [{",
+                "        'Id': 'container-123',",
+                "        'Name': '/vela-qwen',",
+                "        'Image': 'sha256:image',",
+                "        'Config': {'Image': 'vllm/vllm-openai@sha256:image'},",
+                "    }]",
+                "    print(json.dumps(payload))",
+                "    raise SystemExit(0)",
+                "if args[:1] in (['stop'], ['kill']):",
+                "    raise SystemExit(0)",
+                "raise SystemExit(f'unexpected docker args: {args}')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 def _short_socket_path() -> Path:
     return Path("/tmp") / f"vela-agent-{uuid.uuid4().hex}.sock"
 
@@ -278,6 +318,7 @@ async def test_unix_socket_target_client_restarts_daemon_missing_required_capabi
         "discover_runs",
         "discover_runs_no_paths",
         "reattach",
+        "docker_runtime_sidecar_identity",
     )
 
     class LegacyCapabilityAgent(LocalAgent):
@@ -348,6 +389,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "discover_runs" in result["capabilities"]
     assert "discover_runs_no_paths" in result["capabilities"]
     assert "reattach" in result["capabilities"]
+    assert "docker_runtime_sidecar_identity" in result["capabilities"]
     assert "list_builds" in result["capabilities"]
     assert "list_models" in result["capabilities"]
     assert "unsubscribe" in result["capabilities"]
@@ -1899,6 +1941,64 @@ async def test_local_agent_starts_detached_run_from_prepared_launch(
     assert seen["secrets"] == ["literal-api-key", "hf_literal"]
     assert seen["vllm_version"] is None
     assert seen["vllm_version_profile"] == "current"
+
+
+@pytest.mark.asyncio
+async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    docker = tmp_path / "docker"
+    docker_log = tmp_path / "docker-commands.log"
+    _write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
+    write_yaml(
+        config_dir / "docker.yaml",
+        f"""
+        name: docker
+        model: fake/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:image
+            container_name: vela-qwen
+            stop_grace_seconds: 90
+        server:
+          port: {unused_tcp_port}
+        launch:
+          mode: detached
+          runs_dir: {tmp_path / "runs"}
+        vllm:
+          version_profile: current
+        """,
+    )
+    agent = LocalAgent()
+    client = InProcessTargetClient(agent)
+    await client.connect()
+
+    try:
+        launch = await client.call(
+            "launch",
+            {
+                "name": "docker",
+                "configs_dir": str(config_dir),
+                "run_id": "docker-run-1",
+            },
+        )
+        reattached = await client.call("reattach", {"run_id": "docker-run-1"})
+        await client.call("stop", {"run_id": "docker-run-1"})
+    finally:
+        await client.disconnect()
+
+    sidecar = agent._detached_runs["docker-run-1"].sidecar
+    assert launch["run_id"] == "docker-run-1"
+    assert reattached["sidecar"]["config_name"] == "docker"
+    assert sidecar.runtime == "docker"
+    assert sidecar.docker_container_name == "vela-qwen"
+    assert sidecar.docker_container_id == "container-123"
+    assert sidecar.docker_image_digest == "sha256:image"
+    assert "run -d --name vela-qwen" in docker_log.read_text(encoding="utf-8")
+    assert "stop -t 90 container-123" in docker_log.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio

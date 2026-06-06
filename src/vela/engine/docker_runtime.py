@@ -27,7 +27,7 @@ def build_docker_run(
 
     container_name = docker.container_name or f"vela-{cfg.name}"
     container_env = {**docker.env, **env}
-    argv = [docker_binary, "run", "--name", container_name]
+    argv = [docker_binary, "run", "-d", "--name", container_name]
     if docker.gpus:
         argv.extend(["--gpus", docker.gpus])
     if docker.network:
@@ -55,7 +55,9 @@ def build_docker_run(
         env=container_env,
         metadata={
             "runtime": "docker",
+            "docker_binary": docker_binary,
             "docker_image": docker.image,
+            "docker_image_digest": _image_digest_for_sidecar(docker.image),
             "docker_container_name": container_name,
             "docker_stop_grace_seconds": docker.stop_grace_seconds,
         },
@@ -83,3 +85,9 @@ def _docker_volumes(cfg: ModelConfig) -> list[str]:
         source = Path(docker.hf_cache).expanduser()
         volumes.append(f"{source}:{docker.hf_cache_target}:rw")
     return volumes
+
+
+def _image_digest_for_sidecar(image: str) -> str:
+    if "@sha256:" in image:
+        return "sha256:" + image.rsplit("@sha256:", 1)[1]
+    return image

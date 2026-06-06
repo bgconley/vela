@@ -42,6 +42,12 @@ def make_sidecar(tmp_path: Path) -> Sidecar:
     )
 
 
+def _write_log(tmp_path: Path) -> Path:
+    log_path = tmp_path / "run.log"
+    log_path.write_text("hi", encoding="utf-8")
+    return log_path
+
+
 def test_identity_verification_passes_for_matching_process_metadata(tmp_path: Path) -> None:
     sidecar = make_sidecar(tmp_path)
     child = ProcessIdentity(
@@ -259,6 +265,98 @@ def test_destructive_signal_path_reverifies_before_signaling(tmp_path: Path, mon
     destructive_signal(sidecar, 15, child=child, supervisor=supervisor)
 
     assert calls == [(100, 15)]
+
+
+def test_docker_stop_verifies_container_identity_before_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.runtime = "docker"
+    sidecar.docker_container_name = "vela-qwen"
+    sidecar.docker_container_id = "abc123"
+    sidecar.docker_image_digest = "sha256:image"
+    sidecar.docker_stop_grace_seconds = 90
+    sidecar.write_atomic(sidecar_path)
+    Manifest.from_active_log(_write_log(tmp_path)).write_atomic(tmp_path / "run.manifest.json")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        sidecar_module,
+        "_docker_inspect_container",
+        lambda _binary, _container_id: {
+            "Id": "abc123",
+            "Name": "/vela-qwen",
+            "Image": "sha256:image",
+            "Config": {"Image": "vllm/vllm-openai@sha256:image"},
+        },
+    )
+    monkeypatch.setattr(sidecar_module, "_run_docker_command", lambda argv: calls.append(argv))
+
+    stop_sidecar_from_system(sidecar_path)
+
+    assert calls == [["docker", "stop", "-t", "90", "abc123"]]
+
+
+def test_docker_stop_refuses_recycled_container_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.runtime = "docker"
+    sidecar.docker_container_name = "vela-qwen"
+    sidecar.docker_container_id = "abc123"
+    sidecar.docker_image_digest = "sha256:image"
+    sidecar.write_atomic(sidecar_path)
+    Manifest.from_active_log(_write_log(tmp_path)).write_atomic(tmp_path / "run.manifest.json")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        sidecar_module,
+        "_docker_inspect_container",
+        lambda _binary, _container_id: {
+            "Id": "recycled",
+            "Name": "/vela-qwen",
+            "Image": "sha256:image",
+            "Config": {"Image": "vllm/vllm-openai@sha256:image"},
+        },
+    )
+    monkeypatch.setattr(sidecar_module, "_run_docker_command", lambda argv: calls.append(argv))
+
+    with pytest.raises(TrackedProcessMismatch, match="container id"):
+        stop_sidecar_from_system(sidecar_path)
+
+    assert calls == []
+
+
+def test_docker_kill_uses_verified_container_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar_path = tmp_path / "run.json"
+    sidecar = make_sidecar(tmp_path)
+    sidecar.runtime = "docker"
+    sidecar.docker_container_name = "vela-qwen"
+    sidecar.docker_container_id = "abc123"
+    sidecar.docker_image_digest = "sha256:image"
+    sidecar.write_atomic(sidecar_path)
+    Manifest.from_active_log(_write_log(tmp_path)).write_atomic(tmp_path / "run.manifest.json")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        sidecar_module,
+        "_docker_inspect_container",
+        lambda _binary, _container_id: {
+            "Id": "abc123",
+            "Name": "/vela-qwen",
+            "Image": "sha256:image",
+            "Config": {"Image": "vllm/vllm-openai@sha256:image"},
+        },
+    )
+    monkeypatch.setattr(sidecar_module, "_run_docker_command", lambda argv: calls.append(argv))
+
+    sidecar_module.signal_sidecar_from_system(sidecar_path, signal.SIGKILL)
+
+    assert calls == [["docker", "kill", "abc123"]]
 
 
 def test_destructive_signal_treats_permission_error_as_identity_mismatch(
