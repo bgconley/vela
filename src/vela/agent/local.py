@@ -119,6 +119,10 @@ AGENT_CAPABILITIES = [
     "save_config",
     "clone_config",
     "delete_config",
+    "list_config_files",
+    "pull_config",
+    "push_config",
+    "lint_config",
     "export_config",
     "preview",
     "preflight",
@@ -403,6 +407,14 @@ class LocalAgent:
             return self._clone_config(payload)
         if method == "delete_config":
             return self._delete_config(payload)
+        if method == "list_config_files":
+            return self._list_config_files(payload)
+        if method == "pull_config":
+            return self._pull_config(payload)
+        if method == "push_config":
+            return self._push_config(payload)
+        if method == "lint_config":
+            return self._lint_config(payload)
         if method == "export_config":
             return self._export_config(payload)
         if method == "preview":
@@ -796,6 +808,69 @@ class LocalAgent:
             )
         item.path.unlink()
         return {"name": name, "path": str(item.path), "deleted": True}
+
+    def _list_config_files(self, params: dict[str, Any]) -> dict[str, Any]:
+        registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
+        return {
+            "valid": [_valid_config_payload(item) for item in registry.valid],
+            "invalid": [_invalid_config_payload(item) for item in registry.invalid],
+        }
+
+    def _pull_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = _config_name_param(params, method="pull_config")
+        registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
+        item = _valid_config_item_by_name(registry, name)
+        try:
+            yaml_text = item.path.read_text(encoding="utf-8")
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"unable to read config {name}: {exc}",
+                {"name": name, "path": str(item.path)},
+            ) from exc
+        payload = _valid_config_payload(item)
+        payload["yaml"] = yaml_text
+        return payload
+
+    def _push_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        payload = _config_payload_from_params(params, method="push_config")
+        try:
+            cfg = ModelConfig.model_validate(payload)
+        except Exception as exc:
+            raise TargetCallError("invalid-config", f"pushed config is invalid: {exc}") from exc
+        expected_name = params.get("name")
+        if isinstance(expected_name, str) and expected_name.strip() and cfg.name != expected_name:
+            raise TargetCallError(
+                "compose-invalid",
+                "push_config name must match config.name",
+                {"name": expected_name, "config_name": cfg.name},
+            )
+        configs_dir = _configs_dir(params) or Path.cwd() / "configs"
+        config_path = Path(configs_dir).expanduser() / f"{_safe_config_file_stem(cfg.name)}.yaml"
+        if config_path.exists() and not bool(params.get("overwrite")):
+            raise TargetCallError(
+                "config-exists",
+                f"config already exists: {cfg.name}",
+                {"name": cfg.name, "path": str(config_path)},
+            )
+        normalized = cfg.model_dump(mode="json", exclude_none=True)
+        _write_public_text_atomic(
+            config_path,
+            yaml.safe_dump(normalized, sort_keys=False),
+        )
+        linted = validate_config_payload(normalized)
+        return {
+            "name": cfg.name,
+            "path": str(config_path),
+            "config": cfg.model_dump(mode="json"),
+            "warnings": list(linted.get("warnings") or []),
+        }
+
+    def _lint_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        payload = _config_payload_from_params(params, method="lint_config")
+        return validate_config_payload(payload)
 
     def _export_config(self, params: dict[str, Any]) -> dict[str, Any]:
         draft_config = params.get("config")
@@ -2880,6 +2955,22 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _config_payload_from_params(params: dict[str, Any], *, method: str) -> dict[str, Any]:
+    config = params.get("config")
+    if isinstance(config, dict):
+        return dict(config)
+    yaml_text = params.get("yaml")
+    if not isinstance(yaml_text, str) or not yaml_text.strip():
+        raise TargetCallError("invalid-params", f"{method} requires config mapping or yaml text")
+    try:
+        payload = yaml.safe_load(yaml_text)
+    except Exception as exc:
+        raise TargetCallError("invalid-config", f"unable to parse YAML: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise TargetCallError("invalid-config", "config root must be a mapping")
+    return dict(payload)
 
 
 async def _build_subprocess_exec(

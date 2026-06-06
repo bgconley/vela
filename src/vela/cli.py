@@ -39,11 +39,13 @@ app = typer.Typer(
 )
 agent_app = typer.Typer(help="Run or connect to the local Vela agent.")
 build_app = typer.Typer(help="Manage target-local vLLM builds.")
+config_app = typer.Typer(help="Move and lint target-local deployment configs.")
 deploy_app = typer.Typer(help="Create and manage target-local deployments.")
 model_app = typer.Typer(help="Manage target-local model metadata.")
 targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
 app.add_typer(build_app, name="build")
+app.add_typer(config_app, name="config")
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(model_app, name="model")
 app.add_typer(targets_app, name="targets")
@@ -940,6 +942,112 @@ def model_remove(
     if result.get("removed_weights"):
         fields.append(f"freed ~{_format_bytes(result.get('expected_freed_size'))}")
     typer.echo("\t".join(fields))
+
+
+@config_app.command("push")
+def config_push(
+    file: Annotated[Path, typer.Argument(help="Local config YAML to push to the target.")],
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Overwrite an existing target config."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable push result."),
+    ] = False,
+) -> None:
+    try:
+        yaml_text = file.read_text(encoding="utf-8")
+    except OSError as exc:
+        typer.echo(f"ERROR: unable to read config file: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    params: dict[str, Any] = {"yaml": yaml_text}
+    if configs_dir is not None:
+        params["configs_dir"] = str(configs_dir)
+    if overwrite:
+        params["overwrite"] = True
+    try:
+        result = _agent_call("push_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    _echo_warnings(result.get("warnings", []))
+    typer.echo(f"pushed config\t{result.get('name', '')}\t{result.get('path', '')}")
+
+
+@config_app.command("pull")
+def config_pull(
+    name: Annotated[str, typer.Argument(help="Target config name to pull.")],
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Local path to write the pulled YAML."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable pull result."),
+    ] = False,
+) -> None:
+    params: dict[str, Any] = {"name": name}
+    if configs_dir is not None:
+        params["configs_dir"] = str(configs_dir)
+    try:
+        result = _agent_call("pull_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    if json_output:
+        _echo_json(result)
+        return
+    yaml_text = str(result.get("yaml") or "")
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(yaml_text, encoding="utf-8")
+        typer.echo(f"pulled config\t{result.get('name', name)}\t{output}")
+        return
+    typer.echo(yaml_text, nl=False)
+
+
+@config_app.command("lint")
+def config_lint(
+    file: Annotated[Path, typer.Argument(help="Local config YAML to lint.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable lint result."),
+    ] = False,
+) -> None:
+    try:
+        yaml_text = file.read_text(encoding="utf-8")
+    except OSError as exc:
+        typer.echo(f"ERROR: unable to read config file: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    try:
+        result = _agent_call("lint_config", {"yaml": yaml_text}, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    if json_output:
+        _echo_json(result)
+        return
+    for error in result.get("errors") or []:
+        if isinstance(error, dict):
+            typer.echo(f"ERROR: {error.get('field', 'config')}: {error.get('message', '')}")
+        else:
+            typer.echo(f"ERROR: {error}")
+    _echo_warnings(result.get("warnings", []))
+    if result.get("ok") is not True:
+        raise typer.Exit(1)
+    typer.echo("config lint ok")
 
 
 @deploy_app.command("create")

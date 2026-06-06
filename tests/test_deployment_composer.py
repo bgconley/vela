@@ -489,6 +489,57 @@ def test_agent_delete_config_removes_inactive_file(config_dir: Path) -> None:
     assert not (config_dir / "old.yaml").exists()
 
 
+def test_agent_push_pull_list_and_lint_config_round_trip(config_dir: Path) -> None:
+    agent = LocalAgent()
+    raw_yaml = """
+    name: pushed
+    model: /models/pushed
+    command:
+      executable: /opt/vllm/bin/vllm
+    server:
+      host: 127.0.0.1
+      port: 18008
+      api_key: sk-live
+    env:
+      HF_TOKEN: hf_live
+    """
+
+    pushed = _call(
+        agent,
+        "push_config",
+        {
+            "configs_dir": str(config_dir),
+            "yaml": raw_yaml,
+        },
+    )
+
+    config_path = config_dir / "pushed.yaml"
+    assert pushed["name"] == "pushed"
+    assert pushed["path"] == str(config_path)
+    assert oct(config_path.stat().st_mode & 0o777) == "0o644"
+
+    listed = _call(agent, "list_config_files", {"configs_dir": str(config_dir)})
+    assert listed["valid"][0]["name"] == "pushed"
+    assert listed["valid"][0]["path"] == str(config_path)
+
+    pulled = _call(agent, "pull_config", {"configs_dir": str(config_dir), "name": "pushed"})
+    assert pulled["config"]["name"] == "pushed"
+    assert "name: pushed" in pulled["yaml"]
+    assert "api_key: sk-live" in pulled["yaml"]
+
+    linted = _call(agent, "lint_config", {"config": pulled["config"]})
+    assert linted["ok"] is True
+    warnings = "\n".join(linted["warnings"])
+    assert "model uses a host-local absolute path" in warnings
+    assert "command.executable is host-local" in warnings
+    assert "server.api_key contains a literal secret" in warnings
+    assert "env.HF_TOKEN contains a literal secret" in warnings
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(agent, "push_config", {"configs_dir": str(config_dir), "yaml": raw_yaml})
+    assert exc_info.value.code == "config-exists"
+
+
 def test_agent_exports_docker_config_as_target_local_standalone_script(
     config_dir: Path, tmp_path: Path
 ) -> None:

@@ -2676,6 +2676,129 @@ def test_cli_deploy_list_clone_delete_call_target_agent(
     ]
 
 
+def test_cli_config_push_pull_lint_call_target_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "pushed.yaml"
+    source.write_text(
+        "\n".join(
+            [
+                "name: pushed",
+                "model: /models/pushed",
+                "server:",
+                "  port: 18008",
+                "  api_key: sk-live",
+                "env:",
+                "  HF_TOKEN: hf_live",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pulled = tmp_path / "pulled.yaml"
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "push_config":
+                assert params == {
+                    "configs_dir": str(tmp_path / "target-configs"),
+                    "yaml": source.read_text(encoding="utf-8"),
+                    "overwrite": True,
+                }
+                return {
+                    "name": "pushed",
+                    "path": "/target/configs/pushed.yaml",
+                    "config": {"name": "pushed", "model": "/models/pushed"},
+                    "warnings": ["server.api_key contains a literal secret"],
+                }
+            if method == "pull_config":
+                assert params == {
+                    "configs_dir": str(tmp_path / "target-configs"),
+                    "name": "pushed",
+                }
+                return {
+                    "name": "pushed",
+                    "path": "/target/configs/pushed.yaml",
+                    "config": {"name": "pushed", "model": "/models/pushed"},
+                    "yaml": "name: pushed\nmodel: /models/pushed\n",
+                    "warnings": [],
+                }
+            if method == "lint_config":
+                assert params == {"yaml": source.read_text(encoding="utf-8")}
+                return {
+                    "ok": True,
+                    "errors": [],
+                    "warnings": [
+                        "model uses a host-local absolute path; prefer model_ref for portability",
+                        "server.api_key contains a literal secret",
+                        "env.HF_TOKEN contains a literal secret",
+                    ],
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    push_result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "config",
+            "push",
+            str(source),
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path / "target-configs"),
+            "--overwrite",
+            "--json",
+        ],
+    )
+    pull_result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "config",
+            "pull",
+            "pushed",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path / "target-configs"),
+            "--output",
+            str(pulled),
+        ],
+    )
+    lint_result = CliRunner().invoke(
+        cli_module.app,
+        ["config", "lint", str(source), "--target", "blackbird", "--json"],
+    )
+
+    assert push_result.exit_code == 0, push_result.output
+    assert json.loads(push_result.output)["path"] == "/target/configs/pushed.yaml"
+    assert pull_result.exit_code == 0, pull_result.output
+    assert pull_result.output == f"pulled config\tpushed\t{pulled}\n"
+    assert pulled.read_text(encoding="utf-8") == "name: pushed\nmodel: /models/pushed\n"
+    assert lint_result.exit_code == 0, lint_result.output
+    lint_payload = json.loads(lint_result.output)
+    assert lint_payload["ok"] is True
+    assert "server.api_key contains a literal secret" in lint_payload["warnings"]
+    assert [method for method, _params in calls] == [
+        "push_config",
+        "pull_config",
+        "lint_config",
+    ]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

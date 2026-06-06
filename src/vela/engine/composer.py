@@ -920,4 +920,25 @@ def _lint_config(cfg: ModelConfig) -> list[str]:
         warnings.append("command.executable is host-local; prefer command.build or docker image")
     if cfg.command.cwd and str(cfg.command.cwd).startswith(("/", "~")):
         warnings.append("command.cwd is host-local; verify it exists on the target")
+    if _literal_secret(cfg.server.api_key):
+        warnings.append("server.api_key contains a literal secret; prefer target env injection")
+    for key, value in sorted(cfg.env.items()):
+        if _secretish_key(key) and _literal_secret(value):
+            warnings.append(f"env.{key} contains a literal secret; prefer target env injection")
     return warnings
+
+
+def _secretish_key(key: str) -> bool:
+    normalized = key.upper()
+    return any(part in normalized for part in ("TOKEN", "SECRET", "API_KEY", "PASSWORD"))
+
+
+def _literal_secret(value: str | None) -> bool:
+    if value is None:
+        return False
+    stripped = str(value).strip()
+    if not stripped or stripped == "EMPTY":
+        return False
+    if stripped.startswith("$") or stripped.startswith("${"):
+        return False
+    return True
