@@ -3482,7 +3482,13 @@ async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> N
                         },
                     },
                     "warnings": [],
-                    "derived": [],
+                    "derived": [
+                        {
+                            "field": "server.port",
+                            "value": "18001",
+                            "source": "operator",
+                        }
+                    ],
                 }
             if method == "validate_config":
                 return {"ok": True, "errors": [], "warnings": []}
@@ -3494,7 +3500,14 @@ async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> N
                     "config": self.saved_config,
                 }
             if method == "preview":
-                return {"preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B", "warnings": []}
+                if "config" in params:
+                    assert params["config"]["name"] == "qwen3"
+                else:
+                    assert params["name"] == "qwen3"
+                return {
+                    "preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B",
+                    "warnings": ["preview-warning"],
+                }
             if method == "discover_runs":
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
@@ -3517,9 +3530,87 @@ async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> N
         await pilot.pause()
         await pilot.pause()
 
+        assert app.screen.id == "new-deployment-review"
+        assert "vllm serve Qwen/Qwen3-32B" in app.screen.query_one(
+            "#new-deployment-review-preview", Static
+        ).content
+        assert "server.port" in app.screen.query_one(
+            "#new-deployment-review-derived", Static
+        ).content
+        assert app.current_config is None
+
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.pause()
+
         assert app.current_config is not None
         assert app.current_config.name == "qwen3"
         assert app.selected_config_preview == "cwd=/agent\nvllm serve Qwen/Qwen3-32B"
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_review_cancel_does_not_write(config_dir: Path) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "compose_config":
+                return {
+                    "config": {
+                        "name": "qwen3",
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B", "warnings": []}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "save_config":
+                raise AssertionError("cancelled deployment review should not save")
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment review should not subscribe")
+
+    app = VelaApp(configs_dir=config_dir, target_client=ComposerClient())
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert app.screen.id == "new-deployment-review"
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.screen.id != "new-deployment-review"
+        assert app.current_config is None
 
 
 @pytest.mark.asyncio

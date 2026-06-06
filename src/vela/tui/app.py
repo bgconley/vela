@@ -75,7 +75,10 @@ from vela.tui.screens.flag_manager import FlagManagerScreen
 from vela.tui.screens.help import HelpScreen
 from vela.tui.screens.log_prompt import LogPromptScreen
 from vela.tui.screens.model_manager import ModelManagerScreen
-from vela.tui.screens.new_deployment import NewDeploymentScreen
+from vela.tui.screens.new_deployment import (
+    NewDeploymentReviewScreen,
+    NewDeploymentScreen,
+)
 from vela.tui.screens.pin_model import PinModelScreen
 from vela.tui.screens.target_edit import TargetEditScreen
 from vela.tui.screens.target_manager import (
@@ -2044,14 +2047,14 @@ class VelaApp(App):
         if not isinstance(selection, dict):
             return
         self.run_worker(
-            self._save_new_deployment(selection),
-            name="new-deployment-save",
+            self._review_new_deployment(selection),
+            name="new-deployment-review",
             group="new-deployment",
             exclusive=True,
             exit_on_error=False,
         )
 
-    async def _save_new_deployment(self, spec: dict[str, Any]) -> None:
+    async def _review_new_deployment(self, spec: dict[str, Any]) -> None:
         params = dict(spec)
         params.update(self._agent_params(configs_dir=self.configs_dir))
         try:
@@ -2066,11 +2069,53 @@ class VelaApp(App):
                     style=f"bold {BAD}",
                 )
                 return
-            save_params = self._agent_params(
-                name=str(config.get("name") or spec.get("name") or ""),
-                configs_dir=self.configs_dir,
+            preview = await self._target_call(
+                "preview",
+                {
+                    "config": config,
+                    **self._agent_params(configs_dir=self.configs_dir),
+                },
             )
-            save_params["config"] = config
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to review deployment: {exc}", style=f"bold {BAD}")
+            return
+        warnings = [
+            *[str(item) for item in draft.get("warnings") or []],
+            *[str(item) for item in validation.get("warnings") or []],
+            *[str(item) for item in preview.get("warnings") or []],
+        ]
+        derived = draft.get("derived")
+        self.push_screen(
+            NewDeploymentReviewScreen(
+                config=config,
+                preview=str(preview.get("preview") or ""),
+                derived=derived if isinstance(derived, list) else [],
+                warnings=warnings,
+            ),
+            callback=self._handle_new_deployment_review,
+        )
+
+    def _handle_new_deployment_review(self, selection: object) -> None:
+        if not isinstance(selection, dict):
+            return
+        config = selection.get("config")
+        if not isinstance(config, dict):
+            return
+        self.run_worker(
+            self._save_reviewed_new_deployment(config),
+            name="new-deployment-save",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _save_reviewed_new_deployment(self, config: dict[str, Any]) -> None:
+        save_params = self._agent_params(
+            name=str(config.get("name") or ""),
+            configs_dir=self.configs_dir,
+        )
+        save_params["config"] = config
+        try:
             saved = await self._target_call("save_config", save_params)
         except TargetCallError as exc:
             self._set_error_text(f"Unable to save deployment: {exc}", style=f"bold {BAD}")
@@ -2086,7 +2131,7 @@ class VelaApp(App):
                 pass
             await self._refresh_selected_config_preview()
         self._refresh_chrome()
-        self.notify(f"Saved deployment: {saved.get('name') or spec.get('name')}")
+        self.notify(f"Saved deployment: {saved.get('name') or config.get('name')}")
 
     def action_search(self) -> None:
         self.push_screen(

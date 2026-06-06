@@ -91,6 +91,29 @@ def test_agent_validates_composed_draft(config_dir: Path) -> None:
     assert result["errors"] == []
 
 
+def test_agent_previews_unsaved_composed_draft(config_dir: Path) -> None:
+    agent = LocalAgent()
+    draft = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "draft-docker",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:abc",
+            },
+            "model": "Qwen/Qwen3-32B",
+        },
+    )["config"]
+
+    result = _call(agent, "preview", {"config": draft, "configs_dir": str(config_dir)})
+
+    assert "docker run" in result["preview"]
+    assert "vllm/vllm-openai@sha256:abc" in result["preview"]
+    assert "Qwen/Qwen3-32B" in result["preview"]
+
+
 def test_agent_save_config_writes_yaml_and_refuses_clobber(config_dir: Path) -> None:
     agent = LocalAgent()
     draft = _call(

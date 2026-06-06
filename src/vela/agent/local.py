@@ -712,10 +712,15 @@ class LocalAgent:
         return {"path": str(config_path), "name": cfg.name, "config": cfg.model_dump(mode="json")}
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
-        name = _config_name_param(params, method="preview")
-        registry = load_registry(_configs_dir(params))
-        self._remember_registry_runs_dirs(registry)
-        cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+        draft_config = params.get("config")
+        if isinstance(draft_config, dict):
+            cfg = ModelConfig.model_validate(draft_config)
+            self._remember_run_config(cfg)
+        else:
+            name = _config_name_param(params, method="preview")
+            registry = load_registry(_configs_dir(params))
+            self._remember_registry_runs_dirs(registry)
+            cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
         try:
             result = self._build_command_for_config(cfg)
         except VllmProfileError as exc:

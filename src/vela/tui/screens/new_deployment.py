@@ -35,6 +35,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         color: {MUTED};
     }}
 
+    #new-deployment-steps {{
+        margin-bottom: 1;
+        color: {ACCENT};
+    }}
+
     .new-deployment-field-label {{
         margin-top: 1;
         color: {TEXT};
@@ -76,6 +81,10 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         with Vertical(id="new-deployment-panel"):
             yield Static("New Deployment", id="new-deployment-title")
             yield Static(f"Target: {self.target_label}", id="new-deployment-target")
+            yield Static(
+                "Target -> Runtime -> Model -> Customize -> Review -> Save",
+                id="new-deployment-steps",
+            )
             with Horizontal(classes="new-deployment-row"):
                 with Vertical(classes="new-deployment-column"):
                     yield Static("Name", classes="new-deployment-field-label")
@@ -185,3 +194,130 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def _default_preset(self) -> str:
         names = {value for _, value in self._preset_options()}
         return "balanced" if "balanced" in names else next(iter(names))
+
+
+class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
+    CSS = f"""
+    NewDeploymentReviewScreen {{
+        align: center middle;
+        background: #091015;
+    }}
+
+    #new-deployment-review-panel {{
+        width: 92;
+        max-height: 38;
+        border: solid {ACCENT};
+        background: {SURFACE_ALT};
+        padding: 1 2;
+    }}
+
+    #new-deployment-review-title {{
+        color: {TEXT};
+        text-style: bold;
+    }}
+
+    #new-deployment-review-steps {{
+        margin-bottom: 1;
+        color: {ACCENT};
+    }}
+
+    .new-deployment-review-label {{
+        margin-top: 1;
+        color: {TEXT};
+        text-style: bold;
+    }}
+
+    #new-deployment-review-summary,
+    #new-deployment-review-derived,
+    #new-deployment-review-warnings,
+    #new-deployment-review-preview {{
+        color: {TEXT};
+    }}
+
+    #new-deployment-review-preview {{
+        max-height: 12;
+        background: #091015;
+        padding: 0 1;
+    }}
+
+    #new-deployment-review-actions {{
+        margin-top: 1;
+        color: {GOOD};
+    }}
+    """
+
+    BINDINGS = [("ctrl+s", "save", "Save"), ("escape", "cancel", "Cancel")]
+
+    def __init__(
+        self,
+        *,
+        config: dict[str, Any],
+        preview: str,
+        derived: list[dict[str, Any]],
+        warnings: list[str],
+    ) -> None:
+        super().__init__(id="new-deployment-review")
+        self.config = dict(config)
+        self.preview = preview
+        self.derived = [dict(item) for item in derived]
+        self.warnings = list(warnings)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="new-deployment-review-panel"):
+            yield Static("Review Deployment", id="new-deployment-review-title")
+            yield Static(
+                "Target -> Runtime -> Model -> Customize -> Review -> Save",
+                id="new-deployment-review-steps",
+            )
+            yield Static("Summary", classes="new-deployment-review-label")
+            yield Static(self._summary_text(), id="new-deployment-review-summary")
+            yield Static("Auto-derived fields", classes="new-deployment-review-label")
+            yield Static(self._derived_text(), id="new-deployment-review-derived")
+            yield Static("Warnings", classes="new-deployment-review-label")
+            yield Static(self._warnings_text(), id="new-deployment-review-warnings")
+            yield Static("Resolved command", classes="new-deployment-review-label")
+            yield Static(self.preview, id="new-deployment-review-preview")
+            yield Static(
+                "Ctrl+S Save   Esc Cancel",
+                id="new-deployment-review-actions",
+            )
+
+    def action_save(self) -> None:
+        self.dismiss({"config": self.config})
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def _summary_text(self) -> str:
+        server = self.config.get("server") if isinstance(self.config.get("server"), dict) else {}
+        command = (
+            self.config.get("command") if isinstance(self.config.get("command"), dict) else {}
+        )
+        docker = command.get("docker") if isinstance(command.get("docker"), dict) else {}
+        lines = [
+            f"Name: {self.config.get('name', '')}",
+            f"Model: {self.config.get('model', '')}",
+            f"Runtime: {command.get('runtime', 'process')}",
+            f"Endpoint: {server.get('host', '127.0.0.1')}:{server.get('port', '')}",
+            f"Exposure: {server.get('exposure', 'local')}",
+        ]
+        if docker:
+            lines.append(f"Image: {docker.get('image', '')}")
+            lines.append(f"Container: {docker.get('container_name', '')}")
+        return "\n".join(lines)
+
+    def _derived_text(self) -> str:
+        if not self.derived:
+            return "No auto-derived fields reported."
+        lines = []
+        for item in self.derived:
+            field = str(item.get("field") or "")
+            value = str(item.get("value") or "")
+            source = str(item.get("source") or "auto")
+            lines.append(f"{field}: {value} ({source})")
+        return "\n".join(lines)
+
+    def _warnings_text(self) -> str:
+        if not self.warnings:
+            return "No warnings."
+        return "\n".join(f"- {warning}" for warning in self.warnings)
