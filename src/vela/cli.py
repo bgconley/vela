@@ -1379,6 +1379,55 @@ def deploy_clone(
     typer.echo(f"cloned deployment\t{result.get('name', new_name)}\t{result.get('path', '')}")
 
 
+@deploy_app.command("from-wrapper")
+def deploy_from_wrapper(
+    src_name: Annotated[
+        str,
+        typer.Argument(help="Existing wrapper-based deployment/config name."),
+    ],
+    new_name: Annotated[
+        str | None,
+        typer.Argument(help="New native-docker deployment/config name."),
+    ] = None,
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Emit the migrated config without saving."),
+    ] = False,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Overwrite an existing migrated config."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable migration result."),
+    ] = False,
+) -> None:
+    params: dict[str, Any] = {"src_name": src_name}
+    if new_name is not None:
+        params["new_name"] = new_name
+    if configs_dir is not None:
+        params["configs_dir"] = str(configs_dir)
+    if dry_run:
+        params["dry_run"] = True
+    if overwrite:
+        params["overwrite"] = True
+    try:
+        result = _agent_call("migrate_wrapper_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=new_name or src_name)
+    if json_output:
+        _echo_json(result)
+        return
+    _echo_warnings(result.get("warnings", []))
+    verb = "dry-run wrapper migration" if dry_run else "migrated wrapper"
+    typer.echo(f"{verb}\t{result.get('name', new_name or src_name)}\t{result.get('path', '')}")
+
+
 @deploy_app.command("delete")
 def deploy_delete(
     name: Annotated[str, typer.Argument(help="Deployment/config name to delete.")],

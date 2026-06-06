@@ -94,6 +94,9 @@ def test_blackwell_docs_treat_local_recipes_as_runtime_truth() -> None:
     assert "sm_120" in docker_runtime
     assert "CUTLASS" in docker_runtime
     assert "FlashInfer" in docker_runtime
+    assert "intentionally emit both `--ipc=host` and `--shm-size 32g`" in docker_runtime
+    assert "vela deploy from-wrapper" in docker_runtime
+    assert "does not infer vLLM image" in docker_runtime
     assert "local deployment scripts" in configuration
 
 

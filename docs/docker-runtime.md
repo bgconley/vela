@@ -75,6 +75,11 @@ FP8 and BF16 Blackbird configs intentionally differ:
 - BF16 omits the FP8 KV-byte cap and FlashInfer arch pin, using
   `gpu_memory_utilization` to size KV cache.
 
+The Blackbird recipes intentionally emit both `--ipc=host` and `--shm-size 32g`
+because the proven local wrappers do the same. Generic Docker guidance treats
+them as alternatives, but this runtime preserves the validated lab launch shape
+for these configs.
+
 ## Preview, Smoke, And Export
 
 Render the exact masked Docker command:
@@ -99,6 +104,19 @@ vela deploy export qwen36-27b-fp8-kvfp8-rp6000-blackbird \
 
 Secrets are redacted in the exported script. Required secret environment
 variables are emitted as runtime requirements rather than literal values.
+
+Legacy wrapper configs can be migrated through the target-local agent:
+
+```bash
+vela deploy from-wrapper legacy-qwen-fp8 legacy-qwen-fp8-docker \
+  --target blackbird \
+  --dry-run
+```
+
+The migration helper recognizes only the known Blackbird wrapper scripts and
+emits the native recipe copied from those wrappers. It is review-required and
+does not infer vLLM image, CUTLASS, FlashInfer, FlashAttention, or memory shape
+from Hugging Face metadata.
 
 ## Composer
 

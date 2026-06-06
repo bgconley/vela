@@ -120,6 +120,7 @@ AGENT_CAPABILITIES = [
     "edit_config",
     "clone_config",
     "delete_config",
+    "migrate_wrapper_config",
     "list_config_files",
     "pull_config",
     "push_config",
@@ -410,6 +411,8 @@ class LocalAgent:
             return self._clone_config(payload)
         if method == "delete_config":
             return self._delete_config(payload)
+        if method == "migrate_wrapper_config":
+            return self._migrate_wrapper_config(payload)
         if method == "list_config_files":
             return self._list_config_files(payload)
         if method == "pull_config":
@@ -675,11 +678,17 @@ class LocalAgent:
 
     def _compose_config(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
+            occupied_container_names = (
+                self._occupied_docker_container_names()
+                if _params_runtime_is_docker(params)
+                else None
+            )
             result = compose_config(
                 params,
                 configs_dir=_configs_dir(params),
                 models_registry_path=self._models_registry_path,
                 occupied_ports=self._occupied_port_sources(),
+                occupied_container_names=occupied_container_names,
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -691,11 +700,17 @@ class LocalAgent:
 
     def _suggest_deployment_defaults(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
+            occupied_container_names = (
+                self._occupied_docker_container_names()
+                if _params_runtime_is_docker(params)
+                else None
+            )
             return suggest_deployment_defaults(
                 params,
                 configs_dir=_configs_dir(params),
                 models_registry_path=self._models_registry_path,
                 occupied_ports=self._occupied_port_sources(),
+                occupied_container_names=occupied_container_names,
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -807,6 +822,12 @@ class LocalAgent:
         self._remember_registry_runs_dirs(registry)
         source = _valid_config_item_by_name(registry, src_name)
         overrides = _mapping_param(params.get("overrides"), field_name="overrides")
+        occupied_container_names = (
+            self._occupied_docker_container_names()
+            if source.config.command.runtime is RuntimeKind.DOCKER
+            and not _override_has(overrides, "command", "docker", "container_name")
+            else None
+        )
         payload = source.config.model_dump(mode="json", exclude_none=True)
         payload["name"] = new_name
         derived = _prepare_clone_payload(
@@ -816,6 +837,7 @@ class LocalAgent:
             overrides,
             configs_dir,
             occupied_ports=self._occupied_port_sources(),
+            occupied_container_names=occupied_container_names,
         )
         _apply_config_overrides(payload, overrides)
         try:
@@ -861,6 +883,52 @@ class LocalAgent:
             )
         item.path.unlink()
         return {"name": name, "path": str(item.path), "deleted": True}
+
+    def _migrate_wrapper_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        src_name = _required_param_name(
+            params,
+            "src_name",
+            method="migrate_wrapper_config",
+        )
+        new_name = _optional_str(params.get("new_name")) or f"{src_name}-docker"
+        configs_dir = _configs_dir(params) or Path.cwd() / "configs"
+        registry = load_registry(configs_dir)
+        self._remember_registry_runs_dirs(registry)
+        source = _valid_config_item_by_name(registry, src_name)
+        cfg, derived = _native_config_from_known_wrapper(source.config, new_name)
+        normalized = cfg.model_dump(mode="json", exclude_none=True)
+        validation = validate_config_payload(normalized)
+        if validation.get("ok") is not True:
+            raise TargetCallError(
+                "invalid-config",
+                "migrated wrapper config is invalid",
+                {"src_name": src_name, "new_name": new_name, "validation": validation},
+            )
+        warnings = [
+            "wrapper-migration-review-required",
+            *list(validation.get("warnings") or []),
+        ]
+        path = Path(configs_dir).expanduser() / f"{_safe_config_file_stem(new_name)}.yaml"
+        written = False
+        if not bool(params.get("dry_run")):
+            if path.exists() and not bool(params.get("overwrite")):
+                raise TargetCallError(
+                    "config-exists",
+                    f"config already exists: {new_name}",
+                    {"name": new_name, "path": str(path)},
+                )
+            _write_public_text_atomic(path, yaml.safe_dump(normalized, sort_keys=False))
+            written = True
+        return {
+            "name": cfg.name,
+            "path": str(path),
+            "config": cfg.model_dump(mode="json"),
+            "derived": derived,
+            "warnings": warnings,
+            "source_name": source.config.name,
+            "source_path": str(source.path),
+            "written": written,
+        }
 
     def _list_config_files(self, params: dict[str, Any]) -> dict[str, Any]:
         registry = load_registry(_configs_dir(params))
@@ -1860,6 +1928,15 @@ class LocalAgent:
             ),
             "listener_ports": sorted(_listening_ports()),
         }
+
+    def _occupied_docker_container_names(self) -> list[str]:
+        names = {
+            str(sidecar.docker_container_name).strip().lstrip("/")
+            for sidecar in self._verified_live_sidecars()
+            if sidecar.runtime == "docker" and sidecar.docker_container_name
+        }
+        names.update(_docker_container_names())
+        return sorted(name for name in names if name)
 
     async def _create_build(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("create_build", params, self._build_job_runner)
@@ -3072,6 +3149,46 @@ def _listening_ports() -> set[int]:
         if port is not None:
             ports.add(port)
     return ports
+
+
+def _docker_container_names() -> set[str]:
+    docker = shutil.which("docker")
+    if docker is None:
+        return set()
+    try:
+        proc = subprocess.run(
+            [docker, "ps", "-a", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return set()
+    if proc.returncode != 0:
+        return set()
+    return {
+        line.strip().lstrip("/")
+        for line in proc.stdout.splitlines()
+        if line.strip()
+    }
+
+
+def _fresh_docker_container_name(
+    preferred: str,
+    occupied_container_names: list[str] | None,
+) -> str:
+    occupied = {
+        str(name).strip().lstrip("/")
+        for name in (occupied_container_names or [])
+        if str(name).strip()
+    }
+    if preferred not in occupied:
+        return preferred
+    suffix = 2
+    while f"{preferred}-{suffix}" in occupied:
+        suffix += 1
+    return f"{preferred}-{suffix}"
 
 
 def _listening_port_from_ss_line(line: str) -> int | None:
@@ -4331,6 +4448,20 @@ def _param_bool(value: object) -> bool:
     return False
 
 
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _params_runtime_is_docker(params: dict[str, Any]) -> bool:
+    runtime = params.get("runtime")
+    if isinstance(runtime, dict):
+        return str(runtime.get("kind", "")).strip().lower() == "docker"
+    return str(runtime or "").strip().lower() == "docker"
+
+
 def _optional_str_list(value: object) -> list[str] | None:
     if value is None:
         return None
@@ -4390,6 +4521,7 @@ def _prepare_clone_payload(
     configs_dir: Path,
     *,
     occupied_ports: dict[str, list[int]] | None = None,
+    occupied_container_names: list[str] | None = None,
 ) -> list[dict[str, str]]:
     derived: list[dict[str, str]] = []
     if not _override_has(overrides, "server", "port"):
@@ -4411,15 +4543,24 @@ def _prepare_clone_payload(
     ):
         command = dict(payload.get("command") if isinstance(payload.get("command"), dict) else {})
         docker = dict(command.get("docker") if isinstance(command.get("docker"), dict) else {})
-        container_name = f"vela-{_safe_config_file_stem(new_name)}"
+        preferred_container_name = f"vela-{_safe_config_file_stem(new_name)}"
+        container_name = _fresh_docker_container_name(
+            preferred_container_name,
+            occupied_container_names,
+        )
         docker["container_name"] = container_name
         command["docker"] = docker
         payload["command"] = command
+        source_name = (
+            "docker_container_name_collision"
+            if container_name != preferred_container_name
+            else "clone"
+        )
         derived.append(
             {
                 "field": "command.docker.container_name",
                 "value": container_name,
-                "source": "clone",
+                "source": source_name,
             }
         )
     return derived
@@ -4438,6 +4579,119 @@ def _clone_runs_dir(source: ModelConfig, new_name: str) -> Path:
     if source.launch.runs_dir is not None:
         return source.launch.runs_dir.parent / _safe_config_file_stem(new_name)
     return default_run_artifacts_dir() / _safe_config_file_stem(new_name)
+
+
+BLACKBIRD_WRAPPER_RECIPE_BY_SCRIPT = {
+    "blackbird_qwen36_vllm_foreground.sh": "blackbird-qwen36-27b-fp8-rp6000",
+    "blackbird_qwen36_bf16_vllm_foreground.sh": "blackbird-qwen36-27b-bf16-rp6000",
+}
+
+
+def _native_config_from_known_wrapper(
+    source: ModelConfig,
+    new_name: str,
+) -> tuple[ModelConfig, list[dict[str, str]]]:
+    if source.command.runtime is RuntimeKind.DOCKER:
+        raise TargetCallError(
+            "invalid-config",
+            f"config already uses command.runtime: docker: {source.name}",
+            {"name": source.name},
+        )
+    executable = _optional_str(source.command.executable)
+    if executable is None:
+        raise TargetCallError(
+            "invalid-config",
+            "wrapper migration requires command.executable",
+            {"name": source.name},
+        )
+    recipe_key = _wrapper_recipe_key_for_source(source, executable)
+    recipe = _deployment_recipe_payload(recipe_key)
+    target = _optional_str(source.target) or str(recipe["target"])
+    if target.lower() != str(recipe["target"]).lower():
+        raise TargetCallError(
+            "invalid-config",
+            "wrapper migration only supports the known Blackbird wrapper target",
+            {"name": source.name, "target": source.target, "recipe_target": recipe["target"]},
+        )
+    expected_model = str(recipe["model"])
+    if source.model != expected_model:
+        raise TargetCallError(
+            "invalid-config",
+            "wrapper config model does not match the known Blackbird recipe",
+            {"name": source.name, "model": source.model, "recipe_model": expected_model},
+        )
+    payload: dict[str, Any] = {
+        "name": new_name,
+        "target": recipe["target"],
+        "description": (
+            f"Migrated by Vela from wrapper config {source.name}; review before launch."
+        ),
+        "model": expected_model,
+        "served_model_name": recipe["served_model_name"],
+        "command": {
+            "entrypoint": "serve",
+            "runtime": "docker",
+            "docker": dict(recipe["docker"]),
+        },
+        "engine": dict(recipe["engine"]),
+        "server": dict(recipe["server"]),
+        "logging": {
+            "request_logging": False,
+            "suppress_access_log_for": ["/health"],
+        },
+        "extra_args": list(recipe["extra_args"]),
+        "launch": dict(recipe["launch"]),
+        "vllm": dict(recipe.get("vllm") or {}),
+    }
+    if source.revision is not None:
+        payload["revision"] = source.revision
+    if source.model_ref is not None:
+        payload["model_ref"] = source.model_ref
+    cfg = ModelConfig.model_validate(payload)
+    return cfg, [
+        {
+            "field": "deployment.recipe",
+            "value": recipe_key,
+            "source": "known_wrapper",
+        },
+        {
+            "field": "command.runtime",
+            "value": "docker",
+            "source": "wrapper_migration",
+        },
+        {
+            "field": "command.docker",
+            "value": str(recipe["docker"].get("container_name") or ""),
+            "source": Path(executable).name,
+        },
+    ]
+
+
+def _wrapper_recipe_key_for_source(source: ModelConfig, executable: str) -> str:
+    script_name = Path(executable).name
+    recipe_key = BLACKBIRD_WRAPPER_RECIPE_BY_SCRIPT.get(script_name)
+    if recipe_key is not None:
+        return recipe_key
+    raise TargetCallError(
+        "invalid-config",
+        "unsupported wrapper script; migration is limited to known Blackbird recipes",
+        {
+            "name": source.name,
+            "executable": executable,
+            "supported_scripts": sorted(BLACKBIRD_WRAPPER_RECIPE_BY_SCRIPT),
+        },
+    )
+
+
+def _deployment_recipe_payload(key: str) -> dict[str, Any]:
+    for recipe in list_deployment_recipes(None):
+        if recipe.get("key") == key:
+            return dict(recipe)
+    raise TargetCallError(
+        "invalid-config",
+        f"unknown deployment recipe: {key}",
+        {"recipe": key},
+    )
 
 
 def _apply_config_overrides(payload: dict[str, Any], overrides: dict[str, Any]) -> None:

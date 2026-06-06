@@ -2709,6 +2709,87 @@ def test_cli_deploy_export_prints_agent_generated_script(
     ]
 
 
+def test_cli_deploy_from_wrapper_calls_target_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "migrate_wrapper_config":
+                assert params == {
+                    "src_name": "legacy-fp8",
+                    "new_name": "legacy-fp8-native",
+                    "configs_dir": str(tmp_path),
+                    "dry_run": True,
+                }
+                return {
+                    "name": "legacy-fp8-native",
+                    "path": str(tmp_path / "legacy-fp8-native.yaml"),
+                    "config": {
+                        "name": "legacy-fp8-native",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "command": {
+                            "runtime": "docker",
+                            "docker": {
+                                "env": {"FLASHINFER_CUDA_ARCH_LIST": "12.0f"},
+                                "image": "vllm/vllm-openai@sha256:abc",
+                            },
+                        },
+                        "extra_args": ["--attention-backend", "FLASHINFER"],
+                    },
+                    "derived": [],
+                    "warnings": ["wrapper-migration-review-required"],
+                    "written": False,
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "from-wrapper",
+            "legacy-fp8",
+            "legacy-fp8-native",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "WARNING: wrapper-migration-review-required\n"
+        f"dry-run wrapper migration\tlegacy-fp8-native\t{tmp_path / 'legacy-fp8-native.yaml'}\n"
+    )
+    assert calls == [
+        (
+            "migrate_wrapper_config",
+            {
+                "src_name": "legacy-fp8",
+                "new_name": "legacy-fp8-native",
+                "configs_dir": str(tmp_path),
+                "dry_run": True,
+            },
+        )
+    ]
+
+
 def test_cli_deploy_list_clone_delete_call_target_agent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

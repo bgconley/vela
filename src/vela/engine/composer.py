@@ -353,6 +353,7 @@ def compose_config(
     configs_dir: str | Path | None = None,
     models_registry_path: str | Path | None = None,
     occupied_ports: Mapping[str, Iterable[int]] | None = None,
+    occupied_container_names: Iterable[str] | None = None,
 ) -> ComposeResult:
     model_context = _model_context(spec, models_registry_path=models_registry_path)
     model = model_context.model
@@ -405,9 +406,15 @@ def compose_config(
 
     _merge_overrides(payload, overrides)
     _merge_extra_args(payload, overrides)
+    container_name_result = _avoid_docker_container_collision(
+        payload,
+        recipe=recipe,
+        occupied_container_names=occupied_container_names,
+    )
     cfg = ModelConfig.model_validate(payload)
     warnings = [*suggestions.warnings, *(recipe.warnings if recipe is not None else ())]
     warnings.extend(port["warnings"])
+    warnings.extend(container_name_result["warnings"])
     warnings.extend(_compose_config_warnings(cfg))
     return ComposeResult(
         config=cfg,
@@ -423,6 +430,7 @@ def compose_config(
             {"field": "launch.runs_dir", "value": str(cfg.launch.runs_dir), "source": "runs_root"},
             *_engine_derived(cfg, engine_sources, overrides),
             *_docker_derived(cfg),
+            *container_name_result["derived"],
         ],
     )
 
@@ -457,6 +465,7 @@ def suggest_deployment_defaults(
     configs_dir: str | Path | None = None,
     models_registry_path: str | Path | None = None,
     occupied_ports: Mapping[str, Iterable[int]] | None = None,
+    occupied_container_names: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     model_context = _model_context(params, models_registry_path=models_registry_path)
     model = model_context.model
@@ -490,7 +499,13 @@ def suggest_deployment_defaults(
     if recipe is not None:
         payload["recipe"] = {"key": recipe.key, "label": recipe.label}
     if runtime is RuntimeKind.DOCKER:
-        payload["container_name"] = f"vela-{name}"
+        container_name = _suggested_container_name(
+            f"vela-{name}",
+            recipe=recipe,
+            occupied_container_names=occupied_container_names,
+        )
+        payload["container_name"] = container_name["name"]
+        payload["warnings"].extend(container_name["warnings"])
         if recipe is not None:
             payload["runtime_suggestions"] = {"kind": "docker", "image": recipe.docker["image"]}
     return payload
@@ -580,6 +595,68 @@ def _docker_derived(cfg: ModelConfig) -> list[dict[str, str]]:
             "source": "deployment_name",
         }
     ]
+
+
+def _avoid_docker_container_collision(
+    payload: dict[str, Any],
+    *,
+    recipe: DeploymentRecipe | None,
+    occupied_container_names: Iterable[str] | None,
+) -> dict[str, list[Any]]:
+    command = payload.get("command")
+    if not isinstance(command, dict) or command.get("runtime") != "docker":
+        return {"warnings": [], "derived": []}
+    docker = command.get("docker")
+    if not isinstance(docker, dict):
+        return {"warnings": [], "derived": []}
+    current = _optional_str(docker.get("container_name"))
+    if current is None or recipe is not None:
+        return {"warnings": [], "derived": []}
+    fresh = _fresh_container_name(current, occupied_container_names)
+    if fresh == current:
+        return {"warnings": [], "derived": []}
+    updated_docker = dict(docker)
+    updated_docker["container_name"] = fresh
+    updated_command = dict(command)
+    updated_command["docker"] = updated_docker
+    payload["command"] = updated_command
+    return {
+        "warnings": ["container-name-reassigned"],
+        "derived": [
+            {
+                "field": "command.docker.container_name",
+                "value": fresh,
+                "source": "docker_container_name_collision",
+            }
+        ],
+    }
+
+
+def _suggested_container_name(
+    preferred: str,
+    *,
+    recipe: DeploymentRecipe | None,
+    occupied_container_names: Iterable[str] | None,
+) -> dict[str, Any]:
+    if recipe is not None:
+        return {"name": preferred, "warnings": []}
+    fresh = _fresh_container_name(preferred, occupied_container_names)
+    warnings = ["container-name-reassigned"] if fresh != preferred else []
+    return {"name": fresh, "warnings": warnings}
+
+
+def _fresh_container_name(preferred: str, occupied_container_names: Iterable[str] | None) -> str:
+    occupied = {
+        str(name).strip().lstrip("/")
+        for name in (occupied_container_names or ())
+        if str(name).strip()
+    }
+    if preferred not in occupied:
+        return preferred
+    suffix = 2
+    while f"{preferred}-{suffix}" in occupied:
+        suffix += 1
+    return f"{preferred}-{suffix}"
 
 
 def _recipe_derived(recipe: DeploymentRecipe | None) -> list[dict[str, str]]:

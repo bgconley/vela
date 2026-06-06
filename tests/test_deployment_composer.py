@@ -124,6 +124,37 @@ def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> Non
     assert "non-local-bind" in "\n".join(result["warnings"])
 
 
+def test_agent_composes_generic_docker_with_fresh_container_name_from_docker_ps(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        local_agent_module,
+        "_docker_container_names",
+        lambda: {"vela-qwen3", "vela-qwen3-2"},
+        raising=False,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen3",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model": "Qwen/Qwen3-32B",
+        },
+    )
+
+    assert result["config"]["command"]["docker"]["container_name"] == "vela-qwen3-3"
+    assert any(
+        item["field"] == "command.docker.container_name"
+        and item["source"] == "docker_container_name_collision"
+        for item in result["derived"]
+    )
+    assert "container-name-reassigned" in result["warnings"]
+
+
 def test_agent_composer_skips_live_sidecar_and_listener_ports(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -254,6 +285,36 @@ def test_agent_composes_blackbird_qwen36_fp8_from_lab_recipe(config_dir: Path) -
     )
 
 
+def test_agent_composer_preserves_blackbird_recipe_container_name_when_live_name_exists(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        local_agent_module,
+        "_docker_container_names",
+        lambda: {"qwen36-27b-fp8-kvfp8-rp6000-vela"},
+        raising=False,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B-FP8",
+        },
+    )
+
+    assert (
+        result["config"]["command"]["docker"]["container_name"]
+        == "qwen36-27b-fp8-kvfp8-rp6000-vela"
+    )
+    assert "container-name-reassigned" not in result["warnings"]
+
+
 def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path) -> None:
     agent = LocalAgent()
 
@@ -282,6 +343,134 @@ def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path)
     assert "FLASHINFER_CUDA_ARCH_LIST" not in docker["env"]
     assert "--kv-cache-memory-bytes" not in config["extra_args"]
     assert "--attention-backend" not in config["extra_args"]
+
+
+def test_agent_migrates_blackbird_fp8_wrapper_to_native_docker_recipe(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "legacy-fp8.yaml",
+        """
+        name: legacy-fp8
+        target: blackbird
+        model: Qwen/Qwen3.6-27B-FP8
+        served_model_name: qwen36-27b-fp8-kvfp8-rp6000
+        command:
+          entrypoint: serve
+          executable: ./scripts/blackbird_qwen36_vllm_foreground.sh
+        server:
+          host: 0.0.0.0
+          port: 18003
+          exposure: lan
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "migrate_wrapper_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "legacy-fp8",
+            "new_name": "legacy-fp8-native",
+            "dry_run": True,
+        },
+    )
+
+    config = result["config"]
+    docker = config["command"]["docker"]
+    assert result["written"] is False
+    assert not (config_dir / "legacy-fp8-native.yaml").exists()
+    assert config["command"]["runtime"] == "docker"
+    assert config["server"]["port"] == 18003
+    assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["container_name"] == "qwen36-27b-fp8-kvfp8-rp6000-vela"
+    assert docker["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
+    assert "/root/.cache/flashinfer" in "\n".join(docker["volumes"])
+    assert "--attention-backend" in config["extra_args"]
+    assert "FLASHINFER" in config["extra_args"]
+    assert "--kv-cache-memory-bytes" in config["extra_args"]
+    assert "64424509440" in config["extra_args"]
+    assert "wrapper-migration-review-required" in result["warnings"]
+    assert any(
+        item["field"] == "deployment.recipe"
+        and item["value"] == "blackbird-qwen36-27b-fp8-rp6000"
+        for item in result["derived"]
+    )
+
+
+def test_agent_migrates_blackbird_bf16_wrapper_without_fp8_pins(
+    config_dir: Path,
+) -> None:
+    write_yaml(
+        config_dir / "legacy-bf16.yaml",
+        """
+        name: legacy-bf16
+        target: blackbird
+        model: Qwen/Qwen3.6-27B
+        served_model_name: qwen36-27b-bf16-rp6000
+        command:
+          entrypoint: serve
+          executable: ./scripts/blackbird_qwen36_bf16_vllm_foreground.sh
+        server:
+          host: 0.0.0.0
+          port: 18002
+          exposure: lan
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "migrate_wrapper_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "legacy-bf16",
+            "new_name": "legacy-bf16-native",
+            "dry_run": True,
+        },
+    )
+
+    config = result["config"]
+    docker = config["command"]["docker"]
+    assert config["server"]["port"] == 18002
+    assert docker["container_name"] == "qwen36-27b-bf16-rp6000-vela"
+    assert docker["env"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert "FLASHINFER_CUDA_ARCH_LIST" not in docker["env"]
+    assert "--kv-cache-memory-bytes" not in config["extra_args"]
+    assert "--attention-backend" not in config["extra_args"]
+    assert "/home/bgconley/models/qwen36-27b-bf16:/home/bgconley/models/qwen36-27b-bf16" in (
+        docker["volumes"]
+    )
+
+
+def test_agent_refuses_unknown_wrapper_migration(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "legacy.yaml",
+        """
+        name: legacy
+        target: blackbird
+        model: Qwen/Qwen3.6-27B-FP8
+        command:
+          entrypoint: serve
+          executable: ./scripts/custom-wrapper.sh
+        """,
+    )
+    agent = LocalAgent()
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(
+            agent,
+            "migrate_wrapper_config",
+            {
+                "configs_dir": str(config_dir),
+                "src_name": "legacy",
+                "dry_run": True,
+            },
+        )
+
+    assert exc_info.value.code == "invalid-config"
+    assert "unsupported wrapper script" in str(exc_info.value)
 
 
 def test_agent_composer_preserves_blackbird_recipe_when_preset_changes(config_dir: Path) -> None:
@@ -382,6 +571,32 @@ def test_agent_suggests_defaults_from_pinned_model_registry(
     }
     assert "model_registry" in result["sources"]
     assert "gated-needs-token" in result["warnings"]
+
+
+def test_agent_suggests_fresh_docker_container_name_from_docker_ps(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        local_agent_module,
+        "_docker_container_names",
+        lambda: {"vela-qwen3"},
+        raising=False,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "suggest_deployment_defaults",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen3",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model": "Qwen/Qwen3-32B",
+        },
+    )
+
+    assert result["container_name"] == "vela-qwen3-2"
+    assert "container-name-reassigned" in result["warnings"]
 
 
 def test_agent_composes_model_ref_with_model_suggestions_without_clobbering_overrides(
@@ -534,6 +749,49 @@ def test_agent_clones_deployment_with_fresh_runtime_identity(
     assert config["command"]["docker"]["container_name"] == "vela-copy"
     assert (config_dir / "copy.yaml").exists()
     assert any(item["field"] == "server.port" for item in result["derived"])
+
+
+def test_agent_clones_docker_config_with_fresh_container_name_from_docker_ps(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: Qwen/Qwen3.6-27B-FP8
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+            container_name: vela-source
+        launch:
+          runs_dir: /tmp/vela-runs/source
+        """,
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "_docker_container_names",
+        lambda: {"vela-copy"},
+        raising=False,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "clone_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "source",
+            "new_name": "copy",
+        },
+    )
+
+    assert result["config"]["command"]["docker"]["container_name"] == "vela-copy-2"
+    assert any(
+        item["field"] == "command.docker.container_name"
+        and item["source"] == "docker_container_name_collision"
+        for item in result["derived"]
+    )
 
 
 def test_agent_edits_deployment_config_with_overrides(config_dir: Path) -> None:

@@ -37,6 +37,7 @@ def _write_logging_docker(path: Path) -> None:
             [
                 "#!/usr/bin/env python3",
                 "import json",
+                "import os",
                 "import sys",
                 "args = sys.argv[1:]",
                 "if args[:3] == ['image', 'inspect', 'image']:",
@@ -48,8 +49,10 @@ def _write_logging_docker(path: Path) -> None:
                 "    print('container-123')",
                 "    raise SystemExit(0)",
                 "if args[:2] == ['logs', '-f']:",
-                "    print('INFO loaded token sk-secret-container', flush=True)",
-                "    print('INFO Uvicorn running on http://0.0.0.0:8000', flush=True)",
+                "    fixture = os.environ.get('FAKE_DOCKER_LOG_FIXTURE')",
+                "    if fixture:",
+                "        with open(fixture, encoding='utf-8') as file:",
+                "            print(file.read(), end='', flush=True)",
                 "    raise SystemExit(0)",
                 "if args[:1] == ['wait']:",
                 "    print('0')",
@@ -111,12 +114,13 @@ def test_docker_supervisor_writes_scrubbed_run_stderr_to_log(tmp_path: Path) -> 
 def test_docker_supervisor_scrubs_container_logs_and_events(tmp_path: Path) -> None:
     docker = tmp_path / "docker"
     _write_logging_docker(docker)
+    log_fixture = Path("tests/fixtures/docker_logs/ready-with-secret.log").resolve()
     log_path = tmp_path / "run.log"
     event_log_path = tmp_path / "run.events.ndjson"
     payload = {
         "runtime": "docker",
         "argv": [str(docker), "run", "-d", "image"],
-        "env": {},
+        "env": {"FAKE_DOCKER_LOG_FIXTURE": str(log_fixture)},
         "cwd": str(tmp_path),
         "log_path": str(log_path),
         "manifest_path": str(tmp_path / "run.manifest.json"),

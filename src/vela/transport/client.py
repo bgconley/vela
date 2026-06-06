@@ -20,6 +20,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "edit_config",
     "clone_config",
     "delete_config",
+    "migrate_wrapper_config",
     "list_config_files",
     "pull_config",
     "push_config",
