@@ -14,6 +14,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "suggest_deployment_defaults",
     "allocate_port",
     "list_presets",
+    "list_deployment_recipes",
     "validate_config",
     "save_config",
     "clone_config",

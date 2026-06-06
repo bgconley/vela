@@ -11,6 +11,17 @@ from textual.widgets import Input, Select, Static
 from vela.tui.theme import ACCENT, BAD, GOOD, MUTED, SURFACE_ALT, TEXT
 
 
+def _recipe_name(recipe: dict[str, Any]) -> str:
+    name = str(recipe.get("name") or "").strip()
+    if name:
+        return name
+    served = str(recipe.get("served_model_name") or "").strip()
+    target = str(recipe.get("target") or "").strip()
+    if served and target:
+        return f"{served}-{target}"
+    return ""
+
+
 class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentScreen {{
@@ -100,10 +111,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         *,
         target_label: str,
         presets: list[dict[str, Any]],
+        recipes: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(id="new-deployment")
         self.target_label = target_label
         self.presets = [dict(preset) for preset in presets]
+        self.recipes = [dict(recipe) for recipe in (recipes or [])]
         self.step_index = 0
 
     def compose(self) -> ComposeResult:
@@ -120,6 +133,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 yield Static(
                     f"Active target: {self.target_label}",
                     id="new-deployment-target-summary",
+                )
+                yield Static("Recipe", classes="new-deployment-field-label")
+                yield Select(
+                    self._recipe_options(),
+                    value="__custom__",
+                    allow_blank=False,
+                    id="new-deployment-recipe",
                 )
                 yield Static("Name", classes="new-deployment-field-label")
                 yield Input(placeholder="qwen3-32b-bf16", id="new-deployment-name")
@@ -190,6 +210,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         event.stop()
         self.action_submit()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "new-deployment-recipe":
+            return
+        event.stop()
+        self._apply_recipe(str(event.value or ""))
+
     def action_next_step(self) -> None:
         self.step_index = min(self.step_index + 1, len(self.STEP_TITLES) - 1)
         self._refresh_step()
@@ -250,9 +276,58 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 options.append((name, name))
         return options or [("balanced", "balanced")]
 
+    def _recipe_options(self) -> list[tuple[str, str]]:
+        options = [("Custom", "__custom__")]
+        for recipe in self.recipes:
+            key = str(recipe.get("key") or "").strip()
+            label = str(recipe.get("label") or key).strip()
+            if key:
+                options.append((label, key))
+        return options
+
     def _default_preset(self) -> str:
         names = {value for _, value in self._preset_options()}
         return "balanced" if "balanced" in names else next(iter(names))
+
+    def _apply_recipe(self, key: str) -> None:
+        if key == "__custom__":
+            return
+        recipe = self._recipe_by_key(key)
+        if recipe is None:
+            return
+        name = _recipe_name(recipe)
+        if name:
+            self.query_one("#new-deployment-name", Input).value = name
+        runtime = str(recipe.get("runtime") or "process")
+        if runtime in {"process", "docker"}:
+            self.query_one("#new-deployment-runtime", Select).value = runtime
+        model = str(recipe.get("model") or "").strip()
+        if not model:
+            models = recipe.get("models")
+            if isinstance(models, list) and models:
+                model = str(models[0] or "").strip()
+        if model:
+            self.query_one("#new-deployment-model", Input).value = model
+        image = str(recipe.get("image") or "").strip()
+        if image:
+            self.query_one("#new-deployment-image", Input).value = image
+        server = recipe.get("server")
+        if isinstance(server, dict):
+            host = str(server.get("host") or "").strip()
+            port = server.get("port")
+            exposure = str(server.get("exposure") or "").strip()
+            if host:
+                self.query_one("#new-deployment-host", Input).value = host
+            if port is not None:
+                self.query_one("#new-deployment-port", Input).value = str(port)
+            if exposure in {"local", "lan", "public"}:
+                self.query_one("#new-deployment-exposure", Select).value = exposure
+
+    def _recipe_by_key(self, key: str) -> dict[str, Any] | None:
+        for recipe in self.recipes:
+            if str(recipe.get("key") or "") == key:
+                return recipe
+        return None
 
     def _refresh_step(self) -> None:
         for index, selector in enumerate(self.STEP_IDS):

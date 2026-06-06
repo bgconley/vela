@@ -212,6 +212,38 @@ def test_agent_composes_blackbird_qwen36_bf16_without_fp8_pins(config_dir: Path)
     assert "--attention-backend" not in config["extra_args"]
 
 
+def test_agent_lists_lab_deployment_recipes_for_tui() -> None:
+    agent = LocalAgent()
+
+    result = _call(agent, "list_deployment_recipes", {"target": "blackbird"})
+
+    recipes = result["recipes"]
+    fp8 = next(
+        recipe
+        for recipe in recipes
+        if recipe["key"] == "blackbird-qwen36-27b-fp8-rp6000"
+    )
+    bf16 = next(
+        recipe
+        for recipe in recipes
+        if recipe["key"] == "blackbird-qwen36-27b-bf16-rp6000"
+    )
+    assert fp8["label"] == "Blackbird Qwen3.6 27B FP8 RP6000"
+    assert fp8["target"] == "blackbird"
+    assert fp8["runtime"] == "docker"
+    assert fp8["model"] == "Qwen/Qwen3.6-27B-FP8"
+    assert fp8["image"] == BLACKBIRD_IMAGE
+    assert fp8["server"]["port"] == 18003
+    assert fp8["engine"]["kv_cache_dtype"] == "fp8"
+    assert fp8["docker"]["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
+    assert "--kv-cache-memory-bytes" in fp8["extra_args"]
+    assert bf16["model"] == "Qwen/Qwen3.6-27B"
+    assert bf16["server"]["port"] == 18002
+    assert bf16["engine"]["kv_cache_dtype"] == "bfloat16"
+    assert "--kv-cache-memory-bytes" not in bf16["extra_args"]
+    assert "FLASHINFER_CUDA_ARCH_LIST" not in bf16["docker"]["env"]
+
+
 def test_agent_suggests_defaults_from_pinned_model_registry(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

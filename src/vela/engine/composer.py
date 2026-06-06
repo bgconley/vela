@@ -290,6 +290,38 @@ def list_presets() -> list[dict[str, Any]]:
     ]
 
 
+def list_deployment_recipes(target: str | None = None) -> list[dict[str, Any]]:
+    target_key = target.lower() if isinstance(target, str) and target.strip() else None
+    recipes: list[dict[str, Any]] = []
+    for recipe in LAB_RECIPES:
+        if target_key is not None and recipe.target.lower() != target_key:
+            continue
+        model = recipe.models[0] if recipe.models else ""
+        name = f"{recipe.served_model_name}-{recipe.target}"
+        docker = dict(recipe.docker)
+        recipes.append(
+            {
+                "key": recipe.key,
+                "label": recipe.label,
+                "name": name,
+                "target": recipe.target,
+                "runtime": recipe.runtime.value,
+                "model": model,
+                "models": list(recipe.models),
+                "served_model_name": recipe.served_model_name,
+                "image": docker.get("image", ""),
+                "server": dict(recipe.server),
+                "engine": dict(recipe.engine),
+                "extra_args": list(recipe.extra_args),
+                "launch": dict(recipe.launch),
+                "docker": docker,
+                "vllm": dict(recipe.vllm),
+                "warnings": list(recipe.warnings),
+            }
+        )
+    return recipes
+
+
 def compose_config(
     spec: dict[str, Any],
     *,

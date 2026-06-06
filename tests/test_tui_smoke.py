@@ -3505,6 +3505,161 @@ async def test_new_deployment_wizard_steps_forward_and_back_preserve_edits(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.compose_params: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "Balanced",
+                            "engine": {},
+                            "extra_args": [],
+                            "applies_to": ["all"],
+                        }
+                    ]
+                }
+            if method == "list_deployment_recipes":
+                assert params == {"target": "blackbird"}
+                return {
+                    "recipes": [
+                        {
+                            "key": "blackbird-qwen36-27b-fp8-rp6000",
+                            "label": "Blackbird Qwen3.6 27B FP8 RP6000",
+                            "target": "blackbird",
+                            "runtime": "docker",
+                            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+                            "model": "Qwen/Qwen3.6-27B-FP8",
+                            "served_model_name": "qwen36-27b-fp8-kvfp8-rp6000",
+                            "image": "vllm/vllm-openai@sha256:b13d",
+                            "server": {
+                                "host": "0.0.0.0",
+                                "port": 18003,
+                                "exposure": "lan",
+                            },
+                        }
+                    ]
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "command": {
+                            "runtime": "docker",
+                            "docker": {
+                                "image": "vllm/vllm-openai@sha256:b13d",
+                                "container_name": (
+                                    "vela-qwen36-27b-fp8-kvfp8-rp6000-blackbird"
+                                ),
+                            },
+                        },
+                        "server": {
+                            "host": "0.0.0.0",
+                            "port": 18003,
+                            "exposure": "lan",
+                        },
+                    },
+                    "warnings": [],
+                    "derived": [
+                        {
+                            "field": "deployment.recipe",
+                            "value": "blackbird-qwen36-27b-fp8-rp6000",
+                            "source": "lab_recipe",
+                        }
+                    ],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": (
+                        "docker run ... vllm/vllm-openai@sha256:b13d "
+                        "--attention-backend FLASHINFER"
+                    ),
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment recipe selection should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird", target_client=client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+
+        app.screen.query_one("#new-deployment-recipe", Select).value = (
+            "blackbird-qwen36-27b-fp8-rp6000"
+        )
+        await pilot.pause()
+
+        assert (
+            app.screen.query_one("#new-deployment-name", Input).value
+            == "qwen36-27b-fp8-kvfp8-rp6000-blackbird"
+        )
+        assert app.screen.query_one("#new-deployment-runtime", Select).value == "docker"
+        assert (
+            app.screen.query_one("#new-deployment-model", Input).value
+            == "Qwen/Qwen3.6-27B-FP8"
+        )
+        assert (
+            app.screen.query_one("#new-deployment-image", Input).value
+            == "vllm/vllm-openai@sha256:b13d"
+        )
+        assert app.screen.query_one("#new-deployment-host", Input).value == "0.0.0.0"
+        assert app.screen.query_one("#new-deployment-port", Input).value == "18003"
+        assert app.screen.query_one("#new-deployment-exposure", Select).value == "lan"
+
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert client.compose_params is not None
+        assert client.compose_params["target"] == "blackbird"
+        assert client.compose_params["model"] == "Qwen/Qwen3.6-27B-FP8"
+        assert client.compose_params["runtime"] == {
+            "kind": "docker",
+            "image": "vllm/vllm-openai@sha256:b13d",
+        }
+        assert client.compose_params["overrides"]["server"] == {
+            "host": "0.0.0.0",
+            "exposure": "lan",
+            "port": 18003,
+        }
+        assert app.screen.id == "new-deployment-review"
+        assert "deployment.recipe" in str(
+            app.screen.query_one("#new-deployment-review-derived", Static).content
+        )
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> None:
     class ComposerClient:
         connected = False

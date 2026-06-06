@@ -54,6 +54,7 @@ from vela.engine.command_builder import (
 from vela.engine.composer import (
     allocate_port,
     compose_config,
+    list_deployment_recipes,
     list_presets,
     suggest_deployment_defaults,
     validate_config_payload,
@@ -113,6 +114,7 @@ AGENT_CAPABILITIES = [
     "suggest_deployment_defaults",
     "allocate_port",
     "list_presets",
+    "list_deployment_recipes",
     "validate_config",
     "save_config",
     "clone_config",
@@ -391,6 +393,8 @@ class LocalAgent:
             return self._allocate_port(payload)
         if method == "list_presets":
             return self._list_presets()
+        if method == "list_deployment_recipes":
+            return self._list_deployment_recipes(payload)
         if method == "validate_config":
             return self._validate_config(payload)
         if method == "save_config":
@@ -691,6 +695,14 @@ class LocalAgent:
 
     def _list_presets(self) -> dict[str, Any]:
         return {"presets": list_presets()}
+
+    def _list_deployment_recipes(self, params: dict[str, Any]) -> dict[str, Any]:
+        target = params.get("target")
+        return {
+            "recipes": list_deployment_recipes(
+                str(target) if isinstance(target, str) and target.strip() else None
+            )
+        }
 
     def _validate_config(self, params: dict[str, Any]) -> dict[str, Any]:
         config = params.get("config")

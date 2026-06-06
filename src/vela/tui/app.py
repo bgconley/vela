@@ -2035,10 +2035,20 @@ class VelaApp(App):
             self._set_error_text(f"Unable to load deployment presets: {exc}", style=f"bold {BAD}")
             return
         presets = presets_result.get("presets")
+        recipes: object = []
+        if self._target_supports_capability("list_deployment_recipes"):
+            try:
+                recipe_result = await self._target_call(
+                    "list_deployment_recipes", {"target": self.target_name}
+                )
+            except Exception:
+                recipe_result = {}
+            recipes = recipe_result.get("recipes")
         self.push_screen(
             NewDeploymentScreen(
                 target_label=self.target_name,
                 presets=presets if isinstance(presets, list) else [],
+                recipes=recipes if isinstance(recipes, list) else [],
             ),
             callback=self._handle_new_deployment_selection,
         )
