@@ -26,7 +26,7 @@ import yaml
 from vela import __version__
 from vela.agent.auth import configured_agent_token
 from vela.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
-from vela.config.schema import EntryPoint, ModelConfig, default_run_artifacts_dir
+from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind, default_run_artifacts_dir
 from vela.engine.build_registry import (
     BuildHandoff,
     BuildRegistryError,
@@ -49,6 +49,7 @@ from vela.engine.command_builder import (
     CommandBuildResult,
     build_command,
     render_preview,
+    render_standalone_docker_script,
 )
 from vela.engine.composer import (
     allocate_port,
@@ -114,6 +115,7 @@ AGENT_CAPABILITIES = [
     "list_presets",
     "validate_config",
     "save_config",
+    "export_config",
     "preview",
     "preflight",
     "prepare_launch",
@@ -391,6 +393,8 @@ class LocalAgent:
             return self._validate_config(payload)
         if method == "save_config":
             return self._save_config(payload)
+        if method == "export_config":
+            return self._export_config(payload)
         if method == "preview":
             return self._preview(payload)
         if method == "preflight":
@@ -718,6 +722,50 @@ class LocalAgent:
             ),
         )
         return {"path": str(config_path), "name": cfg.name, "config": cfg.model_dump(mode="json")}
+
+    def _export_config(self, params: dict[str, Any]) -> dict[str, Any]:
+        draft_config = params.get("config")
+        if isinstance(draft_config, dict):
+            cfg = ModelConfig.model_validate(draft_config)
+            self._remember_run_config(cfg)
+        else:
+            name = _config_name_param(params, method="export_config")
+            registry = load_registry(_configs_dir(params))
+            self._remember_registry_runs_dirs(registry)
+            cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+        if cfg.command.runtime is not RuntimeKind.DOCKER:
+            raise TargetCallError(
+                "invalid-config",
+                "standalone export requires command.runtime: docker",
+                {"name": cfg.name, "runtime": cfg.command.runtime.value},
+            )
+        try:
+            result = self._build_command_for_config(cfg)
+        except VllmProfileError as exc:
+            raise TargetCallError("profile-error", str(exc)) from exc
+        script = render_standalone_docker_script(result, name=cfg.name)
+        payload: dict[str, Any] = {
+            "name": cfg.name,
+            "script": script,
+            "warnings": list(result.warnings),
+        }
+        output_path = params.get("output_path")
+        if output_path is not None:
+            if not isinstance(output_path, str) or not output_path.strip():
+                raise TargetCallError(
+                    "invalid-params",
+                    "export_config output_path must be a non-empty string",
+                )
+            path = Path(output_path).expanduser()
+            if path.exists() and not bool(params.get("overwrite")):
+                raise TargetCallError(
+                    "export-exists",
+                    f"export already exists: {path}",
+                    {"path": str(path)},
+                )
+            _write_executable_text_atomic(path, script)
+            payload["path"] = str(path)
+        return payload
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
         draft_config = params.get("config")
@@ -3022,6 +3070,22 @@ def _write_public_text_atomic(path: Path, text: str) -> None:
             os.close(fd)
     os.replace(tmp, path)
     path.chmod(0o644)
+
+
+def _write_executable_text_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o755)
+    try:
+        os.fchmod(fd, 0o755)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            fd = -1
+            file.write(text)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    os.replace(tmp, path)
+    path.chmod(0o755)
 
 
 def _safe_config_file_stem(name: str) -> str:

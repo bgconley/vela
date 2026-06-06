@@ -12,6 +12,7 @@ from vela.engine.command_builder import (
     build_command,
     is_local_model_reference,
     mask_preview_value,
+    render_standalone_docker_script,
 )
 from vela.engine.profile import bundled_profile
 
@@ -336,6 +337,55 @@ def test_bf16_docker_runtime_does_not_inherit_fp8_kv_pin() -> None:
 
     assert "--kv-cache-memory-bytes" not in result.argv
     assert "serve" not in result.argv[result.argv.index("vllm/vllm-openai@sha256:abc") + 1 :]
+
+
+def test_standalone_docker_export_redacts_secrets_and_reproduces_run(tmp_path: Path) -> None:
+    model_cfg = cfg(
+        {
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "served_model_name": "qwen36",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "container_name": "vela-qwen36",
+                    "hf_cache": str(tmp_path / "hf-cache"),
+                    "env": {"FLASHINFER_CUDA_ARCH_LIST": "12.0f"},
+                },
+            },
+            "server": {
+                "host": "0.0.0.0",
+                "port": 18003,
+                "exposure": "lan",
+                "api_key": "EMPTY",
+            },
+            "env": {"HF_TOKEN": "hf_live_token"},
+            "extra_args": [
+                "--attention-backend",
+                "FLASHINFER",
+                "--header",
+                "Authorization: Bearer sk-header-secret",
+            ],
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"), cwd=tmp_path)
+    script = render_standalone_docker_script(result, name=model_cfg.name)
+
+    assert script.startswith("#!/usr/bin/env bash\n")
+    assert f"cd {tmp_path}" in script
+    assert "docker run" in script
+    assert "vllm/vllm-openai@sha256:abc" in script
+    assert "Qwen/Qwen3.6-27B-FP8" in script
+    assert "--attention-backend" in script
+    assert "FLASHINFER" in script
+    assert "FLASHINFER_CUDA_ARCH_LIST=12.0f" in script
+    assert ': "${HF_TOKEN:?Set HF_TOKEN before running}"' in script
+    assert "hf_live_token" not in script
+    assert "sk-header-secret" not in script
+    assert "Authorization: Bearer REDACTED" in script
+    image_index = script.index("vllm/vllm-openai@sha256:abc")
+    assert "vllm/vllm-openai@sha256:abc \\\n  serve" not in script[image_index:]
 
 
 def test_model_reference_local_vs_hf_repo_logic(tmp_path: Path) -> None:

@@ -353,6 +353,46 @@ def test_agent_save_config_writes_yaml_and_refuses_clobber(config_dir: Path) -> 
     assert exc_info.value.code == "config-exists"
 
 
+def test_agent_exports_docker_config_as_target_local_standalone_script(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    agent = LocalAgent()
+    draft = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-export",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:abc",
+            },
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "overrides": {"env": {"HF_TOKEN": "hf_export_secret"}},
+        },
+    )["config"]
+    output_path = tmp_path / "qwen36-export.sh"
+
+    result = _call(
+        agent,
+        "export_config",
+        {
+            "config": draft,
+            "output_path": str(output_path),
+        },
+    )
+
+    assert result["name"] == "qwen36-export"
+    assert result["path"] == str(output_path)
+    assert output_path.stat().st_mode & 0o111
+    script = output_path.read_text(encoding="utf-8")
+    assert result["script"] == script
+    assert "docker run" in script
+    assert "vllm/vllm-openai@sha256:abc" in script
+    assert "hf_export_secret" not in script
+    assert ': "${HF_TOKEN:?Set HF_TOKEN before running}"' in script
+
+
 def test_agent_lists_composer_presets_for_wizard() -> None:
     result = _call(LocalAgent(), "list_presets", {})
 

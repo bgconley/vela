@@ -1112,6 +1112,52 @@ def deploy_create(
         )
 
 
+@deploy_app.command("export")
+def deploy_export(
+    name: Annotated[str, typer.Argument(help="Deployment/config name to export.")],
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="Target-local path to write the standalone docker script.",
+        ),
+    ] = None,
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Overwrite an existing exported script."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable export result."),
+    ] = False,
+) -> None:
+    params: dict[str, Any] = {"name": name}
+    if configs_dir is not None:
+        params["configs_dir"] = str(configs_dir)
+    if output_path is not None:
+        params["output_path"] = str(output_path)
+    if overwrite:
+        params["overwrite"] = True
+    try:
+        result = _agent_call("export_config", params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    if json_output:
+        _echo_json(result)
+        return
+    _echo_warnings(result.get("warnings", []))
+    if output_path is not None:
+        typer.echo(f"exported deployment\t{name}\t{result.get('path', '')}")
+        return
+    script = str(result.get("script", ""))
+    typer.echo(script, nl=not script.endswith("\n"))
+
+
 @app.command("list")
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,

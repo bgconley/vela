@@ -2529,6 +2529,59 @@ def test_cli_deploy_create_preserves_blackbird_recipe_runtime(
     ]
 
 
+def test_cli_deploy_export_prints_agent_generated_script(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, object] | None]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "export_config":
+                assert params == {
+                    "name": "qwen36-export",
+                    "configs_dir": str(tmp_path),
+                }
+                return {
+                    "name": "qwen36-export",
+                    "script": "#!/usr/bin/env bash\nexec docker run image model\n",
+                    "warnings": [],
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "export",
+            "qwen36-export",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "#!/usr/bin/env bash\nexec docker run image model\n"
+    assert calls == [
+        (
+            "export_config",
+            {"name": "qwen36-export", "configs_dir": str(tmp_path)},
+        )
+    ]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
