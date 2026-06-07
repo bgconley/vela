@@ -3265,10 +3265,10 @@
     {
       "id": "bug-170",
       "timestamp": "2026-06-07T07:29:00Z",
-      "error_message": "remote real-resume validation launched a stale target-owned config copy after the controller repo was updated",
+      "error_message": "remote real-resume validation launched stale or schema-incompatible target-owned config copies after the controller repo was updated",
       "file": "scripts/run_remote_tests.sh",
-      "root_cause": "The remote validation lane pulled the controller repo on P620, but `real_model_resume_check.py --target blackbird` launched the config from Blackbird's target-owned config registry. That registry could still contain an older YAML even after P620 pulled the current commit.",
-      "fix": "When `VELA_REMOTE_REAL_RESUME_CONFIG` names a checked-in YAML and `VELA_REMOTE_TARGET` is set, push `configs/<name>.yaml` to the selected target with `vela config push --overwrite` before launching the resume/restart validation.",
+      "root_cause": "The remote validation lane pulled the controller repo on P620, but `real_model_resume_check.py --target blackbird` launched the config from Blackbird's target-owned config registry. That registry could still contain an older YAML after P620 pulled current HEAD, and older target agents rejected newly added advisory vLLM stack provenance fields during push_config.",
+      "fix": "When `VELA_REMOTE_REAL_RESUME_CONFIG` names a checked-in YAML and `VELA_REMOTE_TARGET` is set, write a temporary compatibility copy that strips only advisory vLLM stack provenance fields, then push it to the selected target with `vela config push --overwrite` before launching resume/restart validation.",
       "tags": [
         "remote-validation",
         "config-sync",

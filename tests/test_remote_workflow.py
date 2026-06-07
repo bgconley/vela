@@ -369,7 +369,9 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert '"$venv_python" scripts/real_model_resume_check.py' in remote_script
     assert '"$remote_real_resume_config"' in remote_script
     assert 'resume_config_file="configs/${remote_real_resume_config}.yaml"' in remote_script
-    assert '"$venv_bin/vela" config push "$resume_config_file"' in remote_script
+    assert 'resume_config_push_file="$(mktemp)"' in remote_script
+    assert '("version", "transformers_version", "torch_version", "cuda_version")' in remote_script
+    assert '"$venv_bin/vela" config push "$resume_config_push_file"' in remote_script
 
 
 def test_remote_validation_checks_backend_evidence_after_real_resume_restart(

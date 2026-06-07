@@ -675,7 +675,28 @@ if [[ -n "$remote_real_resume_config" ]]; then
   echo "== Real model resume/daemon restart =="
   resume_config_file="configs/${remote_real_resume_config}.yaml"
   if [[ -n "$remote_target" && -f "$resume_config_file" ]]; then
-    "$venv_bin/vela" config push "$resume_config_file" "${target_args[@]}" --overwrite
+    resume_config_push_file="$(mktemp)"
+    "$venv_python" - "$resume_config_file" "$resume_config_push_file" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+if not isinstance(payload, dict):
+    raise SystemExit(f"{source} did not contain a config mapping")
+vllm = payload.get("vllm")
+if isinstance(vllm, dict):
+    for key in ("version", "transformers_version", "torch_version", "cuda_version"):
+        vllm.pop(key, None)
+    if not vllm:
+        payload.pop("vllm", None)
+destination.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+PY
+    "$venv_bin/vela" config push "$resume_config_push_file" "${target_args[@]}" --overwrite
+    rm -f "$resume_config_push_file"
   fi
   real_resume_args=("$remote_real_resume_config" "${target_args[@]}" --timeout "$remote_timeout")
   if [[ -n "$remote_build_spec" ]]; then
