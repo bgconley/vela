@@ -2669,6 +2669,23 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T05:25:00Z"
+    },
+    {
+      "id": "bug-137",
+      "timestamp": "2026-06-07T05:45:00Z",
+      "error_message": "lab deployment recipe image could be overridden by compose input",
+      "file": "src/vela/engine/composer.py",
+      "root_cause": "The Docker image resolver checked caller-provided runtime.image before the matched lab recipe image, so a known Blackbird FP8/BF16 recipe could silently lose its proven vLLM image digest while keeping the rest of the recipe shape.",
+      "fix": "Prefer matched recipe images over caller-provided Docker image inputs and emit a recipe-image-override-ignored warning when an input image differs from the pinned recipe digest; add a regression for the Blackbird FP8 recipe.",
+      "tags": [
+        "composer",
+        "docker",
+        "blackwell",
+        "recipe"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:45:00Z"
     }
   ]
 }

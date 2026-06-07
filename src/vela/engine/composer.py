@@ -426,7 +426,11 @@ def compose_config(
         occupied_container_names=occupied_container_names,
     )
     cfg = ModelConfig.model_validate(payload)
-    warnings = [*suggestions.warnings, *(recipe.warnings if recipe is not None else ())]
+    warnings = [
+        *suggestions.warnings,
+        *_recipe_runtime_warnings(spec, recipe),
+        *(recipe.warnings if recipe is not None else ()),
+    ]
     warnings.extend(port["warnings"])
     warnings.extend(container_name_result["warnings"])
     warnings.extend(_compose_config_warnings(cfg))
@@ -1006,19 +1010,35 @@ def _runtime_kind(value: object) -> RuntimeKind:
 
 
 def _docker_image(spec: dict[str, Any], recipe: DeploymentRecipe | None) -> str:
-    runtime = spec.get("runtime")
-    if isinstance(runtime, dict):
-        image = runtime.get("image")
-        if image:
-            return str(image)
-    image = spec.get("image")
-    if image:
-        return str(image)
     if recipe is not None:
         recipe_image = recipe.docker.get("image")
         if recipe_image:
             return str(recipe_image)
+    requested = _requested_docker_image(spec)
+    if requested:
+        return requested
     raise ValueError("docker runtime requires image")
+
+
+def _requested_docker_image(spec: dict[str, Any]) -> str | None:
+    runtime = spec.get("runtime")
+    if isinstance(runtime, dict):
+        image = _optional_str(runtime.get("image"))
+        if image:
+            return image
+    return _optional_str(spec.get("image"))
+
+
+def _recipe_runtime_warnings(
+    spec: dict[str, Any], recipe: DeploymentRecipe | None
+) -> list[str]:
+    if recipe is None:
+        return []
+    recipe_image = _optional_str(recipe.docker.get("image"))
+    requested_image = _requested_docker_image(spec)
+    if requested_image is not None and requested_image != recipe_image:
+        return ["recipe-image-override-ignored"]
+    return []
 
 
 def _preferred_port(overrides: dict[str, Any]) -> int | None:

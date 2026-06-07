@@ -316,6 +316,30 @@ def test_agent_composer_preserves_blackbird_recipe_container_name_when_live_name
     assert "container-name-reassigned" not in result["warnings"]
 
 
+def test_agent_composer_keeps_lab_recipe_image_when_runtime_image_differs(
+    config_dir: Path,
+) -> None:
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:not-the-blackbird-stack",
+            },
+            "model": "Qwen/Qwen3.6-27B-FP8",
+        },
+    )
+
+    assert result["config"]["command"]["docker"]["image"] == BLACKBIRD_IMAGE
+    assert "recipe-image-override-ignored" in result["warnings"]
+
+
 def test_agent_composer_ignores_existing_same_name_config_port_for_idempotent_create(
     config_dir: Path,
 ) -> None:
