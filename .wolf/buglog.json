@@ -3070,6 +3070,25 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T05:45:43.541Z"
+    },
+    {
+      "id": "bug-160",
+      "timestamp": "2026-06-07T06:05:00Z",
+      "error_message": "Blackwell FP8 lab-recipe guard ignored explicit BF16 runtime overrides",
+      "file": "src/vela/engine/composer.py",
+      "root_cause": "The guard that requires a matched local lab recipe for Blackwell FP8 Docker deployments ran before `_merge_overrides`, and its predicate treated an FP8 model-name or registry hint as decisive. An operator-pinned Docker image with `overrides.engine.kv_cache_dtype: bfloat16` was therefore rejected before the final runtime shape existed.",
+      "fix": "Evaluate the guard after the payload has merged overrides and validated into `ModelConfig`. The predicate now checks the effective `--kv-cache-dtype` in appended extra args first, then final `engine.kv_cache_dtype`, and only falls back to FP8 model hints when no explicit runtime shape is set.",
+      "tags": [
+        "blackwell",
+        "composer",
+        "docker",
+        "overrides"
+      ],
+      "related_bugs": [
+        "bug-155"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:05:00Z"
     }
   ]
 }

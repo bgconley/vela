@@ -378,18 +378,6 @@ def compose_config(
     preset = _preset_by_name(preset_name)
     recipe = _matching_recipe(target=target, runtime=runtime, model=model)
     suggestions = _engine_suggestions(model_context)
-    unsafe_runtime_warnings = _blackwell_fp8_runtime_warnings(
-        target=target,
-        runtime=runtime,
-        recipe=recipe,
-        model_context=model_context,
-        suggestions=suggestions,
-    )
-    if unsafe_runtime_warnings:
-        raise ValueError(
-            "; ".join(unsafe_runtime_warnings)
-            + ": Blackwell FP8 Docker deployments require a matched local lab recipe"
-        )
     port = allocate_port(
         preferred=_preferred_port(overrides) or _recipe_port(recipe),
         configs_dir=configs_dir,
@@ -438,6 +426,19 @@ def compose_config(
         occupied_container_names=occupied_container_names,
     )
     cfg = ModelConfig.model_validate(payload)
+    unsafe_runtime_warnings = _blackwell_fp8_runtime_warnings(
+        target=cfg.target,
+        runtime=cfg.command.runtime,
+        recipe=recipe,
+        model_context=model_context,
+        suggestions=suggestions,
+        config=cfg,
+    )
+    if unsafe_runtime_warnings:
+        raise ValueError(
+            "; ".join(unsafe_runtime_warnings)
+            + ": Blackwell FP8 Docker deployments require a matched local lab recipe"
+        )
     warnings = [
         *suggestions.warnings,
         *_recipe_runtime_warnings(spec, recipe),
@@ -1070,15 +1071,42 @@ def _blackwell_fp8_runtime_warnings(
     recipe: DeploymentRecipe | None,
     model_context: ModelContext,
     suggestions: EngineSuggestions,
+    config: ModelConfig | None = None,
 ) -> list[str]:
     if recipe is not None or runtime is not RuntimeKind.DOCKER:
         return []
     target_key = (target or "").lower()
     if target_key not in {"blackbird", "p620-01", "p620"}:
         return []
-    if not _looks_like_fp8_model(model_context, suggestions):
+    if config is not None:
+        uses_fp8 = _config_uses_fp8_runtime_shape(config, model_context, suggestions)
+    else:
+        uses_fp8 = _looks_like_fp8_model(model_context, suggestions)
+    if not uses_fp8:
         return []
     return ["blackwell-fp8-runtime-recipe-required"]
+
+
+def _config_uses_fp8_runtime_shape(
+    cfg: ModelConfig, model_context: ModelContext, suggestions: EngineSuggestions
+) -> bool:
+    extra_kv_dtype = _last_extra_arg_value(cfg.extra_args, "--kv-cache-dtype")
+    if extra_kv_dtype:
+        return extra_kv_dtype.lower() == "fp8"
+    if cfg.engine.kv_cache_dtype:
+        return cfg.engine.kv_cache_dtype.lower() == "fp8"
+    return _looks_like_fp8_model(model_context, suggestions)
+
+
+def _last_extra_arg_value(args: list[str], flag: str) -> str | None:
+    value: str | None = None
+    prefix = f"{flag}="
+    for index, item in enumerate(args):
+        if item == flag and index + 1 < len(args):
+            value = args[index + 1]
+        elif item.startswith(prefix):
+            value = item[len(prefix) :]
+    return value
 
 
 def _looks_like_fp8_model(
