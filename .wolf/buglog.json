@@ -2567,6 +2567,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T03:05:00Z"
+    },
+    {
+      "id": "bug-131",
+      "timestamp": "2026-06-07T03:35:00Z",
+      "error_message": "targets bootstrap only wrote a target record and did not install, verify, or build",
+      "file": "src/vela/cli.py",
+      "root_cause": "The bootstrap command was a thin targets-add variant: it discovered an existing agent if present, wrote targets.yaml, and printed a static success line without managed install, handshake verification, or optional build creation.",
+      "fix": "Add a transport-level SSH install helper, wire bootstrap --install to retry discovery after managed install, print a green/red-style handshake summary, and support --build as a default pip build creation after onboarding.",
+      "tags": [
+        "onboarding",
+        "bootstrap",
+        "ssh",
+        "builds"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:35:00Z"
     }
   ]
 }

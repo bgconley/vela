@@ -36,6 +36,7 @@ from vela.engine.phases import Phase
 from vela.remediation import remediation_for_error
 from vela.transport.client import TargetClient
 from vela.transport.factory import target_client_for_config
+from vela.transport.ssh_bootstrap import DEFAULT_AGENT_INSTALL_SPEC, install_ssh_agent
 from vela.transport.ssh_discovery import discover_ssh_agent_command
 from vela.tui.app import VelaApp
 
@@ -275,6 +276,21 @@ def targets_bootstrap(
         str | None,
         typer.Option("--ssh-opts-env", help="Environment variable with SSH options."),
     ] = None,
+    install: Annotated[
+        bool,
+        typer.Option("--install", help="Install the Vela agent into the managed target venv."),
+    ] = False,
+    install_spec: Annotated[
+        str,
+        typer.Option(
+            "--install-spec",
+            help="Python package spec used by --install.",
+        ),
+    ] = DEFAULT_AGENT_INSTALL_SPEC,
+    build: Annotated[
+        str | None,
+        typer.Option("--build", help="Create a default pip build from this package spec."),
+    ] = None,
 ) -> None:
     try:
         target = TargetConfig(
@@ -287,12 +303,43 @@ def targets_bootstrap(
             agent_command=_agent_command_argv(agent_command),
             ssh_opts_env=ssh_opts_env,
         )
-        target = _discover_agent_command_for_target_or_exit(target)
+        target, agent_status = _bootstrap_discover_or_install_agent(
+            target,
+            install=install,
+            install_spec=install_spec,
+        )
         path = upsert_target_file(target)
     except ValueError as exc:
         typer.echo(f"ERROR: Unable to bootstrap target: {exc}", err=True)
         raise typer.Exit(2) from exc
+    typer.echo("OK\tssh\treachable")
+    typer.echo(f"OK\tagent\t{agent_status}")
+    typer.echo(f"OK\ttarget\twrote {path}")
+    try:
+        handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target.name)
+    typer.echo(
+        f"OK\thandshake\tagent={handshake.get('agent_version', 'unknown')}\t"
+        f"protocol={handshake.get('protocol_version', 'unknown')}"
+    )
     typer.echo(f"bootstrapped target {name}\t{path}")
+    if build is not None:
+        build_params = {
+            "job_id": uuid.uuid4().hex,
+            "method": "pip",
+            "spec": build,
+            "label": f"{name}-default",
+        }
+        raise typer.Exit(
+            asyncio.run(
+                _create_build_cli(
+                    _target_client_for_config_or_exit(target),
+                    build_params,
+                    target_name=name,
+                )
+            )
+        )
     typer.echo(f"next\tvela targets test {name}")
 
 
@@ -2164,6 +2211,34 @@ def _discover_agent_command_for_target_or_exit(
     if persist:
         upsert_target_file(discovered)
     return discovered
+
+
+def _bootstrap_discover_or_install_agent(
+    target: TargetConfig,
+    *,
+    install: bool,
+    install_spec: str,
+) -> tuple[TargetConfig, str]:
+    if target.agent_command is not None:
+        return target, "provided"
+    try:
+        discovery = discover_ssh_agent_command(target)
+    except TargetCallError as exc:
+        if exc.code != "command-not-found" or not install:
+            _echo_target_error_or_exit(exc, target_name=target.name)
+        try:
+            install_ssh_agent(target, install_spec=install_spec)
+            discovery = discover_ssh_agent_command(target)
+        except TargetCallError as install_exc:
+            _echo_target_error_or_exit(install_exc, target_name=target.name)
+        return (
+            target.model_copy(update={"agent_command": discovery.agent_command}),
+            f"installed {discovery.agent_command[0]}",
+        )
+    return (
+        target.model_copy(update={"agent_command": discovery.agent_command}),
+        f"discovered {discovery.agent_command[0]}",
+    )
 
 
 def _agent_call(

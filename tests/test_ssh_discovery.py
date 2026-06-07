@@ -248,3 +248,73 @@ def test_cli_targets_test_discovers_persists_and_handshakes(
         "agent",
         "connect",
     ]
+
+
+def test_cli_targets_bootstrap_installs_absent_agent_then_handshakes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_VELA_PRESENT", "0")
+    monkeypatch.setenv("FAKE_SSH_INSTALLED_MARKER", str(tmp_path / "installed"))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "targets",
+            "bootstrap",
+            "blackbird",
+            "--host",
+            "bgconley@fake",
+            "--install",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "OK\tssh\treachable" in result.output
+    assert (
+        "OK\tagent\tinstalled /home/bgconley/.local/share/vela/venv/bin/vela"
+        in result.output
+    )
+    assert f"OK\thandshake\tagent={__version__}" in result.output
+    assert (tmp_path / "installed").read_text(encoding="utf-8") == "installed"
+    persisted = load_targets_file(tmp_path / "vela" / "targets.yaml").by_name(
+        "blackbird"
+    )
+    assert persisted.agent_command == [
+        "/home/bgconley/.local/share/vela/venv/bin/vela",
+        "agent",
+        "connect",
+    ]
+
+
+def test_cli_targets_bootstrap_build_creates_default_pip_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_VELA_PRESENT", "0")
+    monkeypatch.setenv("FAKE_SSH_INSTALLED_MARKER", str(tmp_path / "installed"))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "targets",
+            "bootstrap",
+            "blackbird",
+            "--host",
+            "bgconley@fake",
+            "--install",
+            "--build",
+            "vllm==0.11.2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "OK\thandshake" in result.output
+    assert "bootstrapped target blackbird" in result.output
+    assert "Installing build" in result.output
+    assert "DONE\t" in result.output
+    assert "build ready" in result.output

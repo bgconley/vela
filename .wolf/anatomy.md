@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T01:04:51.296Z
-> Files: 88 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T02:08:54.335Z
+> Files: 96 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
@@ -9,6 +9,7 @@
 - `digest.py` — trim (~977 tok)
 - `digest7.py` — trim (~1055 tok)
 - `digest8.py` — trim (~1068 tok)
+- `digest9.py` — trim (~947 tok)
 
 ## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/workflows/scripts/
 
@@ -117,6 +118,7 @@
 
 ## src/vllm_loader/transport/
 
+- `ssh_bootstrap.py` — SSH remote agent install helper for managed bootstrap path (~700 tok)
 - `ssh_discovery.py` — SSH agent-command discovery probes using hardened target SSH options (~1500 tok)
 
 ## src/vllm_loader/tui/

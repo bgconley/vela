@@ -2442,6 +2442,25 @@ def test_cli_targets_bootstrap_persists_target_and_agent_command(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    requested_targets: list[TargetConfig] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            assert method == "handshake"
+            assert params is None
+            return {"agent_version": "1.2.3", "protocol_version": 7}
+
+    def fake_target_client_for_config(target: TargetConfig) -> FakeTargetClient:
+        requested_targets.append(target)
+        return FakeTargetClient()
+
+    monkeypatch.setattr(cli_module, "target_client_for_config", fake_target_client_for_config)
 
     result = CliRunner().invoke(
         cli_module.app,
@@ -2462,6 +2481,8 @@ def test_cli_targets_bootstrap_persists_target_and_agent_command(
 
     assert result.exit_code == 0, result.output
     assert "bootstrapped target blackbird" in result.output
+    assert "OK\tagent\tprovided" in result.output
+    assert "OK\thandshake\tagent=1.2.3\tprotocol=7" in result.output
     target = load_targets_file(tmp_path / "vela" / "targets.yaml").by_name("blackbird")
     assert target.ssh_key == Path("/home/bgconley/.ssh/vela_ed25519")
     assert target.agent_command == [
@@ -2469,6 +2490,7 @@ def test_cli_targets_bootstrap_persists_target_and_agent_command(
         "agent",
         "connect",
     ]
+    assert requested_targets == [target]
 
 
 def test_cli_targets_remove_deletes_named_target(
