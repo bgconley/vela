@@ -3144,6 +3144,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:25:53Z"
+    },
+    {
+      "id": "bug-164",
+      "timestamp": "2026-06-07T06:32:13Z",
+      "error_message": "Blackbird BF16 native-Docker validation skipped backend evidence",
+      "file": "scripts/backend_evidence_check.py",
+      "root_cause": "The backend evidence checker only registered the Qwen3.6 FP8 Blackbird rule. The BF16 native-Docker recipe therefore returned `BACKEND_EVIDENCE_SKIPPED` even though its Docker image, bfloat16 KV shape, and absence of FP8-only FlashInfer/KV-byte pins are also local recipe invariants.",
+      "fix": "Add a BF16 Blackbird backend-evidence rule that checks the pinned image and bfloat16 KV shape while rejecting FP8-only `FLASHINFER_CUDA_ARCH_LIST` and `--kv-cache-memory-bytes` drift.",
+      "tags": [
+        "backend-evidence",
+        "blackwell",
+        "bf16",
+        "docker"
+      ],
+      "related_bugs": [
+        "bug-158",
+        "bug-160"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:32:13Z"
     }
   ]
 }

@@ -30,6 +30,8 @@ class BackendEvidenceRule:
     expected_attention_backend: str | None
     required_patterns: dict[str, str]
     forbidden_patterns: dict[str, str]
+    forbidden_docker_env_keys: tuple[str, ...] = ()
+    forbidden_extra_arg_options: tuple[str, ...] = ()
 
 
 BLACKBIRD_QWEN36_FP8_RULE = BackendEvidenceRule(
@@ -51,8 +53,22 @@ BLACKBIRD_QWEN36_FP8_RULE = BackendEvidenceRule(
     },
 )
 
+BLACKBIRD_QWEN36_BF16_RULE = BackendEvidenceRule(
+    config_name="qwen36-27b-bf16-rp6000-blackbird",
+    expected_image=BLACKBIRD_QWEN36_IMAGE,
+    expected_flashinfer_arch=None,
+    expected_kv_cache_dtype="bfloat16",
+    expected_kv_cache_memory_bytes=None,
+    expected_attention_backend=None,
+    required_patterns={},
+    forbidden_patterns={},
+    forbidden_docker_env_keys=("FLASHINFER_CUDA_ARCH_LIST",),
+    forbidden_extra_arg_options=("--kv-cache-memory-bytes",),
+)
+
 BACKEND_EVIDENCE_RULES = {
     BLACKBIRD_QWEN36_FP8_RULE.config_name: BLACKBIRD_QWEN36_FP8_RULE,
+    BLACKBIRD_QWEN36_BF16_RULE.config_name: BLACKBIRD_QWEN36_BF16_RULE,
 }
 
 
@@ -141,12 +157,15 @@ def _config_shape_errors(config: dict[str, Any], rule: BackendEvidenceRule) -> l
         != rule.expected_flashinfer_arch
     ):
         errors.append("command.docker.env.FLASHINFER_CUDA_ARCH_LIST must be 12.0f")
+    for key in rule.forbidden_docker_env_keys:
+        if str(docker_env.get(key) or ""):
+            errors.append(f"command.docker.env.{key} must be omitted")
     if (
         rule.expected_kv_cache_dtype is not None
         and str(engine.get("kv_cache_dtype") or "").lower()
         != rule.expected_kv_cache_dtype.lower()
     ):
-        errors.append("engine.kv_cache_dtype must be fp8")
+        errors.append(f"engine.kv_cache_dtype must be {rule.expected_kv_cache_dtype}")
     if rule.expected_kv_cache_memory_bytes is not None and not _argv_has_value(
         extra_args,
         "--kv-cache-memory-bytes",
@@ -159,6 +178,9 @@ def _config_shape_errors(config: dict[str, Any], rule: BackendEvidenceRule) -> l
         rule.expected_attention_backend,
     ):
         errors.append("extra_args must include --attention-backend FLASHINFER")
+    for option in rule.forbidden_extra_arg_options:
+        if _argv_has_option(extra_args, option):
+            errors.append(f"extra_args must omit {option}")
     return errors
 
 
@@ -185,6 +207,11 @@ def _argv_has_value(argv: list[str], option: str, expected: str) -> bool:
         if item.startswith(prefix):
             return item[len(prefix) :].upper() == expected.upper()
     return False
+
+
+def _argv_has_option(argv: list[str], option: str) -> bool:
+    prefix = option + "="
+    return any(item == option or item.startswith(prefix) for item in argv)
 
 
 def _dict(value: object) -> dict[str, Any]:

@@ -528,6 +528,34 @@ def _blackbird_fp8_config_payload() -> dict[str, object]:
     }
 
 
+def _blackbird_bf16_config_payload() -> dict[str, object]:
+    return {
+        "name": "qwen36-27b-bf16-rp6000-blackbird",
+        "model": "Qwen/Qwen3.6-27B",
+        "served_model_name": "qwen36-27b-bf16-rp6000",
+        "command": {
+            "runtime": "docker",
+            "docker": {
+                "image": (
+                    "vllm/vllm-openai@sha256:"
+                    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+                ),
+                "env": {
+                    "CUDA_VISIBLE_DEVICES": "0",
+                    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+                },
+            },
+        },
+        "engine": {"kv_cache_dtype": "bfloat16"},
+        "extra_args": [
+            "--max-num-batched-tokens",
+            "8192",
+            "--trust-remote-code",
+            "--language-model-only",
+        ],
+    }
+
+
 def _valid_backend_log_text() -> str:
     return "\n".join(
         [
@@ -552,6 +580,24 @@ def test_backend_evidence_accepts_blackbird_fp8_recipe_log() -> None:
     assert result["required"] == {
         "cutlass_fp8": True,
         "flashinfer_attention": True,
+    }
+    json.dumps(result)
+
+
+def test_backend_evidence_accepts_blackbird_bf16_recipe_shape() -> None:
+    module = _load_backend_evidence_check()
+
+    result = module.validate_backend_evidence(
+        "qwen36-27b-bf16-rp6000-blackbird",
+        _blackbird_bf16_config_payload(),
+        "INFO BF16 recipe reached READY",
+    )
+
+    assert result == {
+        "checked": True,
+        "config_name": "qwen36-27b-bf16-rp6000-blackbird",
+        "required": {},
+        "forbidden": {},
     }
     json.dumps(result)
 
@@ -652,6 +698,45 @@ def test_backend_evidence_rejects_invalid_blackbird_fp8_config_shape(
             "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
             config,
             _valid_backend_log_text(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_error"),
+    [
+        (
+            lambda config: config["command"]["docker"]["env"].update(
+                {"FLASHINFER_CUDA_ARCH_LIST": "12.0f"}
+            ),
+            "command.docker.env.FLASHINFER_CUDA_ARCH_LIST must be omitted",
+        ),
+        (
+            lambda config: config.update(
+                {
+                    "extra_args": [
+                        "--kv-cache-memory-bytes",
+                        "64424509440",
+                        "--max-num-batched-tokens",
+                        "8192",
+                    ]
+                }
+            ),
+            "extra_args must omit --kv-cache-memory-bytes",
+        ),
+    ],
+)
+def test_backend_evidence_rejects_invalid_blackbird_bf16_config_shape(
+    mutator, expected_error: str
+) -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_bf16_config_payload()
+    mutator(config)
+
+    with pytest.raises(module.BackendEvidenceError, match=expected_error):
+        module.validate_backend_evidence(
+            "qwen36-27b-bf16-rp6000-blackbird",
+            config,
+            "INFO BF16 recipe reached READY",
         )
 
 

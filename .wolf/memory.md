@@ -493,3 +493,5 @@
 | 06:21 | Verified diagnose CUDA/GPU/active-state slice | entire project | json valid, ruff clean, diff check clean, crown-jewel grep empty, pytest 940 passed | ~450 |
 | 06:25 | Fixed real-host driver extraction after P620-to-Blackbird doctor showed driver=None while nvidia-smi reported 580.159.03 | src/vela/agent/local.py, tests/test_agent_client.py, .wolf/buglog.json | `_driver_version` now falls back to bounded agent-side nvidia-smi query; focused diagnose tests pass | ~800 |
 | 06:31 | Verified driver fallback slice | entire project | json valid, ruff clean, diff check clean, crown-jewel grep empty, pytest 941 passed | ~450 |
+| 06:32 | Added BF16 Blackbird backend-evidence rule from local recipe shape | scripts/backend_evidence_check.py, tests/test_remote_workflow.py, .wolf/buglog.json | BF16 now checks pinned Docker image, bfloat16 KV cache, and absence of FP8-only FlashInfer/KV-byte pins instead of skipping with no rule | ~1200 |
+| 06:38 | Verified BF16 backend-evidence rule locally before hardware validation | entire project | json valid, ruff clean, diff check clean, crown-jewel grep empty, pytest 944 passed | ~450 |
