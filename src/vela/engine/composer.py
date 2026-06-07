@@ -378,6 +378,18 @@ def compose_config(
     preset = _preset_by_name(preset_name)
     recipe = _matching_recipe(target=target, runtime=runtime, model=model)
     suggestions = _engine_suggestions(model_context)
+    unsafe_runtime_warnings = _blackwell_fp8_runtime_warnings(
+        target=target,
+        runtime=runtime,
+        recipe=recipe,
+        model_context=model_context,
+        suggestions=suggestions,
+    )
+    if unsafe_runtime_warnings:
+        raise ValueError(
+            "; ".join(unsafe_runtime_warnings)
+            + ": Blackwell FP8 Docker deployments require a matched local lab recipe"
+        )
     port = allocate_port(
         preferred=_preferred_port(overrides) or _recipe_port(recipe),
         configs_dir=configs_dir,
@@ -428,13 +440,6 @@ def compose_config(
     cfg = ModelConfig.model_validate(payload)
     warnings = [
         *suggestions.warnings,
-        *_blackwell_fp8_runtime_warnings(
-            target=target,
-            runtime=runtime,
-            recipe=recipe,
-            model_context=model_context,
-            suggestions=suggestions,
-        ),
         *_recipe_runtime_warnings(spec, recipe),
         *(recipe.warnings if recipe is not None else ()),
     ]

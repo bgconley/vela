@@ -2979,6 +2979,26 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:56:54Z"
+    },
+    {
+      "id": "bug-155",
+      "timestamp": "2026-06-07T05:02:46Z",
+      "error_message": "unknown Blackwell FP8 Docker compose could still produce a launchable config",
+      "file": "src/vela/engine/composer.py",
+      "root_cause": "The non-recipe Blackwell FP8 guard warned but still returned a composed Docker config. That could let model metadata stand in for the validated local deployment recipe that actually pins the SM120-compatible vLLM image, FlashInfer arch, CUTLASS/FlashInfer backend shape, and FP8 KV memory layout.",
+      "fix": "Keep suggestion/default calls as warning-only, but make final compose_config raise blackwell-fp8-runtime-recipe-required unless the deployment matches a local lab recipe.",
+      "tags": [
+        "composer",
+        "blackwell",
+        "fp8",
+        "docker",
+        "runtime-recipe"
+      ],
+      "related_bugs": [
+        "bug-149"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:02:46Z"
     }
   ]
 }

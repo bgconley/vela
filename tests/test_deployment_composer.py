@@ -382,7 +382,7 @@ def test_agent_composer_keeps_lab_recipe_image_when_runtime_image_differs(
     assert "recipe-image-override-ignored" in result["warnings"]
 
 
-def test_agent_warns_when_blackbird_fp8_docker_lacks_lab_recipe(
+def test_agent_refuses_blackbird_fp8_docker_without_lab_recipe(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
@@ -390,23 +390,24 @@ def test_agent_warns_when_blackbird_fp8_docker_lacks_lab_recipe(
     monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_args, **_kwargs: {})
     agent = LocalAgent(models_registry_path=registry_path)
 
-    result = _call(
-        agent,
-        "compose_config",
-        {
-            "configs_dir": str(config_dir),
-            "name": "experimental-fp8",
-            "target": "blackbird",
-            "runtime": {
-                "kind": "docker",
-                "image": "vllm/vllm-openai@sha256:experimental",
+    with pytest.raises(TargetCallError) as excinfo:
+        _call(
+            agent,
+            "compose_config",
+            {
+                "configs_dir": str(config_dir),
+                "name": "experimental-fp8",
+                "target": "blackbird",
+                "runtime": {
+                    "kind": "docker",
+                    "image": "vllm/vllm-openai@sha256:experimental",
+                },
+                "model_ref": "experimental-fp8",
             },
-            "model_ref": "experimental-fp8",
-        },
-    )
+        )
 
-    assert result["config"]["engine"]["kv_cache_dtype"] == "fp8"
-    assert "blackwell-fp8-runtime-recipe-required" in result["warnings"]
+    assert excinfo.value.code == "compose-invalid"
+    assert "blackwell-fp8-runtime-recipe-required" in excinfo.value.message
 
 
 def test_agent_suggestions_warn_when_blackbird_fp8_docker_lacks_lab_recipe(

@@ -125,6 +125,12 @@ use the same agent-side composer. For known lab recipes such as Blackbird
 Qwen3.6 FP8/BF16, the composer fills the pinned image, cache mounts, container
 name, port, exposure, run directory, and FP8-vs-BF16 flags before review.
 
+For Blackbird/P620 FP8 Docker deployments with no matched lab recipe, the
+default-suggestion surface may warn, but final composition is refused with
+`blackwell-fp8-runtime-recipe-required`. The composer must not invent the vLLM
+image, CUTLASS/FlashInfer/FlashAttention shape, `sm_120` arch settings, or KV
+memory layout from Hugging Face metadata alone.
+
 ```bash
 vela deploy create qwen36-fp8 \
   --target blackbird \
