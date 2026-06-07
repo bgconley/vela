@@ -2834,6 +2834,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:04:28Z"
+    },
+    {
+      "id": "bug-147",
+      "timestamp": "2026-06-07T04:12:44Z",
+      "error_message": "new deployment save-and-smoke coverage did not exercise a fake docker lifecycle",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "The wizard smoke test asserted the target RPC order with a mocked client, but did not prove the primary TUI flow could save a docker deployment through LocalAgent, launch it, observe READY, stop the docker sidecar, and wait to STOPPED.",
+      "fix": "Add a LocalAgent/InProcess New Deployment fake-Docker Save & Smoke test and extend the fake docker helper with opt-in state-file wait behavior so the TUI stop branch can signal a live fake container.",
+      "tags": [
+        "tui",
+        "deployment-composer",
+        "docker",
+        "tests"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:12:44Z"
     }
   ]
 }

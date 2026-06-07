@@ -13,11 +13,13 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import write_yaml
+from fakes.fake_docker import write_fake_docker_runtime
 from rich.text import Text
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, ProgressBar, RichLog, Select, Static
 from textual.worker import WorkerState
 
+from vela.agent import local as agent_local_module
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.config.loader import load_registry
 from vela.config.targets import TargetConfig, TransportKind
@@ -5619,6 +5621,68 @@ async def test_new_deployment_review_save_and_smoke_launches_saved_config(
     assert methods.index("launch") < methods.index("probe_until_ready")
     assert methods.index("probe_until_ready") < methods.index("stop")
     assert methods.index("stop") < methods.index("wait")
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_save_and_smoke_walks_fake_docker_to_ready(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
+) -> None:
+    docker = tmp_path / "docker"
+    docker_log = tmp_path / "docker-commands.log"
+    docker_state = tmp_path / "docker-state"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
+    monkeypatch.setenv("FAKE_DOCKER_STATE_FILE", str(docker_state))
+    monkeypatch.setenv("FAKE_DOCKER_WAIT_SECONDS", "10")
+
+    async def ready_probe_loop(cfg, *, emit, is_process_alive, **_kwargs) -> None:
+        emit(HealthEvent(ready=True, detail="ready", models=[cfg.served_model_name]))
+
+    monkeypatch.setattr(agent_local_module, "probe_loop", ready_probe_loop)
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=InProcessTargetClient(LocalAgent()),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-runtime", Select).value = "docker"
+        app.screen.query_one("#new-deployment-image", Input).value = (
+            "vllm/vllm-openai@sha256:image"
+        )
+        app.screen.query_one("#new-deployment-port", Input).value = str(unused_tcp_port)
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open for fake docker smoke",
+        )
+
+        await pilot.press("s")
+        await _wait_for_condition(
+            lambda: app.phase is Phase.STOPPED,
+            "fake docker save-and-smoke did not reach stopped phase",
+        )
+
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert "image inspect vllm/vllm-openai@sha256:image" in docker_commands
+    assert "run -d --name" in docker_commands
+    assert "logs -f container-123" in docker_commands
+    assert "stop -t 90 container-123" in docker_commands
+    assert app.ready_url == f"http://127.0.0.1:{unused_tcp_port}"
+    assert app.served_models == ["Qwen3-32B"]
 
 
 @pytest.mark.asyncio
