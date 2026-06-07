@@ -2786,6 +2786,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T03:34:33Z"
+    },
+    {
+      "id": "bug-144",
+      "timestamp": "2026-06-07T03:42:59Z",
+      "error_message": "new deployment wizard was fixed to the active target",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "The target step rendered only static active-target text and the app always loaded composer inputs through the current target client, so the wizard could not choose another registered target before composing.",
+      "fix": "Render a registered-target Select with connection-state text, route target changes through the normal app target-switch path, and reopen the wizard with the draft preserved so subsequent list/compose/preview RPCs use the selected target client.",
+      "tags": [
+        "tui",
+        "deployment-composer",
+        "targets"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:42:59Z"
     }
   ]
 }

@@ -2291,6 +2291,7 @@ class VelaApp(App):
         recipes: object = []
         models: object = []
         builds: object = []
+        target_rows = self._new_deployment_target_rows()
         if self._target_supports_capability("list_deployment_recipes"):
             try:
                 recipe_result = await self._target_call(
@@ -2311,14 +2312,36 @@ class VelaApp(App):
             except Exception:
                 builds_result = {}
             builds = builds_result.get("builds")
+        self.call_later(
+            self._push_new_deployment_screen,
+            presets if isinstance(presets, list) else [],
+            recipes if isinstance(recipes, list) else [],
+            models if isinstance(models, list) else [],
+            builds if isinstance(builds, list) else [],
+            initial,
+            target_rows,
+        )
+
+    def _push_new_deployment_screen(
+        self,
+        presets: list[dict[str, Any]],
+        recipes: list[dict[str, Any]],
+        models: list[dict[str, Any]],
+        builds: list[dict[str, Any]],
+        initial: dict[str, Any] | None,
+        target_rows: list[dict[str, str]],
+    ) -> None:
         self.push_screen(
             NewDeploymentScreen(
                 target_label=self.target_name,
-                presets=presets if isinstance(presets, list) else [],
-                recipes=recipes if isinstance(recipes, list) else [],
-                models=models if isinstance(models, list) else [],
-                builds=builds if isinstance(builds, list) else [],
+                presets=presets,
+                recipes=recipes,
+                models=models,
+                builds=builds,
                 initial=initial,
+                targets=target_rows,
+                connection_state=self.target_connection_state,
+                agent_info=self._target_agent_info,
             ),
             callback=self._handle_new_deployment_selection,
         )
@@ -2329,6 +2352,17 @@ class VelaApp(App):
         action = _optional_str(selection.get("action"))
         draft = selection.get("draft")
         draft_payload = dict(draft) if isinstance(draft, dict) else {}
+        if action == "target":
+            target = _optional_str(selection.get("target"))
+            if target is not None:
+                self.run_worker(
+                    self._switch_new_deployment_target(target, draft_payload),
+                    name="new-deployment-target-switch",
+                    group="new-deployment",
+                    exclusive=True,
+                    exit_on_error=False,
+                )
+            return
         if action == "create_build":
             self.run_worker(
                 self._open_new_deployment_create_build_form(draft_payload),
@@ -2364,6 +2398,57 @@ class VelaApp(App):
             exclusive=True,
             exit_on_error=False,
         )
+
+    def _new_deployment_target_rows(self) -> list[dict[str, str]]:
+        try:
+            targets = load_targets_file().targets
+        except Exception:
+            targets = [self._target_config]
+        rows: list[dict[str, str]] = []
+        for target in targets:
+            rows.append(
+                {
+                    "name": target.name,
+                    "transport": target.transport.value,
+                    "host": target.host or "",
+                }
+            )
+        if not any(row["name"] == self.target_name for row in rows):
+            rows.insert(
+                0,
+                {
+                    "name": self.target_name,
+                    "transport": self._target_config.transport.value,
+                    "host": self._target_config.host or "",
+                },
+            )
+        return rows
+
+    async def _switch_new_deployment_target(
+        self,
+        target_name: str,
+        draft: dict[str, Any],
+    ) -> None:
+        if target_name == self.target_name:
+            await self._open_new_deployment(initial=draft)
+            return
+        if self._attached_run_is_alive() or self._has_reattached_run():
+            self._set_error_text(
+                "Stop or detach the active run before switching targets",
+                style=f"bold {WARN}",
+            )
+            self.notify(
+                "Stop or detach the active run before switching targets",
+                severity="warning",
+            )
+            return
+        await self._switch_target(target_name)
+        if self.target_name != target_name:
+            return
+        resumed = dict(draft)
+        resumed["target"] = target_name
+        resumed["selected_target"] = target_name
+        await self._open_new_deployment(initial=resumed)
 
     async def _review_new_deployment(self, spec: dict[str, Any]) -> None:
         params = dict(spec)

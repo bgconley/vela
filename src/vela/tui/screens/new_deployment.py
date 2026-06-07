@@ -22,6 +22,27 @@ def _recipe_name(recipe: dict[str, Any]) -> str:
     return ""
 
 
+def _target_rows(
+    targets: list[dict[str, Any]] | None,
+    active_target: str,
+) -> list[dict[str, Any]]:
+    rows = [dict(target) for target in (targets or []) if isinstance(target, dict)]
+    if any(str(target.get("name") or "") == active_target for target in rows):
+        return rows
+    return [{"name": active_target, "transport": "", "host": ""}, *rows]
+
+
+def _connection_dot(state: str) -> str:
+    return {
+        "connected": "●",
+        "connecting": "◐",
+        "reconnecting": "◐",
+        "disconnected": "○",
+        "version-mismatch": "▲",
+        "unreachable": "✕",
+    }.get(state, "○")
+
+
 class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentScreen {{
@@ -115,6 +136,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         models: list[dict[str, Any]] | None = None,
         builds: list[dict[str, Any]] | None = None,
         initial: dict[str, Any] | None = None,
+        targets: list[dict[str, Any]] | None = None,
+        connection_state: str = "disconnected",
+        agent_info: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(id="new-deployment")
         self.target_label = target_label
@@ -123,6 +147,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.models = [dict(model) for model in (models or [])]
         self.builds = [dict(build) for build in (builds or [])]
         self.initial = dict(initial or {})
+        self.targets = _target_rows(targets, target_label)
+        self.connection_state = connection_state
+        self.agent_info = dict(agent_info or {})
         self._applying_initial = False
         self.step_index = 0
 
@@ -137,10 +164,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("", id="new-deployment-current-step")
             with Vertical(id="new-deployment-step-target"):
                 yield Static("Target", classes="new-deployment-field-label")
-                yield Static(
-                    f"Active target: {self.target_label}",
-                    id="new-deployment-target-summary",
+                yield Select(
+                    self._target_options(),
+                    value=self.target_label,
+                    allow_blank=False,
+                    id="new-deployment-target-select",
                 )
+                yield Static("", id="new-deployment-target-state")
                 yield Static("Recipe", classes="new-deployment-field-label")
                 yield Select(
                     self._recipe_options(),
@@ -270,6 +300,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def on_select_changed(self, event: Select.Changed) -> None:
         if self._applying_initial:
             return
+        if event.select.id == "new-deployment-target-select":
+            target = str(event.value or "")
+            if target and target != self.target_label:
+                event.stop()
+                draft = self._draft_state()
+                draft["target"] = target
+                draft["selected_target"] = target
+                self.dismiss({"action": "target", "target": target, "draft": draft})
+            else:
+                self._refresh_target_state()
+            return
         if event.select.id == "new-deployment-runtime":
             runtime = str(event.value or "")
             if runtime in {"create_build", "adopt_build"}:
@@ -324,6 +365,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         model = self._field_value("#new-deployment-model")
         model_ref = self._selected_model_ref()
         model_revision = self._field_value("#new-deployment-model-revision")
+        target = self._selected_target()
         runtime = str(self.query_one("#new-deployment-runtime", Select).value or "process")
         image = self._field_value("#new-deployment-image")
         build = self._field_value("#new-deployment-build")
@@ -338,7 +380,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             raise ValueError("Model is required")
         spec: dict[str, Any] = {
             "name": name,
-            "target": self.target_label,
+            "target": target,
             "preset": preset,
             "runtime": runtime,
             "overrides": {"server": {"host": host, "exposure": exposure}},
@@ -377,7 +419,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         model_ref = self._selected_model_ref()
         draft: dict[str, Any] = {
             "name": self._field_value("#new-deployment-name"),
-            "target": self.target_label,
+            "target": self._selected_target(),
+            "selected_target": self._selected_target(),
             "runtime": str(
                 self.query_one("#new-deployment-runtime", Select).value or "process"
             ),
@@ -412,6 +455,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
     def _field_value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()
+
+    def _selected_target(self) -> str:
+        try:
+            value = str(self.query_one("#new-deployment-target-select", Select).value or "")
+        except Exception:
+            value = ""
+        return value or self.target_label
 
     def _pin_model_initial(self, mode: str) -> dict[str, Any]:
         model = self._field_value("#new-deployment-model")
@@ -451,6 +501,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 self._set_select_value("#new-deployment-runtime", runtime)
             for selector, key in (
                 ("#new-deployment-recipe", "recipe"),
+                ("#new-deployment-target-select", "selected_target"),
                 ("#new-deployment-model-mode", "model_mode"),
                 ("#new-deployment-model-ref", "model_ref"),
                 ("#new-deployment-preset", "preset"),
@@ -469,6 +520,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             )
         finally:
             self._applying_initial = False
+        self._refresh_target_state()
         self._refresh_model_state()
 
     def _set_select_value(self, selector: str, value: str) -> None:
@@ -476,6 +528,36 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             self.query_one(selector, Select).value = value
         except Exception:
             return
+
+    def _target_options(self) -> list[tuple[str, str]]:
+        options: list[tuple[str, str]] = []
+        for target in self.targets:
+            name = str(target.get("name") or "").strip()
+            if not name:
+                continue
+            dot = _connection_dot(self.connection_state) if name == self.target_label else "○"
+            transport = str(target.get("transport") or "").strip()
+            host = str(target.get("host") or "").strip()
+            detail = host or transport
+            label = f"{dot} {name}" if not detail else f"{dot} {name}  {detail}"
+            options.append((label, name))
+        return options or [(self.target_label, self.target_label)]
+
+    def _refresh_target_state(self) -> None:
+        try:
+            widget = self.query_one("#new-deployment-target-state", Static)
+        except Exception:
+            return
+        selected = self._selected_target()
+        if selected == self.target_label:
+            dot = _connection_dot(self.connection_state)
+            parts = [f"{dot} {selected} {self.connection_state}"]
+            agent = str(self.agent_info.get("agent_version") or "").strip()
+            if agent:
+                parts.append(f"agent {agent}")
+            widget.update("   ".join(parts))
+            return
+        widget.update(f"○ {selected} inactive")
 
     def _preset_options(self) -> list[tuple[str, str]]:
         options: list[tuple[str, str]] = []
