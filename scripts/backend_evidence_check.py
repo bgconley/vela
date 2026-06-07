@@ -29,6 +29,7 @@ class BackendEvidenceRule:
     expected_image: str | None
     expected_flashinfer_arch: str | None
     expected_kv_cache_dtype: str | None
+    expected_kv_cache_memory_bytes: str | None
     expected_attention_backend: str | None
     required_patterns: dict[str, str]
     forbidden_patterns: dict[str, str]
@@ -39,6 +40,7 @@ BLACKBIRD_QWEN36_FP8_RULE = BackendEvidenceRule(
     expected_image=BLACKBIRD_QWEN36_IMAGE,
     expected_flashinfer_arch="12.0f",
     expected_kv_cache_dtype="fp8",
+    expected_kv_cache_memory_bytes="64424509440",
     expected_attention_backend="FLASHINFER",
     required_patterns={
         "cutlass_fp8": r"Selected CutlassFp8BlockScaledMMKernel",
@@ -75,11 +77,21 @@ def validate_backend_evidence(
 ) -> dict[str, Any]:
     rule = BACKEND_EVIDENCE_RULES.get(config_name)
     if rule is None:
+        if _looks_like_blackbird_fp8_config(config):
+            raise BackendEvidenceError(
+                f"unregistered backend evidence rule for Blackbird FP8 config: {config_name}"
+            )
         return {
             "checked": False,
             "config_name": config_name,
             "reason": "no-backend-evidence-rule",
         }
+
+    run_config_name = str(config.get("name") or "")
+    if run_config_name and run_config_name != config_name:
+        raise BackendEvidenceError(
+            f"backend config name mismatch: expected {config_name}, got {run_config_name}"
+        )
 
     config_errors = _config_shape_errors(config, rule)
     required = {
@@ -138,6 +150,12 @@ def _config_shape_errors(config: dict[str, Any], rule: BackendEvidenceRule) -> l
         != rule.expected_kv_cache_dtype.lower()
     ):
         errors.append("engine.kv_cache_dtype must be fp8")
+    if rule.expected_kv_cache_memory_bytes is not None and not _argv_has_value(
+        extra_args,
+        "--kv-cache-memory-bytes",
+        rule.expected_kv_cache_memory_bytes,
+    ):
+        errors.append("extra_args must include --kv-cache-memory-bytes 64424509440")
     if rule.expected_attention_backend is not None and not _argv_has_value(
         extra_args,
         "--attention-backend",
@@ -145,6 +163,21 @@ def _config_shape_errors(config: dict[str, Any], rule: BackendEvidenceRule) -> l
     ):
         errors.append("extra_args must include --attention-backend FLASHINFER")
     return errors
+
+
+def _looks_like_blackbird_fp8_config(config: dict[str, Any]) -> bool:
+    command = _dict(config.get("command"))
+    docker = _dict(command.get("docker"))
+    engine = _dict(config.get("engine"))
+    docker_env = _dict(docker.get("env"))
+    return (
+        command.get("runtime") == "docker"
+        and str(engine.get("kv_cache_dtype") or "").lower() == "fp8"
+        and (
+            docker.get("image") == BLACKBIRD_QWEN36_IMAGE
+            or str(docker_env.get("FLASHINFER_CUDA_ARCH_LIST") or "") == "12.0f"
+        )
+    )
 
 
 def _argv_has_value(argv: list[str], option: str, expected: str) -> bool:

@@ -507,13 +507,17 @@ def _blackbird_fp8_config_payload() -> dict[str, object]:
             },
         },
         "engine": {"kv_cache_dtype": "fp8"},
-        "extra_args": ["--attention-backend", "FLASHINFER"],
+        "extra_args": [
+            "--kv-cache-memory-bytes",
+            "64424509440",
+            "--attention-backend",
+            "FLASHINFER",
+        ],
     }
 
 
-def test_backend_evidence_accepts_blackbird_fp8_recipe_log() -> None:
-    module = _load_backend_evidence_check()
-    log_text = "\n".join(
+def _valid_backend_log_text() -> str:
+    return "\n".join(
         [
             "INFO Selected CutlassFp8BlockScaledMMKernel for Fp8LinearMethod",
             "INFO Using AttentionBackendEnum.FLASHINFER backend",
@@ -521,10 +525,14 @@ def test_backend_evidence_accepts_blackbird_fp8_recipe_log() -> None:
         ]
     )
 
+
+def test_backend_evidence_accepts_blackbird_fp8_recipe_log() -> None:
+    module = _load_backend_evidence_check()
+
     result = module.validate_backend_evidence(
         "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
         _blackbird_fp8_config_payload(),
-        log_text,
+        _valid_backend_log_text(),
     )
 
     assert result["checked"] is True
@@ -542,6 +550,10 @@ def test_backend_evidence_accepts_blackbird_fp8_recipe_log() -> None:
         (
             "INFO Using AttentionBackendEnum.FLASHINFER backend\n",
             "missing required backend evidence: cutlass_fp8",
+        ),
+        (
+            "INFO Selected CutlassFp8BlockScaledMMKernel for Fp8LinearMethod\n",
+            "missing required backend evidence: flashinfer_attention",
         ),
         (
             "\n".join(
@@ -565,6 +577,104 @@ def test_backend_evidence_rejects_missing_or_forbidden_blackbird_fp8_log(
             "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
             _blackbird_fp8_config_payload(),
             log_text,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_error"),
+    [
+        (
+            lambda config: config["command"].update({"runtime": "process"}),
+            "command.runtime must be docker",
+        ),
+        (
+            lambda config: config["command"]["docker"].update(
+                {"image": "vllm/vllm-openai@sha256:wrong"}
+            ),
+            "command.docker.image does not match pinned Blackbird image",
+        ),
+        (
+            lambda config: config["command"]["docker"]["env"].update(
+                {"FLASHINFER_CUDA_ARCH_LIST": "11.0"}
+            ),
+            "command.docker.env.FLASHINFER_CUDA_ARCH_LIST must be 12.0f",
+        ),
+        (
+            lambda config: config["engine"].update({"kv_cache_dtype": "bfloat16"}),
+            "engine.kv_cache_dtype must be fp8",
+        ),
+        (
+            lambda config: config.update(
+                {
+                    "extra_args": [
+                        "--kv-cache-memory-bytes",
+                        "34359738368",
+                        "--attention-backend",
+                        "FLASHINFER",
+                    ]
+                }
+            ),
+            "extra_args must include --kv-cache-memory-bytes 64424509440",
+        ),
+        (
+            lambda config: config.update({"extra_args": []}),
+            "extra_args must include --kv-cache-memory-bytes 64424509440",
+        ),
+        (
+            lambda config: config.update(
+                {"extra_args": ["--kv-cache-memory-bytes", "64424509440"]}
+            ),
+            "extra_args must include --attention-backend FLASHINFER",
+        ),
+    ],
+)
+def test_backend_evidence_rejects_invalid_blackbird_fp8_config_shape(
+    mutator, expected_error: str
+) -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_fp8_config_payload()
+    mutator(config)
+
+    with pytest.raises(module.BackendEvidenceError, match=expected_error):
+        module.validate_backend_evidence(
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            config,
+            _valid_backend_log_text(),
+        )
+
+
+def test_backend_evidence_does_not_silently_skip_unregistered_fp8_config() -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_fp8_config_payload()
+    config["name"] = "qwen36-27b-fp8-kvfp8-rp6000-renamed"
+
+    with pytest.raises(
+        module.BackendEvidenceError,
+        match="unregistered backend evidence rule",
+    ):
+        module.validate_backend_evidence(
+            "qwen36-27b-fp8-kvfp8-rp6000-renamed",
+            config,
+            _valid_backend_log_text(),
+        )
+
+
+def test_backend_evidence_rejects_registered_rule_name_mismatch() -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_fp8_config_payload()
+    config["name"] = "qwen36-27b-fp8-kvfp8-rp6000-other"
+
+    with pytest.raises(
+        module.BackendEvidenceError,
+        match=(
+            "backend config name mismatch: expected "
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird"
+        ),
+    ):
+        module.validate_backend_evidence(
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            config,
+            _valid_backend_log_text(),
         )
 
 

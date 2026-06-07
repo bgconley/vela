@@ -2533,6 +2533,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T01:20:00Z"
+    },
+    {
+      "id": "bug-129",
+      "timestamp": "2026-06-07T01:35:00Z",
+      "error_message": "Backend evidence gate silently skipped renamed Blackbird FP8 configs",
+      "file": "scripts/backend_evidence_check.py",
+      "root_cause": "validate_backend_evidence returned checked=false for any config_name without a registered rule, even when the provided config had the Blackbird docker FP8 shape that requires backend evidence validation.",
+      "fix": "Fail closed for unregistered docker FP8 configs that match the Blackbird image or FlashInfer SM120 arch marker, reject registered-rule runs whose config.name differs from the rule key, and require the validated 60 GiB FP8 KV reservation.",
+      "tags": [
+        "backend-evidence",
+        "blackwell",
+        "fp8",
+        "ci"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T01:35:00Z"
     }
   ]
 }
