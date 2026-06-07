@@ -3337,6 +3337,23 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T08:07:22Z"
+    },
+    {
+      "id": "bug-174",
+      "timestamp": "2026-06-07T20:57:41Z",
+      "error_message": "New Deployment target picker showed a static disconnected dot for non-active registry targets",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "The wizard only received the active target connection state, so non-active registry rows were rendered as inactive/static even though C3 requires a connection dot for the registry picker. Textual Select mount behavior also made active-target defaulting dependent on registry order.",
+      "fix": "Feed the wizard per-target connection rows, put the active target first, asynchronously probe non-active targets through short-lived TargetClient instances, and refresh the select options/details without triggering a target switch.",
+      "tags": [
+        "tui",
+        "new-deployment",
+        "targets",
+        "connection-dot"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T20:57:41Z"
     }
   ]
 }

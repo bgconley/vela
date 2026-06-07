@@ -116,6 +116,7 @@ LEVEL_RAIL_STYLE = {
     "INFO": "#e8f1f2",
     "DEBUG": "#526a75",
 }
+NEW_DEPLOYMENT_TARGET_PROBE_TIMEOUT_SECONDS = 3.0
 LEVEL_FILTER_ALIASES = {
     "CRIT": "CRITICAL",
     "CRITICAL": "CRITICAL",
@@ -357,6 +358,14 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _target_connection_state_for_error(exc: TargetCallError) -> str:
+    if exc.code == "version-mismatch":
+        return "version-mismatch"
+    if exc.code in {"agent-unreachable", "command-not-found", "ssh-auth", "ssh-failed"}:
+        return "unreachable"
+    return "disconnected"
 
 
 def _optional_float(value: object) -> float | None:
@@ -2497,6 +2506,7 @@ class VelaApp(App):
                 targets=target_rows,
                 connection_state=self.target_connection_state,
                 agent_info=self._target_agent_info,
+                target_state_resolver=self._refresh_new_deployment_target_rows,
                 suggestion_resolver=(
                     self._suggest_new_deployment_defaults
                     if self._target_declares_capability("suggest_deployment_defaults")
@@ -2564,25 +2574,81 @@ class VelaApp(App):
             targets = load_targets_file().targets
         except Exception:
             targets = [self._target_config]
-        rows: list[dict[str, str]] = []
-        for target in targets:
-            rows.append(
-                {
-                    "name": target.name,
-                    "transport": target.transport.value,
-                    "host": target.host or "",
-                }
+        if not any(target.name == self.target_name for target in targets):
+            targets = [self._target_config, *targets]
+        return [self._new_deployment_target_base_row(target) for target in targets]
+
+    def _new_deployment_target_base_row(self, target: TargetConfig) -> dict[str, str]:
+        row: dict[str, str] = {
+            "name": target.name,
+            "transport": target.transport.value,
+            "host": target.host or "",
+        }
+        if target.name == self.target_name:
+            row["connection_state"] = self.target_connection_state
+            row["connection_detail"] = self.target_connection_detail
+            agent_version = _optional_str(self._target_agent_info.get("agent_version"))
+            if agent_version is not None:
+                row["agent_version"] = agent_version
+            return row
+        row["connection_state"] = "connecting"
+        row["connection_detail"] = "checking"
+        return row
+
+    async def _refresh_new_deployment_target_rows(self) -> list[dict[str, str]]:
+        try:
+            targets = load_targets_file().targets
+        except Exception:
+            targets = [self._target_config]
+        if not any(target.name == self.target_name for target in targets):
+            targets = [self._target_config, *targets]
+        rows = await asyncio.gather(
+            *(self._new_deployment_target_row(target) for target in targets)
+        )
+        return list(rows)
+
+    async def _new_deployment_target_row(self, target: TargetConfig) -> dict[str, str]:
+        row = self._new_deployment_target_base_row(target)
+        if target.name == self.target_name:
+            return row
+        row.update(await self._probe_new_deployment_target(target))
+        return row
+
+    async def _probe_new_deployment_target(self, target: TargetConfig) -> dict[str, str]:
+        target_client: Any | None = None
+        try:
+            target_client = target_client_for_config(target)
+            agent_info = await asyncio.wait_for(
+                target_client.connect(),
+                timeout=NEW_DEPLOYMENT_TARGET_PROBE_TIMEOUT_SECONDS,
             )
-        if not any(row["name"] == self.target_name for row in rows):
-            rows.insert(
-                0,
-                {
-                    "name": self.target_name,
-                    "transport": self._target_config.transport.value,
-                    "host": self._target_config.host or "",
-                },
-            )
-        return rows
+        except asyncio.TimeoutError:
+            return {
+                "connection_state": "unreachable",
+                "connection_detail": "connection timeout",
+            }
+        except TargetCallError as exc:
+            return {
+                "connection_state": _target_connection_state_for_error(exc),
+                "connection_detail": str(exc),
+            }
+        except Exception as exc:
+            return {
+                "connection_state": "unreachable",
+                "connection_detail": str(exc),
+            }
+        finally:
+            if target_client is not None:
+                disconnect = getattr(target_client, "disconnect", None)
+                if callable(disconnect):
+                    with contextlib.suppress(Exception):
+                        await disconnect()
+        row = {"connection_state": "connected", "connection_detail": ""}
+        if isinstance(agent_info, dict):
+            agent_version = _optional_str(agent_info.get("agent_version"))
+            if agent_version is not None:
+                row["agent_version"] = agent_version
+        return row
 
     async def _switch_new_deployment_target(
         self,

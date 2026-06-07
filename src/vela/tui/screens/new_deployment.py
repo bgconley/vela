@@ -28,8 +28,16 @@ def _target_rows(
     active_target: str,
 ) -> list[dict[str, Any]]:
     rows = [dict(target) for target in (targets or []) if isinstance(target, dict)]
-    if any(str(target.get("name") or "") == active_target for target in rows):
-        return rows
+    active_rows = [
+        target for target in rows if str(target.get("name") or "") == active_target
+    ]
+    if active_rows:
+        other_rows = [
+            target
+            for target in rows
+            if str(target.get("name") or "") != active_target
+        ]
+        return [*active_rows, *other_rows]
     return [{"name": active_target, "transport": "", "host": ""}, *rows]
 
 
@@ -145,6 +153,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         targets: list[dict[str, Any]] | None = None,
         connection_state: str = "disconnected",
         agent_info: dict[str, Any] | None = None,
+        target_state_resolver: Callable[[], Awaitable[list[dict[str, Any]]]]
+        | None = None,
         suggestion_resolver: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
         | None = None,
     ) -> None:
@@ -158,9 +168,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.targets = _target_rows(targets, target_label)
         self.connection_state = connection_state
         self.agent_info = dict(agent_info or {})
+        self.target_state_resolver = target_state_resolver
         self.suggestion_resolver = suggestion_resolver
         self._suggestion_revision = 0
         self._suppress_model_suggestion_events = False
+        self._suppress_target_events = False
+        self._target_selection_touched = False
         self._applying_initial = False
         self.step_index = 0
 
@@ -304,6 +317,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def on_mount(self) -> None:
         self._apply_initial()
         self._refresh_step()
+        self.call_later(self._queue_target_state_refresh)
         self._queue_model_suggestions()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -324,11 +338,16 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             self._queue_model_suggestions()
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if self.app.screen is not self:
+            return
         if self._applying_initial:
             return
         if event.select.id == "new-deployment-target-select":
+            if self._suppress_target_events:
+                return
             target = str(event.value or "")
             if target and target != self.target_label:
+                self._target_selection_touched = True
                 event.stop()
                 draft = self._draft_state()
                 draft["target"] = target
@@ -558,6 +577,47 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self._refresh_target_state()
         self._refresh_model_state()
 
+    def _queue_target_state_refresh(self) -> None:
+        if self.target_state_resolver is None:
+            return
+
+        async def refresh() -> None:
+            await self._refresh_target_states()
+
+        self.run_worker(
+            refresh,
+            name="new-deployment-target-states",
+            group="new-deployment-target-states",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _refresh_target_states(self) -> None:
+        if self.target_state_resolver is None:
+            return
+        try:
+            targets = await self.target_state_resolver()
+        except Exception:
+            return
+        selected = self._selected_target()
+        self.targets = _target_rows(targets, self.target_label)
+        try:
+            select = self.query_one("#new-deployment-target-select", Select)
+            options = self._target_options()
+            values = {value for _label, value in options}
+            if not self._target_selection_touched and self.target_label in values:
+                selected = self.target_label
+            self._suppress_target_events = True
+            try:
+                select.set_options(options)
+                if selected in values:
+                    select.value = selected
+            finally:
+                self._suppress_target_events = False
+            self._refresh_target_state()
+        except Exception:
+            return
+
     def _set_select_value(self, selector: str, value: str) -> None:
         try:
             self.query_one(selector, Select).value = value
@@ -570,7 +630,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             name = str(target.get("name") or "").strip()
             if not name:
                 continue
-            dot = _connection_dot(self.connection_state) if name == self.target_label else "○"
+            state = self._target_connection_state(name)
+            dot = _connection_dot(state)
             transport = str(target.get("transport") or "").strip()
             host = str(target.get("host") or "").strip()
             detail = host or transport
@@ -584,15 +645,46 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         except Exception:
             return
         selected = self._selected_target()
-        if selected == self.target_label:
-            dot = _connection_dot(self.connection_state)
-            parts = [f"{dot} {selected} {self.connection_state}"]
-            agent = str(self.agent_info.get("agent_version") or "").strip()
+        state = self._target_connection_state(selected)
+        dot = _connection_dot(state)
+        parts = [f"{dot} {selected} {state}"]
+        agent = self._target_agent_version(selected)
+        if agent:
+            parts.append(f"agent {agent}")
+        detail = self._target_connection_detail(selected)
+        if detail:
+            parts.append(detail)
+        widget.update("   ".join(parts))
+
+    def _target_connection_state(self, name: str) -> str:
+        target = self._target_row(name)
+        if target is not None:
+            state = str(target.get("connection_state") or "").strip()
+            if state:
+                return state
+        return self.connection_state if name == self.target_label else "disconnected"
+
+    def _target_connection_detail(self, name: str) -> str:
+        target = self._target_row(name)
+        if target is not None:
+            return str(target.get("connection_detail") or "").strip()
+        return ""
+
+    def _target_agent_version(self, name: str) -> str:
+        target = self._target_row(name)
+        if target is not None:
+            agent = str(target.get("agent_version") or "").strip()
             if agent:
-                parts.append(f"agent {agent}")
-            widget.update("   ".join(parts))
-            return
-        widget.update(f"○ {selected} inactive")
+                return agent
+        if name == self.target_label:
+            return str(self.agent_info.get("agent_version") or "").strip()
+        return ""
+
+    def _target_row(self, name: str) -> dict[str, Any] | None:
+        for target in self.targets:
+            if str(target.get("name") or "").strip() == name:
+                return target
+        return None
 
     def _preset_options(self) -> list[tuple[str, str]]:
         options: list[tuple[str, str]] = []

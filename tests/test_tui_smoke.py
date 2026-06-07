@@ -3827,6 +3827,124 @@ async def test_new_deployment_target_picker_shows_registry_connection_state(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_target_picker_probes_non_active_target_dot(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class ActiveClient:
+        connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "target": "local",
+                "agent_version": "0.9.0-local",
+                "capabilities": ["compose_config", "list_presets"],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected active client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target picker state should not subscribe")
+
+    class ProbeClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+            self.connect_calls = 0
+            self.disconnect_calls = 0
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            self.connect_calls += 1
+            return {
+                "target": self.target.name,
+                "agent_version": "0.9.0-blackbird",
+                "capabilities": ["compose_config", "list_presets"],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+            self.disconnect_calls += 1
+
+        async def call(self, method: str, params):
+            raise AssertionError(f"unexpected probe client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target picker probe should not subscribe")
+
+    probe_clients: list[ProbeClient] = []
+
+    def fake_target_client_for_config(target, **_kwargs):
+        client = ProbeClient(target)
+        probe_clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        fake_target_client_for_config,
+    )
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=ActiveClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+
+        option_labels = [label for label, _value in app.screen._target_options()]
+        assert any(label.startswith("● blackbird") for label in option_labels)
+
+    assert [client.target.name for client in probe_clients] == ["blackbird"]
+    assert probe_clients[0].connect_calls == 1
+    assert probe_clients[0].disconnect_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_target_picker_switches_target_before_composing(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3962,11 +4080,15 @@ async def test_new_deployment_target_picker_switches_target_before_composing(
             "new deployment review did not open after target picker switch",
         )
 
-    assert len(target_clients) == 2
-    local_client, blackbird_client = target_clients
-    assert local_client.target.name == "local"
+    local_client = next(
+        client for client in target_clients if client.target.name == "local" and client.calls
+    )
+    blackbird_client = next(
+        client
+        for client in target_clients
+        if client.target.name == "blackbird" and client.compose_params is not None
+    )
     assert local_client.disconnect_calls == 1
-    assert blackbird_client.target.name == "blackbird"
     assert blackbird_client.compose_params is not None
     assert blackbird_client.compose_params["target"] == "blackbird"
     assert blackbird_client.compose_params["name"] == "qwen-targeted"
