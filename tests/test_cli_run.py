@@ -185,6 +185,7 @@ def test_cli_preview_target_option_uses_selected_target_from_registry(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
+        agent_command=["vela", "agent", "connect"],
     )
     requested_target_names: list[str] = []
     requested_targets: list[TargetConfig] = []
@@ -2203,6 +2204,7 @@ def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatc
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
+        agent_command=["vela", "agent", "connect"],
     )
 
     class FakeTargetsRegistry:
@@ -2233,6 +2235,7 @@ def test_cli_targets_test_handshakes_with_selected_target(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
+        agent_command=["vela", "agent", "connect"],
     )
     requested_target_names: list[str] = []
     requested_targets: list[TargetConfig] = []
@@ -2295,6 +2298,7 @@ def test_cli_targets_test_surfaces_invalid_ssh_options(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
+        agent_command=["vela", "agent", "connect"],
     )
 
     class FakeTargetsRegistry:

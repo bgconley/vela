@@ -35,6 +35,7 @@ from vela.config.targets import (
 from vela.engine.phases import Phase
 from vela.transport.client import TargetClient
 from vela.transport.factory import target_client_for_config
+from vela.transport.ssh_discovery import discover_ssh_agent_command
 from vela.tui.app import VelaApp
 
 app = typer.Typer(
@@ -239,6 +240,7 @@ def targets_add(
             agent_command=_agent_command_argv(agent_command),
             ssh_opts_env=ssh_opts_env,
         )
+        target = _discover_agent_command_for_target_or_exit(target)
         upsert_target_file(target)
     except ValueError as exc:
         typer.echo(f"ERROR: Unable to add target: {exc}", err=True)
@@ -282,6 +284,7 @@ def targets_bootstrap(
             agent_command=_agent_command_argv(agent_command),
             ssh_opts_env=ssh_opts_env,
         )
+        target = _discover_agent_command_for_target_or_exit(target)
         path = upsert_target_file(target)
     except ValueError as exc:
         typer.echo(f"ERROR: Unable to bootstrap target: {exc}", err=True)
@@ -306,8 +309,10 @@ def targets_remove(
 def targets_test(
     name: Annotated[str, typer.Argument(help="Target name to test.")] = "local",
 ) -> None:
+    target = _target_config_for_name_or_exit(name)
+    target = _discover_agent_command_for_target_or_exit(target, persist=True)
     try:
-        handshake = _target_call(_target_client_for_name_or_exit(name), "handshake")
+        handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc)
     typer.echo(
@@ -2053,19 +2058,44 @@ def _load_targets_or_exit() -> TargetsRegistry:
 
 
 def _target_client_for_name_or_exit(target_name: str) -> TargetClient:
+    target = _target_config_for_name_or_exit(target_name)
+    return _target_client_for_config_or_exit(target)
+
+
+def _target_config_for_name_or_exit(target_name: str) -> TargetConfig:
     registry = _load_targets_or_exit()
     try:
-        target = registry.by_name(target_name)
+        return registry.by_name(target_name)
     except KeyError as exc:
         available = ", ".join(target.name for target in registry.targets) or "none"
         typer.echo(f"ERROR: Unknown target: {target_name}", err=True)
         typer.echo(f"Available targets: {available}", err=True)
         raise typer.Exit(2) from exc
+
+
+def _target_client_for_config_or_exit(target: TargetConfig) -> TargetClient:
     try:
         return target_client_for_config(target)
     except ValueError as exc:
         typer.echo(f"ERROR: Unable to create target client: {exc}", err=True)
         raise typer.Exit(2) from exc
+
+
+def _discover_agent_command_for_target_or_exit(
+    target: TargetConfig,
+    *,
+    persist: bool = False,
+) -> TargetConfig:
+    if target.transport is not TransportKind.SSH or target.agent_command is not None:
+        return target
+    try:
+        discovery = discover_ssh_agent_command(target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc)
+    discovered = target.model_copy(update={"agent_command": discovery.agent_command})
+    if persist:
+        upsert_target_file(discovered)
+    return discovered
 
 
 def _agent_call(

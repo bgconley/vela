@@ -120,7 +120,18 @@ def target_client_for_config(
     raise ValueError(f"unsupported target transport: {target.transport}")
 
 
+def ssh_command_for_target(target: TargetConfig, remote_command: str) -> list[str]:
+    return [*_ssh_base_command(target), remote_command]
+
+
 def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> list[str]:
+    return [
+        *_ssh_base_command(target),
+        _remote_agent_command(target, target.agent_command or agent_command),
+    ]
+
+
+def _ssh_base_command(target: TargetConfig) -> list[str]:
     if target.host is None:
         raise ValueError(f"ssh target {target.name!r} requires host")
     command = ["ssh"]
@@ -135,7 +146,6 @@ def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> li
         if not _ssh_option_present(ssh_opts, key):
             command.extend(["-o", f"{key}={value}"])
     command.append(target.host)
-    command.append(_remote_agent_command(target, target.agent_command or agent_command))
     return command
 
 

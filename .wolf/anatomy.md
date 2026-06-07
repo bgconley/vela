@@ -88,6 +88,7 @@
 ## src/vllm_loader/
 
 - `__init__.py` — package version (~20 tok)
+- `__main__.py` — module entrypoint for `python -m vela` CLI fallback (~20 tok)
 - `cli.py` — Typer CLI: interactive, list, preview, run attached/detached, version (~900 tok)
 - `fake_child.py` — no-GPU fake vLLM-like child with health/models HTTP endpoints and progress logs (~550 tok)
 - `messages.py` — typed app/event dataclasses for logs, phases, readiness, GPU (~260 tok)
@@ -113,6 +114,10 @@
 - `gpu.py` — NVML/nvidia-smi GPU sampling and CUDA_VISIBLE_DEVICES mapping (~1100 tok)
 - `health.py` — httpx health and `/v1/models` check helpers (~450 tok)
 
+## src/vllm_loader/transport/
+
+- `ssh_discovery.py` — SSH agent-command discovery probes using hardened target SSH options (~1500 tok)
+
 ## src/vllm_loader/tui/
 
 - `app.py` — Textual app dashboard, lifecycle controls, config summary, log view, attached/detached launch paths (~1700 tok)
@@ -136,4 +141,5 @@
 - `test_phases.py` — FSM success/error/ready/degraded tests (~850 tok)
 - `test_process_manager.py` — attached PTY fake-child integration test (~650 tok)
 - `test_sidecar.py` — sidecar identity, manifest, permissions tests (~900 tok)
+- `test_ssh_discovery.py` — SSH agent discovery tests for command-v, canonical paths, version mismatch, and CLI persistence (~1200 tok)
 - `test_tui_smoke.py` — Textual start/help/lifecycle/fake-child launch smoke tests (~950 tok)

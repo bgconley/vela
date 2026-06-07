@@ -60,6 +60,11 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "    raise SystemExit(255)",
                 "",
                 "vela_present = truthy('FAKE_SSH_VELA_PRESENT', '1')",
+                "command_v_present = truthy('FAKE_SSH_COMMAND_V_PRESENT', '1')",
+                (
+                    "python_module_present = truthy('FAKE_SSH_PYTHON_MODULE_PRESENT', "
+                    "'1' if vela_present else '0')"
+                ),
                 (
                     "vela_path = getenv('FAKE_SSH_VELA_PATH', "
                     "'/home/bgconley/.local/share/vela/venv/bin/vela')"
@@ -93,7 +98,9 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "    raise SystemExit(int(getenv('FAKE_SSH_INSTALL_EXIT_CODE', '1')))",
                 "",
                 "def run_agent():",
-                "    if not vela_present:",
+                "    if not vela_present and not (",
+                "        'python3 -m vela' in remote_command and python_module_present",
+                "    ):",
                 "        command_not_found('vela')",
                 "    for line in sys.stdin:",
                 "        if not line.strip():",
@@ -133,7 +140,14 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "    raise SystemExit(0)",
                 "",
                 "if 'command -v vela' in remote_command:",
+                "    if vela_present and command_v_present:",
+                "        print(vela_path)",
+                "        raise SystemExit(0)",
+                "    raise SystemExit(1)",
+                "",
+                "if 'candidate=' in remote_command and '--version' in remote_command:",
                 "    if vela_present:",
+                "        print(vela_version)",
                 "        print(vela_path)",
                 "        raise SystemExit(0)",
                 "    raise SystemExit(1)",
@@ -142,7 +156,12 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "    'vela' in remote_command or 'python3 -m vela' in remote_command",
                 ")",
                 "if version_probe:",
-                "    if vela_present or 'python3 -m vela' in remote_command:",
+                "    if 'python3 -m vela' in remote_command:",
+                "        if python_module_present:",
+                "            print(vela_version)",
+                "            raise SystemExit(0)",
+                "        command_not_found('python3 -m vela')",
+                "    if vela_present:",
                 "        print(vela_version)",
                 "        raise SystemExit(0)",
                 "    command_not_found('vela')",
