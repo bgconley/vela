@@ -90,6 +90,11 @@ target agent to lint the edited text, and only then pushes it back with the
 same config name. Literal secrets are rejected by the target lint step before
 the push happens.
 
+In the TUI, press `t` for Target Manager. From there, `B` shows the exact
+`vela targets bootstrap ... --install` command for the selected target, and
+`P` pushes the currently selected local config to the selected remote target
+through the agent's `push_config` validation/write path.
+
 Host path overrides:
 
 - `VELA_CONFIGS`: overrides config discovery for that agent process.

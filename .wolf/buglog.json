@@ -2999,6 +2999,24 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T05:02:46Z"
+    },
+    {
+      "id": "bug-156",
+      "timestamp": "2026-06-07T05:10:40Z",
+      "error_message": "target manager lacked bootstrap and push-config affordances",
+      "file": "src/vela/tui/screens/target_manager.py",
+      "root_cause": "The TUI Target Manager could switch, add, edit, reconnect, and remove targets, but it did not expose the onboarding-spec P4 actions for showing a bootstrap command or pushing a selected local config to a remote target.",
+      "fix": "Add Bootstrap and Push config target-manager actions. Bootstrap renders the exact controller CLI command without running SSH from the TUI; Push uses a temporary TargetClient to call the remote agent's push_config RPC with the selected local YAML.",
+      "tags": [
+        "tui",
+        "targets",
+        "bootstrap",
+        "config-sync",
+        "track-b"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:10:40Z"
     }
   ]
 }

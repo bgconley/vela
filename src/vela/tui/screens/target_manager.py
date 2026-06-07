@@ -50,6 +50,8 @@ class TargetManagerScreen(ModalScreen):
         ("enter", "accept", "Select"),
         ("n", "new", "New"),
         ("e", "edit", "Edit"),
+        ("b", "bootstrap", "Bootstrap"),
+        ("p", "push_config", "Push config"),
         ("R", "reconnect", "Reconnect"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
@@ -120,6 +122,20 @@ class TargetManagerScreen(ModalScreen):
             return
         self.dismiss(TargetManagerRequest("edit", target.name))
 
+    def action_bootstrap(self) -> None:
+        target = self._selected_target()
+        if target is None:
+            self.dismiss(None)
+            return
+        self.dismiss(TargetManagerRequest("bootstrap", target.name))
+
+    def action_push_config(self) -> None:
+        target = self._selected_target()
+        if target is None:
+            self.dismiss(None)
+            return
+        self.dismiss(TargetManagerRequest("push_config", target.name))
+
     def action_remove(self) -> None:
         target = self._selected_target()
         if target is None:
@@ -168,6 +184,7 @@ class TargetManagerScreen(ModalScreen):
             lines.extend(_runtime_detail_lines(self.active_runs, self.gpu_summary))
         else:
             lines.append("connection: inactive")
+        lines.append("actions: Enter switch | B bootstrap | P push config | E edit")
         return "\n".join(lines)
 
     def _selected_target(self) -> TargetConfig | None:

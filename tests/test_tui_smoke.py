@@ -988,6 +988,199 @@ async def test_target_manager_remove_confirms_and_updates_registry(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_bootstrap_affordance_renders_command(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class QuietTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("bootstrap affordance should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=QuietTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.press("down")
+        await pilot.press("b")
+        await pilot.pause()
+
+        assert "vela targets bootstrap blackbird" in app.error_text
+        assert "--host bgconley@10.25.0.51" in app.error_text
+        assert "--install" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_target_manager_pushes_selected_local_config_to_remote(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class LocalTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_path),
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {
+                    "preview": f"vllm serve {params['name']}",
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected local client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("push affordance should not subscribe")
+
+    class RemoteTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            remote_calls.append((method, dict(params or {})))
+            if method == "push_config":
+                return {
+                    "name": params["name"],
+                    "path": "/home/bgconley/.config/vela/configs/alpha.yaml",
+                    "warnings": [],
+                }
+            raise AssertionError(f"unexpected remote client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("push config should not subscribe")
+
+    remote_calls: list[tuple[str, dict[str, object]]] = []
+    remote_client = RemoteTargetClient()
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target: remote_client if target.name == "blackbird" else LocalTargetClient(),
+        raising=False,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=LocalTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_condition(
+            lambda: app.current_config is not None
+            and app.current_config.name == "alpha",
+            "local config was not selected",
+        )
+        await pilot.press("t")
+        await pilot.press("down")
+        await pilot.press("p")
+        await _wait_for_condition(
+            lambda: remote_calls and remote_calls[0][0] == "push_config",
+            "push_config was not called",
+        )
+
+        params = remote_calls[0][1]
+        assert params["name"] == "alpha"
+        assert params["yaml"] == "name: alpha\nmodel: org/alpha\n"
+        assert "overwrite" not in params
+        assert remote_client.connected is False
+
+
+@pytest.mark.asyncio
 async def test_tui_surfaces_target_version_mismatch_on_mount(
     config_dir: Path,
 ) -> None:

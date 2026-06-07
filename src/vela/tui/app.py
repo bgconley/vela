@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping
@@ -869,6 +870,21 @@ class VelaApp(App):
                 f"Connect to target {target.name}",
                 lambda selected=target.name: self._handle_target_manager_selection(selected),
             )
+            yield SystemCommand(
+                f"Bootstrap target: {target.name}",
+                f"Show the bootstrap command for {target.name}",
+                lambda selected=target.name: self._handle_target_manager_selection(
+                    TargetManagerRequest("bootstrap", selected)
+                ),
+            )
+            if self.target_name == "local" and self.current_config is not None:
+                yield SystemCommand(
+                    f"Push selected config to: {target.name}",
+                    f"Push {self.current_config.name} to {target.name}",
+                    lambda selected=target.name: self._handle_target_manager_selection(
+                        TargetManagerRequest("push_config", selected)
+                    ),
+                )
         yield SystemCommand(
             "Manage vLLM builds", "View and select target-local vLLM builds", self.action_builds
         )
@@ -979,6 +995,16 @@ class VelaApp(App):
                 self._open_target_edit(selection.target_name)
             elif selection.action == "remove" and selection.target_name is not None:
                 self._confirm_remove_target(selection.target_name)
+            elif selection.action == "bootstrap" and selection.target_name is not None:
+                self._show_target_bootstrap_command(selection.target_name)
+            elif selection.action == "push_config" and selection.target_name is not None:
+                self.run_worker(
+                    self._push_selected_config_to_target(selection.target_name),
+                    name="target-config-push",
+                    group="target-config-push",
+                    exclusive=True,
+                    exit_on_error=False,
+                )
             return
         target_name = selection
         if not target_name or target_name == self.target_name:
@@ -1048,6 +1074,91 @@ class VelaApp(App):
                 confirm_action="confirm_remove_target",
             )
         )
+
+    def _show_target_bootstrap_command(self, target_name: str) -> None:
+        try:
+            target = load_targets_file().by_name(target_name)
+        except Exception as exc:
+            self._set_error_text(f"Unable to build bootstrap command: {exc}", style=f"bold {BAD}")
+            return
+        command = _target_bootstrap_command(target)
+        self._set_error_text(
+            f"Bootstrap target with:\n{command}",
+            style=f"bold {ACCENT}",
+        )
+        self._write_log(f"INFO bootstrap command for {target.name}: {command}", "INFO")
+
+    async def _push_selected_config_to_target(self, target_name: str) -> None:
+        if self.current_config is None:
+            self._set_error_text("Select a local config before pushing it to a target")
+            return
+        if self.target_name != "local":
+            self._set_error_text(
+                "Switch to the local target and select a local config before pushing",
+                style=f"bold {WARN}",
+            )
+            return
+        if target_name == "local":
+            self._set_error_text("Select a remote target to push this config")
+            return
+        config_item = self._selected_valid_config_item()
+        if config_item is None:
+            self._set_error_text(
+                f"Unable to find local YAML for {self.current_config.name}",
+                style=f"bold {BAD}",
+            )
+            return
+        try:
+            yaml_text = config_item.path.read_text(encoding="utf-8")
+        except OSError as exc:
+            self._set_error_text(f"Unable to read local config: {exc}", style=f"bold {BAD}")
+            return
+        try:
+            target = load_targets_file().by_name(target_name)
+            target_client = target_client_for_config(target)
+        except Exception as exc:
+            self._set_error_text(
+                f"Unable to connect to target {target_name}: {exc}",
+                style=f"bold {BAD}",
+            )
+            return
+        try:
+            await target_client.connect()
+            result = await target_client.call(
+                "push_config",
+                {"name": self.current_config.name, "yaml": yaml_text},
+            )
+        except TargetCallError as exc:
+            self._set_error_text(
+                f"Unable to push config to {target_name}: {exc}",
+                style=f"bold {BAD}",
+            )
+            return
+        except Exception as exc:
+            self._set_error_text(
+                f"Unable to push config to {target_name}: {exc}",
+                style=f"bold {BAD}",
+            )
+            return
+        finally:
+            disconnect = getattr(target_client, "disconnect", None)
+            if callable(disconnect):
+                with contextlib.suppress(Exception):
+                    await disconnect()
+        path = result.get("path", "")
+        self.notify(f"Pushed {self.current_config.name} to {target_name}")
+        self._write_log(
+            f"INFO pushed config {self.current_config.name} to {target_name}: {path}",
+            "INFO",
+        )
+
+    def _selected_valid_config_item(self) -> ValidConfig | None:
+        if self.current_config is None:
+            return None
+        for item in self.registry.valid:
+            if item.config.name == self.current_config.name:
+                return item
+        return None
 
     def confirm_remove_target(self) -> None:
         if self.screen.id == "confirm":
@@ -4900,6 +5011,16 @@ class VelaApp(App):
 
 def _build_prerequisite_params(params: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in params.items() if key != "job_id"}
+
+
+def _target_bootstrap_command(target: TargetConfig) -> str:
+    parts = ["vela", "targets", "bootstrap", target.name]
+    if target.host:
+        parts.extend(["--host", target.host])
+    if target.ssh_key is not None:
+        parts.extend(["--ssh-key", str(target.ssh_key)])
+    parts.append("--install")
+    return " ".join(shlex.quote(part) for part in parts)
 
 
 def _build_ref_from_build_result(
