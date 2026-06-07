@@ -77,6 +77,53 @@ def test_discover_ssh_agent_command_uses_canonical_path_when_shell_path_absent(
     assert result.source == "canonical-venv"
 
 
+def test_discover_ssh_agent_command_uses_user_venv_when_canonical_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("FAKE_SSH_COMMAND_V_PRESENT", "0")
+    monkeypatch.setenv("FAKE_SSH_CANONICAL_VENV_PRESENT", "0")
+    monkeypatch.setenv("FAKE_SSH_USER_VENV_PRESENT", "1")
+    from vela.transport.ssh_discovery import discover_ssh_agent_command
+
+    result = discover_ssh_agent_command(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+        )
+    )
+
+    assert result.agent_command == [
+        "/home/bgconley/venvs/vela/bin/vela",
+        "agent",
+        "connect",
+    ]
+    assert result.source == "user-venv"
+
+
+def test_discover_ssh_agent_command_uses_python_module_when_paths_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("FAKE_SSH_VELA_PRESENT", "0")
+    monkeypatch.setenv("FAKE_SSH_PYTHON_MODULE_PRESENT", "1")
+    from vela.transport.ssh_discovery import discover_ssh_agent_command
+
+    result = discover_ssh_agent_command(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+        )
+    )
+
+    assert result.agent_command == ["python3", "-m", "vela", "agent", "connect"]
+    assert result.source == "python-module"
+
+
 def test_discover_ssh_agent_command_rejects_absent_agent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

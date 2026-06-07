@@ -3089,6 +3089,23 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:05:00Z"
+    },
+    {
+      "id": "bug-161",
+      "timestamp": "2026-06-07T06:14:00Z",
+      "error_message": "fake SSH harness could not isolate user-venv and python-module discovery probes",
+      "file": "tests/fakes/fake_ssh.py",
+      "root_cause": "The fake SSH candidate-probe branch returned one `FAKE_SSH_VELA_PATH` for every `candidate=... --version` probe, so tests could not prove that the canonical venv path was absent while the user venv path was present.",
+      "fix": "Add independent fake remote state for canonical-venv, user-venv, and target-venv candidate probes, then add B1 regression tests for the user-venv fallback and `python3 -m vela` fallback.",
+      "tags": [
+        "tests",
+        "ssh-discovery",
+        "onboarding",
+        "harness"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:14:00Z"
     }
   ]
 }

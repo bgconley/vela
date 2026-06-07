@@ -71,7 +71,32 @@ def write_fake_ssh_runtime(path: Path) -> None:
                     "vela_path = getenv('FAKE_SSH_VELA_PATH', "
                     "'/home/bgconley/.local/share/vela/venv/bin/vela')"
                 ),
+                (
+                    "canonical_venv_path = getenv('FAKE_SSH_CANONICAL_VENV_PATH', "
+                    "'/home/bgconley/.local/share/vela/venv/bin/vela')"
+                ),
+                (
+                    "user_venv_path = getenv('FAKE_SSH_USER_VENV_PATH', "
+                    "'/home/bgconley/venvs/vela/bin/vela')"
+                ),
                 "vela_version = getenv('FAKE_SSH_VELA_VERSION', '1.0.0')",
+                "",
+                "def candidate_probe():",
+                "    present_default = '1' if vela_present else '0'",
+                "    if '.local/share/vela/venv/bin/vela' in remote_command:",
+                "        return (",
+                "            truthy('FAKE_SSH_CANONICAL_VENV_PRESENT', present_default),",
+                "            canonical_venv_path,",
+                "        )",
+                "    if 'venvs/vela/bin/vela' in remote_command:",
+                "        return (",
+                "            truthy('FAKE_SSH_USER_VENV_PRESENT', present_default),",
+                "            user_venv_path,",
+                "        )",
+                "    return (",
+                "        truthy('FAKE_SSH_TARGET_VENV_PRESENT', present_default),",
+                "        getenv('FAKE_SSH_TARGET_VENV_PATH', vela_path),",
+                "    )",
                 "",
                 "def command_not_found(command='vela'):",
                 "    print(f'sh: 1: {command}: not found', file=sys.stderr)",
@@ -282,9 +307,10 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "    raise SystemExit(1)",
                 "",
                 "if 'candidate=' in remote_command and '--version' in remote_command:",
-                "    if vela_present:",
+                "    candidate_present, candidate_path = candidate_probe()",
+                "    if candidate_present:",
                 "        print(vela_version)",
-                "        print(vela_path)",
+                "        print(candidate_path)",
                 "        raise SystemExit(0)",
                 "    raise SystemExit(1)",
                 "",
