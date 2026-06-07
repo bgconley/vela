@@ -894,6 +894,14 @@ def test_tiny_real_resume_config_is_detached_and_small() -> None:
     )
 
     assert "hf-internal-testing/tiny-random-LlamaForCausalLM" in config
+    assert "runtime: docker" in config
+    assert (
+        "vllm/vllm-openai@sha256:"
+        "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+        in config
+    )
+    assert "container_name: tiny-random-llama-vela" in config
+    assert "version_profile: current" in config
     assert "enforce_eager: true" in config
     assert "mode: detached" in config
     assert "port: 18004" in config

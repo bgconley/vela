@@ -1,7 +1,39 @@
 name: tiny-random-llama-detached-blackbird
-description: Small real vLLM model for Blackbird detached resume validation.
+description: Small real vLLM Docker model for Blackbird detached resume validation.
 model: hf-internal-testing/tiny-random-LlamaForCausalLM
 served_model_name: tiny-random-llama
+command:
+  entrypoint: serve
+  runtime: docker
+  docker:
+    image: vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046
+    container_name: tiny-random-llama-vela
+    gpus: all
+    ipc_host: true
+    network: host
+    restart: "no"
+    stop_grace_seconds: 30
+    pull: never
+    hf_cache: /home/bgconley/models/tiny-random-llama/hf-cache
+    volumes:
+      - /home/bgconley/models/tiny-random-llama/vllm-cache:/root/.cache/vllm
+      - /home/bgconley/models/tiny-random-llama/triton-cache:/root/.cache/triton
+      - /home/bgconley/models/tiny-random-llama/torch-compile-cache:/root/.cache/torch
+      - /home/bgconley/models/tiny-random-llama/tmp:/tmp/tiny-random-llama
+    env:
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_CACHE: /root/.cache/huggingface/hub
+      VLLM_CACHE_ROOT: /root/.cache/vllm
+      TRITON_CACHE_DIR: /root/.cache/triton
+      TORCHINDUCTOR_CACHE_DIR: /root/.cache/torch
+      PYTHONUNBUFFERED: "1"
+    extra_run_args:
+      - --ulimit
+      - memlock=-1
+      - --ulimit
+      - stack=67108864
+    evict:
+      - tiny-random-llama-vela
 engine:
   gpu_memory_utilization: 0.2
   max_model_len: 128
@@ -21,4 +53,8 @@ launch:
     interval_seconds: 1
   runs_dir: /home/bgconley/models/tiny-random-llama/vela-runs
 vllm:
-  version_profile: "0.11"
+  version_profile: current
+  version: 0.20.2rc1.dev9+g01d4d1ad3
+  transformers_version: 5.7.0
+  torch_version: 2.11.0+cu130
+  cuda_version: "13.0"

@@ -157,8 +157,9 @@ gated auth probe.
 To cover the final real-model reconnect surface, set
 `VELA_REMOTE_REAL_RESUME_CONFIG` to a real, non-fake detached config. The
 default workflow uses `tiny-random-llama-detached-blackbird`, which launches the
-tiny HF Llama model through the just-installed build and downloaded model
-registry entry. The script launches that config through the selected target,
+tiny HF Llama model through the pinned Blackbird Docker image and target-local
+caches, so it does not depend on `vllm` being installed on the target PATH. The
+script launches that config through the selected target,
 disconnects and resumes by log cursor, restarts the target daemon while the
 model is still live, rediscovers and reattaches the run, verifies health, then
 stops it:

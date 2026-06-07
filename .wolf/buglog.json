@@ -3241,6 +3241,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T07:15:00Z"
+    },
+    {
+      "id": "bug-169",
+      "timestamp": "2026-06-07T07:24:00Z",
+      "error_message": "tiny real-model resume validation failed on P620-to-Blackbird because the config required vllm on PATH",
+      "file": "configs/tiny-random-llama-detached-blackbird.yaml",
+      "root_cause": "The tiny resume config used process runtime and therefore launched `vllm` from the target PATH. The remote validation environment intentionally reported `vllm not found on PATH`, so the real resume lane failed before exercising the daemon-restart evidence gate.",
+      "fix": "Convert the tiny resume config to native Docker using the pinned Blackbird vLLM image digest, target-local cache mounts, host networking, and current stack provenance so it no longer depends on a target PATH binary.",
+      "tags": [
+        "remote-validation",
+        "resume",
+        "docker",
+        "blackwell"
+      ],
+      "related_bugs": [
+        "bug-167",
+        "bug-165"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T07:24:00Z"
     }
   ]
 }

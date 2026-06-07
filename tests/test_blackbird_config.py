@@ -75,3 +75,36 @@ def test_blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins() -> N
     assert bf16_root_mount in " ".join(build.argv)
     assert "VLLM_API_KEY='••••'" in build.preview
     assert "VLLM_API_KEY=EMPTY" not in build.preview
+
+
+def test_tiny_blackbird_resume_config_uses_native_docker_runtime() -> None:
+    registry = load_registry(Path("configs"))
+    cfg = registry.by_name("tiny-random-llama-detached-blackbird")
+    build = build_command(cfg)
+
+    assert cfg.model == "hf-internal-testing/tiny-random-LlamaForCausalLM"
+    assert cfg.served_model_name == "tiny-random-llama"
+    assert cfg.server.host == "127.0.0.1"
+    assert cfg.server.port == 18004
+    assert cfg.launch.mode == "detached"
+    assert cfg.command.runtime is RuntimeKind.DOCKER
+    assert cfg.command.executable is None
+    assert cfg.command.docker is not None
+    assert cfg.command.docker.container_name == "tiny-random-llama-vela"
+    assert cfg.vllm.version_profile == "current"
+    assert cfg.vllm.version == "0.20.2rc1.dev9+g01d4d1ad3"
+    assert cfg.vllm.torch_version == "2.11.0+cu130"
+    assert cfg.vllm.cuda_version == "13.0"
+    assert build.metadata["runtime"] == "docker"
+    assert build.argv[:5] == [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        "tiny-random-llama-vela",
+    ]
+    image_index = build.argv.index(cfg.command.docker.image)
+    assert build.argv[image_index + 1] == (
+        "hf-internal-testing/tiny-random-LlamaForCausalLM"
+    )
+    assert "serve" not in build.argv[image_index + 1 :]
