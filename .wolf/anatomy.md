@@ -1,7 +1,7 @@
 # anatomy.md
 
 > Auto-maintained by OpenWolf. Last scanned: 2026-06-07T08:00:13.859Z
-> Files: 101 tracked | Anatomy hits: 0 | Misses: 0
+> Files: 102 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
@@ -34,6 +34,7 @@
 - `vela-docker-runtime-spec-v1.md` — Vela — Docker Runtime (First-Class Container Deployments) — Feature Specification (v1) (~5157 tok)
 - `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)
 - `vela-session-context-2026-06-06.md` — Vela — Session Context & Handoff (2026‑06‑04 → 2026‑06‑06) — COMPREHENSIVE (~10608 tok)
+- `vela-v1-completion-audit-2026-06-07.md` — v1 completion audit, verification snapshot, and Blackwell local-recipe authority boundary (~1800 tok)
 - `vela-v1-completion-punchlist.md` — Vela — v1 Completion Punchlist & Coder Handoff (~10796 tok)
 - `vllm-agent-architecture-review-punchlist-v2.md` — vLLM Agent Architecture — Implementation Review Punch List **v2** (~3031 tok)
 - `vllm-agent-architecture-review-punchlist-v3.md` — vLLM Agent Architecture — Implementation Review Punch List **v3** (~2134 tok)
