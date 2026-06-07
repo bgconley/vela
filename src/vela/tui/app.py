@@ -7,7 +7,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -64,6 +64,7 @@ from vela.monitoring.gpu import (
     GpuSample,
 )
 from vela.monitoring.health import HealthEvent
+from vela.remediation import remediation_for_error
 from vela.transport.factory import target_client_for_config
 from vela.tui.screens.adopt_build import AdoptBuildScreen
 from vela.tui.screens.build_manager import BuildManagerScreen
@@ -1373,7 +1374,10 @@ class VelaApp(App):
                     self._render_uv_prerequisite_error(params, exc),
                 )
                 return
-            self._set_error_text(f"Unable to create build: {exc}", style=f"bold {BAD}")
+            self._set_error_text(
+                self._render_target_call_error("Unable to create build", exc),
+                style=f"bold {BAD}",
+            )
             return
         job_params = dict(params)
         job_params["job_id"] = uuid.uuid4().hex
@@ -1415,10 +1419,30 @@ class VelaApp(App):
         method = _optional_str(exc.details.get("method")) or _optional_str(params.get("method"))
         method_label = f"{method} " if method else ""
         target = self._target_label()
+        remediation = remediation_for_error(
+            exc.code,
+            target_name=target,
+            details=exc.details,
+        )
+        fix = f" {remediation.fix}" if remediation is not None else ""
         return (
             f"{method_label}build creation requires uv on {target}. "
             "Install uv on the target or choose pip, wheel, or git."
+            f"{fix}"
         )
+
+    def _render_target_call_error(self, prefix: str, exc: TargetCallError) -> str:
+        remediation = remediation_for_error(
+            exc.code,
+            target_name=self._target_label(),
+            details=exc.details,
+        )
+        if remediation is None:
+            return f"{prefix}: {exc}"
+        lines = [f"{prefix}: {remediation.label}: {exc.message}"]
+        lines.extend(remediation.extra_lines)
+        lines.append(remediation.fix)
+        return "\n".join(lines)
 
     def _handle_adopt_build_submission(self, params: dict[str, Any] | None) -> None:
         if not params:
@@ -3153,7 +3177,11 @@ class VelaApp(App):
         self.target_connection_detail = str(exc)
         self._refresh_chrome()
         self._set_error_text(
-            self._render_target_connection_banner(exc.code, str(exc)),
+            self._render_target_connection_banner(
+                exc.code,
+                str(exc),
+                details=exc.details,
+            ),
             style=f"bold {BAD}",
         )
 
@@ -3471,11 +3499,26 @@ class VelaApp(App):
         }.get(state, MUTED)
 
     def _render_target_connection_banner(
-        self, key: str | None = None, detail: str | None = None
+        self,
+        key: str | None = None,
+        detail: str | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> str:
-        banner_kind, cause, suggestion = self._target_connection_banner_parts(
-            key or self.target_connection_state
+        remediation = remediation_for_error(
+            key or self.target_connection_state,
+            target_name=self.target_name,
+            details=details,
         )
+        if remediation is None:
+            banner_kind, cause, suggestion = self._target_connection_banner_parts(
+                key or self.target_connection_state
+            )
+            extra_lines: tuple[str, ...] = ()
+        else:
+            banner_kind = remediation.label
+            cause = remediation.cause
+            suggestion = remediation.fix
+            extra_lines = remediation.extra_lines
         lines = [
             f"{banner_kind}: {cause}",
             f"target: {self.target_name}",
@@ -3483,6 +3526,7 @@ class VelaApp(App):
         detail_text = detail if detail is not None else self.target_connection_detail
         if detail_text:
             lines.append(detail_text)
+        lines.extend(line for line in extra_lines if line not in lines)
         lines.append(suggestion)
         lines.append("Actions: (R) Reconnect   (t) Switch target")
         return "\n".join(lines)

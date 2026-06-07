@@ -92,6 +92,7 @@
 - `cli.py` — Typer CLI: interactive, list, preview, run attached/detached, version (~900 tok)
 - `fake_child.py` — no-GPU fake vLLM-like child with health/models HTTP endpoints and progress logs (~550 tok)
 - `messages.py` — typed app/event dataclasses for logs, phases, readiness, GPU (~260 tok)
+- `remediation.py` — shared named-error remediation map for CLI/TUI onboarding and build prerequisite banners (~450 tok)
 
 ## src/vllm_loader/config/
 
@@ -140,6 +141,7 @@
 - `test_messages.py` — canonical Textual message taxonomy and log-record conversion tests (~260 tok)
 - `test_phases.py` — FSM success/error/ready/degraded tests (~850 tok)
 - `test_process_manager.py` — attached PTY fake-child integration test (~650 tok)
+- `test_remediation.py` — shared remediation map tests for agent-not-installed, unreachable, version mismatch, and uv-required (~450 tok)
 - `test_sidecar.py` — sidecar identity, manifest, permissions tests (~900 tok)
 - `test_ssh_discovery.py` — SSH agent discovery tests for command-v, canonical paths, version mismatch, and CLI persistence (~1200 tok)
 - `test_tui_smoke.py` — Textual start/help/lifecycle/fake-child launch smoke tests (~950 tok)

@@ -2550,6 +2550,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T01:35:00Z"
+    },
+    {
+      "id": "bug-130",
+      "timestamp": "2026-06-07T03:05:00Z",
+      "error_message": "Named onboarding failures rendered generic prose without exact remediation commands",
+      "file": "src/vela/cli.py",
+      "root_cause": "The transport and discovery paths returned named TargetCallError codes, but CLI and TUI rendering used generic fallback text, so operators did not see target-specific bootstrap, setup-ssh, or build-doctor commands.",
+      "fix": "Add a shared remediation map and route CLI/TUI rendering for command-not-found, agent-unreachable, version-mismatch, and uv-required through target-specific command templates with captured SSH stderr; add a runnable build doctor command for the uv-required remediation.",
+      "tags": [
+        "onboarding",
+        "remediation",
+        "cli",
+        "tui"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:05:00Z"
     }
   ]
 }

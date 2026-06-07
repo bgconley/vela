@@ -1024,10 +1024,42 @@ async def test_tui_surfaces_target_version_mismatch_on_mount(
         assert "controller protocol version 2" in app.target_connection_detail
         assert "AGENT_VERSION_MISMATCH" in app.error_text
         assert "controller protocol version 2" in app.error_text
+        assert "vela targets bootstrap local --install" in app.error_text
         assert "(R) Reconnect" in app.error_text
         assert "(t) Switch target" in app.error_text
         assert app.registry.valid == []
         assert app.registry.invalid == []
+
+
+def test_target_connection_banner_renders_agent_not_installed_remediation(
+    config_dir: Path,
+) -> None:
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird")
+
+    banner = app._render_target_connection_banner(
+        "command-not-found",
+        "Target agent command not found: vela",
+        details={"command": "vela"},
+    )
+
+    assert "AGENT_NOT_INSTALLED" in banner
+    assert "vela targets bootstrap blackbird --install" in banner
+
+
+def test_target_connection_banner_renders_ssh_auth_remediation(
+    config_dir: Path,
+) -> None:
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird")
+
+    banner = app._render_target_connection_banner(
+        "agent-unreachable",
+        "SSH target agent bridge failed",
+        details={"reason": "ssh-auth", "stderr": "Permission denied (publickey)."},
+    )
+
+    assert "AGENT_UNREACHABLE" in banner
+    assert "SSH stderr: Permission denied (publickey)." in banner
+    assert "vela targets setup-ssh blackbird" in banner
 
 
 @pytest.mark.asyncio
@@ -6142,6 +6174,7 @@ async def test_build_manager_rejects_uv_less_target_before_create_job(
         assert all(method != "create_build" for method, _params in target_client.calls)
         assert all(run_ids == ["__agent__"] for run_ids, _ in target_client.subscribe_calls)
         assert "requires uv" in app.error_text
+        assert "vela build doctor --target blackbird" in app.error_text
 
 
 @pytest.mark.asyncio

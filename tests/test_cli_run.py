@@ -499,6 +499,44 @@ def test_cli_build_add_help_surfaces_uv_requirement() -> None:
     assert "uv on the target" in result.output
 
 
+def test_cli_build_doctor_reports_uv_required_methods(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        requested_method = str((params or {}).get("method") or "")
+        if requested_method in {"nightly", "commit"}:
+            raise cli_module.TargetCallError(
+                "feature-unavailable",
+                f"create_build method={requested_method} requires uv",
+                {"reason": "uv-required", "method": requested_method},
+            )
+        return {"ok": True, "method": requested_method, "uv_available": False}
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "doctor", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == len(cli_module.BUILD_DOCTOR_METHODS)
+    assert all(call[2] == "blackbird" for call in calls)
+    assert "build doctor\tblackbird" in result.output
+    assert "uv\tmissing" in result.output
+    assert "nightly\tblocked\tuv-required" in result.output
+    assert "commit\tblocked\tuv-required" in result.output
+    assert "vela build doctor --target blackbird" in result.output
+
+
 def test_cli_build_add_rejects_uv_less_target_before_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -556,7 +594,8 @@ def test_cli_build_add_rejects_uv_less_target_before_job(
         )
     ]
     assert target_client.subscribe_calls == []
-    assert "ERROR: create_build method=nightly requires uv" in result.output
+    assert "ERROR UV_REQUIRED: create_build method=nightly requires uv" in result.output
+    assert "vela build doctor --target blackbird" in result.output
 
 
 def test_cli_build_add_git_passes_precompiled_flag(

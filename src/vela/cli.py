@@ -33,6 +33,7 @@ from vela.config.targets import (
     upsert_target_file,
 )
 from vela.engine.phases import Phase
+from vela.remediation import remediation_for_error
 from vela.transport.client import TargetClient
 from vela.transport.factory import target_client_for_config
 from vela.transport.ssh_discovery import discover_ssh_agent_command
@@ -67,6 +68,8 @@ BUILD_INSPECT_FIELDS = (
     "last_used_at",
     "notes",
 )
+
+BUILD_DOCTOR_METHODS = ("pip", "nightly", "commit", "git", "wheel", "adopt")
 
 MODEL_INSPECT_FIELDS = (
     "entry_id",
@@ -314,7 +317,7 @@ def targets_test(
     try:
         handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc)
+        _echo_target_error_or_exit(exc, target_name=target.name)
     typer.echo(
         f"{name}\tok\t"
         f"agent={handshake.get('agent_version', 'unknown')}\t"
@@ -350,6 +353,71 @@ def build_list(
         typer.echo(
             f"SKIPPED {skipped.get('build_id', '')}\t{skipped.get('reason', 'unknown')}"
         )
+
+
+@build_app.command("doctor")
+def build_doctor(
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable build readiness."),
+    ] = False,
+) -> None:
+    checks: list[dict[str, Any]] = []
+    uv_available: bool | None = None
+    for method in BUILD_DOCTOR_METHODS:
+        try:
+            result = _agent_call(
+                "check_build_prerequisites",
+                {"method": method},
+                target_name=target,
+            )
+        except TargetCallError as exc:
+            remediation = remediation_for_error(
+                exc.code,
+                target_name=target,
+                details=exc.details,
+            )
+            checks.append(
+                {
+                    "method": method,
+                    "available": False,
+                    "reason": exc.details.get("reason") or exc.code,
+                    "message": exc.message,
+                    "remediation": remediation.fix if remediation is not None else None,
+                }
+            )
+            if exc.details.get("reason") == "uv-required":
+                uv_available = False
+            continue
+        if "uv_available" in result:
+            uv_available = bool(result["uv_available"])
+        checks.append(
+            {
+                "method": method,
+                "available": True,
+                "uv_available": bool(result.get("uv_available")),
+            }
+        )
+    payload = {
+        "target": target,
+        "uv_available": bool(uv_available),
+        "methods": checks,
+    }
+    if json_output:
+        _echo_json(payload)
+        return
+    typer.echo(f"build doctor\t{target}")
+    typer.echo(f"uv\t{'available' if payload['uv_available'] else 'missing'}")
+    for check in checks:
+        method = str(check["method"])
+        if check["available"]:
+            typer.echo(f"{method}\tavailable")
+            continue
+        typer.echo(f"{method}\tblocked\t{check['reason']}")
+        remediation = check.get("remediation")
+        if remediation:
+            typer.echo(str(remediation))
 
 
 @build_app.command("add")
@@ -408,7 +476,7 @@ def build_add(
             params[key] = value
     if env:
         params["env"] = list(env)
-    raise typer.Exit(asyncio.run(_create_build_cli(client, params)))
+    raise typer.Exit(asyncio.run(_create_build_cli(client, params, target_name=target)))
 
 
 @build_app.command("inspect")
@@ -427,7 +495,7 @@ def build_inspect(
             target_name=target,
         )
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc)
+        _echo_target_error_or_exit(exc, target_name=target.name)
     if json_output:
         _echo_json(result)
         return
@@ -2091,7 +2159,7 @@ def _discover_agent_command_for_target_or_exit(
     try:
         discovery = discover_ssh_agent_command(target)
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc)
+        _echo_target_error_or_exit(exc, target_name=target.name)
     discovered = target.model_copy(update={"agent_command": discovery.agent_command})
     if persist:
         upsert_target_file(discovered)
@@ -2136,7 +2204,23 @@ async def _target_call_async(
         await client.disconnect()
 
 
-def _echo_target_error_or_exit(exc: TargetCallError, *, fallback_name: str | None = None) -> None:
+def _echo_target_error_or_exit(
+    exc: TargetCallError,
+    *,
+    fallback_name: str | None = None,
+    target_name: str | None = None,
+) -> None:
+    remediation = remediation_for_error(
+        exc.code,
+        target_name=target_name,
+        details=exc.details,
+    )
+    if remediation is not None:
+        typer.echo(f"ERROR {remediation.label}: {exc.message}", err=True)
+        for line in remediation.extra_lines:
+            typer.echo(line, err=True)
+        typer.echo(remediation.fix, err=True)
+        raise typer.Exit(2) from exc
     if exc.code == "unknown-config":
         name = str(exc.details.get("name") or fallback_name or "unknown")
         available = ", ".join(str(item) for item in exc.details.get("available", [])) or "none"
@@ -2372,7 +2456,12 @@ async def _echo_job_event_stream_until_done(
     return 2
 
 
-async def _create_build_cli(client: TargetClient, params: dict[str, Any]) -> int:
+async def _create_build_cli(
+    client: TargetClient,
+    params: dict[str, Any],
+    *,
+    target_name: str = "local",
+) -> int:
     try:
         await _target_call_async(
             client,
@@ -2380,7 +2469,7 @@ async def _create_build_cli(client: TargetClient, params: dict[str, Any]) -> int
             _build_prerequisite_params(params),
         )
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc)
+        _echo_target_error_or_exit(exc, target_name=target_name)
         return 2
     return await _run_agent_job_cli(client, "create_build", params)
 

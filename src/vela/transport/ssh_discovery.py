@@ -69,6 +69,7 @@ def discover_ssh_agent_command(target: TargetConfig) -> AgentDiscoveryResult:
                 f"{mismatch['version']} is not compatible with controller {__version__}"
             ),
             {
+                "target": target.name,
                 "agent_version": mismatch["version"],
                 "controller_version": __version__,
                 "candidate": mismatch["candidate"],

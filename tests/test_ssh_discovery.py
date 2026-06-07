@@ -141,6 +141,86 @@ def test_cli_targets_add_discovers_and_persists_agent_command(
     assert target.agent_command == ["/opt/vela/bin/vela", "agent", "connect"]
 
 
+def test_cli_targets_add_absent_agent_prints_bootstrap_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_VELA_PRESENT", "0")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "targets",
+            "add",
+            "blackbird",
+            "--transport",
+            "ssh",
+            "--host",
+            "bgconley@fake",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "ERROR AGENT_NOT_INSTALLED" in result.output
+    assert "vela targets bootstrap blackbird --install" in result.output
+
+
+def test_cli_targets_add_version_mismatch_prints_upgrade_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_VELA_VERSION", "0.0.1")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "targets",
+            "add",
+            "blackbird",
+            "--transport",
+            "ssh",
+            "--host",
+            "bgconley@fake",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "ERROR AGENT_VERSION_MISMATCH" in result.output
+    assert "vela targets bootstrap blackbird --install" in result.output
+
+
+def test_cli_targets_add_ssh_auth_failure_prints_setup_ssh_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_UNREACHABLE", "1")
+    monkeypatch.setenv("FAKE_SSH_STDERR", "Permission denied (publickey).")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "targets",
+            "add",
+            "blackbird",
+            "--transport",
+            "ssh",
+            "--host",
+            "bgconley@fake",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "ERROR AGENT_UNREACHABLE" in result.output
+    assert "Permission denied (publickey)." in result.output
+    assert "vela targets setup-ssh blackbird" in result.output
+
+
 def test_cli_targets_test_discovers_persists_and_handshakes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
