@@ -2888,6 +2888,25 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:24:11Z"
+    },
+    {
+      "id": "bug-150",
+      "timestamp": "2026-06-07T04:28:56Z",
+      "error_message": "edit_config literal-secret guard lacked direct regression coverage",
+      "file": "tests/test_deployment_composer.py",
+      "root_cause": "The agent-side edit_config writer correctly validated the edited payload before writing, but no test drove an edit override that injected a literal server.api_key secret.",
+      "fix": "Add a real edit_config RPC regression that injects server.api_key, asserts invalid-config with the secret-literal validation payload, and confirms the YAML file remains unchanged.",
+      "tags": [
+        "composer",
+        "secrets",
+        "tests",
+        "track-a"
+      ],
+      "related_bugs": [
+        "bug-128"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:28:56Z"
     }
   ]
 }

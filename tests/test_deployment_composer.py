@@ -1126,6 +1126,42 @@ def test_agent_edits_deployment_config_with_overrides(config_dir: Path) -> None:
     assert "port: 18009" in written
 
 
+def test_agent_edit_config_blocks_literal_secret(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "editable.yaml",
+        """
+        name: editable
+        model: Qwen/Qwen3-32B
+        server:
+          host: 127.0.0.1
+          port: 18001
+        """,
+    )
+    agent = LocalAgent()
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(
+            agent,
+            "edit_config",
+            {
+                "configs_dir": str(config_dir),
+                "name": "editable",
+                "overrides": {"server": {"api_key": "sk-live-secret"}},
+            },
+    )
+
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.details["validation"]["errors"] == [
+        {
+            "field": "server.api_key",
+            "message": "contains a literal secret; prefer target env injection",
+        }
+    ]
+    written = (config_dir / "editable.yaml").read_text(encoding="utf-8")
+    assert "sk-live-secret" not in written
+    assert "api_key" not in written
+
+
 def test_agent_delete_config_refuses_live_run(config_dir: Path, tmp_path: Path) -> None:
     write_yaml(
         config_dir / "active.yaml",
