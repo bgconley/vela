@@ -2686,6 +2686,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T05:45:00Z"
+    },
+    {
+      "id": "bug-138",
+      "timestamp": "2026-06-07T06:15:00Z",
+      "error_message": "agent token install was controller-local only for SSH targets",
+      "file": "src/vela/cli.py",
+      "root_cause": "`vela agent gen-token --install` wrote the controller's default token file but had no --target option or agent RPC to install the matching token on a remote SSH target.",
+      "fix": "Add a write_agent_token RPC that installs the token into the target agent's default 0600 token file, wire `vela agent gen-token --install --target <name>` to install locally and remotely, and cover the real fake-SSH subprocess path.",
+      "tags": [
+        "onboarding",
+        "auth",
+        "ssh",
+        "cli"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:15:00Z"
     }
   ]
 }

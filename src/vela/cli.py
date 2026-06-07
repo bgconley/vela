@@ -3075,7 +3075,14 @@ def agent_gen_token(
         Path | None,
         typer.Option("--install-path", help="Override the token install path."),
     ] = None,
+    target_name: Annotated[
+        str | None,
+        typer.Option("--target", help="Also install the token on a configured target."),
+    ] = None,
 ) -> None:
+    if target_name is not None and not install:
+        typer.echo("ERROR: --target requires --install", err=True)
+        raise typer.Exit(2)
     if entropy_bytes < MIN_AGENT_TOKEN_BYTES:
         typer.echo(
             f"ERROR: agent token entropy must be at least {MIN_AGENT_TOKEN_BYTES} bytes",
@@ -3090,6 +3097,17 @@ def agent_gen_token(
             typer.echo(f"ERROR: unable to install agent token: {exc}", err=True)
             raise typer.Exit(2) from exc
         typer.echo(f"installed agent token\t{token_path}")
+        if target_name is not None:
+            target = _target_config_for_name_or_exit(target_name)
+            try:
+                result = _target_call(
+                    _target_client_for_config_or_exit(target),
+                    "write_agent_token",
+                    {"token": token},
+                )
+            except TargetCallError as exc:
+                _echo_target_error_or_exit(exc, target_name=target.name)
+            typer.echo(f"installed target agent token\t{target.name}\t{result['path']}")
         return
     typer.echo(token)
 

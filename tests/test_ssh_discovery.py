@@ -9,9 +9,15 @@ from typer.testing import CliRunner
 
 from tests.fakes.fake_ssh import write_fake_ssh_runtime
 from vela import __version__
+from vela.agent.auth import default_agent_token_file
 from vela.agent.local import TargetCallError
 from vela.cli import app
-from vela.config.targets import TargetConfig, TransportKind, load_targets_file
+from vela.config.targets import (
+    TargetConfig,
+    TransportKind,
+    load_targets_file,
+    upsert_target_file,
+)
 
 
 def _install_fake_ssh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -324,6 +330,39 @@ def test_cli_targets_bootstrap_build_creates_default_pip_build(
     assert "Installing build" in result.output
     assert "DONE\t" in result.output
     assert "build ready" in result.output
+
+
+def test_cli_agent_gen_token_install_target_pushes_token_over_fake_ssh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN_FILE", raising=False)
+    remote_token_path = tmp_path / "remote" / "agent-token"
+    monkeypatch.setenv("FAKE_SSH_AGENT_TOKEN_FILE", str(remote_token_path))
+    upsert_target_file(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+            agent_command=["vela", "agent", "connect"],
+        ),
+        tmp_path / "vela" / "targets.yaml",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["agent", "gen-token", "--install", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    local_token = default_agent_token_file().read_text(encoding="utf-8").strip()
+    assert remote_token_path.read_text(encoding="utf-8").strip() == local_token
+    assert (remote_token_path.stat().st_mode & 0o777) == 0o600
+    assert f"installed agent token\t{default_agent_token_file()}" in result.output
+    assert f"installed target agent token\tblackbird\t{remote_token_path}" in result.output
 
 
 def test_cli_doctor_target_reports_remote_host_state_without_static_nag(

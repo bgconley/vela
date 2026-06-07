@@ -24,7 +24,12 @@ from urllib.parse import unquote, urlsplit
 import yaml
 
 from vela import __version__
-from vela.agent.auth import AgentTokenError, configured_agent_token, default_agent_token_file
+from vela.agent.auth import (
+    AgentTokenError,
+    configured_agent_token,
+    default_agent_token_file,
+    install_agent_token,
+)
 from vela.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
 from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind, default_run_artifacts_dir
 from vela.engine.build_registry import (
@@ -121,6 +126,7 @@ AGENT_CAPABILITIES = [
     "clone_config",
     "delete_config",
     "migrate_wrapper_config",
+    "write_agent_token",
     "list_config_files",
     "pull_config",
     "push_config",
@@ -414,6 +420,8 @@ class LocalAgent:
             return self._delete_config(payload)
         if method == "migrate_wrapper_config":
             return self._migrate_wrapper_config(payload)
+        if method == "write_agent_token":
+            return self._write_agent_token(payload)
         if method == "list_config_files":
             return self._list_config_files(payload)
         if method == "pull_config":
@@ -950,6 +958,19 @@ class LocalAgent:
             "source_path": str(source.path),
             "written": written,
         }
+
+    def _write_agent_token(self, params: dict[str, Any]) -> dict[str, Any]:
+        token = _required_param_name(params, "token", method="write_agent_token")
+        install_path = _optional_str(params.get("path"))
+        try:
+            path, _token = install_agent_token(token, path=install_path)
+        except AgentTokenError as exc:
+            raise TargetCallError(
+                "invalid-agent-token",
+                str(exc),
+                {"reason": "invalid-agent-token"},
+            ) from exc
+        return {"path": str(path), "mode": "0600"}
 
     def _list_config_files(self, params: dict[str, Any]) -> dict[str, Any]:
         registry = load_registry(_configs_dir(params))

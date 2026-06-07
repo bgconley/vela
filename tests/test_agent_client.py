@@ -570,6 +570,24 @@ def test_generated_agent_token_satisfies_configured_token_floor(
     assert configured_agent_token() == token
 
 
+def test_local_agent_write_agent_token_installs_default_token_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    token = generate_agent_token()
+
+    result = LocalAgent().handle("write_agent_token", {"token": token})
+
+    token_path = tmp_path / "vela" / "agent-token"
+    assert token_path.read_text(encoding="utf-8").strip() == token
+    assert (token_path.stat().st_mode & 0o777) == 0o600
+    assert result == {
+        "path": str(token_path),
+        "mode": "0600",
+    }
+
+
 @pytest.mark.asyncio
 async def test_in_process_target_client_ping_returns_agent_timestamps() -> None:
     client = InProcessTargetClient(LocalAgent(target_name="local-ping"))

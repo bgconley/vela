@@ -42,6 +42,8 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     assert "Model removal --force only overrides config-pin protection" in builds_models
     assert "vela agent status --target <name>" in configuration
     assert "VELA_CONFIGS" in configuration
+    assert "vela agent gen-token --install --target <name>" in configuration
+    assert "write_agent_token" in agent_rpc
     assert "XDG_CONFIG_HOME" in configuration
     assert "XDG_DATA_HOME" in configuration
     assert "XDG_STATE_HOME" in configuration

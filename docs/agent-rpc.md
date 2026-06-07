@@ -45,6 +45,8 @@ Common request methods and capabilities:
 - `edit_config`
 - `clone_config`
 - `delete_config`
+- `migrate_wrapper_config`
+- `write_agent_token`
 - `list_config_files`
 - `pull_config`
 - `push_config`
@@ -123,12 +125,12 @@ Sidecars carry typed build/model identity fields such as `build_id`,
 guards do not need to infer managed resources from generic config snapshots or
 command argv. Path-bearing sidecar and manifest details remain agent-local.
 
-For shared-host hardening, set `VELA_AGENT_TOKEN` on both the target
-agent and the controller process. Generate the token with
-`vela agent gen-token`; configured tokens must be a single
-non-whitespace value with at least 128 bits of entropy. When the agent has this
-variable, the first successful `handshake` on each socket/SSH stream must include
-the matching capability token. Other RPC methods on that stream return
+For shared-host hardening, install a capability token on both the controller and
+target with `vela agent gen-token --install --target <name>`, or set
+`VELA_AGENT_TOKEN` on both processes manually. Configured tokens must be a
+single non-whitespace value with at least 128 bits of entropy. When the agent
+has a token, the first successful `handshake` on each socket/SSH stream must
+include the matching capability token. Other RPC methods on that stream return
 `agent-auth-required` until the handshake succeeds. Single-user lab hosts can
 leave it unset; the default Unix-socket permissions, same-user peer check, and
 SSH authentication still apply.

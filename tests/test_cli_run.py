@@ -78,6 +78,78 @@ def test_cli_agent_gen_token_install_writes_default_token_file(
     assert (token_path.stat().st_mode & 0o777) == 0o600
 
 
+def test_cli_agent_gen_token_install_target_writes_local_and_remote_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN_FILE", raising=False)
+    token = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-"
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@fake",
+        agent_command=["vela", "agent", "connect"],
+    )
+    client_calls: list[tuple[str, dict[str, str]]] = []
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def call(self, method: str, params):
+            client_calls.append((method, params))
+            if method == "write_agent_token":
+                return {
+                    "path": "/home/bgconley/.config/vela/agent-token",
+                    "mode": "0600",
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+    monkeypatch.setattr(cli_module, "generate_agent_token", lambda _nbytes: token)
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["agent", "gen-token", "--install", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 0, result.output
+    local_path = default_agent_token_file()
+    assert local_path.read_text(encoding="utf-8").strip() == token
+    assert (local_path.stat().st_mode & 0o777) == 0o600
+    assert client_calls == [("write_agent_token", {"token": token})]
+    assert f"installed agent token\t{local_path}" in result.output
+    assert (
+        "installed target agent token\tblackbird\t"
+        "/home/bgconley/.config/vela/agent-token"
+    ) in result.output
+
+
 def test_cli_root_target_option_launches_tui_with_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

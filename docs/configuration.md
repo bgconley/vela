@@ -63,7 +63,9 @@ Fields:
 For first-run setup, `vela targets bootstrap` writes the same registry shape and
 `vela doctor` reports missing setup steps. `vela agent gen-token --install`
 writes a capability token to the default file read by the agent when
-`VELA_AGENT_TOKEN` is not set.
+`VELA_AGENT_TOKEN` is not set. For SSH targets, run
+`vela agent gen-token --install --target <name>` to install the same token on
+the controller and the target agent's default token file.
 
 ## Config Discovery
 

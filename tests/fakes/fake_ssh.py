@@ -172,6 +172,35 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "                }",
                 "            print(json.dumps({'id': request_id, 'result': result}), flush=True)",
                 "            continue",
+                "        if method == 'write_agent_token':",
+                (
+                    "            token_path = params.get('path') or "
+                    "getenv('FAKE_SSH_AGENT_TOKEN_FILE', "
+                    "'/home/bgconley/.config/vela/agent-token')"
+                ),
+                "            token = params.get('token')",
+                "            if not isinstance(token, str) or not token.strip():",
+                "                print(json.dumps({",
+                "                    'id': request_id,",
+                "                    'error': {",
+                "                        'code': -32602,",
+                "                        'message': 'write_agent_token requires token',",
+                "                    },",
+                "                }), flush=True)",
+                "                continue",
+                "            os.makedirs(os.path.dirname(token_path), exist_ok=True)",
+                (
+                    "            fd = os.open(token_path, "
+                    "os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)"
+                ),
+                "            with os.fdopen(fd, 'w', encoding='utf-8') as file:",
+                "                file.write(token.strip() + '\\n')",
+                "            os.chmod(token_path, 0o600)",
+                "            print(json.dumps({'id': request_id, 'result': {",
+                "                'path': token_path,",
+                "                'mode': '0600',",
+                "            }}), flush=True)",
+                "            continue",
                 "        if method == 'check_build_prerequisites':",
                 "            print(json.dumps({'id': request_id, 'result': {",
                 "                'ok': True,",

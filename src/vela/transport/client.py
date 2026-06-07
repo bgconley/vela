@@ -21,6 +21,7 @@ REQUIRED_AGENT_CAPABILITIES = (
     "clone_config",
     "delete_config",
     "migrate_wrapper_config",
+    "write_agent_token",
     "list_config_files",
     "pull_config",
     "push_config",
