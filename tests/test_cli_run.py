@@ -743,6 +743,37 @@ def test_cli_build_inspect_prints_manifest_details(
     ]
 
 
+def test_cli_build_inspect_error_uses_target_string_for_remediation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        assert method == "inspect_build"
+        assert params == {"build": "nightly-cu130"}
+        assert target_name == "blackbird"
+        raise cli_module.TargetCallError(
+            "agent-unreachable",
+            "SSH target agent bridge failed",
+            {"reason": "ssh-auth", "stderr": "Permission denied (publickey)."},
+        )
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "inspect", "nightly-cu130", "--target", "blackbird"],
+    )
+
+    assert result.exit_code == 2
+    assert "ERROR AGENT_UNREACHABLE" in result.output
+    assert "Permission denied (publickey)." in result.output
+    assert "vela targets setup-ssh blackbird" in result.output
+
+
 def test_cli_build_adopt_passes_external_venv_to_agent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T02:08:54.335Z
-> Files: 96 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T02:12:22.529Z
+> Files: 98 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
@@ -27,6 +27,7 @@
 - `vela-docker-composer-review-findings-v6.md` — Vela — Docker Runtime + Deployment Composer Review (Findings v6) — 2026-06-06 (~4168 tok)
 - `vela-docker-composer-review-findings-v7.md` — Vela — Review v7: Validating the Coder's Spec-Check + Reassessment — 2026-06-06 (~3427 tok)
 - `vela-docker-composer-review-findings-v8.md` — Vela — Review v8: Adversarial Completion Audit ("coder asserts complete") — 2026-06-06 (~3243 tok)
+- `vela-docker-composer-review-findings-v9.md` — Vela — Review v9: Punchlist Execution Progress (coder mid-flight) — 2026-06-06 (~2497 tok)
 - `vela-docker-runtime-examples-v1.md` — Vela — Docker Runtime — Worked Examples (DK4 anchor): Blackbird Qwen3.6 27B FP8 & BF16 (~3741 tok)
 - `vela-docker-runtime-spec-v1.md` — Vela — Docker Runtime (First-Class Container Deployments) — Feature Specification (v1) (~5157 tok)
 - `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)

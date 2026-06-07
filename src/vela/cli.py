@@ -318,7 +318,7 @@ def targets_bootstrap(
     try:
         handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc, target_name=target.name)
+        _echo_target_error_or_exit(exc, target_name=target)
     typer.echo(
         f"OK\thandshake\tagent={handshake.get('agent_version', 'unknown')}\t"
         f"protocol={handshake.get('protocol_version', 'unknown')}"
@@ -364,7 +364,7 @@ def targets_test(
     try:
         handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc, target_name=target.name)
+        _echo_target_error_or_exit(exc, target_name=target)
     typer.echo(
         f"{name}\tok\t"
         f"agent={handshake.get('agent_version', 'unknown')}\t"
@@ -542,7 +542,7 @@ def build_inspect(
             target_name=target,
         )
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc, target_name=target.name)
+        _echo_target_error_or_exit(exc, target_name=target)
     if json_output:
         _echo_json(result)
         return

@@ -2584,6 +2584,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T03:35:00Z"
+    },
+    {
+      "id": "bug-132",
+      "timestamp": "2026-06-07T03:55:00Z",
+      "error_message": "build inspect error path dereferenced target.name when target was a string option",
+      "file": "src/vela/cli.py",
+      "root_cause": "The build_inspect error handler passed target_name=target.name, but target is the Typer option string, so TargetCallError paths crashed with AttributeError before rendering remediation.",
+      "fix": "Pass target_name=target and add an error-path regression asserting SSH auth remediation renders for build inspect --target blackbird.",
+      "tags": [
+        "cli",
+        "review-fix",
+        "remediation"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:55:00Z"
     }
   ]
 }
