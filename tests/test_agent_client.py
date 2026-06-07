@@ -3000,6 +3000,34 @@ def test_local_agent_diagnose_reports_gpu_cuda_and_active_state(
     json.dumps(report)
 
 
+def test_local_agent_diagnose_reports_driver_from_nvidia_smi(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NVIDIA_DRIVER_VERSION", raising=False)
+    monkeypatch.setenv("CUDA_VERSION", "13.0")
+    real_run = local_agent_module.subprocess.run
+
+    def fake_run(args, **_kwargs):
+        if args == [
+            "nvidia-smi",
+            "--query-gpu=driver_version",
+            "--format=csv,noheader,nounits",
+        ]:
+            return SimpleNamespace(returncode=0, stdout="580.159.03\n", stderr="")
+        return real_run(args, **_kwargs)
+
+    monkeypatch.setattr(local_agent_module.subprocess, "run", fake_run)
+
+    report = LocalAgent(
+        builds_root=tmp_path / "builds",
+        models_registry_path=tmp_path / "models" / "registry.json",
+        gpu_sampler=lambda: GpuPollResult([]),
+    ).handle("diagnose")
+
+    assert report["host"]["driver"] == "580.159.03"
+
+
 @pytest.mark.asyncio
 async def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

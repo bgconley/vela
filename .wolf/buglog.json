@@ -3125,6 +3125,25 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:15:24Z"
+    },
+    {
+      "id": "bug-163",
+      "timestamp": "2026-06-07T06:25:53Z",
+      "error_message": "real Blackbird diagnose reported driver=None despite nvidia-smi exposing a driver",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "`_driver_version()` only read the `NVIDIA_DRIVER_VERSION` environment variable. The Blackbird target did not set that env var, while `nvidia-smi --query-gpu=driver_version` correctly reported `580.159.03`.",
+      "fix": "Keep the environment variable override, then fall back to a bounded agent-side `nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits` probe and return the first reported driver version.",
+      "tags": [
+        "diagnose",
+        "blackbird",
+        "driver",
+        "onboarding"
+      ],
+      "related_bugs": [
+        "bug-162"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:25:53Z"
     }
   ]
 }

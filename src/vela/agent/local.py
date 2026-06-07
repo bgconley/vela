@@ -4792,7 +4792,30 @@ def _event_stream_id(event: dict[str, Any]) -> str | None:
 
 
 def _driver_version() -> str | None:
-    return os.environ.get("NVIDIA_DRIVER_VERSION")
+    env_version = os.environ.get("NVIDIA_DRIVER_VERSION")
+    if env_version and env_version.strip():
+        return env_version.strip()
+    try:
+        proc = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=driver_version",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in proc.stdout.splitlines():
+        version = line.strip()
+        if version:
+            return version.split(",", maxsplit=1)[0].strip() or None
+    return None
 
 
 def _run_id_param(params: dict[str, Any]) -> str:
