@@ -146,6 +146,7 @@ AGENT_CAPABILITIES = [
     "health",
     "probe_until_ready",
     "tail_detached",
+    "read_run_artifact",
     "discover_runs",
     "discover_runs_no_paths",
     "discover_detached",
@@ -458,6 +459,8 @@ class LocalAgent:
             return self._probe_until_ready(payload)
         if method == "tail_detached":
             return self._tail_detached(payload)
+        if method == "read_run_artifact":
+            return self._read_run_artifact(payload)
         if method in {"discover_runs", "discover_runs_no_paths", "discover_detached"}:
             return self._discover_detached(payload)
         if method in {"reattach", "reattach_detached"}:
@@ -1670,6 +1673,67 @@ class LocalAgent:
             poll_interval=poll_interval,
         )
         return {"run_id": run_id, "status": "ended"}
+
+    def _read_run_artifact(self, params: dict[str, Any]) -> dict[str, Any]:
+        run_id = _run_id_param(params)
+        config_name = params.get("config_name")
+        candidate_dirs: list[Path] = []
+        if isinstance(config_name, str) and config_name.strip():
+            registry = load_registry(_configs_dir(params))
+            cfg = _config_by_name(registry, config_name.strip())
+            self._remember_run_config(cfg)
+            candidate_dirs.append(cfg.run_artifacts_dir)
+        sidecar_path = self._run_artifact_sidecar_path(run_id, candidate_dirs)
+        sidecar = load_sidecar(sidecar_path)
+        if sidecar.run_id != run_id:
+            raise TargetCallError(
+                "identity-verification-failed",
+                "sidecar run_id does not match requested run_id",
+                {
+                    "run_id": run_id,
+                    "sidecar_run_id": sidecar.run_id,
+                    "sidecar_path": str(sidecar_path),
+                },
+            )
+        manifest = load_manifest(sidecar.manifest_path)
+        log_path = Path(manifest.active_log.path)
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise TargetCallError(
+                "run-artifact-unavailable",
+                f"unable to read run log: {exc}",
+                {"run_id": run_id, "log_path": str(log_path)},
+            ) from exc
+        config = (
+            dict(sidecar.config_snapshot)
+            if isinstance(sidecar.config_snapshot, dict)
+            else _config_from_detached_sidecar(sidecar).model_dump(mode="json")
+        )
+        return {
+            "run_id": run_id,
+            "config": config,
+            "log_text": log_text,
+        }
+
+    def _run_artifact_sidecar_path(
+        self, run_id: str, candidate_dirs: list[Path]
+    ) -> Path:
+        if Path(run_id).name != run_id:
+            raise TargetCallError("invalid-params", "run_id must be a filename-safe id")
+        sidecar_path = self._detached_sidecar_paths.get(run_id)
+        if sidecar_path is not None and sidecar_path.exists():
+            return sidecar_path
+        seen: set[Path] = set()
+        for runs_dir in [*candidate_dirs, *sorted(self._known_runs_dirs)]:
+            path = Path(runs_dir) / f"{run_id}.json"
+            if path in seen:
+                continue
+            seen.add(path)
+            if path.exists():
+                self._detached_sidecar_paths[run_id] = path
+                return path
+        raise TargetCallError("run-not-found", f"unknown run artifact: {run_id}")
 
     def _discover_detached(self, params: dict[str, Any]) -> dict[str, Any]:
         runs_dirs = params.get("runs_dirs")

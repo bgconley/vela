@@ -69,6 +69,15 @@ def test_remote_validation_checks_backend_evidence_after_real_smoke() -> None:
     assert script.index(smoke) < script.index(backend)
 
 
+def test_backend_evidence_reads_stopped_smoke_run_artifact() -> None:
+    script = Path("scripts/backend_evidence_check.py").read_text(encoding="utf-8")
+
+    assert '"read_run_artifact"' in script
+    assert '"config_name": config_name' in script
+    assert '"tail_detached"' not in script
+    assert 'client.call("reattach"' not in script
+
+
 def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 

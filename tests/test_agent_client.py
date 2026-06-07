@@ -351,6 +351,7 @@ async def test_in_process_target_client_handshake_exposes_local_agent() -> None:
     assert "discover_runs" in result["capabilities"]
     assert "discover_runs_no_paths" in result["capabilities"]
     assert "reattach" in result["capabilities"]
+    assert "read_run_artifact" in result["capabilities"]
     assert "docker_runtime_sidecar_identity" in result["capabilities"]
     assert "list_builds" in result["capabilities"]
     assert "list_models" in result["capabilities"]
@@ -10989,6 +10990,90 @@ async def test_target_client_replays_from_new_active_log_after_rotation(
     assert replayed["event"] == "log"
     assert replayed["text"] == "INFO new active line"
     assert replayed["log_inode"] == rotated_log_path.stat().st_ino
+
+
+@pytest.mark.asyncio
+async def test_target_client_reads_stopped_run_artifact_from_config_runs_dir(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    run_id = "run-artifact-1"
+    log_path = runs_dir / f"{run_id}.run.log"
+    manifest_path = runs_dir / f"{run_id}.manifest.json"
+    sidecar_path = runs_dir / f"{run_id}.json"
+    log_path.write_text(
+        "\n".join(
+            [
+                "INFO Selected CutlassFp8BlockScaledMMKernel for Fp8LinearMethod",
+                "INFO Using AttentionBackendEnum.FLASHINFER backend",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    Manifest.from_active_log(log_path).write_atomic(manifest_path)
+    config_snapshot = {
+        "name": "artifact-run",
+        "model": "Qwen/Qwen3.6-27B-FP8",
+        "command": {
+            "runtime": "docker",
+            "docker": {"image": "vllm/vllm-openai@sha256:abc"},
+        },
+        "server": {"host": "127.0.0.1", "port": unused_tcp_port},
+    }
+    Sidecar(
+        run_id=run_id,
+        config_name="artifact-run",
+        command_argv=["docker", "run", "vllm/vllm-openai@sha256:abc"],
+        command_hash="sha256:abc",
+        pid=0,
+        pgid=0,
+        process_create_time=0.0,
+        executable="docker",
+        cwd=str(tmp_path),
+        launch_mode="attached",
+        host="127.0.0.1",
+        port=unused_tcp_port,
+        served_model_names=["qwen36"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        runtime="docker",
+        config_snapshot=config_snapshot,
+        docker_container_name="qwen36",
+        docker_container_id="container-1",
+        docker_image_digest="sha256:abc",
+    ).write_atomic(sidecar_path)
+    write_yaml(
+        config_dir / "artifact-run.yaml",
+        f"""
+        name: artifact-run
+        model: Qwen/Qwen3.6-27B-FP8
+        server:
+          port: {unused_tcp_port}
+        launch:
+          runs_dir: {runs_dir}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    try:
+        result = await client.call(
+            "read_run_artifact",
+            {
+                "run_id": run_id,
+                "config_name": "artifact-run",
+                "configs_dir": str(config_dir),
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["run_id"] == run_id
+    assert result["config"] == config_snapshot
+    assert "Selected CutlassFp8BlockScaledMMKernel" in result["log_text"]
+    assert "AttentionBackendEnum.FLASHINFER" in result["log_text"]
+    json.dumps(result)
 
 
 @pytest.mark.asyncio

@@ -3034,6 +3034,42 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T05:23:20Z"
+    },
+    {
+      "id": "bug-158",
+      "timestamp": "2026-06-07T05:43:42Z",
+      "error_message": "backend evidence checker could not inspect a cleanly stopped smoke run",
+      "file": "scripts/backend_evidence_check.py",
+      "root_cause": "The remote validation lane ran `vela smoke-tui`, which intentionally stops the run after READY, then launched a fresh backend evidence checker that tried to `reattach` and `tail_detached` a no-longer-live run. The durable sidecar, manifest, and log still existed on the target, but there was no serializable agent RPC for reading that stopped-run artifact.",
+      "fix": "Add an agent-side `read_run_artifact` RPC that resolves a run id from the target-local config runs_dir, reads the stopped sidecar/manifest/log on the agent, and returns serializable config plus log text. Switch backend_evidence_check.py to validate that artifact instead of requiring a live reattach.",
+      "tags": [
+        "remote-validation",
+        "backend-evidence",
+        "agent-rpc",
+        "docker"
+      ],
+      "related_bugs": [
+        "bug-154",
+        "bug-155"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:43:42Z"
+    },
+    {
+      "id": "bug-159",
+      "timestamp": "2026-06-07T05:45:43.541Z",
+      "error_message": "Incorrect value in code",
+      "file": "vela-docker-composer-review-findings-v10.md",
+      "root_cause": "Had `0259b1d`",
+      "fix": "Changed to 's independent run + my pre-flight), **ruff clean*",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:45:43.541Z"
     }
   ]
 }

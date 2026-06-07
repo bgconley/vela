@@ -2,15 +2,12 @@
 
 import argparse
 import asyncio
-import contextlib
 import re
 import sys
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
 from vela.config.targets import load_targets_file
-from vela.transport.client import TargetClient
 from vela.transport.factory import target_client_for_config
 
 BLACKBIRD_QWEN36_IMAGE = (
@@ -194,81 +191,20 @@ def _dict(value: object) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
-async def _collect_log_text(
-    client: TargetClient,
-    run_id: str,
-    *,
-    timeout: float,
-) -> str:
-    events = client.subscribe([run_id], resume_from="live")
-    tail_task = asyncio.create_task(
-        client.call(
-            "tail_detached",
-            {
-                "run_id": run_id,
-                "start_position": 0,
-                "poll_interval": 0.05,
-            },
-        )
-    )
-    lines: list[str] = []
-    try:
-        deadline = asyncio.get_running_loop().time() + timeout
-        while True:
-            if tail_task.done():
-                await _drain_log_events(events, lines)
-                await tail_task
-                break
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                tail_task.cancel()
-                raise RuntimeError(f"timed out collecting backend evidence for {run_id}")
-            try:
-                event = await asyncio.wait_for(
-                    events.__anext__(),
-                    timeout=min(0.5, remaining),
-                )
-            except asyncio.TimeoutError:
-                continue
-            _append_log_event(lines, event)
-    finally:
-        with contextlib.suppress(Exception):
-            await events.aclose()
-        if not tail_task.done():
-            tail_task.cancel()
-            with contextlib.suppress(Exception):
-                await tail_task
-    return "\n".join(lines)
-
-
-async def _drain_log_events(
-    events: AsyncIterator[dict[str, Any]],
-    lines: list[str],
-) -> None:
-    while True:
-        try:
-            event = await asyncio.wait_for(events.__anext__(), timeout=0.1)
-        except asyncio.TimeoutError:
-            return
-        _append_log_event(lines, event)
-
-
-def _append_log_event(lines: list[str], event: dict[str, Any]) -> None:
-    if event.get("event") != "log":
-        return
-    text = str(event.get("text") or "")
-    if text:
-        lines.append(text)
-
-
 async def _run(config_name: str, run_id: str, *, target_name: str, timeout: float) -> int:
     target = load_targets_file().by_name(target_name)
     client = target_client_for_config(target)
     await client.connect()
     try:
-        status = await client.call("reattach", {"run_id": run_id})
-        config = _dict(status.get("config"))
-        log_text = await _collect_log_text(client, run_id, timeout=timeout)
+        artifact = await client.call(
+            "read_run_artifact",
+            {
+                "run_id": run_id,
+                "config_name": config_name,
+            },
+        )
+        config = _dict(artifact.get("config"))
+        log_text = str(artifact.get("log_text") or "")
         result = validate_backend_evidence(config_name, config, log_text)
     finally:
         await client.disconnect()

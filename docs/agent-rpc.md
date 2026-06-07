@@ -66,6 +66,7 @@ Common request methods and capabilities:
 - `health`
 - `probe_until_ready`
 - `tail_detached`
+- `read_run_artifact`
 - `discover_runs`
 - `discover_runs_no_paths`
 - `discover_detached`

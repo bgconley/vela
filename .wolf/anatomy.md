@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T02:12:22.529Z
-> Files: 98 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T05:45:43.529Z
+> Files: 100 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
@@ -24,6 +24,7 @@
 - `vela-deployment-composer-implementation-plan-v1.md` — Vela — Deployment Composer + Docker Runtime — Implementation Plan (v1) (~3549 tok)
 - `vela-deployment-composer-spec-v1.md` — Vela — Deployment Composer — Feature Specification & Implementation Plan (v1) (~4930 tok)
 - `vela-deployment-composer-user-stories-v1.md` — Vela — Deployment Composer & Docker Runtime — User Stories (v1) (~2600 tok)
+- `vela-docker-composer-review-findings-v10.md` — Vela — Review v10: Near-Complete Punchlist Execution — 2026-06-07 (~3122 tok)
 - `vela-docker-composer-review-findings-v6.md` — Vela — Docker Runtime + Deployment Composer Review (Findings v6) — 2026-06-06 (~4168 tok)
 - `vela-docker-composer-review-findings-v7.md` — Vela — Review v7: Validating the Coder's Spec-Check + Reassessment — 2026-06-06 (~3427 tok)
 - `vela-docker-composer-review-findings-v8.md` — Vela — Review v8: Adversarial Completion Audit ("coder asserts complete") — 2026-06-06 (~3243 tok)
@@ -87,6 +88,12 @@
 - `run_remote_tests.sh` — SSH remote install/lint/test/optional real-config runner (~320 tok)
 - `smoke_fake_child.sh` — local editable install plus fake-child/TUI smoke tests (~70 tok)
 
+## src/vela/transport/
+
+- `ssh_bootstrap.py` — SSH remote agent install helper for managed bootstrap path (~700 tok)
+- `ssh_discovery.py` — SSH agent-command discovery probes using hardened target SSH options (~1500 tok)
+- `ssh_setup.py` — local `ssh-copy-id` wrapper for guided SSH key setup remediation (~220 tok)
+
 ## src/vllm_loader/
 
 - `__init__.py` — package version (~20 tok)
@@ -116,12 +123,6 @@
 
 - `gpu.py` — NVML/nvidia-smi GPU sampling and CUDA_VISIBLE_DEVICES mapping (~1100 tok)
 - `health.py` — httpx health and `/v1/models` check helpers (~450 tok)
-
-## src/vela/transport/
-
-- `ssh_bootstrap.py` — SSH remote agent install helper for managed bootstrap path (~700 tok)
-- `ssh_discovery.py` — SSH agent-command discovery probes using hardened target SSH options (~1500 tok)
-- `ssh_setup.py` — local `ssh-copy-id` wrapper for guided SSH key setup remediation (~220 tok)
 
 ## src/vllm_loader/tui/
 
