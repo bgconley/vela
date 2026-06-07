@@ -74,6 +74,22 @@ Config discovery runs agent-side in this order:
 3. `./configs`
 4. `~/.config/vela/configs`
 
+Paths are resolved on the host that owns the agent, not on the controller. Use
+`vela doctor --target <name>`, `vela targets test <name>`, or
+`vela agent status --target <name>` to see the target host's resolved config,
+runs, builds, model-registry, token, and socket paths.
+
+Host path overrides:
+
+- `VELA_CONFIGS`: overrides config discovery for that agent process.
+- `XDG_CONFIG_HOME`: controls defaults such as `~/.config/vela` and the
+  managed `agent-token` file.
+- `XDG_DATA_HOME`: controls the managed build/model data roots, defaulting to
+  `~/.local/share/vela/...`.
+- `XDG_STATE_HOME`: controls durable run/log state, defaulting to
+  `~/.local/state/vela/...`.
+- `XDG_RUNTIME_DIR`: controls the Unix agent socket directory when present.
+
 ## Config Fields
 
 Minimal config:
@@ -230,6 +246,10 @@ daemon in the foreground, use:
 ```bash
 vela agent run
 ```
+
+For SSH targets, `vela agent status --target <name>` queries the remote agent
+and prints the resolved per-host paths and toolchain/auth status instead of the
+local daemon socket status.
 
 A user-service template is available at
 `packaging/systemd/vela-agent.service`. Install it under

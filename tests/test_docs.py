@@ -40,6 +40,12 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     assert "inprocess" not in configuration
     assert "Build removal has no --force override" in builds_models
     assert "Model removal --force only overrides config-pin protection" in builds_models
+    assert "vela agent status --target <name>" in configuration
+    assert "VELA_CONFIGS" in configuration
+    assert "XDG_CONFIG_HOME" in configuration
+    assert "XDG_DATA_HOME" in configuration
+    assert "XDG_STATE_HOME" in configuration
+    assert "XDG_RUNTIME_DIR" in configuration
 
 
 def test_build_model_docs_cover_operational_cli_surfaces() -> None:

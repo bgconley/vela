@@ -367,8 +367,9 @@ def targets_test(
 ) -> None:
     target = _target_config_for_name_or_exit(name)
     target = _discover_agent_command_for_target_or_exit(target, persist=True)
+    client = _target_client_for_config_or_exit(target)
     try:
-        handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
+        handshake = _target_call(client, "handshake")
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, target_name=target)
     typer.echo(
@@ -376,6 +377,12 @@ def targets_test(
         f"agent={handshake.get('agent_version', 'unknown')}\t"
         f"protocol={handshake.get('protocol_version', 'unknown')}"
     )
+    try:
+        report = _target_call(_target_client_for_config_or_exit(target), "diagnose")
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target.name)
+    for line in _target_report_lines(report):
+        typer.echo(line)
 
 
 @build_app.command("list")
@@ -2189,51 +2196,78 @@ def _append_target_report_checks(
     checks: list[dict[str, object]],
     report: dict[str, Any],
 ) -> None:
-    host = report.get("host") if isinstance(report.get("host"), dict) else {}
-    paths = report.get("paths") if isinstance(report.get("paths"), dict) else {}
-    toolchain = (
-        report.get("toolchain") if isinstance(report.get("toolchain"), dict) else {}
-    )
-    auth = report.get("auth") if isinstance(report.get("auth"), dict) else {}
-    version = str(host.get("vela_version") or "unknown")
+    parts = _target_report_parts(report)
     checks.append(
         {
             "name": "target_version",
-            "ok": version == __version__,
-            "detail": f"agent={version} controller={__version__}",
+            "ok": parts["agent_version"] == __version__,
+            "detail": parts["version_detail"],
         }
     )
     checks.append(
         {
             "name": "target_paths",
             "ok": True,
-            "detail": (
-                f"config={paths.get('config_dir', 'unknown')} "
-                f"runs={paths.get('runs_dir', 'unknown')} "
-                f"builds={paths.get('builds_dir', 'unknown')} "
-                f"models={paths.get('models_registry', 'unknown')} "
-                f"socket={paths.get('socket_path', 'unknown')}"
-            ),
+            "detail": parts["paths_detail"],
         }
     )
     checks.append(
         {
             "name": "target_toolchain",
             "ok": True,
-            "detail": (
-                f"python={toolchain.get('python', 'unknown')} "
-                f"uv={'yes' if toolchain.get('uv_available') else 'no'} "
-                f"driver={host.get('driver', 'unknown')}"
-            ),
+            "detail": parts["toolchain_detail"],
         }
     )
     checks.append(
         {
             "name": "target_auth",
-            "ok": auth.get("status") != "malformed-token",
-            "detail": str(auth.get("status") or "unknown"),
+            "ok": parts["auth_status"] != "malformed-token",
+            "detail": parts["auth_status"],
         }
     )
+
+
+def _target_report_lines(report: dict[str, Any]) -> list[str]:
+    parts = _target_report_parts(report)
+    version_status = "ok" if parts["agent_version"] == __version__ else "mismatch"
+    return [
+        f"version\t{version_status}\t{parts['version_detail']}",
+        f"host\t{parts['host_detail']}",
+        f"paths\t{parts['paths_detail']}",
+        f"toolchain\t{parts['toolchain_detail']}",
+        f"auth\t{parts['auth_status']}",
+    ]
+
+
+def _target_report_parts(report: dict[str, Any]) -> dict[str, str]:
+    host = report.get("host") if isinstance(report.get("host"), dict) else {}
+    paths = report.get("paths") if isinstance(report.get("paths"), dict) else {}
+    toolchain = (
+        report.get("toolchain") if isinstance(report.get("toolchain"), dict) else {}
+    )
+    auth = report.get("auth") if isinstance(report.get("auth"), dict) else {}
+    agent_version = str(host.get("vela_version") or "unknown")
+    return {
+        "agent_version": agent_version,
+        "version_detail": f"agent={agent_version} controller={__version__}",
+        "host_detail": (
+            f"hostname={host.get('hostname', 'unknown')} "
+            f"platform={host.get('platform', 'unknown')}"
+        ),
+        "paths_detail": (
+            f"config={paths.get('config_dir', 'unknown')} "
+            f"runs={paths.get('runs_dir', 'unknown')} "
+            f"builds={paths.get('builds_dir', 'unknown')} "
+            f"models={paths.get('models_registry', 'unknown')} "
+            f"socket={paths.get('socket_path', 'unknown')}"
+        ),
+        "toolchain_detail": (
+            f"python={toolchain.get('python', 'unknown')} "
+            f"uv={'yes' if toolchain.get('uv_available') else 'no'} "
+            f"driver={host.get('driver', 'unknown')}"
+        ),
+        "auth_status": str(auth.get("status") or "unknown"),
+    }
 
 
 def _format_model_inspect_value(value: object) -> str:
@@ -2355,6 +2389,15 @@ def _discover_agent_command_for_target_or_exit(
     if persist:
         upsert_target_file(discovered)
     return discovered
+
+
+def _target_agent_report_or_exit(target_name: str) -> dict[str, Any]:
+    target = _target_config_for_name_or_exit(target_name)
+    target = _discover_agent_command_for_target_or_exit(target, persist=True)
+    try:
+        return _target_call(_target_client_for_config_or_exit(target), "diagnose")
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target.name)
 
 
 def _bootstrap_discover_or_install_agent(
@@ -3078,6 +3121,10 @@ def agent_status(
         Path | None,
         typer.Option("--socket", help="Unix socket path for the agent daemon."),
     ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option("--target", help="Inspect the agent on a configured target."),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable daemon status."),
@@ -3086,6 +3133,16 @@ def agent_status(
     import json
 
     from vela.agent.daemon import inspect_agent_daemon
+
+    if target is not None:
+        report = _target_agent_report_or_exit(target)
+        if json_output:
+            typer.echo(json.dumps({"target": target, "diagnose": report}, sort_keys=True))
+            return
+        typer.echo(f"target\t{target}")
+        for line in _target_report_lines(report):
+            typer.echo(line)
+        return
 
     status = inspect_agent_daemon(socket_path)
     if json_output:

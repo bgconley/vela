@@ -2338,6 +2338,27 @@ def test_cli_targets_test_handshakes_with_selected_target(
                     "agent_version": "1.2.3",
                     "protocol_version": 7,
                 }
+            if method == "diagnose":
+                return {
+                    "host": {
+                        "hostname": "fake-blackbird",
+                        "platform": "Linux",
+                        "driver": "590.48.01",
+                        "vela_version": "1.2.3",
+                    },
+                    "paths": {
+                        "config_dir": "/home/bgconley/.config/vela",
+                        "runs_dir": "/home/bgconley/.local/state/vela/runs",
+                        "builds_dir": "/home/bgconley/.local/share/vela/builds",
+                        "models_registry": "/home/bgconley/.local/share/vela/models.json",
+                        "socket_path": "/home/bgconley/.local/state/vela/agent.sock",
+                    },
+                    "toolchain": {
+                        "python": "/usr/bin/python3",
+                        "uv_available": True,
+                    },
+                    "auth": {"status": "none"},
+                }
             raise AssertionError(f"unexpected target client call: {method}")
 
     def fake_target_client_for_config(target):
@@ -2355,10 +2376,23 @@ def test_cli_targets_test_handshakes_with_selected_target(
     result = CliRunner().invoke(cli_module.app, ["targets", "test", "blackbird"])
 
     assert result.exit_code == 0, result.output
-    assert result.output == "blackbird\tok\tagent=1.2.3\tprotocol=7\n"
+    lines = result.output.splitlines()
+    assert lines[0] == "blackbird\tok\tagent=1.2.3\tprotocol=7"
+    assert "version\tmismatch\tagent=1.2.3" in result.output
+    assert "host\thostname=fake-blackbird platform=Linux" in result.output
+    assert "paths\tconfig=/home/bgconley/.config/vela" in result.output
+    assert "toolchain\tpython=/usr/bin/python3 uv=yes driver=590.48.01" in result.output
+    assert "auth\tnone" in result.output
     assert requested_target_names == ["blackbird"]
-    assert requested_targets == [blackbird]
-    assert client_events == ["connect", "call:handshake", "disconnect"]
+    assert requested_targets == [blackbird, blackbird]
+    assert client_events == [
+        "connect",
+        "call:handshake",
+        "disconnect",
+        "connect",
+        "call:diagnose",
+        "disconnect",
+    ]
 
 
 def test_cli_targets_test_surfaces_invalid_ssh_options(

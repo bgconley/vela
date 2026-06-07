@@ -241,6 +241,11 @@ def test_cli_targets_test_discovers_persists_and_handshakes(
 
     assert result.exit_code == 0, result.output
     assert f"agent={__version__}" in result.output
+    assert "version\tok" in result.output
+    assert "host\thostname=fake-remote" in result.output
+    assert "paths\tconfig=/home/bgconley/.config/vela" in result.output
+    assert "toolchain\tpython=/usr/bin/python3 uv=yes" in result.output
+    assert "auth\tnone" in result.output
     persisted = load_targets_file(tmp_path / "vela" / "targets.yaml").by_name(
         "blackbird"
     )
@@ -348,3 +353,28 @@ def test_cli_doctor_target_reports_remote_host_state_without_static_nag(
     assert "config=/home/bgconley/.config/vela" in checks["target_paths"]["detail"]
     assert "uv=yes" in checks["target_toolchain"]["detail"]
     assert checks["target_auth"]["detail"] == "none"
+
+
+def test_cli_agent_status_target_reports_remote_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@fake",
+    )
+    from vela.config.targets import upsert_target_file
+
+    upsert_target_file(target)
+
+    result = CliRunner().invoke(app, ["agent", "status", "--target", "blackbird"])
+
+    assert result.exit_code == 0, result.output
+    assert "target\tblackbird" in result.output
+    assert f"version\tok\tagent={__version__} controller={__version__}" in result.output
+    assert "paths\tconfig=/home/bgconley/.config/vela" in result.output
+    assert "toolchain\tpython=/usr/bin/python3 uv=yes" in result.output
+    assert "auth\tnone" in result.output
