@@ -124,9 +124,11 @@
 ## tests/
 
 - `conftest.py` — config fixtures and YAML writer (~360 tok)
+- `fakes/fake_ssh.py` — writes a fake SSH executable for onboarding/remote harness tests (~950 tok)
 - `test_cli_run.py` — CLI attached and detached fake-child integration tests (~1150 tok)
 - `test_command_builder.py` — command builder/profile/request-logging/masking tests (~1500 tok)
 - `test_config_loader.py` — config loader/schema/default tests (~900 tok)
+- `test_fake_ssh.py` — fake SSH harness tests for discovery, handshake, auth failure, install, and host reports (~1150 tok)
 - `test_gpu.py` — GPU fallback and CUDA visibility tests (~550 tok)
 - `test_health.py` — health auth/probe-host tests (~700 tok)
 - `test_log_sink.py` — log split/scrub/truncation/mode tests (~900 tok)
