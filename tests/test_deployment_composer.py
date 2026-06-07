@@ -68,6 +68,47 @@ def _write_model_registry(path: Path) -> None:
     )
 
 
+def _write_experimental_fp8_registry(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01EXPERIMENTALFP8",
+                        "display_name": "experimental-fp8",
+                        "aliases": ["experimental-fp8"],
+                        "source": "hf_repo",
+                        "repo_id": "Example/Experimental-FP8",
+                        "revision": "main",
+                        "commit_sha": "def456",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "fp8",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 7,
+                            "total_bytes": 62000000000,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 62000000000,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-06T00:00:00Z",
+                        "last_used_at": None,
+                        "notes": "non-recipe FP8 warning fixture",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> None:
     write_yaml(
         config_dir / "taken.yaml",
@@ -279,6 +320,7 @@ def test_agent_composes_blackbird_qwen36_fp8_from_lab_recipe(config_dir: Path) -
     assert config["launch"]["ready_timeout_seconds"] == 1800
     assert config["launch"]["runs_dir"] == "/home/bgconley/models/qwen36-27b-fp8-rp6000/vela-runs"
     assert config["vllm"]["version_profile"] == "0.11"
+    assert "blackwell-fp8-runtime-recipe-required" not in result["warnings"]
     assert any(
         item["field"] == "deployment.recipe"
         and item["value"] == "blackbird-qwen36-27b-fp8-rp6000"
@@ -338,6 +380,60 @@ def test_agent_composer_keeps_lab_recipe_image_when_runtime_image_differs(
 
     assert result["config"]["command"]["docker"]["image"] == BLACKBIRD_IMAGE
     assert "recipe-image-override-ignored" in result["warnings"]
+
+
+def test_agent_warns_when_blackbird_fp8_docker_lacks_lab_recipe(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_experimental_fp8_registry(registry_path)
+    monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_args, **_kwargs: {})
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "experimental-fp8",
+            "target": "blackbird",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:experimental",
+            },
+            "model_ref": "experimental-fp8",
+        },
+    )
+
+    assert result["config"]["engine"]["kv_cache_dtype"] == "fp8"
+    assert "blackwell-fp8-runtime-recipe-required" in result["warnings"]
+
+
+def test_agent_suggestions_warn_when_blackbird_fp8_docker_lacks_lab_recipe(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_experimental_fp8_registry(registry_path)
+    monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_args, **_kwargs: {})
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "suggest_deployment_defaults",
+        {
+            "configs_dir": str(config_dir),
+            "name": "experimental-fp8",
+            "target": "blackbird",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:experimental",
+            },
+            "model_ref": "experimental-fp8",
+        },
+    )
+
+    assert result["engine_suggestions"]["kv_cache_dtype"] == "fp8"
+    assert "blackwell-fp8-runtime-recipe-required" in result["warnings"]
 
 
 def test_agent_composer_ignores_existing_same_name_config_port_for_idempotent_create(

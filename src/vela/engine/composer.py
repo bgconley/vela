@@ -428,6 +428,13 @@ def compose_config(
     cfg = ModelConfig.model_validate(payload)
     warnings = [
         *suggestions.warnings,
+        *_blackwell_fp8_runtime_warnings(
+            target=target,
+            runtime=runtime,
+            recipe=recipe,
+            model_context=model_context,
+            suggestions=suggestions,
+        ),
         *_recipe_runtime_warnings(spec, recipe),
         *(recipe.warnings if recipe is not None else ()),
     ]
@@ -512,7 +519,17 @@ def suggest_deployment_defaults(
         "exposure": _recipe_exposure(recipe) or Exposure.LOCAL.value,
         "engine_suggestions": engine_suggestions,
         "sources": _dedupe(sources),
-        "warnings": [*suggestions.warnings, *allocation["warnings"]],
+        "warnings": [
+            *suggestions.warnings,
+            *_blackwell_fp8_runtime_warnings(
+                target=target,
+                runtime=runtime,
+                recipe=recipe,
+                model_context=model_context,
+                suggestions=suggestions,
+            ),
+            *allocation["warnings"],
+        ],
     }
     if model_context.model_ref:
         payload["model_ref"] = model_context.model_ref
@@ -1039,6 +1056,37 @@ def _recipe_runtime_warnings(
     if requested_image is not None and requested_image != recipe_image:
         return ["recipe-image-override-ignored"]
     return []
+
+
+def _blackwell_fp8_runtime_warnings(
+    *,
+    target: str | None,
+    runtime: RuntimeKind,
+    recipe: DeploymentRecipe | None,
+    model_context: ModelContext,
+    suggestions: EngineSuggestions,
+) -> list[str]:
+    if recipe is not None or runtime is not RuntimeKind.DOCKER:
+        return []
+    target_key = (target or "").lower()
+    if target_key not in {"blackbird", "p620-01", "p620"}:
+        return []
+    if not _looks_like_fp8_model(model_context, suggestions):
+        return []
+    return ["blackwell-fp8-runtime-recipe-required"]
+
+
+def _looks_like_fp8_model(
+    model_context: ModelContext, suggestions: EngineSuggestions
+) -> bool:
+    if str(suggestions.engine.get("kv_cache_dtype") or "").lower() == "fp8":
+        return True
+    if "fp8" in model_context.model.lower():
+        return True
+    entry = model_context.entry
+    if isinstance(entry, dict):
+        return "fp8" in str(entry.get("quant_format") or "").lower()
+    return False
 
 
 def _preferred_port(overrides: dict[str, Any]) -> int | None:

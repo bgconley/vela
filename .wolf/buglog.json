@@ -2868,6 +2868,26 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:18:18Z"
+    },
+    {
+      "id": "bug-149",
+      "timestamp": "2026-06-07T04:24:11Z",
+      "error_message": "Blackwell FP8 Docker composer path could look validated from metadata alone",
+      "file": "src/vela/engine/composer.py",
+      "root_cause": "For non-recipe Docker deployments on Blackbird/P620 targets, model registry or Hugging Face config metadata could seed fp8 engine hints without surfacing that the required SM120 vLLM image, FlashInfer arch, CUTLASS/FlashInfer backend, and KV-cache shape still come from local validated deployment scripts.",
+      "fix": "Warn with blackwell-fp8-runtime-recipe-required when a Blackwell-target Docker FP8 deployment lacks a matched lab recipe, while preserving the known Qwen FP8/BF16 local-script-derived recipes unchanged.",
+      "tags": [
+        "composer",
+        "blackwell",
+        "fp8",
+        "docker",
+        "runtime-recipe"
+      ],
+      "related_bugs": [
+        "bug-137"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:24:11Z"
     }
   ]
 }
