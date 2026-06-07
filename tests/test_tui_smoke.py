@@ -3995,6 +3995,309 @@ async def test_new_deployment_selects_target_model_and_build_from_tui(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_create_build_handoff_pins_created_build(
+    config_dir: Path,
+) -> None:
+    class FakeEvents:
+        def __init__(self) -> None:
+            self.closed = False
+            self._events: list[dict[str, object]] = []
+
+        def arm(self, job_id: str, label: str) -> None:
+            self._events = [
+                {
+                    "event": "job_progress",
+                    "job_id": job_id,
+                    "kind": "committed",
+                    "text": "Creating build",
+                    "level": "INFO",
+                },
+                {
+                    "event": "job_done",
+                    "job_id": job_id,
+                    "ok": True,
+                    "detail": "build ready",
+                    "label": label,
+                    "build_id": "01CREATED",
+                },
+            ]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._events:
+                raise StopAsyncIteration
+            return self._events.pop(0)
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.events = FakeEvents()
+            self.create_calls: list[dict[str, object]] = []
+            self.compose_params: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_models":
+                return {"models": []}
+            if method == "list_builds":
+                builds = []
+                if self.create_calls:
+                    builds.append(
+                        {
+                            "build_id": "01CREATED",
+                            "label": "nightly-cu130-sm120",
+                            "status": "ready",
+                            "resolved": {"vllm": "0.20.2rc1.dev9", "cuda": "13.0"},
+                        }
+                    )
+                return {"builds": builds, "skipped": []}
+            if method == "check_build_prerequisites":
+                return {"ok": True, "method": params["method"], "uv_available": True}
+            if method == "create_build":
+                self.create_calls.append(dict(params))
+                self.events.arm(str(params["job_id"]), str(params["label"]))
+                return {
+                    "job_id": params["job_id"],
+                    "kind": "create_build",
+                    "status": "running",
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen-created",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "command": {
+                            "runtime": "process",
+                            "build": "nightly-cu130-sm120",
+                        },
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": (
+                        "cwd=/agent\nnightly-cu130-sm120/bin/vllm serve "
+                        "Qwen/Qwen3.6-27B-FP8"
+                    ),
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
+            return self.events
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-created"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
+        app.screen.query_one("#new-deployment-runtime", Select).value = "create_build"
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build",
+            "create build handoff did not open the build flow",
+        )
+        app.screen.query_one("#create-build-method", Select).value = "nightly"
+        app.screen.query_one("#create-build-label", Input).value = "nightly-cu130-sm120"
+        app.screen.query_one("#create-build-channel", Input).value = "cu130"
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
+            and app.screen.query_one("#new-deployment-build", Input).value
+            == "nightly-cu130-sm120"
+            and "Review"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "created build was not returned to the new deployment wizard",
+        )
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open after create-build handoff",
+        )
+
+    assert client.create_calls
+    assert client.compose_params is not None
+    assert client.compose_params["runtime"] == {
+        "kind": "build",
+        "build": "nightly-cu130-sm120",
+    }
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.adopt_calls: list[dict[str, object]] = []
+            self.compose_params: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_models":
+                return {"models": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "adopt_build":
+                self.adopt_calls.append(dict(params))
+                return {
+                    "build_id": "01ADOPTED",
+                    "label": "external-nightly",
+                    "status": "adopted",
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen-adopted",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "command": {"runtime": "process", "build": "external-nightly"},
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": (
+                        "cwd=/agent\nexternal-nightly/bin/vllm serve "
+                        "Qwen/Qwen3.6-27B-FP8"
+                    ),
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("adopt-venv new deployment flow should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-adopted"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
+        app.screen.query_one("#new-deployment-runtime", Select).value = "adopt_build"
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "adopt-build",
+            "adopt venv handoff did not open the adopt build flow",
+        )
+        app.screen.query_one("#adopt-build-label", Input).value = "external-nightly"
+        app.screen.query_one("#adopt-build-venv-path", Input).value = (
+            "/agent/venvs/vllm-nightly"
+        )
+        app.screen.query_one("#adopt-build-vllm-version", Input).value = "0.20.2rc1.dev9"
+        app.screen.query_one("#adopt-build-vllm-version-profile", Input).value = "0.11"
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
+            and app.screen.query_one("#new-deployment-build", Input).value
+            == "external-nightly"
+            and "Review"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "adopted build was not returned to the new deployment wizard",
+        )
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open after adopt-venv handoff",
+        )
+
+    assert client.adopt_calls == [
+        {
+            "label": "external-nightly",
+            "venv_path": "/agent/venvs/vllm-nightly",
+            "vllm_version": "0.20.2rc1.dev9",
+            "vllm_version_profile": "0.11",
+        }
+    ]
+    assert client.compose_params is not None
+    assert client.compose_params["runtime"] == {
+        "kind": "build",
+        "build": "external-nightly",
+    }
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> None:
     class ComposerClient:
         connected = False

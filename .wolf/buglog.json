@@ -2754,6 +2754,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T07:10:00Z"
+    },
+    {
+      "id": "bug-142",
+      "timestamp": "2026-06-07T03:27:07Z",
+      "error_message": "new deployment wizard could not create or adopt a build inline",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "The primary TUI deployment wizard only offered process, docker, existing build, and executable runtimes, while the create-build and adopt-venv flows existed only in the standalone build manager.",
+      "fix": "Add Create build and Adopt venv runtime handoffs to the wizard, capture and restore the wizard draft, reuse the existing CreateBuildScreen and AdoptBuildScreen, and resume New Deployment at Review with the returned build label/id pinned.",
+      "tags": [
+        "tui",
+        "deployment-composer",
+        "builds"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:27:07Z"
     }
   ]
 }

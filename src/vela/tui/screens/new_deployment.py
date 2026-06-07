@@ -114,6 +114,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         recipes: list[dict[str, Any]] | None = None,
         models: list[dict[str, Any]] | None = None,
         builds: list[dict[str, Any]] | None = None,
+        initial: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(id="new-deployment")
         self.target_label = target_label
@@ -121,6 +122,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.recipes = [dict(recipe) for recipe in (recipes or [])]
         self.models = [dict(model) for model in (models or [])]
         self.builds = [dict(build) for build in (builds or [])]
+        self.initial = dict(initial or {})
         self.step_index = 0
 
     def compose(self) -> ComposeResult:
@@ -154,6 +156,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         ("Process", "process"),
                         ("Docker", "docker"),
                         ("Build", "build"),
+                        ("Create build", "create_build"),
+                        ("Adopt venv", "adopt_build"),
                         ("Executable", "executable"),
                     ],
                     value="process",
@@ -236,6 +240,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             yield Static("", id="new-deployment-actions")
 
     def on_mount(self) -> None:
+        self._apply_initial()
         self._refresh_step()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -243,6 +248,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.action_submit()
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "new-deployment-runtime":
+            runtime = str(event.value or "")
+            if runtime in {"create_build", "adopt_build"}:
+                event.stop()
+                self.dismiss({"action": runtime, "draft": self._draft_state()})
+            return
         if event.select.id == "new-deployment-recipe":
             event.stop()
             self._apply_recipe(str(event.value or ""))
@@ -322,8 +333,78 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             spec["runtime"] = {"kind": "executable", "executable": executable}
         return spec
 
+    def _draft_state(self) -> dict[str, Any]:
+        model_ref = self._selected_model_ref()
+        draft: dict[str, Any] = {
+            "name": self._field_value("#new-deployment-name"),
+            "target": self.target_label,
+            "runtime": str(
+                self.query_one("#new-deployment-runtime", Select).value or "process"
+            ),
+            "model": self._field_value("#new-deployment-model"),
+            "image": self._field_value("#new-deployment-image"),
+            "build": self._field_value("#new-deployment-build"),
+            "executable": self._field_value("#new-deployment-executable"),
+            "preset": str(self.query_one("#new-deployment-preset", Select).value or "balanced"),
+            "host": self._field_value("#new-deployment-host") or "127.0.0.1",
+            "port": self._field_value("#new-deployment-port"),
+            "exposure": str(
+                self.query_one("#new-deployment-exposure", Select).value or "local"
+            ),
+            "recipe": str(
+                self.query_one("#new-deployment-recipe", Select).value or "__custom__"
+            ),
+            "step_index": self.step_index,
+        }
+        if model_ref is not None:
+            draft["model_ref"] = model_ref
+            revision = self._selected_model_revision(model_ref)
+            if revision:
+                draft["revision"] = revision
+        return draft
+
     def _field_value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()
+
+    def _apply_initial(self) -> None:
+        initial = self.initial
+        if not initial:
+            return
+        for selector, key in (
+            ("#new-deployment-name", "name"),
+            ("#new-deployment-model", "model"),
+            ("#new-deployment-image", "image"),
+            ("#new-deployment-build", "build"),
+            ("#new-deployment-executable", "executable"),
+            ("#new-deployment-host", "host"),
+            ("#new-deployment-port", "port"),
+        ):
+            value = str(initial.get(key) or "").strip()
+            if value:
+                self.query_one(selector, Input).value = value
+        runtime = _initial_runtime_value(initial)
+        if runtime in {"process", "docker", "build", "executable"}:
+            self._set_select_value("#new-deployment-runtime", runtime)
+        for selector, key in (
+            ("#new-deployment-recipe", "recipe"),
+            ("#new-deployment-model-ref", "model_ref"),
+            ("#new-deployment-preset", "preset"),
+            ("#new-deployment-exposure", "exposure"),
+        ):
+            value = str(initial.get(key) or "").strip()
+            if value:
+                self._set_select_value(selector, value)
+        try:
+            step_index = int(initial.get("step_index", 0))
+        except (TypeError, ValueError):
+            step_index = 0
+        self.step_index = max(0, min(step_index, len(self.STEP_TITLES) - 1))
+
+    def _set_select_value(self, selector: str, value: str) -> None:
+        try:
+            self.query_one(selector, Select).value = value
+        except Exception:
+            return
 
     def _preset_options(self) -> list[tuple[str, str]]:
         options: list[tuple[str, str]] = []
@@ -485,6 +566,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
 def _model_reference(model: dict[str, Any]) -> str:
     return str(model.get("entry_id") or model.get("display_name") or "").strip()
+
+
+def _initial_runtime_value(initial: dict[str, Any]) -> str:
+    runtime = initial.get("runtime")
+    if isinstance(runtime, dict):
+        return str(runtime.get("kind") or "process")
+    return str(runtime or "process")
 
 
 def _model_option_label(model: dict[str, Any]) -> str:

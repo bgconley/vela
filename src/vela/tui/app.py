@@ -1400,6 +1400,7 @@ class VelaApp(App):
         params: dict[str, Any],
         error_message: str,
         uv_available: bool | None = None,
+        callback: Callable[[dict[str, Any] | None], None] | None = None,
     ) -> None:
         self.push_screen(
             CreateBuildScreen(
@@ -1408,7 +1409,7 @@ class VelaApp(App):
                 uv_available=uv_available,
                 target_label=self._target_label(),
             ),
-            callback=self._handle_create_build_submission,
+            callback=callback or self._handle_create_build_submission,
         )
 
     def _render_uv_prerequisite_error(
@@ -1468,6 +1469,157 @@ class VelaApp(App):
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+
+    async def _open_new_deployment_create_build_form(
+        self,
+        draft: dict[str, Any],
+    ) -> None:
+        uv_available: bool | None = None
+        try:
+            result = await self._target_call(
+                "check_build_prerequisites",
+                {"method": "pip"},
+            )
+        except TargetCallError:
+            result = {}
+        uv_value = result.get("uv_available")
+        if isinstance(uv_value, bool):
+            uv_available = uv_value
+        self.call_later(
+            self._push_new_deployment_create_build_form,
+            dict(draft),
+            {},
+            "",
+            uv_available,
+        )
+
+    def _push_new_deployment_create_build_form(
+        self,
+        draft: dict[str, Any],
+        params: dict[str, Any],
+        error_message: str,
+        uv_available: bool | None = None,
+    ) -> None:
+        self._push_create_build_form(
+            params,
+            error_message,
+            uv_available,
+            callback=lambda selection: self._handle_new_deployment_create_build_submission(
+                selection,
+                dict(draft),
+            ),
+        )
+
+    def _handle_new_deployment_create_build_submission(
+        self,
+        params: dict[str, Any] | None,
+        draft: dict[str, Any],
+    ) -> None:
+        if not params:
+            self.run_worker(
+                self._open_new_deployment(initial=draft),
+                name="new-deployment",
+                group="new-deployment",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
+        self.run_worker(
+            self._create_build_for_new_deployment(params, draft),
+            name="new-deployment-create-build",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _create_build_for_new_deployment(
+        self,
+        params: dict[str, Any],
+        draft: dict[str, Any],
+    ) -> None:
+        try:
+            await self._target_call(
+                "check_build_prerequisites",
+                _build_prerequisite_params(params),
+            )
+        except TargetCallError as exc:
+            if exc.details.get("reason") == "uv-required":
+                self.call_later(
+                    self._push_new_deployment_create_build_form,
+                    dict(draft),
+                    dict(params),
+                    self._render_uv_prerequisite_error(params, exc),
+                    False,
+                )
+                return
+            self._set_error_text(
+                self._render_target_call_error("Unable to create build", exc),
+                style=f"bold {BAD}",
+            )
+            return
+        job_params = dict(params)
+        job_params["job_id"] = uuid.uuid4().hex
+        result = await self._run_target_job(
+            "create_build",
+            job_params,
+            error_action="create build",
+            incomplete_label="Build creation",
+        )
+        if result is None or result.get("ok") is not True:
+            return
+        build_ref = _build_ref_from_build_result(result, params)
+        await self._resume_new_deployment_with_build(draft, build_ref)
+
+    def _handle_new_deployment_adopt_build_submission(
+        self,
+        params: dict[str, Any] | None,
+        draft: dict[str, Any],
+    ) -> None:
+        if not params:
+            self.run_worker(
+                self._open_new_deployment(initial=draft),
+                name="new-deployment",
+                group="new-deployment",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
+        self.run_worker(
+            self._adopt_build_for_new_deployment(params, draft),
+            name="new-deployment-adopt-build",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _adopt_build_for_new_deployment(
+        self,
+        params: dict[str, Any],
+        draft: dict[str, Any],
+    ) -> None:
+        try:
+            result = await self._target_call("adopt_build", dict(params))
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to adopt build: {exc}", style=f"bold {BAD}")
+            return
+        build_ref = _build_ref_from_build_result(result, params)
+        rendered = build_ref or "build"
+        self.notify(f"Adopted build: {rendered}")
+        await self._resume_new_deployment_with_build(draft, build_ref)
+
+    async def _resume_new_deployment_with_build(
+        self,
+        draft: dict[str, Any],
+        build_ref: str | None,
+    ) -> None:
+        if not build_ref:
+            self._set_error_text("Build flow completed without a build id or label")
+            return
+        resumed = dict(draft)
+        resumed["runtime"] = "build"
+        resumed["build"] = build_ref
+        resumed["step_index"] = 4
+        await self._open_new_deployment(initial=resumed)
 
     def action_models(self) -> None:
         if self._target_capability_blocked("list_models", "models"):
@@ -1716,7 +1868,7 @@ class VelaApp(App):
         *,
         error_action: str,
         incomplete_label: str,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         job_id = str(params["job_id"])
         self._active_job_id = job_id
         self._active_job_label = incomplete_label
@@ -1730,8 +1882,8 @@ class VelaApp(App):
                     f"Unable to {error_action}: {exc}",
                     style=f"bold {BAD}",
                 )
-                return
-            await self._consume_target_job_events_until_done(
+                return None
+            return await self._consume_target_job_events_until_done(
                 job_id,
                 events,
                 incomplete_label=incomplete_label,
@@ -1750,7 +1902,7 @@ class VelaApp(App):
         events,
         *,
         incomplete_label: str,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         async for event in events:
             if event.get("job_id") != job_id:
                 continue
@@ -1759,11 +1911,12 @@ class VelaApp(App):
                 continue
             if event.get("ok") and self.current_config is not None:
                 await self._refresh_selected_config_preview()
-            return
+            return dict(event)
         self._set_error_text(
             f"{incomplete_label} stream ended before completion: {job_id}",
             style=f"bold {BAD}",
         )
+        return None
 
     def action_reconnect(self) -> None:
         self.run_worker(
@@ -2058,7 +2211,11 @@ class VelaApp(App):
             exit_on_error=False,
         )
 
-    async def _open_new_deployment(self) -> None:
+    async def _open_new_deployment(
+        self,
+        *,
+        initial: dict[str, Any] | None = None,
+    ) -> None:
         try:
             presets_result = await self._target_call("list_presets", {})
         except TargetCallError as exc:
@@ -2095,12 +2252,34 @@ class VelaApp(App):
                 recipes=recipes if isinstance(recipes, list) else [],
                 models=models if isinstance(models, list) else [],
                 builds=builds if isinstance(builds, list) else [],
+                initial=initial,
             ),
             callback=self._handle_new_deployment_selection,
         )
 
     def _handle_new_deployment_selection(self, selection: object) -> None:
         if not isinstance(selection, dict):
+            return
+        action = _optional_str(selection.get("action"))
+        draft = selection.get("draft")
+        draft_payload = dict(draft) if isinstance(draft, dict) else {}
+        if action == "create_build":
+            self.run_worker(
+                self._open_new_deployment_create_build_form(draft_payload),
+                name="new-deployment-create-build-form",
+                group="new-deployment",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
+        if action == "adopt_build":
+            self.push_screen(
+                AdoptBuildScreen(),
+                callback=lambda params: self._handle_new_deployment_adopt_build_submission(
+                    params,
+                    draft_payload,
+                ),
+            )
             return
         self.run_worker(
             self._review_new_deployment(selection),
@@ -4472,6 +4651,18 @@ class VelaApp(App):
 
 def _build_prerequisite_params(params: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in params.items() if key != "job_id"}
+
+
+def _build_ref_from_build_result(
+    result: dict[str, Any],
+    params: dict[str, Any],
+) -> str | None:
+    return (
+        _optional_str(result.get("label"))
+        or _optional_str(params.get("label"))
+        or _optional_str(result.get("build_id"))
+        or _optional_str(params.get("build_id"))
+    )
 
 
 def _format_validation_errors(payload: dict[str, Any]) -> str:
