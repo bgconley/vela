@@ -2907,6 +2907,24 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:28:56Z"
+    },
+    {
+      "id": "bug-151",
+      "timestamp": "2026-06-07T04:39:54Z",
+      "error_message": "offline Hugging Face pins could not preserve unresolved remote-only intent and repo misses lacked named taxonomy",
+      "file": "src/vela/engine/model_registry.py",
+      "root_cause": "pin_model treated network failures while resolving Hugging Face metadata as hard failures, so a user could not record a remote-only pin while offline, and the snapshot/model-info classifier did not name repository-not-found distinctly from broader model resolution failures.",
+      "fix": "Allow network-classified HF metadata failures to write a remote_only pin with commit_sha null and structured warnings, keep prepare_launch blocking that unresolved pin until re-pinned online, and classify RepositoryNotFound errors as repo-not-found. Surface the structured warnings through CLI and TUI deployment review.",
+      "tags": [
+        "models",
+        "hugging-face",
+        "offline",
+        "taxonomy",
+        "track-a"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:39:54Z"
     }
   ]
 }

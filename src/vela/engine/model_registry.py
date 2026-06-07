@@ -156,6 +156,7 @@ def _pin_model_entry_payload(
     registry: dict[str, Any],
     entries: list[object],
 ) -> dict[str, Any]:
+    warnings = entry.pop("_warnings", [])
     entries = [
         item
         for item in entries
@@ -167,7 +168,10 @@ def _pin_model_entry_payload(
     registry.setdefault("app_download_dir", None)
     registry["entries"] = entries
     _write_registry_atomic(path, registry)
-    return {"entry": _model_payload(entry)}
+    payload = {"entry": _model_payload(entry)}
+    if isinstance(warnings, list) and warnings:
+        payload["warnings"] = warnings
+    return payload
 
 
 def verify_model(
@@ -860,6 +864,15 @@ def _classify_snapshot_download_error(exc: Exception) -> str:
     if any(
         marker in text
         for marker in (
+            "repositorynotfound",
+            "repository not found",
+            "repo not found",
+        )
+    ):
+        return "repo-not-found"
+    if any(
+        marker in text
+        for marker in (
             "gatedrepoerror",
             "gated repo",
             "access denied",
@@ -1132,24 +1145,42 @@ def _hf_repo_entry_from_params(
     repo_id = _required_param(params, "repo_id")
     revision = _optional_str(params.get("revision"))
     commit_sha = _optional_str(params.get("commit_sha"))
-    info = _resolved_hf_model_info(params, entry_id, repo_id, revision, commit_sha)
+    warnings: list[dict[str, str]] = []
+    try:
+        info = _resolved_hf_model_info(params, entry_id, repo_id, revision, commit_sha)
+    except ModelRegistryError as exc:
+        if exc.code != "network":
+            raise
+        warnings.append({"kind": exc.code, "detail": exc.message})
+        info = None
     if info is not None:
         commit_sha = _optional_str(getattr(info, "sha", None)) or commit_sha
     if commit_sha is None:
-        model_ref = _optional_str(params.get("entry_id")) or entry_id
-        raise ModelRegistryError(
-            "model-unavailable",
-            (
-                f"model {repo_id} is missing an immutable Hugging Face commit sha; "
-                "re-pin the model before launch"
-            ),
-            {
-                "model_ref": model_ref,
-                "repo_id": repo_id,
-                "revision": revision,
-                "reason": "missing-commit",
-            },
-        )
+        if warnings:
+            warnings.append(
+                {
+                    "kind": "remote-only-unresolved",
+                    "detail": (
+                        "pinned remote-only model has no immutable commit sha; "
+                        "launch will be blocked until it is re-pinned online"
+                    ),
+                }
+            )
+        else:
+            model_ref = _optional_str(params.get("entry_id")) or entry_id
+            raise ModelRegistryError(
+                "model-unavailable",
+                (
+                    f"model {repo_id} is missing an immutable Hugging Face commit sha; "
+                    "re-pin the model before launch"
+                ),
+                {
+                    "model_ref": model_ref,
+                    "repo_id": repo_id,
+                    "revision": revision,
+                    "reason": "missing-commit",
+                },
+            )
     gated = bool(params.get("gated"))
     token_required = bool(params.get("token_required"))
     if info is not None and _hf_model_info_is_gated(getattr(info, "gated", None)):
@@ -1176,6 +1207,8 @@ def _hf_repo_entry_from_params(
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
     }
+    if warnings:
+        entry["_warnings"] = warnings
     return entry
 
 
@@ -1236,6 +1269,8 @@ def _hf_model_info_error(
             f"Hugging Face access denied for {repo_id}; accept the model license "
             "and set HF_TOKEN if required"
         )
+    elif kind == "repo-not-found":
+        message = f"Hugging Face repository not found: {repo_id}"
     elif kind == "revision-not-found":
         selected = revision or "default revision"
         message = f"Hugging Face revision not found for {repo_id}: {selected}"

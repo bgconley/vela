@@ -1611,7 +1611,16 @@ def test_cli_model_pin_passes_metadata_to_agent(
                 "entry_id": "01MODEL",
                 "display_name": "llama-pin",
                 "source": "hf_repo",
-            }
+            },
+            "warnings": [
+                {
+                    "kind": "remote-only-unresolved",
+                    "detail": (
+                        "pinned remote-only model has no immutable commit sha; "
+                        "launch will be blocked until it is re-pinned online"
+                    ),
+                }
+            ],
         }
 
     monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
@@ -1642,7 +1651,11 @@ def test_cli_model_pin_passes_metadata_to_agent(
             "blackbird",
         )
     ]
-    assert result.output == "pinned model\t01MODEL\tllama-pin\n"
+    assert "pinned model\t01MODEL\tllama-pin\n" in result.output
+    assert (
+        "WARNING: pinned remote-only model has no immutable commit sha; "
+        "launch will be blocked until it is re-pinned online"
+    ) in result.output
 
 
 def test_cli_model_pin_passes_optional_model_metadata(

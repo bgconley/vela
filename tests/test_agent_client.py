@@ -6363,6 +6363,11 @@ async def test_agent_pin_model_resolves_default_revision_to_commit_sha(
             "revision-not-found",
             "revision-not-found",
         ),
+        (
+            "RepositoryNotFoundError: 404 Client Error. Repository Not Found",
+            "repo-not-found",
+            "repo-not-found",
+        ),
     ],
 )
 async def test_agent_pin_model_surfaces_hf_resolution_errors(
@@ -6403,6 +6408,74 @@ async def test_agent_pin_model_surfaces_hf_resolution_errors(
         "reason": expected_reason,
     }
     assert not registry_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_agent_pin_model_offline_records_remote_only_with_warning(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def failing_hf_model_info(repo_id: str, revision: str | None = None) -> object:
+        raise RuntimeError("ConnectTimeout: network timed out")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", failing_hf_model_info)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-offline",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            },
+        )
+        write_yaml(
+            config_dir / "offline-model.yaml",
+            f"""
+            name: offline-model
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: 01REMOTE
+            server:
+              port: {unused_tcp_port}
+            """,
+        )
+        with pytest.raises(TargetCallError) as launch_exc:
+            await client.call(
+                "prepare_launch",
+                {"name": "offline-model", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    entry = pinned["entry"]
+    assert entry["commit_sha"] is None
+    assert entry["cache_state"] == "remote_only"
+    assert pinned["warnings"] == [
+        {
+            "kind": "network",
+            "detail": (
+                "network error resolving Hugging Face metadata for "
+                "meta-llama/Llama-3.1-8B-Instruct: ConnectTimeout: network timed out"
+            ),
+        },
+        {
+            "kind": "remote-only-unresolved",
+            "detail": (
+                "pinned remote-only model has no immutable commit sha; "
+                "launch will be blocked until it is re-pinned online"
+            ),
+        },
+    ]
+    assert launch_exc.value.code == "model-unavailable"
+    assert launch_exc.value.details == {
+        "model_ref": entry["entry_id"],
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "revision": None,
+        "reason": "missing-commit",
+    }
 
 
 @pytest.mark.asyncio

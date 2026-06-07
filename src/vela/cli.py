@@ -938,6 +938,7 @@ def model_adopt(
     typer.echo(
         f"adopted model\t{entry.get('entry_id', '')}\t{entry.get('display_name', '')}"
     )
+    _echo_warnings(result.get("warnings", []))
 
 
 @model_app.command("pin")
@@ -1042,6 +1043,7 @@ def model_pin(
     typer.echo(
         f"pinned model\t{entry.get('entry_id', '')}\t{entry.get('display_name', '')}"
     )
+    _echo_warnings(result.get("warnings", []))
 
 
 @model_app.command("verify")
@@ -2127,8 +2129,18 @@ def _echo_deploy_validation_errors_or_exit(validation: dict[str, Any]) -> None:
 
 
 def _echo_warnings(warnings) -> None:
+    if not isinstance(warnings, list):
+        return
     for warning in warnings:
-        typer.echo(f"WARNING: {warning}", err=True)
+        typer.echo(f"WARNING: {_warning_text(warning)}", err=True)
+
+
+def _warning_text(warning: object) -> str:
+    if isinstance(warning, dict):
+        detail = warning.get("detail") or warning.get("message") or warning.get("kind")
+        if detail:
+            return str(detail)
+    return str(warning)
 
 
 def _echo_config_lint_result(result: dict[str, Any]) -> None:

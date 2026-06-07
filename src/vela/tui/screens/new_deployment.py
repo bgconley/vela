@@ -442,6 +442,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             if not executable:
                 raise ValueError("Executable is required for executable runtime")
             spec["runtime"] = {"kind": "executable", "executable": executable}
+        warnings = _warning_texts(self.initial.get("warnings"))
+        if warnings:
+            spec["warnings"] = warnings
         return spec
 
     def _draft_state(self) -> dict[str, Any]:
@@ -480,6 +483,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             revision = self._selected_model_revision(model_ref)
             if revision:
                 draft["revision"] = revision
+        warnings = _warning_texts(self.initial.get("warnings"))
+        if warnings:
+            draft["warnings"] = warnings
         return draft
 
     def _field_value(self, selector: str) -> str:
@@ -877,6 +883,22 @@ def _model_suggestions_summary(payload: dict[str, Any]) -> str:
     if isinstance(sources, list) and sources:
         parts.append("sources " + ", ".join(str(item) for item in sources))
     return "   ".join(parts)
+
+
+def _warning_texts(warnings: object) -> list[str]:
+    if not isinstance(warnings, list):
+        return []
+    texts: list[str] = []
+    for warning in warnings:
+        if isinstance(warning, dict):
+            text = str(
+                warning.get("detail") or warning.get("message") or warning.get("kind") or ""
+            ).strip()
+        else:
+            text = str(warning).strip()
+        if text:
+            texts.append(text)
+    return texts
 
 
 def _initial_runtime_value(initial: dict[str, Any]) -> str:

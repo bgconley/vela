@@ -4618,7 +4618,16 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
                         "cache_state": "remote_only",
                         "gated": True,
                         "token_required": True,
-                    }
+                    },
+                    "warnings": [
+                        {
+                            "kind": "remote-only-unresolved",
+                            "detail": (
+                                "pinned remote-only model has no immutable commit sha; "
+                                "launch will be blocked until it is re-pinned online"
+                            ),
+                        }
+                    ],
                 }
             if method == "download_model":
                 self.download_calls.append(dict(params))
@@ -4713,6 +4722,10 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
             lambda: app.screen.id == "new-deployment-review" and client.events.closed,
             "new deployment review did not open after download-now model handoff",
         )
+        warnings = str(
+            app.screen.query_one("#new-deployment-review-warnings", Static).content
+        )
+        assert "pinned remote-only model has no immutable commit sha" in warnings
 
     assert client.pin_calls == [
         {

@@ -1681,13 +1681,20 @@ class VelaApp(App):
             or "model"
         )
         self.notify(f"Pinned model: {rendered}")
-        await self._resume_new_deployment_with_model(draft, entry, params)
+        await self._resume_new_deployment_with_model(
+            draft,
+            entry,
+            params,
+            warnings=_warning_texts(result.get("warnings")),
+        )
 
     async def _resume_new_deployment_with_model(
         self,
         draft: dict[str, Any],
         entry: dict[str, Any],
         params: dict[str, Any],
+        *,
+        warnings: list[str] | None = None,
     ) -> None:
         model_ref = _model_ref_from_model_entry(entry, params)
         if not model_ref:
@@ -1702,6 +1709,9 @@ class VelaApp(App):
         revision = _model_revision_from_model_entry(entry, params)
         if revision:
             resumed["model_revision"] = revision
+        pin_warnings = list(warnings or [])
+        if pin_warnings:
+            resumed["warnings"] = [*_warning_texts(resumed.get("warnings")), *pin_warnings]
         resumed["step_index"] = 4
         await self._open_new_deployment(initial=resumed)
 
@@ -1876,6 +1886,7 @@ class VelaApp(App):
         entry_id = _optional_str(entry.get("entry_id"))
         rendered = label or entry_id or _optional_str(params.get("entry_id")) or "model"
         self.notify(f"Pinned model: {rendered}")
+        self._record_warnings(_warning_texts(result.get("warnings")))
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
@@ -2521,9 +2532,10 @@ class VelaApp(App):
             self._set_error_text(f"Unable to review deployment: {exc}", style=f"bold {BAD}")
             return
         warnings = [
-            *[str(item) for item in draft.get("warnings") or []],
-            *[str(item) for item in validation.get("warnings") or []],
-            *[str(item) for item in preview.get("warnings") or []],
+            *_warning_texts(params.get("warnings")),
+            *_warning_texts(draft.get("warnings")),
+            *_warning_texts(validation.get("warnings")),
+            *_warning_texts(preview.get("warnings")),
         ]
         derived = draft.get("derived")
         metadata = _preview_metadata(preview)
@@ -4947,6 +4959,20 @@ def _format_validation_errors(payload: dict[str, Any]) -> str:
         else:
             lines.append(str(item))
     return "\n".join(lines)
+
+
+def _warning_texts(warnings: object) -> list[str]:
+    if not isinstance(warnings, list):
+        return []
+    rendered: list[str] = []
+    for warning in warnings:
+        if isinstance(warning, dict):
+            detail = warning.get("detail") or warning.get("message") or warning.get("kind")
+            if detail:
+                rendered.append(str(detail))
+                continue
+        rendered.append(str(warning))
+    return rendered
 
 
 def _draft_config_with_flag_updates(
