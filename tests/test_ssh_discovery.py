@@ -438,6 +438,11 @@ def test_cli_doctor_target_reports_remote_host_state_without_static_nag(
     assert checks["target_version"]["detail"] == f"agent={__version__} controller={__version__}"
     assert "config=/home/bgconley/.config/vela" in checks["target_paths"]["detail"]
     assert "uv=yes" in checks["target_toolchain"]["detail"]
+    assert "cuda=13.0" in checks["target_toolchain"]["detail"]
+    assert "gpu=1 Blackwell" in checks["target_toolchain"]["detail"]
+    assert checks["target_active"]["detail"] == (
+        "build=nightly-cu130 (01ACTIVE) model=none"
+    )
     assert checks["target_auth"]["detail"] == "none"
 
 

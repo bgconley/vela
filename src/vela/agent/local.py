@@ -1780,6 +1780,7 @@ class LocalAgent:
 
     def _diagnose(self, params: dict[str, Any]) -> dict[str, Any]:
         uv_path = _find_uv_executable()
+        gpu_poll = _diagnose_gpu_poll(self.sample_gpus)
         return {
             "host": {
                 "hostname": platform.node(),
@@ -1799,7 +1800,10 @@ class LocalAgent:
                 "python": sys.executable,
                 "uv_available": uv_path is not None,
                 "uv": uv_path,
+                "cuda": _cuda_toolkit_version(),
             },
+            "gpu": _diagnose_gpu_payload(gpu_poll),
+            "active": _diagnose_active_state(self._builds_root),
             "auth": _diagnose_auth_status(),
         }
 
@@ -3276,6 +3280,126 @@ def _default_agent_socket_path() -> Path:
     if runtime_dir:
         return Path(runtime_dir) / "vela" / "agent.sock"
     return Path.home() / ".local" / "state" / "vela" / "agent.sock"
+
+
+def _diagnose_gpu_poll(
+    sampler: Callable[[], GpuPollResult],
+) -> GpuPollResult:
+    try:
+        return sampler()
+    except Exception as exc:
+        return GpuPollResult(
+            [],
+            note=f"GPU stats unavailable: {exc}",
+            unavailable=True,
+        )
+
+
+def _diagnose_gpu_payload(result: GpuPollResult) -> dict[str, Any]:
+    names = [sample.name for sample in result.samples if sample.name]
+    note = result.note or None
+    return {
+        "available": not result.unavailable and bool(result.samples),
+        "count": len(result.samples),
+        "names": names,
+        "architecture": _gpu_architecture_from_names(names),
+        "note": note,
+    }
+
+
+def _gpu_architecture_from_names(names: list[str]) -> str | None:
+    joined = " ".join(names).lower()
+    if "blackwell" in joined:
+        return "Blackwell"
+    if "hopper" in joined or "h100" in joined or "h200" in joined:
+        return "Hopper"
+    if "ada" in joined or "rtx 6000" in joined or "l40" in joined:
+        return "Ada"
+    if "ampere" in joined or "a100" in joined or "a40" in joined or "a6000" in joined:
+        return "Ampere"
+    if "turing" in joined or "t4" in joined:
+        return "Turing"
+    if "volta" in joined or "v100" in joined:
+        return "Volta"
+    return None
+
+
+def _cuda_toolkit_version() -> str | None:
+    env_version = os.environ.get("CUDA_VERSION")
+    if env_version and env_version.strip():
+        return env_version.strip()
+    for env_name in ("CUDA_HOME", "CUDA_PATH"):
+        root = os.environ.get(env_name)
+        if root:
+            version = _cuda_version_from_file(Path(root).expanduser() / "version.txt")
+            if version is not None:
+                return version
+    version = _cuda_version_from_file(Path("/usr/local/cuda/version.txt"))
+    if version is not None:
+        return version
+    nvcc = shutil.which("nvcc")
+    if nvcc is None:
+        return None
+    try:
+        proc = subprocess.run(
+            [nvcc, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    return _cuda_version_from_text(proc.stdout + "\n" + proc.stderr)
+
+
+def _cuda_version_from_file(path: Path) -> str | None:
+    try:
+        return _cuda_version_from_text(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+
+
+def _cuda_version_from_text(text: str) -> str | None:
+    match = re.search(r"release\s+([0-9]+(?:\.[0-9]+)*)", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    match = re.search(r"CUDA\s+Version\s+([0-9]+(?:\.[0-9]+)*)", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _diagnose_active_state(builds_root: Path) -> dict[str, Any]:
+    return {
+        "build": _diagnose_active_build(builds_root),
+        "model": None,
+    }
+
+
+def _diagnose_active_build(builds_root: Path) -> dict[str, Any] | None:
+    try:
+        payload = list_builds(builds_root)
+    except Exception:
+        return None
+    default_build_id = payload.get("default_build_id")
+    if not isinstance(default_build_id, str) or not default_build_id:
+        return None
+    builds = payload.get("builds")
+    if not isinstance(builds, list):
+        return None
+    for build in builds:
+        if not isinstance(build, dict) or build.get("build_id") != default_build_id:
+            continue
+        resolved = build.get("resolved") if isinstance(build.get("resolved"), dict) else {}
+        return {
+            "build_id": default_build_id,
+            "label": str(build.get("label") or ""),
+            "status": str(build.get("status") or "unknown"),
+            "vllm": _optional_str(resolved.get("vllm")),
+            "cuda": _optional_str(resolved.get("cuda")),
+        }
+    return None
 
 
 def _diagnose_auth_status() -> dict[str, str]:

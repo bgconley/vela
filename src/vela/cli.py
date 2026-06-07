@@ -2336,6 +2336,13 @@ def _append_target_report_checks(
     )
     checks.append(
         {
+            "name": "target_active",
+            "ok": True,
+            "detail": parts["active_detail"],
+        }
+    )
+    checks.append(
+        {
             "name": "target_auth",
             "ok": parts["auth_status"] != "malformed-token",
             "detail": parts["auth_status"],
@@ -2351,6 +2358,7 @@ def _target_report_lines(report: dict[str, Any]) -> list[str]:
         f"host\t{parts['host_detail']}",
         f"paths\t{parts['paths_detail']}",
         f"toolchain\t{parts['toolchain_detail']}",
+        f"active\t{parts['active_detail']}",
         f"auth\t{parts['auth_status']}",
     ]
 
@@ -2363,6 +2371,8 @@ def _target_report_parts(report: dict[str, Any]) -> dict[str, str]:
     )
     auth = report.get("auth") if isinstance(report.get("auth"), dict) else {}
     agent_version = str(host.get("vela_version") or "unknown")
+    cuda = str(toolchain.get("cuda") or "unknown")
+    gpu_detail = _target_gpu_detail(report)
     return {
         "agent_version": agent_version,
         "version_detail": f"agent={agent_version} controller={__version__}",
@@ -2380,10 +2390,53 @@ def _target_report_parts(report: dict[str, Any]) -> dict[str, str]:
         "toolchain_detail": (
             f"python={toolchain.get('python', 'unknown')} "
             f"uv={'yes' if toolchain.get('uv_available') else 'no'} "
-            f"driver={host.get('driver', 'unknown')}"
+            f"driver={host.get('driver', 'unknown')} "
+            f"cuda={cuda} "
+            f"gpu={gpu_detail}"
         ),
+        "active_detail": _target_active_detail(report),
         "auth_status": str(auth.get("status") or "unknown"),
     }
+
+
+def _target_gpu_detail(report: dict[str, Any]) -> str:
+    gpu = report.get("gpu") if isinstance(report.get("gpu"), dict) else {}
+    count = gpu.get("count")
+    count_text = str(count) if isinstance(count, int) else "unknown"
+    architecture = str(gpu.get("architecture") or "").strip()
+    if architecture:
+        return f"{count_text} {architecture}"
+    if gpu.get("available") is False:
+        return "unavailable"
+    return count_text
+
+
+def _target_active_detail(report: dict[str, Any]) -> str:
+    active = report.get("active") if isinstance(report.get("active"), dict) else {}
+    build = active.get("build") if isinstance(active.get("build"), dict) else None
+    model = active.get("model") if isinstance(active.get("model"), dict) else None
+    return f"build={_target_build_detail(build)} model={_target_model_detail(model)}"
+
+
+def _target_build_detail(build: dict[str, Any] | None) -> str:
+    if not build:
+        return "none"
+    build_id = str(build.get("build_id") or "").strip()
+    label = str(build.get("label") or "").strip()
+    display = label or build_id or "unknown"
+    if build_id:
+        return f"{display} ({build_id})"
+    return display
+
+
+def _target_model_detail(model: dict[str, Any] | None) -> str:
+    if not model:
+        return "none"
+    for key in ("display_name", "model_ref", "repo_id", "path"):
+        value = str(model.get(key) or "").strip()
+        if value:
+            return value
+    return "unknown"
 
 
 def _target_auth_status_from_error(exc: TargetCallError) -> str | None:

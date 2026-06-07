@@ -214,6 +214,42 @@ def write_fake_ssh_runtime(path: Path) -> None:
                     "                        'uv': getenv('FAKE_SSH_UV', "
                     "'/home/bgconley/.local/bin/uv'),"
                 ),
+                "                        'cuda': getenv('FAKE_SSH_CUDA', '13.0'),",
+                "                    },",
+                "                    'gpu': {",
+                "                        'available': truthy('FAKE_SSH_GPU_AVAILABLE', '1'),",
+                "                        'count': int(getenv('FAKE_SSH_GPU_COUNT', '1')),",
+                (
+                    "                        'names': "
+                    "[getenv('FAKE_SSH_GPU', 'NVIDIA RTX PRO 6000 Blackwell')],"
+                ),
+                (
+                    "                        'architecture': "
+                    "getenv('FAKE_SSH_GPU_ARCH', 'Blackwell'),"
+                ),
+                "                        'note': None,",
+                "                    },",
+                "                    'active': {",
+                "                        'build': {",
+                (
+                    "                            'build_id': "
+                    "getenv('FAKE_SSH_ACTIVE_BUILD_ID', '01ACTIVE'),"
+                ),
+                (
+                    "                            'label': "
+                    "getenv('FAKE_SSH_ACTIVE_BUILD_LABEL', 'nightly-cu130'),"
+                ),
+                (
+                    "                            'status': "
+                    "getenv('FAKE_SSH_ACTIVE_BUILD_STATUS', 'ready'),"
+                ),
+                (
+                    "                            'vllm': "
+                    "getenv('FAKE_SSH_ACTIVE_BUILD_VLLM', '0.20.2rc1.dev9'),"
+                ),
+                "                            'cuda': getenv('FAKE_SSH_ACTIVE_BUILD_CUDA', '13.0'),",
+                "                        },",
+                "                        'model': None,",
                 "                    },",
                 (
                     "                    'auth': {'status': 'none', "

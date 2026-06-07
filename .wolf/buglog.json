@@ -3106,6 +3106,25 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:14:00Z"
+    },
+    {
+      "id": "bug-162",
+      "timestamp": "2026-06-07T06:15:24Z",
+      "error_message": "target diagnose omitted CUDA, GPU architecture, and active build/model state",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "The B4/B5 diagnose surface still returned only host paths, driver, Python, uv, and auth. The controller-side doctor therefore could not show target CUDA toolkit, GPU architecture, or active build/model state even though onboarding requires those agent-owned facts.",
+      "fix": "Add agent-side serializable diagnose helpers for CUDA toolkit detection, GPU summary/architecture, and selected active build, render those fields in CLI target reports, and update the fake SSH harness/tests to cover the wire shape.",
+      "tags": [
+        "diagnose",
+        "onboarding",
+        "ssh",
+        "agent-rpc"
+      ],
+      "related_bugs": [
+        "bug-161"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:15:24Z"
     }
   ]
 }

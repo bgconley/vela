@@ -2933,6 +2933,73 @@ def test_local_agent_diagnose_reports_paths_toolchain_and_auth(
     assert report["auth"]["status"] == "none"
 
 
+def test_local_agent_diagnose_reports_gpu_cuda_and_active_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builds_root = tmp_path / "builds"
+    build_dir = builds_root / "01ACTIVE"
+    build_dir.mkdir(parents=True)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01ACTIVE",
+                "label": "nightly-cu130",
+                "status": "ready",
+                "resolved": {"vllm": "0.20.2rc1.dev9", "cuda": "13.0"},
+                "paths": {"root": str(build_dir), "executable": "bin/vllm"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (builds_root / "active.json").write_text(
+        json.dumps({"schema_version": 1, "build_id": "01ACTIVE", "label": "nightly-cu130"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CUDA_VERSION", "13.0")
+
+    def sampler() -> GpuPollResult:
+        return GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-blackwell",
+                    name="NVIDIA RTX PRO 6000 Blackwell",
+                    memory_used_mb=1024,
+                    memory_total_mb=98304,
+                    utilization_percent=5,
+                    temperature_c=42,
+                    power_w=120,
+                )
+            ]
+        )
+
+    report = LocalAgent(
+        builds_root=builds_root,
+        models_registry_path=tmp_path / "models" / "registry.json",
+        gpu_sampler=sampler,
+    ).handle("diagnose")
+
+    assert report["toolchain"]["cuda"] == "13.0"
+    assert report["gpu"] == {
+        "available": True,
+        "count": 1,
+        "names": ["NVIDIA RTX PRO 6000 Blackwell"],
+        "architecture": "Blackwell",
+        "note": None,
+    }
+    assert report["active"]["build"] == {
+        "build_id": "01ACTIVE",
+        "label": "nightly-cu130",
+        "status": "ready",
+        "vllm": "0.20.2rc1.dev9",
+        "cuda": "13.0",
+    }
+    assert report["active"]["model"] is None
+    json.dumps(report)
+
+
 @pytest.mark.asyncio
 async def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
