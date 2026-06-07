@@ -2516,6 +2516,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-06T07:37:44.366Z"
+    },
+    {
+      "id": "bug-128",
+      "timestamp": "2026-06-07T01:20:00Z",
+      "error_message": "_clone_config wrote literal secrets to cloned configs",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "_clone_config applied source data and overrides, then validated only with ModelConfig before writing. It skipped validate_config_payload, so literal secrets from the source config or clone overrides bypassed the shared secret block.",
+      "fix": "Run validate_config_payload on the finalized clone payload before any clone write; raise invalid-config with validation details and write no destination file when literal secrets are present.",
+      "tags": [
+        "security",
+        "config",
+        "clone",
+        "secret"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T01:20:00Z"
     }
   ]
 }

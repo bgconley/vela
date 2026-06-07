@@ -801,6 +801,121 @@ def test_agent_clones_deployment_with_fresh_runtime_identity(
     assert any(item["field"] == "server.port" for item in result["derived"])
 
 
+def test_agent_clone_config_blocks_literal_secret_overrides(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: Qwen/Qwen3.6-27B-FP8
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+        server:
+          port: 18003
+        """,
+    )
+    agent = LocalAgent()
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(
+            agent,
+            "clone_config",
+            {
+                "configs_dir": str(config_dir),
+                "src_name": "source",
+                "new_name": "copy",
+                "overrides": {"server": {"api_key": "sk-live-secret"}},
+            },
+        )
+
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.details["new_name"] == "copy"
+    validation = exc_info.value.details["validation"]
+    assert validation["ok"] is False
+    assert validation["errors"] == [
+        {
+            "field": "server.api_key",
+            "message": "contains a literal secret; prefer target env injection",
+        }
+    ]
+    assert not (config_dir / "copy.yaml").exists()
+
+
+def test_agent_clone_config_blocks_literal_secret_from_source(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: Qwen/Qwen3.6-27B-FP8
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+        env:
+          HF_TOKEN: hf_live_secret
+        server:
+          port: 18003
+        """,
+    )
+    agent = LocalAgent()
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(
+            agent,
+            "clone_config",
+            {
+                "configs_dir": str(config_dir),
+                "src_name": "source",
+                "new_name": "copy",
+            },
+        )
+
+    assert exc_info.value.code == "invalid-config"
+    validation = exc_info.value.details["validation"]
+    assert validation["ok"] is False
+    assert validation["errors"] == [
+        {
+            "field": "env.HF_TOKEN",
+            "message": "contains a literal secret; prefer target env injection",
+        }
+    ]
+    assert not (config_dir / "copy.yaml").exists()
+
+
+def test_agent_clone_config_writes_clean_config(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: Qwen/Qwen3.6-27B-FP8
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+        server:
+          port: 18003
+        """,
+    )
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "clone_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "source",
+            "new_name": "copy",
+        },
+    )
+
+    path = Path(result["path"])
+    assert path == config_dir / "copy.yaml"
+    assert path.exists()
+    assert (path.stat().st_mode & 0o777) == 0o644
+    assert result["config"]["name"] == "copy"
+
+
 def test_agent_clones_docker_config_with_fresh_container_name_from_docker_ps(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

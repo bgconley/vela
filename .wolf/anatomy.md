@@ -1,13 +1,18 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-06T22:50:04.693Z
-> Files: 84 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T01:04:51.296Z
+> Files: 88 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
 - `capture_screens.py` — MinimalAgent: log, handle, subscribe, connected + 12 more (~4772 tok)
 - `digest.py` — trim (~977 tok)
 - `digest7.py` — trim (~1055 tok)
+- `digest8.py` — trim (~1068 tok)
+
+## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/workflows/scripts/
+
+- `vela-review-r8-completion-audit-wf_4624cdbd-3cf.js` — Exports meta (~5928 tok)
 
 ## ./
 
@@ -20,10 +25,12 @@
 - `vela-deployment-composer-user-stories-v1.md` — Vela — Deployment Composer & Docker Runtime — User Stories (v1) (~2600 tok)
 - `vela-docker-composer-review-findings-v6.md` — Vela — Docker Runtime + Deployment Composer Review (Findings v6) — 2026-06-06 (~4168 tok)
 - `vela-docker-composer-review-findings-v7.md` — Vela — Review v7: Validating the Coder's Spec-Check + Reassessment — 2026-06-06 (~3427 tok)
+- `vela-docker-composer-review-findings-v8.md` — Vela — Review v8: Adversarial Completion Audit ("coder asserts complete") — 2026-06-06 (~3243 tok)
 - `vela-docker-runtime-examples-v1.md` — Vela — Docker Runtime — Worked Examples (DK4 anchor): Blackbird Qwen3.6 27B FP8 & BF16 (~3741 tok)
 - `vela-docker-runtime-spec-v1.md` — Vela — Docker Runtime (First-Class Container Deployments) — Feature Specification (v1) (~5157 tok)
 - `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)
 - `vela-session-context-2026-06-06.md` — Vela — Session Context & Handoff (2026‑06‑04 → 2026‑06‑06) — COMPREHENSIVE (~10608 tok)
+- `vela-v1-completion-punchlist.md` — Vela — v1 Completion Punchlist & Coder Handoff (~10796 tok)
 - `vllm-agent-architecture-review-punchlist-v2.md` — vLLM Agent Architecture — Implementation Review Punch List **v2** (~3031 tok)
 - `vllm-agent-architecture-review-punchlist-v3.md` — vLLM Agent Architecture — Implementation Review Punch List **v3** (~2134 tok)
 - `vllm-agent-architecture-review-punchlist-v4.md` — vLLM Agent Architecture — Implementation Review Punch List **v4** (~1633 tok)

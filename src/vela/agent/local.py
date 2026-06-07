@@ -853,6 +853,18 @@ class LocalAgent:
                 f"cloned config is invalid: {exc}",
                 {"src_name": src_name, "new_name": new_name},
             ) from exc
+        normalized = cfg.model_dump(mode="json", exclude_none=True)
+        validation = validate_config_payload(normalized)
+        if validation.get("ok") is not True:
+            raise TargetCallError(
+                "invalid-config",
+                "cloned config is invalid",
+                {
+                    "src_name": src_name,
+                    "new_name": new_name,
+                    "validation": validation,
+                },
+            )
         config_path = Path(configs_dir).expanduser() / f"{_safe_config_file_stem(new_name)}.yaml"
         if config_path.exists() and not bool(params.get("overwrite")):
             raise TargetCallError(
@@ -863,7 +875,7 @@ class LocalAgent:
         _write_public_text_atomic(
             config_path,
             yaml.safe_dump(
-                cfg.model_dump(mode="json", exclude_none=True),
+                normalized,
                 sort_keys=False,
             ),
         )
@@ -872,6 +884,7 @@ class LocalAgent:
             "path": str(config_path),
             "config": cfg.model_dump(mode="json"),
             "derived": derived,
+            "warnings": list(validation.get("warnings") or []),
         }
 
     def _delete_config(self, params: dict[str, Any]) -> dict[str, Any]:
