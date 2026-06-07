@@ -319,7 +319,14 @@ def test_agent_composes_blackbird_qwen36_fp8_from_lab_recipe(config_dir: Path) -
     assert "64424509440" in config["extra_args"]
     assert config["launch"]["ready_timeout_seconds"] == 1800
     assert config["launch"]["runs_dir"] == "/home/bgconley/models/qwen36-27b-fp8-rp6000/vela-runs"
-    assert config["vllm"]["version_profile"] == "0.11"
+    assert config["vllm"] | {"require_flags": []} == {
+        "version_profile": "current",
+        "version": "0.20.2rc1.dev9+g01d4d1ad3",
+        "transformers_version": "5.7.0",
+        "torch_version": "2.11.0+cu130",
+        "cuda_version": "13.0",
+        "require_flags": [],
+    }
     assert "blackwell-fp8-runtime-recipe-required" not in result["warnings"]
     assert any(
         item["field"] == "deployment.recipe"
@@ -725,6 +732,13 @@ def test_agent_lists_lab_deployment_recipes_for_tui() -> None:
     assert bf16["model"] == "Qwen/Qwen3.6-27B"
     assert bf16["server"]["port"] == 18002
     assert bf16["engine"]["kv_cache_dtype"] == "bfloat16"
+    assert bf16["vllm"] == {
+        "version_profile": "current",
+        "version": "0.20.2rc1.dev9+g01d4d1ad3",
+        "transformers_version": "5.7.0",
+        "torch_version": "2.11.0+cu130",
+        "cuda_version": "13.0",
+    }
     assert "--kv-cache-memory-bytes" not in bf16["extra_args"]
     assert "FLASHINFER_CUDA_ARCH_LIST" not in bf16["docker"]["env"]
     assert bf16["source_artifacts"] == [

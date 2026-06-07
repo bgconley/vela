@@ -27,6 +27,13 @@ BLACKBIRD_QWEN36_IMAGE = (
     "vllm/vllm-openai@sha256:"
     "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
 )
+BLACKBIRD_QWEN36_VLLM_STACK = {
+    "version_profile": "current",
+    "version": "0.20.2rc1.dev9+g01d4d1ad3",
+    "transformers_version": "5.7.0",
+    "torch_version": "2.11.0+cu130",
+    "cuda_version": "13.0",
+}
 
 
 @dataclass(frozen=True)
@@ -182,7 +189,7 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
                 "qwen36-27b-fp8-bf16-stack-redeploy-blackbird-20260528.md"
             ),
         ),
-        vllm={"version_profile": "0.11"},
+        vllm=BLACKBIRD_QWEN36_VLLM_STACK,
     ),
     DeploymentRecipe(
         key="blackbird-qwen36-27b-bf16-rp6000",
@@ -239,7 +246,7 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
             "infx/qwen36-27b-test/start-qwen36-bf16-rp6000-blackbird.sh",
             "infx/qwen36-27b-test/qwen-bf16-rp6000-blackbird-reload-20260509.md",
         ),
-        vllm={"version_profile": "0.11"},
+        vllm=BLACKBIRD_QWEN36_VLLM_STACK,
     ),
 )
 

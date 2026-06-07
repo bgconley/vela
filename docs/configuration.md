@@ -158,7 +158,10 @@ Important fields:
 - `launch.mode`: compatibility label; all agent launches are supervised.
 - `launch.runs_dir`: optional target-local run artifact directory.
 - `launch.ready_timeout_seconds`: launch readiness timeout.
-- `vllm.version_profile`: optional profile hint.
+- `vllm.version_profile`: optional flag-compatibility profile hint. This is
+  not necessarily the runtime package version inside a pinned Docker image.
+- `vllm.version`, `vllm.transformers_version`, `vllm.torch_version`,
+  `vllm.cuda_version`: optional provenance for a known-good runtime stack.
 
 ## Precedence
 

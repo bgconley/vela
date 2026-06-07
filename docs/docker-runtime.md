@@ -36,6 +36,14 @@ hardware. Hugging Face metadata is advisory for model identity and broad model
 defaults only; it must not replace the local Blackwell recipe when selecting
 the vLLM build/container shape.
 
+The current Qwen3.6 Blackbird recipes use the pinned
+`vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046`
+image, proven in local run records with vLLM
+`0.20.2rc1.dev9+g01d4d1ad3`, Transformers `5.7.0`, Torch
+`2.11.0+cu130`, and CUDA `13.0`. Saved configs record `version_profile:
+current` because the profile is a Vela flag-compatibility hint, not a claim
+that the Docker image contains an older package release.
+
 ## Config Shape
 
 ```yaml
@@ -66,6 +74,12 @@ command:
       FLASHINFER_CUDA_ARCH_LIST: 12.0f
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     extra_run_args: [--ulimit, memlock=-1, --ulimit, stack=67108864]
+vllm:
+  version_profile: current
+  version: 0.20.2rc1.dev9+g01d4d1ad3
+  transformers_version: 5.7.0
+  torch_version: 2.11.0+cu130
+  cuda_version: "13.0"
 ```
 
 FP8 and BF16 Blackbird configs intentionally differ:

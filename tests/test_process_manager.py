@@ -197,6 +197,15 @@ def test_config_snapshot_scrubs_generic_secret_patterns(tmp_path: Path) -> None:
     assert explicit_cwd["command"]["cwd"] == str(tmp_path)
 
 
+def test_config_snapshot_omits_empty_vllm_provenance_fields() -> None:
+    cfg = ModelConfig.model_validate({"name": "detached", "model": "fake/model"})
+
+    snapshot = _scrub_config_snapshot(cfg, secrets=[])
+
+    assert snapshot["server"]["api_key"] is None
+    assert snapshot["vllm"] == {"require_flags": []}
+
+
 def test_detached_launch_uses_requested_run_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

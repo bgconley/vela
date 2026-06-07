@@ -347,7 +347,7 @@ def _log_tail(path: Path | None, *, limit: int = 1000) -> str:
 def _scrub_config_snapshot(
     cfg: ModelConfig, *, secrets: list[str] | tuple[str, ...] = ()
 ) -> dict:
-    snapshot = cfg.model_dump(mode="json")
+    snapshot = _prune_none_values(cfg.model_dump(mode="json"))
     command = snapshot.get("command")
     if isinstance(command, dict) and command.get("cwd") is None:
         command.pop("cwd", None)
@@ -357,6 +357,18 @@ def _scrub_config_snapshot(
     if isinstance(env, dict):
         snapshot["env"] = {key: value for key, value in env.items() if not _looks_secret_key(key)}
     return _scrub_secret_values(snapshot, tuple(secret for secret in secrets if secret))
+
+
+def _prune_none_values(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_prune_none_values(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _prune_none_values(item)
+            for key, item in value.items()
+            if item is not None
+        }
+    return value
 
 
 def _scrub_secret_values(value: Any, secrets: tuple[str, ...]) -> Any:

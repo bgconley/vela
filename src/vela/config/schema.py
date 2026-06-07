@@ -139,6 +139,10 @@ class VllmConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version_profile: str | None = None
+    version: str | None = None
+    transformers_version: str | None = None
+    torch_version: str | None = None
+    cuda_version: str | None = None
     require_flags: list[str] = Field(default_factory=list)
 
 

@@ -29,7 +29,10 @@ Current Blackbird recipes are available from the TUI recipe picker and from
 
 Each recipe payload includes `source_artifacts` entries pointing to the local
 deployment script and run record that justify the vLLM image, backend, cache, and
-memory shape.
+memory shape. The Qwen3.6 Blackbird recipes currently record the proven image
+stack as vLLM `0.20.2rc1.dev9+g01d4d1ad3`, Transformers `5.7.0`, Torch
+`2.11.0+cu130`, and CUDA `13.0`; `version_profile: current` remains only the
+Vela flag-compatibility profile.
 
 The legacy `scripts/blackbird_qwen36_*_foreground.sh` wrappers remain as recipe
 provenance and manual comparison tools. Active Vela configs should use native

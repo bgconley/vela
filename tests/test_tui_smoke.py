@@ -10845,7 +10845,7 @@ async def test_command_palette_reattaches_detached_run(config_dir: Path, tmp_pat
                 app, "Reattach detached run: detached"
             )
             reattach.callback()
-            await _wait_for_phase(app, Phase.READY)
+            await _wait_for_phase(app, Phase.READY, pilot=pilot)
             assert app.reattached_run_id == launch.run_id
             assert any("Uvicorn running" in line for line in app.log_lines)
     finally:
@@ -11372,7 +11372,7 @@ async def test_stop_after_detached_reattach_signals_verified_run(
         async with app.run_test() as pilot:
             await pilot.pause()
             await _reattach_discovered_target_run(app, launch.run_id)
-            await _wait_for_phase(app, Phase.READY)
+            await _wait_for_phase(app, Phase.READY, pilot=pilot)
             await pilot.press("s")
             await _wait_for_port_down(port)
     finally:
@@ -11413,7 +11413,7 @@ async def test_detach_after_reattach_leaves_detached_server_running(
         async with app.run_test() as pilot:
             await pilot.pause()
             await _reattach_discovered_target_run(app, launch.run_id)
-            await _wait_for_phase(app, Phase.READY)
+            await _wait_for_phase(app, Phase.READY, pilot=pilot)
 
             commands = list(app.get_system_commands(app.screen))
             assert "Detach from detached run" in {command.title for command in commands}
@@ -12786,13 +12786,21 @@ async def _wait_for_log_count(app: VelaApp, text: str, count: int) -> None:
     raise AssertionError(f"log line {text!r} did not reach count {count}")
 
 
-async def _wait_for_phase(app: VelaApp, phase: Phase) -> None:
+async def _wait_for_phase(app: VelaApp, phase: Phase, *, pilot=None) -> None:
     deadline = asyncio.get_running_loop().time() + 5
     while asyncio.get_running_loop().time() < deadline:
         if app.phase is phase:
             return
-        await asyncio.sleep(0.05)
-    raise AssertionError(f"phase {phase.value} was not reached")
+        if pilot is not None:
+            await pilot.pause()
+        else:
+            await asyncio.sleep(0.05)
+    log_tail = "\n".join(app.log_lines[-5:])
+    raise AssertionError(
+        f"phase {phase.value} was not reached; "
+        f"current={app.phase.value} error={app.error_text!r} health={app.health_detail!r} "
+        f"log_tail={log_tail!r}"
+    )
 
 
 async def _wait_for_log_text(path: Path, text: str) -> None:

@@ -96,4 +96,8 @@ launch:
     interval_seconds: 2
   runs_dir: /home/bgconley/models/qwen36-27b-fp8-rp6000/vela-runs
 vllm:
-  version_profile: "0.11"
+  version_profile: current
+  version: 0.20.2rc1.dev9+g01d4d1ad3
+  transformers_version: 5.7.0
+  torch_version: 2.11.0+cu130
+  cuda_version: "13.0"

@@ -22,6 +22,10 @@ def test_blackbird_qwen36_fp8_config_uses_native_docker_runtime() -> None:
     assert cfg.command.runtime is RuntimeKind.DOCKER
     assert cfg.command.docker is not None
     assert cfg.command.docker.container_name == "qwen36-27b-fp8-kvfp8-rp6000-vela"
+    assert cfg.vllm.version_profile == "current"
+    assert cfg.vllm.version == "0.20.2rc1.dev9+g01d4d1ad3"
+    assert cfg.vllm.torch_version == "2.11.0+cu130"
+    assert cfg.vllm.cuda_version == "13.0"
     assert build.metadata["runtime"] == "docker"
     assert build.argv[:5] == [
         "docker",
@@ -55,6 +59,10 @@ def test_blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins() -> N
     assert cfg.command.runtime is RuntimeKind.DOCKER
     assert cfg.command.docker is not None
     assert cfg.command.docker.container_name == "qwen36-27b-bf16-rp6000-vela"
+    assert cfg.vllm.version_profile == "current"
+    assert cfg.vllm.version == "0.20.2rc1.dev9+g01d4d1ad3"
+    assert cfg.vllm.torch_version == "2.11.0+cu130"
+    assert cfg.vllm.cuda_version == "13.0"
     assert build.metadata["runtime"] == "docker"
     image_index = build.argv.index(cfg.command.docker.image)
     assert build.argv[image_index + 1] == "Qwen/Qwen3.6-27B"

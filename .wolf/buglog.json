@@ -3164,6 +3164,44 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:32:13Z"
+    },
+    {
+      "id": "bug-165",
+      "timestamp": "2026-06-07T06:45:04Z",
+      "error_message": "Blackbird Qwen recipes carried a stale vLLM 0.11 profile label for a proven 0.20.2rc1/cu130 Docker stack",
+      "file": "src/vela/engine/composer.py",
+      "root_cause": "The copied Blackbird launch shape used the correct pinned Docker image, cache mounts, FP8/BF16 memory shape, and backend flags, but recipe/config metadata still set `vllm.version_profile: 0.11`. That made the saved configs imply the wrong runtime stack even though the local deployment records prove vLLM 0.20.2rc1.dev9, Transformers 5.7.0, Torch 2.11.0+cu130, and CUDA 13.0.",
+      "fix": "Add explicit vLLM stack provenance fields to the config schema, switch the Blackbird Qwen recipe/config profile hint to `current`, and record the proven vLLM/Transformers/Torch/CUDA stack in recipes, checked-in YAML, docs, and regression tests.",
+      "tags": [
+        "blackwell",
+        "composer",
+        "docker",
+        "provenance"
+      ],
+      "related_bugs": [
+        "bug-164"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:45:04Z"
+    },
+    {
+      "id": "bug-166",
+      "timestamp": "2026-06-07T06:58:20Z",
+      "error_message": "detached reattach failed when sidecar config snapshots serialized new optional vLLM provenance fields as null",
+      "file": "src/vela/engine/process_manager.py",
+      "root_cause": "The detached supervisor sidecar snapshot dumped every optional config field. After adding vLLM provenance fields, snapshots included `vllm.version`, `vllm.transformers_version`, `vllm.torch_version`, and `vllm.cuda_version` as null. Out-of-process agents with an older or slimmer schema rejected those null keys while hydrating detached runs.",
+      "fix": "Prune null values from detached config snapshots before redaction, while preserving the intentional scrubbed `server.api_key: null` marker, and add regression coverage for the vLLM snapshot shape plus detached reattach waits.",
+      "tags": [
+        "detached",
+        "reattach",
+        "schema-compat",
+        "tests"
+      ],
+      "related_bugs": [
+        "bug-165"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:58:20Z"
     }
   ]
 }
