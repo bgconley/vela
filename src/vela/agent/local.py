@@ -1803,7 +1803,10 @@ class LocalAgent:
                 "cuda": _cuda_toolkit_version(),
             },
             "gpu": _diagnose_gpu_payload(gpu_poll),
-            "active": _diagnose_active_state(self._builds_root),
+            "active": _diagnose_active_state(
+                self._builds_root,
+                self._verified_live_sidecars(),
+            ),
             "auth": _diagnose_auth_status(),
         }
 
@@ -3370,10 +3373,13 @@ def _cuda_version_from_text(text: str) -> str | None:
     return None
 
 
-def _diagnose_active_state(builds_root: Path) -> dict[str, Any]:
+def _diagnose_active_state(
+    builds_root: Path,
+    live_sidecars: list[Sidecar] | None = None,
+) -> dict[str, Any]:
     return {
         "build": _diagnose_active_build(builds_root),
-        "model": None,
+        "model": _diagnose_active_model(live_sidecars or []),
     }
 
 
@@ -3398,6 +3404,24 @@ def _diagnose_active_build(builds_root: Path) -> dict[str, Any] | None:
             "status": str(build.get("status") or "unknown"),
             "vllm": _optional_str(resolved.get("vllm")),
             "cuda": _optional_str(resolved.get("cuda")),
+        }
+    return None
+
+
+def _diagnose_active_model(live_sidecars: list[Sidecar]) -> dict[str, Any] | None:
+    for sidecar in live_sidecars:
+        served_model_name = sidecar.served_model_names[0] if sidecar.served_model_names else None
+        return {
+            "run_id": sidecar.run_id,
+            "config_name": sidecar.config_name,
+            "served_model_name": served_model_name,
+            "model_ref": sidecar.model_ref,
+            "entry_id": sidecar.model_entry_id,
+            "repo_id": sidecar.model_repo_id,
+            "revision": sidecar.model_commit_sha or sidecar.model_revision,
+            "runtime": sidecar.runtime,
+            "host": sidecar.host,
+            "port": sidecar.port,
         }
     return None
 

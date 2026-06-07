@@ -2,14 +2,14 @@
   "version": 1,
   "created_at": "2026-06-02T04:55:09.315Z",
   "lifetime": {
-    "total_tokens_estimated": 6236140,
-    "total_reads": 4430,
-    "total_writes": 914,
+    "total_tokens_estimated": 6354703,
+    "total_reads": 4539,
+    "total_writes": 928,
     "total_sessions": 6,
-    "anatomy_hits": 1737,
-    "anatomy_misses": 2651,
-    "repeated_reads_blocked": 20616,
-    "estimated_savings_vs_bare_cli": 20416715
+    "anatomy_hits": 1763,
+    "anatomy_misses": 2733,
+    "repeated_reads_blocked": 21893,
+    "estimated_savings_vs_bare_cli": 21504784
   },
   "sessions": [
     {
@@ -32243,6 +32243,747 @@
         "writes_count": 13,
         "repeated_reads_blocked": 1145,
         "anatomy_lookups": 25
+      }
+    },
+    {
+      "id": "session-2026-06-06-1516",
+      "started": "2026-06-06T19:16:21.146Z",
+      "ended": "2026-06-07T08:00:56.638Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-06.md",
+          "tokens_estimated": 10608,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconble-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/b7u0xav28.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/b7u0xav28.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-runtime-spec-v1.md",
+          "tokens_estimated": 5157,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-deployment-composer-spec-v1.md",
+          "tokens_estimated": 4930,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-deployment-composer-user-stories-v1.md",
+          "tokens_estimated": 2600,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-deployment-composer-implementation-plan-v1.md",
+          "tokens_estimated": 3549,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-runtime-examples-v1.md",
+          "tokens_estimated": 3741,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/docker_runtime.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/sidecar.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docker_supervisor.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_sidecar.py",
+          "tokens_estimated": 900,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/config/schema.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/rpc_errors.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/client.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/command_builder.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/composer.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/screens/new_deployment.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_deployment_composer.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/process_manager.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/redaction.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 1150,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/configs/qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/configs/qwen36-27b-bf16-rp6000-blackbird.yaml",
+          "tokens_estimated": 327,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 1500,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_blackbird_config.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 950,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/phases.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/log_sink.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/screens/help.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-bf16-9b107b4.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/scripts/blackbird_qwen36_bf16_vllm_foreground.sh",
+          "tokens_estimated": 1267,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/screens/flag_manager.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_rpc_framing.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/tool-results/bvu9cqkze.txt",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-onboarding-ux-spec-v1.md",
+          "tokens_estimated": 3042,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v6.md",
+          "tokens_estimated": 4168,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/b7lzehfsa.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/deployments.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/.github/workflows/remote-validation.yml",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vllm-model-management-spec-v1.md",
+          "tokens_estimated": 12230,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/config/targets.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/auth.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/infx/qwen36-27b-test/start-qwen36-27b-fp8-rp6000-blackbird.sh",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/scripts/run_remote_tests.sh",
+          "tokens_estimated": 320,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/stdio.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/socket.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/fakes/fake_docker.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/fixtures/docker_logs/ready-with-secret.log",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/tool-results/bgppicjqr.txt",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/workflows/scripts/vela-review-r8-completion-audit-wf_4624cdbd-3cf.js",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v7.md",
+          "tokens_estimated": 3427,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/scripts/backend_evidence_check.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_remote_workflow.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_targets.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_transport_factory.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/subprocess.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconith/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/tool-results/b698yd0yj.txt",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-v1-completion-punchlist.md",
+          "tokens_estimated": 10796,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/ssh_discovery.py",
+          "tokens_estimated": 1500,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_ssh_discovery.py",
+          "tokens_estimated": 1200,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/fakes/fake_ssh.py",
+          "tokens_estimated": 950,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_fake_ssh.py",
+          "tokens_estimated": 1150,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/__main__.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconille/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/b5nr96pke.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/bu5o7jm30.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/remediation.py",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_remediation.py",
+          "tokens_estimated": 450,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/tool-results/brlyfsytl.txt",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/ssh_setup.py",
+          "tokens_estimated": 220,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/ssh_bootstrap.py",
+          "tokens_estimated": 700,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/screens/target_manager.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 330,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/btbjgexc9.output",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconije/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/fakes/fake_ssh.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/bzgifoln3.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/btpvl92q4.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest10.txt",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v10.md",
+          "tokens_estimated": 3122,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-07-p620-blackbird-native-docker-fp8-63b73b3.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-07-p620-blackbird-native-docker-bf16-63b73b3.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-07T07-01-42Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-07T06-56-01Z-bgconley-10.25.0.50-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/scripts/blackbird_qwen36_vllm_foreground.sh",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-07-p620-blackbird-native-docker-fp8-cb1eed8-retry2.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-07T06-35-55Z-bgconley-10.25.0.50-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/monitoring/gpu.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/b7icx1xg1.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/b713nosbr.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/scripts/real_model_resume_check.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconije/vibecode/lab-tui/tests/test_remote_workflow.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconille/vibecode/lab-tui/tests/fakes/fake_ssh.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/1ec9bb76-595e-49e9-87bc-eedcf3441d70/tasks/bokflmbbk.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest11.txt",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest.py",
+          "tokens_estimated": 954,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest.py",
+          "tokens_estimated": 69,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v6.md",
+          "tokens_estimated": 4763,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest7.py",
+          "tokens_estimated": 1055,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v7.md",
+          "tokens_estimated": 3917,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/workflows/scripts/vela-review-r8-completion-audit-wf_4624cdbd-3cf.js",
+          "tokens_estimated": 33,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest8.py",
+          "tokens_estimated": 1068,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v8.md",
+          "tokens_estimated": 3707,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-v1-completion-punchlist.md",
+          "tokens_estimated": 12338,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/.claude/jobs/1ec9bb76/tmp/digest9.py",
+          "tokens_estimated": 947,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v9.md",
+          "tokens_estimated": 2854,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v10.md",
+          "tokens_estimated": 3329,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v10.md",
+          "tokens_estimated": 298,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-docker-composer-review-findings-v11.md",
+          "tokens_estimated": 2947,
+          "action": "create"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 80284,
+        "output_tokens_estimated": 38279,
+        "reads_count": 109,
+        "writes_count": 14,
+        "repeated_reads_blocked": 1277,
+        "anatomy_lookups": 26
       }
     }
   ],

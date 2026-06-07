@@ -187,6 +187,16 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "            if report:",
                 "                result = json.loads(report)",
                 "            else:",
+                (
+                    "                auth_status = 'required+provided' "
+                    "if truthy('FAKE_SSH_AGENT_AUTH_REQUIRED') "
+                    "and getenv('FAKE_SSH_EXPECTED_AGENT_TOKEN') else 'none'"
+                ),
+                (
+                    "                auth_detail = 'agent token accepted' "
+                    "if auth_status == 'required+provided' "
+                    "else 'no agent token required'"
+                ),
                 "                result = {",
                 "                    'host': {",
                 "                        'hostname': getenv('FAKE_SSH_HOSTNAME', 'fake-remote'),",
@@ -251,10 +261,7 @@ def write_fake_ssh_runtime(path: Path) -> None:
                 "                        },",
                 "                        'model': None,",
                 "                    },",
-                (
-                    "                    'auth': {'status': 'none', "
-                    "'detail': 'no agent token required'},"
-                ),
+                "                    'auth': {'status': auth_status, 'detail': auth_detail},",
                 "                }",
                 "            print(json.dumps({'id': request_id, 'result': result}), flush=True)",
                 "            continue",

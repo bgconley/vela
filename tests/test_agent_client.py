@@ -2957,6 +2957,36 @@ def test_local_agent_diagnose_reports_gpu_cuda_and_active_state(
         json.dumps({"schema_version": 1, "build_id": "01ACTIVE", "label": "nightly-cu130"}),
         encoding="utf-8",
     )
+    sidecar_path = tmp_path / "runs" / "live-qwen.json"
+    live_sidecar = Sidecar(
+        run_id="run-live-qwen",
+        config_name="qwen-live",
+        model_ref="qwen36-fp8",
+        model_entry_id="01QWEN",
+        model_repo_id="Qwen/Qwen3.6-27B-FP8",
+        model_revision="abc123",
+        command_argv=["docker", "run", "vllm/vllm-openai@sha256:abc"],
+        command_hash="sha256:test",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="docker",
+        cwd=str(tmp_path),
+        launch_mode="attached",
+        host="0.0.0.0",
+        port=18003,
+        served_model_names=["qwen36-27b-fp8-kvfp8-rp6000"],
+        exposure="lan",
+        manifest_path=str(tmp_path / "runs" / "live-qwen.manifest.json"),
+        runtime="docker",
+    )
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: live_sidecar)
     monkeypatch.setenv("CUDA_VERSION", "13.0")
 
     def sampler() -> GpuPollResult:
@@ -2996,7 +3026,18 @@ def test_local_agent_diagnose_reports_gpu_cuda_and_active_state(
         "vllm": "0.20.2rc1.dev9",
         "cuda": "13.0",
     }
-    assert report["active"]["model"] is None
+    assert report["active"]["model"] == {
+        "run_id": "run-live-qwen",
+        "config_name": "qwen-live",
+        "served_model_name": "qwen36-27b-fp8-kvfp8-rp6000",
+        "model_ref": "qwen36-fp8",
+        "entry_id": "01QWEN",
+        "repo_id": "Qwen/Qwen3.6-27B-FP8",
+        "revision": "abc123",
+        "runtime": "docker",
+        "host": "0.0.0.0",
+        "port": 18003,
+    }
     json.dumps(report)
 
 

@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T05:45:43.529Z
-> Files: 100 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T08:00:13.859Z
+> Files: 101 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
@@ -25,6 +25,7 @@
 - `vela-deployment-composer-spec-v1.md` — Vela — Deployment Composer — Feature Specification & Implementation Plan (v1) (~4930 tok)
 - `vela-deployment-composer-user-stories-v1.md` — Vela — Deployment Composer & Docker Runtime — User Stories (v1) (~2600 tok)
 - `vela-docker-composer-review-findings-v10.md` — Vela — Review v10: Near-Complete Punchlist Execution — 2026-06-07 (~3122 tok)
+- `vela-docker-composer-review-findings-v11.md` — Vela — Review v11: Punchlist Tail Close-Out (essentially v1-complete) — 2026-06-07 (~2579 tok)
 - `vela-docker-composer-review-findings-v6.md` — Vela — Docker Runtime + Deployment Composer Review (Findings v6) — 2026-06-06 (~4168 tok)
 - `vela-docker-composer-review-findings-v7.md` — Vela — Review v7: Validating the Coder's Spec-Check + Reassessment — 2026-06-06 (~3427 tok)
 - `vela-docker-composer-review-findings-v8.md` — Vela — Review v8: Adversarial Completion Audit ("coder asserts complete") — 2026-06-06 (~3243 tok)
@@ -75,6 +76,10 @@
 - `qwen3-32b-fp8-62001.yaml` — host-specific 620-01 real Qwen3 FP8 vLLM smoke config (~190 tok)
 - `qwen36-27b-bf16-rp6000-blackbird.yaml` (~327 tok)
 - `real-vllm.example.yaml` — real vLLM GPU-host example config template (~160 tok)
+
+## artifacts/remote-validation/
+
+- `2026-06-07T08-07-22Z-bootstrap-and-hf-blackwell-recipe-audit.md` — fake-SSH bootstrap acceptance plus HF metadata boundary against local Blackwell recipes (~950 tok)
 
 ## docs/
 

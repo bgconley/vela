@@ -3301,6 +3301,42 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T07:38:00Z"
+    },
+    {
+      "id": "bug-172",
+      "timestamp": "2026-06-07T08:07:22Z",
+      "error_message": "doctor reported active_model as none even when the agent had a verified live sidecar",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "The diagnose active-state payload populated active_build from the build registry but left active_model as a hardcoded None stub instead of deriving it from verified agent-side sidecars.",
+      "fix": "Derive active_model from verified live sidecars inside the target agent and return only serializable model/run fields for doctor rendering.",
+      "tags": [
+        "doctor",
+        "diagnose",
+        "active-model",
+        "agent"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T08:07:22Z"
+    },
+    {
+      "id": "bug-173",
+      "timestamp": "2026-06-07T08:07:22Z",
+      "error_message": "backend evidence checker silently skipped unregistered Blackbird BF16-shaped configs",
+      "file": "scripts/backend_evidence_check.py",
+      "root_cause": "The fail-closed unregistered-config guard only recognized FP8 Blackbird shapes. A BF16 config using the pinned Blackbird Docker image and bfloat16 KV cache could be renamed and return BACKEND_EVIDENCE_SKIPPED.",
+      "fix": "Add a BF16 Blackbird shape predicate so unregistered pinned-image bfloat16 KV configs raise a backend evidence error instead of skipping.",
+      "tags": [
+        "backend-evidence",
+        "bf16",
+        "blackwell",
+        "remote-validation"
+      ],
+      "related_bugs": [
+        "bug-171"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T08:07:22Z"
     }
   ]
 }

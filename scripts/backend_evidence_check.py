@@ -102,9 +102,11 @@ def validate_backend_evidence(
 ) -> dict[str, Any]:
     rule = BACKEND_EVIDENCE_RULES.get(config_name)
     if rule is None:
-        if _looks_like_blackbird_fp8_config(config):
+        if _looks_like_blackbird_fp8_config(config) or _looks_like_blackbird_bf16_config(
+            config
+        ):
             raise BackendEvidenceError(
-                f"unregistered backend evidence rule for Blackbird FP8 config: {config_name}"
+                f"unregistered backend evidence rule for Blackbird config: {config_name}"
             )
         return {
             "checked": False,
@@ -208,6 +210,17 @@ def _looks_like_blackbird_fp8_config(config: dict[str, Any]) -> bool:
             docker.get("image") == BLACKBIRD_QWEN36_IMAGE
             or str(docker_env.get("FLASHINFER_CUDA_ARCH_LIST") or "") == "12.0f"
         )
+    )
+
+
+def _looks_like_blackbird_bf16_config(config: dict[str, Any]) -> bool:
+    command = _dict(config.get("command"))
+    docker = _dict(command.get("docker"))
+    engine = _dict(config.get("engine"))
+    return (
+        command.get("runtime") == "docker"
+        and docker.get("image") == BLACKBIRD_QWEN36_IMAGE
+        and str(engine.get("kv_cache_dtype") or "").lower() == "bfloat16"
     )
 
 

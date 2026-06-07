@@ -475,6 +475,36 @@ def test_cli_doctor_target_reports_required_missing_auth_state(
     assert "vela agent gen-token --install --target blackbird" in payload["next_steps"]
 
 
+def test_cli_doctor_target_reports_required_provided_auth_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = generate_agent_token()
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("VELA_AGENT_TOKEN", token)
+    monkeypatch.setenv("FAKE_SSH_AGENT_AUTH_REQUIRED", "1")
+    monkeypatch.setenv("FAKE_SSH_EXPECTED_AGENT_TOKEN", token)
+    upsert_target_file(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+            agent_command=["vela", "agent", "connect"],
+        )
+    )
+
+    result = CliRunner().invoke(app, ["doctor", "--target", "blackbird", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {check["name"]: check for check in payload["checks"]}
+    assert payload["ok"] is True
+    assert checks["target_auth"]["ok"] is True
+    assert checks["target_auth"]["detail"] == "required+provided"
+    assert payload["next_steps"] == []
+
+
 def test_cli_doctor_target_reports_mismatched_auth_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -848,6 +848,22 @@ def test_backend_evidence_does_not_silently_skip_unregistered_fp8_config() -> No
         )
 
 
+def test_backend_evidence_does_not_silently_skip_unregistered_bf16_config() -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_bf16_config_payload()
+    config["name"] = "qwen36-27b-bf16-rp6000-renamed"
+
+    with pytest.raises(
+        module.BackendEvidenceError,
+        match="unregistered backend evidence rule",
+    ):
+        module.validate_backend_evidence(
+            "qwen36-27b-bf16-rp6000-renamed",
+            config,
+            "INFO BF16 recipe reached READY",
+        )
+
+
 def test_backend_evidence_rejects_registered_rule_name_mismatch() -> None:
     module = _load_backend_evidence_check()
     config = _blackbird_fp8_config_payload()
