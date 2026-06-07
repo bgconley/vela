@@ -165,6 +165,14 @@ for older target agents), disconnects and resumes by log cursor, restarts the
 target daemon while the model is still live, rediscovers and reattaches the run,
 verifies health, then stops it:
 
+The remote backend-evidence gate depends on structured run id markers, not loose
+log scraping. `smoke-tui` must emit a tab-separated
+`VELA_SMOKE_RUN_ID	<run_id>` line for the initial real-config smoke. The
+real-model resume helper must emit `REAL_MODEL_DAEMON_RESTART_OK` with a
+whitespace-delimited `run_id=<run_id>` token after the daemon-restart reattach
+passes. `scripts/run_remote_tests.sh` fails closed if either marker is absent
+before invoking `scripts/backend_evidence_check.py`.
+
 ```bash
 VELA_REMOTE_TARGET=blackbird \
 VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
