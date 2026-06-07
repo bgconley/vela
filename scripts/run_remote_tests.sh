@@ -673,6 +673,10 @@ fi
 
 if [[ -n "$remote_real_resume_config" ]]; then
   echo "== Real model resume/daemon restart =="
+  resume_config_file="configs/${remote_real_resume_config}.yaml"
+  if [[ -n "$remote_target" && -f "$resume_config_file" ]]; then
+    "$venv_bin/vela" config push "$resume_config_file" "${target_args[@]}" --overwrite
+  fi
   real_resume_args=("$remote_real_resume_config" "${target_args[@]}" --timeout "$remote_timeout")
   if [[ -n "$remote_build_spec" ]]; then
     real_resume_args+=(--build "$remote_build_label")

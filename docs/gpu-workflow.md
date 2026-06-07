@@ -159,7 +159,7 @@ To cover the final real-model reconnect surface, set
 default workflow uses `tiny-random-llama-detached-blackbird`, which launches the
 tiny HF Llama model through the pinned Blackbird Docker image and target-local
 caches, so it does not depend on `vllm` being installed on the target PATH. The
-script launches that config through the selected target,
+script pushes the checked-in config YAML to the selected target before launch,
 disconnects and resumes by log cursor, restarts the target daemon while the
 model is still live, rediscovers and reattaches the run, verifies health, then
 stops it:
