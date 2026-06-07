@@ -684,6 +684,7 @@ class VelaApp(App):
         self.selected_config_preview = ""
         self.selected_config_metadata: dict[str, Any] = {}
         self._config_preview_cache: dict[str, str] = {}
+        self._new_deployment_presets: list[dict[str, Any]] = []
         self.paused = False
         self.wrap = False
         self.filter_text = ""
@@ -1088,15 +1089,32 @@ class VelaApp(App):
         if self.current_config is None:
             return
         await self._refresh_selected_config_preview()
+        presets = await self._load_flag_manager_presets()
         self.push_screen(
             FlagManagerScreen(
                 self.current_config,
                 preview=self.selected_config_preview,
                 metadata=self.selected_config_metadata,
+                presets=presets,
+                selected_preset=_optional_str(
+                    self.selected_config_metadata.get("selected_preset")
+                ),
                 preview_resolver=self._preview_flag_manager_draft,
             ),
             callback=self._handle_flag_manager_selection,
         )
+
+    async def _load_flag_manager_presets(self) -> list[dict[str, Any]]:
+        if not self._target_supports_capability("list_presets"):
+            return []
+        try:
+            result = await self._target_call("list_presets", {})
+        except Exception:
+            return []
+        presets = result.get("presets")
+        if not isinstance(presets, list):
+            return []
+        return [dict(item) for item in presets if isinstance(item, dict)]
 
     def _handle_flag_manager_selection(self, selection: object) -> None:
         if not isinstance(selection, dict) or selection.get("action") != "save_flags":
@@ -2288,6 +2306,11 @@ class VelaApp(App):
             self._set_error_text(f"Unable to load deployment presets: {exc}", style=f"bold {BAD}")
             return
         presets = presets_result.get("presets")
+        self._new_deployment_presets = (
+            [dict(item) for item in presets if isinstance(item, dict)]
+            if isinstance(presets, list)
+            else []
+        )
         recipes: object = []
         models: object = []
         builds: object = []
@@ -2485,13 +2508,17 @@ class VelaApp(App):
             *[str(item) for item in preview.get("warnings") or []],
         ]
         derived = draft.get("derived")
+        metadata = _preview_metadata(preview)
+        selected_preset = _optional_str(params.get("preset"))
+        if selected_preset is not None:
+            metadata["selected_preset"] = selected_preset
         self.push_screen(
             NewDeploymentReviewScreen(
                 config=config,
                 preview=str(preview.get("preview") or ""),
                 derived=derived if isinstance(derived, list) else [],
                 warnings=warnings,
-                metadata=_preview_metadata(preview),
+                metadata=metadata,
             ),
             callback=self._handle_new_deployment_review,
         )
@@ -2574,6 +2601,8 @@ class VelaApp(App):
                 cfg,
                 preview=preview,
                 metadata=metadata,
+                presets=self._new_deployment_presets,
+                selected_preset=_optional_str(metadata.get("selected_preset")),
                 preview_resolver=lambda selection: self._preview_new_deployment_flag_draft(
                     config, selection
                 ),

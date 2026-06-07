@@ -6135,6 +6135,352 @@ async def test_flag_manager_uses_agent_flag_map_for_modeled_flags(
 
 
 @pytest.mark.asyncio
+async def test_flag_manager_preset_switch_reseeds_engine_fields(
+    config_dir: Path,
+) -> None:
+    class TargetClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.preview_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "list_configs",
+                    "list_presets",
+                    "preview",
+                    "update_config_flags",
+                    "gpu",
+                    "discover_runs",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/preset.yaml",
+                            "name": "preset",
+                            "model": "org/model",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "preset",
+                                "model": "org/model",
+                                "engine": {
+                                    "gpu_memory_utilization": 0.9,
+                                    "dtype": "auto",
+                                    "max_num_seqs": 4,
+                                },
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "",
+                            "engine": {
+                                "gpu_memory_utilization": 0.9,
+                                "dtype": "auto",
+                                "max_num_seqs": 4,
+                            },
+                        },
+                        {
+                            "name": "throughput",
+                            "description": "",
+                            "engine": {
+                                "gpu_memory_utilization": 0.92,
+                                "dtype": "auto",
+                                "max_num_seqs": 32,
+                            },
+                        },
+                    ]
+                }
+            if method == "preview":
+                engine = {
+                    "gpu_memory_utilization": 0.9,
+                    "dtype": "auto",
+                    "max_num_seqs": 4,
+                }
+                updates = params.get("engine") if isinstance(params, dict) else None
+                if isinstance(updates, dict):
+                    engine.update(updates)
+                self.preview_calls.append(dict(engine))
+                return {
+                    "preview": (
+                        "cwd=/agent\n"
+                        "vllm serve org/model "
+                        f"--gpu-memory-utilization {engine['gpu_memory_utilization']} "
+                        f"--dtype {engine['dtype']} "
+                        f"--max-num-seqs {engine['max_num_seqs']}"
+                    ),
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": [
+                            "--gpu-memory-utilization",
+                            "--dtype",
+                            "--max-num-seqs",
+                        ],
+                        "flag_map": {
+                            "gpu_memory_utilization": "--gpu-memory-utilization",
+                            "dtype": "--dtype",
+                            "max_num_seqs": "--max-num-seqs",
+                        },
+                    },
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("flag manager should not subscribe")
+
+    target_client = TargetClient()
+    app = VelaApp(configs_dir=config_dir, target_client=target_client)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+
+        app.screen.query_one("#flag-manager-preset", Select).value = "throughput"
+        await _wait_for_condition(
+            lambda: "--max-num-seqs 32"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "preset switch did not refresh the draft preview",
+        )
+
+    assert any(call.get("max_num_seqs") == 32 for call in target_client.preview_calls)
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_reset_to_preset_value(
+    config_dir: Path,
+) -> None:
+    class TargetClient:
+        connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "list_configs",
+                    "list_presets",
+                    "preview",
+                    "update_config_flags",
+                    "gpu",
+                    "discover_runs",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/preset-reset.yaml",
+                            "name": "preset-reset",
+                            "model": "org/model",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "preset-reset",
+                                "model": "org/model",
+                                "engine": {"gpu_memory_utilization": 0.88},
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "",
+                            "engine": {"gpu_memory_utilization": 0.9},
+                        }
+                    ]
+                }
+            if method == "preview":
+                engine = {"gpu_memory_utilization": 0.88}
+                updates = params.get("engine") if isinstance(params, dict) else None
+                if isinstance(updates, dict):
+                    engine.update(updates)
+                return {
+                    "preview": (
+                        "cwd=/agent\n"
+                        "vllm serve org/model --gpu-memory-utilization "
+                        f"{engine['gpu_memory_utilization']}"
+                    ),
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": ["--gpu-memory-utilization"],
+                        "flag_map": {
+                            "gpu_memory_utilization": "--gpu-memory-utilization"
+                        },
+                    },
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("flag manager should not subscribe")
+
+    app = VelaApp(configs_dir=config_dir, target_client=TargetClient())
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+
+        value_input = app.screen.query_one("#flag-manager-value", Input)
+        value_input.value = "0.95"
+        await _wait_for_condition(
+            lambda: "--gpu-memory-utilization 0.95"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "flag manager preview did not refresh with edited value",
+        )
+        await pilot.press("p")
+        await _wait_for_condition(
+            lambda: (
+                "--gpu-memory-utilization 0.9"
+                in str(app.screen.query_one("#flag-manager-detail", Static).content)
+                and "--gpu-memory-utilization 0.95"
+                not in str(app.screen.query_one("#flag-manager-detail", Static).content)
+            ),
+            "reset-to-preset did not restore the selected preset value",
+        )
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_changed_only_filter_hides_unchanged_fields(
+    config_dir: Path,
+) -> None:
+    class TargetClient:
+        connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "list_configs",
+                    "list_presets",
+                    "preview",
+                    "update_config_flags",
+                    "gpu",
+                    "discover_runs",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/changed.yaml",
+                            "name": "changed",
+                            "model": "org/model",
+                            "target": None,
+                            "warnings": [],
+                            "config": {
+                                "name": "changed",
+                                "model": "org/model",
+                                "engine": {
+                                    "gpu_memory_utilization": 0.88,
+                                    "dtype": "auto",
+                                },
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "",
+                            "engine": {
+                                "gpu_memory_utilization": 0.9,
+                                "dtype": "auto",
+                            },
+                        }
+                    ]
+                }
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve org/model",
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": ["--gpu-memory-utilization", "--dtype"],
+                        "flag_map": {
+                            "gpu_memory_utilization": "--gpu-memory-utilization",
+                            "dtype": "--dtype",
+                        },
+                    },
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("flag manager should not subscribe")
+
+    app = VelaApp(configs_dir=config_dir, target_client=TargetClient())
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open",
+        )
+
+        before = str(app.screen.query_one("#flag-manager-list", Static).content)
+        assert "gpu-memory-utilization = 0.88" in before
+        assert "dtype = auto" in before
+
+        app.screen.query_one("#flag-manager-changed-only", Checkbox).value = True
+        await _wait_for_condition(
+            lambda: "dtype = auto"
+            not in str(app.screen.query_one("#flag-manager-list", Static).content),
+            "changed-only filter did not hide unchanged fields",
+        )
+        after = str(app.screen.query_one("#flag-manager-list", Static).content)
+        assert "gpu-memory-utilization = 0.88" in after
+
+
+@pytest.mark.asyncio
 async def test_flag_manager_reset_modeled_flag_saves_to_config(
     config_dir: Path,
     tmp_path: Path,

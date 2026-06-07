@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Static
+from textual.widgets import Checkbox, Input, Select, Static
 
 from vela.config.schema import ModelConfig
 from vela.engine.command_builder import ENGINE_VALUE_FIELDS
@@ -34,15 +34,29 @@ class FlagManagerScreen(ModalScreen):
     #flag-manager-list {{
         width: 44;
         height: auto;
-        max-height: 22;
+        max-height: 21;
         color: {TEXT};
     }}
 
     #flag-manager-detail {{
         width: 1fr;
         height: auto;
-        max-height: 22;
+        max-height: 21;
         color: {TEXT};
+    }}
+
+    #flag-manager-controls {{
+        height: auto;
+        margin-bottom: 1;
+    }}
+
+    #flag-manager-preset {{
+        width: 38;
+        margin-right: 2;
+    }}
+
+    #flag-manager-changed-only {{
+        width: 22;
     }}
 
     #flag-manager-editor {{
@@ -63,6 +77,8 @@ class FlagManagerScreen(ModalScreen):
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
         Binding("d", "reset_default", "Reset", priority=True),
+        Binding("p", "reset_preset", "Preset", priority=True),
+        Binding("x", "toggle_changed_only", "Changed", priority=True),
         ("ctrl+s", "save", "Save"),
         ("escape", "cancel", "Close"),
     ]
@@ -73,6 +89,8 @@ class FlagManagerScreen(ModalScreen):
         *,
         preview: str,
         metadata: dict[str, Any] | None = None,
+        presets: list[dict[str, Any]] | None = None,
+        selected_preset: str | None = None,
         preview_resolver: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         super().__init__(id="flag-manager")
@@ -82,7 +100,11 @@ class FlagManagerScreen(ModalScreen):
         self.warnings: list[str] = []
         self.preview_resolver = preview_resolver
         self.engine_updates: dict[str, object | None] = {}
-        self.modeled = _modeled_flags(config, self.metadata)
+        self.presets = _normalize_presets(presets)
+        self.selected_preset = _selected_preset_name(self.presets, selected_preset)
+        self.show_changed_only = False
+        self._base_engine_values = _config_engine_values(config)
+        self.modeled = self._build_modeled_rows()
         self.selected_index = 0
         self._preview_revision = 0
         self._updating_value_input = False
@@ -96,6 +118,18 @@ class FlagManagerScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="flag-manager-panel"):
+            with Horizontal(id="flag-manager-controls"):
+                yield Select(
+                    self._preset_options(),
+                    value=self.selected_preset or "__none__",
+                    allow_blank=False,
+                    id="flag-manager-preset",
+                )
+                yield Checkbox(
+                    "Changed only",
+                    value=self.show_changed_only,
+                    id="flag-manager-changed-only",
+                )
             with Horizontal():
                 yield Static(self._render_list(), id="flag-manager-list")
                 with Vertical(id="flag-manager-editor"):
@@ -111,8 +145,8 @@ class FlagManagerScreen(ModalScreen):
                     )
                     yield Static(self._render_detail(), id="flag-manager-detail")
             yield Static(
-                "↑↓ Select   edit value   edit raw args   d Reset-to-default   "
-                "Ctrl+S Save   Esc Close",
+                "↑↓ Select   edit value   edit raw args   d Default   "
+                "p Preset   x Changed-only   Ctrl+S Save   Esc Close",
                 id="flag-manager-footer",
             )
 
@@ -132,17 +166,39 @@ class FlagManagerScreen(ModalScreen):
             self._refresh_value_input()
 
     def action_reset_default(self) -> None:
-        if not self.modeled:
+        item = self._selected_item()
+        if item is None:
             return
-        item = self.modeled.pop(self.selected_index)
         self.engine_updates[item["field"]] = None
-        if self.modeled:
-            self.selected_index = min(self.selected_index, len(self.modeled) - 1)
-        else:
-            self.selected_index = 0
+        self._rebuild_modeled_rows(selected_field=item["field"])
         self._refresh()
         self._refresh_value_input()
         self._queue_preview_refresh()
+
+    def action_reset_preset(self) -> None:
+        item = self._selected_item()
+        if item is None:
+            return
+        preset_value = item.get("preset_value")
+        if preset_value is None:
+            return
+        self.engine_updates[item["field"]] = preset_value
+        self._rebuild_modeled_rows(selected_field=item["field"])
+        self._refresh()
+        self._refresh_value_input()
+        self._queue_preview_refresh()
+
+    def action_toggle_changed_only(self) -> None:
+        self.show_changed_only = not self.show_changed_only
+        try:
+            self.query_one("#flag-manager-changed-only", Checkbox).value = (
+                self.show_changed_only
+            )
+        except Exception:
+            pass
+        self._rebuild_modeled_rows()
+        self._refresh()
+        self._refresh_value_input()
 
     def action_save(self) -> None:
         self.dismiss(
@@ -156,6 +212,33 @@ class FlagManagerScreen(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "flag-manager-preset":
+            return
+        event.stop()
+        value = str(event.value or "")
+        next_preset = None if value == "__none__" else value
+        if next_preset == self.selected_preset:
+            return
+        self.selected_preset = next_preset
+        preset_engine = self._active_preset_engine()
+        for field, preset_value in preset_engine.items():
+            if field in _supported_engine_fields():
+                self.engine_updates[field] = preset_value
+        self._rebuild_modeled_rows()
+        self._refresh()
+        self._refresh_value_input()
+        self._queue_preview_refresh()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id != "flag-manager-changed-only":
+            return
+        event.stop()
+        self.show_changed_only = bool(event.value)
+        self._rebuild_modeled_rows()
+        self._refresh()
+        self._refresh_value_input()
 
     def _refresh(self) -> None:
         self.query_one("#flag-manager-list", Static).update(self._render_list())
@@ -184,6 +267,12 @@ class FlagManagerScreen(ModalScreen):
             return
         value = event.value.strip()
         if (
+            item["field"] in self.engine_updates
+            and self.engine_updates[item["field"]] is None
+        ):
+            if value == "":
+                return
+        if (
             item["field"] not in self.engine_updates
             and value == str(item.get("value") or "")
         ):
@@ -211,7 +300,88 @@ class FlagManagerScreen(ModalScreen):
         self._refresh()
         self._queue_preview_refresh()
 
-    def _selected_item(self) -> dict[str, str] | None:
+    def _active_preset_engine(self) -> dict[str, object]:
+        preset = _preset_by_name(self.presets, self.selected_preset)
+        engine = preset.get("engine") if preset is not None else None
+        return dict(engine) if isinstance(engine, dict) else {}
+
+    def _build_modeled_rows(self) -> list[dict[str, object]]:
+        flag_map = _flag_map(self.metadata)
+        profile = (
+            None
+            if flag_map is not None
+            else bundled_profile(self.config.vllm.version_profile or "current")
+        )
+        preset_engine = self._active_preset_engine()
+        fields = list(ENGINE_VALUE_FIELDS)
+        if any(
+            "enforce_eager" in values
+            for values in (self._base_engine_values, preset_engine, self.engine_updates)
+        ):
+            fields.append("enforce_eager")
+        rows: list[dict[str, object]] = []
+        for field in fields:
+            if (
+                field not in self._base_engine_values
+                and field not in self.engine_updates
+                and field not in preset_engine
+            ):
+                continue
+            flag = (
+                flag_map.get(field)
+                if flag_map is not None
+                else profile.flag_for(field) if profile is not None else None
+            )
+            if flag is None:
+                continue
+            value = self._effective_engine_value(field)
+            preset_value = preset_engine.get(field)
+            changed = not _values_equal(value, preset_value)
+            if self.show_changed_only and not changed:
+                continue
+            rows.append(
+                {
+                    "field": field,
+                    "flag": flag,
+                    "label": flag.removeprefix("--"),
+                    "target": f"engine.{field}",
+                    "value": "" if value is None else str(value),
+                    "preset_value": preset_value,
+                    "changed": changed,
+                }
+            )
+        return rows
+
+    def _rebuild_modeled_rows(self, *, selected_field: str | None = None) -> None:
+        previous_field = selected_field
+        if previous_field is None:
+            current = self._selected_item()
+            previous_field = str(current.get("field")) if current is not None else None
+        self.modeled = self._build_modeled_rows()
+        if not self.modeled:
+            self.selected_index = 0
+            return
+        if previous_field is not None:
+            for index, item in enumerate(self.modeled):
+                if item.get("field") == previous_field:
+                    self.selected_index = index
+                    return
+        self.selected_index = min(self.selected_index, len(self.modeled) - 1)
+
+    def _effective_engine_value(self, field: str) -> object | None:
+        if field in self.engine_updates:
+            return self.engine_updates[field]
+        return self._base_engine_values.get(field)
+
+    def _preset_options(self) -> list[tuple[str, str]]:
+        if not self.presets:
+            return [("No presets", "__none__")]
+        return [
+            (str(preset.get("name") or "preset"), str(preset.get("name") or "__none__"))
+            for preset in self.presets
+        ]
+
+    def _selected_item(self) -> dict[str, object] | None:
         if not self.modeled:
             return None
         return self.modeled[self.selected_index]
@@ -353,6 +523,70 @@ def _modeled_flags(config: ModelConfig, metadata: dict[str, Any]) -> list[dict[s
     return rows
 
 
+def _normalize_presets(presets: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for preset in presets or []:
+        if not isinstance(preset, dict):
+            continue
+        name = str(preset.get("name") or "").strip()
+        if not name:
+            continue
+        engine = preset.get("engine")
+        rows.append(
+            {
+                "name": name,
+                "description": str(preset.get("description") or ""),
+                "engine": dict(engine) if isinstance(engine, dict) else {},
+            }
+        )
+    return rows
+
+
+def _selected_preset_name(
+    presets: list[dict[str, Any]], selected_preset: str | None
+) -> str | None:
+    names = {str(preset.get("name") or "") for preset in presets}
+    if selected_preset in names:
+        return selected_preset
+    if "balanced" in names:
+        return "balanced"
+    return next(iter(names), None)
+
+
+def _preset_by_name(
+    presets: list[dict[str, Any]], name: str | None
+) -> dict[str, Any] | None:
+    if name is None:
+        return None
+    for preset in presets:
+        if str(preset.get("name") or "") == name:
+            return preset
+    return None
+
+
+def _config_engine_values(config: ModelConfig) -> dict[str, object]:
+    values: dict[str, object] = {}
+    for field in ENGINE_VALUE_FIELDS:
+        value = getattr(config.engine, field)
+        if value is not None:
+            values[field] = value
+    if config.engine.enforce_eager is True:
+        values["enforce_eager"] = True
+    return values
+
+
+def _supported_engine_fields() -> set[str]:
+    return {*ENGINE_VALUE_FIELDS, "enforce_eager"}
+
+
+def _values_equal(left: object | None, right: object | None) -> bool:
+    if left is None and right in (None, ""):
+        return True
+    if right is None and left in (None, ""):
+        return True
+    return str(left) == str(right)
+
+
 def _flag_map(metadata: dict[str, Any]) -> dict[str, str] | None:
     value = metadata.get("flag_map")
     if not isinstance(value, dict):
@@ -403,8 +637,10 @@ def _flag_name(token: str) -> str | None:
     return token.split("=", 1)[0]
 
 
-def _flag_value_text(item: dict[str, str]) -> str:
-    return f"{item['label']} = {item['value']} -> {item['target']}"
+def _flag_value_text(item: dict[str, object]) -> str:
+    marker = "*" if item.get("changed") else " "
+    value = str(item.get("value") or "unset")
+    return f"{marker} {item['label']} = {value} -> {item['target']}"
 
 
 def _quote_extra_args(extra_args: list[str]) -> str:

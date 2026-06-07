@@ -2802,6 +2802,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T03:42:59Z"
+    },
+    {
+      "id": "bug-145",
+      "timestamp": "2026-06-07T03:56:44Z",
+      "error_message": "flag manager lacked preset picker, reset-to-preset, and changed-only affordances",
+      "file": "src/vela/tui/screens/flag_manager.py",
+      "root_cause": "The TUI reused FlagManager for deployment customization but only exposed build-default reset and a full modeled-flag list, leaving the v1 preset-level affordances absent.",
+      "fix": "Add a preset Select, reset-to-selected-preset binding, and changed-only Checkbox to FlagManager; pass preset lists from the app when available; ignore initial same-value Select events so opening the modal never auto-applies a preset; keep preset switches scoped to engine fields.",
+      "tags": [
+        "tui",
+        "deployment-composer",
+        "flag-manager"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:56:44Z"
     }
   ]
 }
