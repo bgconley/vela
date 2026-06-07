@@ -2449,7 +2449,7 @@ def test_cli_targets_add_persists_ssh_target(
     assert blackbird.ssh_opts_env == "VELA_SSH_OPTS"
 
 
-def test_cli_doctor_prints_onboarding_next_steps(
+def test_cli_doctor_omits_static_next_steps_when_healthy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2464,8 +2464,7 @@ def test_cli_doctor_prints_onboarding_next_steps(
     assert payload["ok"] is True
     assert any(check["name"] == "targets" for check in payload["checks"])
     assert any(check["name"] == "agent_token" for check in payload["checks"])
-    assert "vela targets bootstrap" in payload["next_steps"]
-    assert "vela agent gen-token --install" in payload["next_steps"]
+    assert payload["next_steps"] == []
 
 
 def test_cli_targets_bootstrap_persists_target_and_agent_command(

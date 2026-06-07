@@ -24,7 +24,7 @@ from urllib.parse import unquote, urlsplit
 import yaml
 
 from vela import __version__
-from vela.agent.auth import configured_agent_token
+from vela.agent.auth import AgentTokenError, configured_agent_token, default_agent_token_file
 from vela.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
 from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind, default_run_artifacts_dir
 from vela.engine.build_registry import (
@@ -135,6 +135,7 @@ AGENT_CAPABILITIES = [
     "kill",
     "restart",
     "gpu",
+    "diagnose",
     "status",
     "health",
     "probe_until_ready",
@@ -439,6 +440,8 @@ class LocalAgent:
             return self._kill(payload)
         if method == "restart":
             return self._restart(payload)
+        if method == "diagnose":
+            return self._diagnose(payload)
         if method == "status":
             return self._status(payload)
         if method == "health":
@@ -1675,6 +1678,31 @@ class LocalAgent:
                 raise TargetCallError("run-not-found", f"unknown run: {run_id}")
             run = self._load_verified_detached_run(sidecar_path)
         return _detached_run_payload(run)
+
+    def _diagnose(self, params: dict[str, Any]) -> dict[str, Any]:
+        uv_path = _find_uv_executable()
+        return {
+            "host": {
+                "hostname": platform.node(),
+                "platform": platform.platform(),
+                "driver": _driver_version(),
+                "vela_version": __version__,
+            },
+            "paths": {
+                "config_dir": str(_default_config_dir()),
+                "runs_dir": str(default_run_artifacts_dir()),
+                "builds_dir": str(self._builds_root),
+                "models_registry": str(self._models_registry_path),
+                "socket_path": str(_default_agent_socket_path()),
+                "agent_token_file": str(default_agent_token_file()),
+            },
+            "toolchain": {
+                "python": sys.executable,
+                "uv_available": uv_path is not None,
+                "uv": uv_path,
+            },
+            "auth": _diagnose_auth_status(),
+        }
 
     async def _sample_gpus(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = params or {}
@@ -3137,6 +3165,28 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _default_config_dir() -> Path:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return config_home / "vela"
+
+
+def _default_agent_socket_path() -> Path:
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "vela" / "agent.sock"
+    return Path.home() / ".local" / "state" / "vela" / "agent.sock"
+
+
+def _diagnose_auth_status() -> dict[str, str]:
+    try:
+        token = configured_agent_token()
+    except AgentTokenError as exc:
+        return {"status": "malformed-token", "detail": str(exc)}
+    if token is None:
+        return {"status": "none", "detail": "no agent token required"}
+    return {"status": "required+provided", "detail": "agent token accepted"}
 
 
 def _config_payload_from_params(params: dict[str, Any], *, method: str) -> dict[str, Any]:

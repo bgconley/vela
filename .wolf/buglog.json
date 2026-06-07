@@ -2600,6 +2600,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T03:55:00Z"
+    },
+    {
+      "id": "bug-133",
+      "timestamp": "2026-06-07T04:20:00Z",
+      "error_message": "doctor was local-only and always emitted static onboarding next steps",
+      "file": "src/vela/cli.py",
+      "root_cause": "_doctor_payload only checked local targets.yaml parsing and controller token state, then unconditionally returned bootstrap and gen-token next steps even when the setup was healthy.",
+      "fix": "Add --target doctor support backed by an agent-side diagnose RPC, render target connection/version/paths/toolchain/auth checks, discover SSH agent commands when needed, and make next_steps conditional on actual failures.",
+      "tags": [
+        "doctor",
+        "onboarding",
+        "diagnostics"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:20:00Z"
     }
   ]
 }

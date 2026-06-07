@@ -181,18 +181,24 @@ def _default_debug_log_path() -> Path:
 
 @app.command("doctor")
 def doctor(
+    target: Annotated[
+        str | None,
+        typer.Option("--target", help="Target name to inspect in addition to controller."),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable setup checks."),
     ] = False,
 ) -> None:
-    payload = _doctor_payload()
+    payload = _doctor_payload(target_name=target)
     if json_output:
         _echo_json(payload)
         return
     for check in payload["checks"]:
         status = "ok" if check["ok"] else "warn"
         typer.echo(f"{status}\t{check['name']}\t{check['detail']}")
+        if check.get("remediation"):
+            typer.echo(f"fix\t{check['remediation']}")
     for step in payload["next_steps"]:
         typer.echo(f"next\t{step}")
 
@@ -2054,12 +2060,14 @@ def _agent_command_argv(value: str | None) -> list[str] | None:
     return argv
 
 
-def _doctor_payload() -> dict[str, Any]:
+def _doctor_payload(*, target_name: str | None = None) -> dict[str, Any]:
     checks: list[dict[str, object]] = []
+    next_steps: list[str] = []
     try:
         registry = load_targets_file()
     except ValueError as exc:
         checks.append({"name": "targets", "ok": False, "detail": str(exc)})
+        registry = None
     else:
         remote_targets = [target for target in registry.targets if target.name != "local"]
         checks.append(
@@ -2073,7 +2081,15 @@ def _doctor_payload() -> dict[str, Any]:
     try:
         token = configured_agent_token()
     except AgentTokenError as exc:
-        checks.append({"name": "agent_token", "ok": False, "detail": str(exc)})
+        checks.append(
+            {
+                "name": "agent_token",
+                "ok": False,
+                "detail": str(exc),
+                "remediation": "run `vela agent gen-token --install`",
+            }
+        )
+        next_steps.append("vela agent gen-token --install")
     else:
         detail = (
             "configured via VELA_AGENT_TOKEN or token file"
@@ -2082,14 +2098,142 @@ def _doctor_payload() -> dict[str, Any]:
         )
         checks.append({"name": "agent_token", "ok": True, "detail": detail})
 
+    if target_name is not None:
+        _append_target_doctor_checks(checks, next_steps, target_name, registry)
+
     return {
         "ok": all(bool(check["ok"]) for check in checks),
+        "target": target_name,
         "checks": checks,
-        "next_steps": [
-            "vela targets bootstrap",
-            "vela agent gen-token --install",
-        ],
+        "next_steps": next_steps,
     }
+
+
+def _append_target_doctor_checks(
+    checks: list[dict[str, object]],
+    next_steps: list[str],
+    target_name: str,
+    registry: TargetsRegistry | None,
+) -> None:
+    if registry is None:
+        return
+    try:
+        target = registry.by_name(target_name)
+    except KeyError:
+        remediation = f"vela targets bootstrap {target_name} --install"
+        checks.append(
+            {
+                "name": "target",
+                "ok": False,
+                "detail": f"unknown target {target_name}",
+                "remediation": f"run `{remediation}`",
+            }
+        )
+        next_steps.append(remediation)
+        return
+    if target.transport is TransportKind.SSH and target.agent_command is None:
+        try:
+            discovery = discover_ssh_agent_command(target)
+        except TargetCallError as exc:
+            remediation = remediation_for_error(
+                exc.code,
+                target_name=target_name,
+                details=exc.details,
+            )
+            command = (
+                remediation.fix.removeprefix("Fix: ").rstrip(".")
+                if remediation is not None
+                else f"vela targets bootstrap {target_name} --install"
+            )
+            checks.append(
+                {
+                    "name": "target_agent",
+                    "ok": False,
+                    "detail": exc.message,
+                    "remediation": command,
+                }
+            )
+            next_steps.append(command)
+            return
+        target = target.model_copy(update={"agent_command": discovery.agent_command})
+        upsert_target_file(target)
+    try:
+        client = target_client_for_config(target)
+    except ValueError as exc:
+        checks.append({"name": "target_client", "ok": False, "detail": str(exc)})
+        return
+    try:
+        report = _target_call(client, "diagnose")
+    except TargetCallError as exc:
+        remediation = remediation_for_error(
+            exc.code,
+            target_name=target_name,
+            details=exc.details,
+        )
+        checks.append(
+            {
+                "name": "target_connection",
+                "ok": False,
+                "detail": exc.message,
+                "remediation": remediation.fix if remediation is not None else None,
+            }
+        )
+        if remediation is not None:
+            next_steps.append(remediation.fix.removeprefix("Fix: ").rstrip("."))
+        return
+    checks.append({"name": "target_connection", "ok": True, "detail": "agent reachable"})
+    _append_target_report_checks(checks, report)
+
+
+def _append_target_report_checks(
+    checks: list[dict[str, object]],
+    report: dict[str, Any],
+) -> None:
+    host = report.get("host") if isinstance(report.get("host"), dict) else {}
+    paths = report.get("paths") if isinstance(report.get("paths"), dict) else {}
+    toolchain = (
+        report.get("toolchain") if isinstance(report.get("toolchain"), dict) else {}
+    )
+    auth = report.get("auth") if isinstance(report.get("auth"), dict) else {}
+    version = str(host.get("vela_version") or "unknown")
+    checks.append(
+        {
+            "name": "target_version",
+            "ok": version == __version__,
+            "detail": f"agent={version} controller={__version__}",
+        }
+    )
+    checks.append(
+        {
+            "name": "target_paths",
+            "ok": True,
+            "detail": (
+                f"config={paths.get('config_dir', 'unknown')} "
+                f"runs={paths.get('runs_dir', 'unknown')} "
+                f"builds={paths.get('builds_dir', 'unknown')} "
+                f"models={paths.get('models_registry', 'unknown')} "
+                f"socket={paths.get('socket_path', 'unknown')}"
+            ),
+        }
+    )
+    checks.append(
+        {
+            "name": "target_toolchain",
+            "ok": True,
+            "detail": (
+                f"python={toolchain.get('python', 'unknown')} "
+                f"uv={'yes' if toolchain.get('uv_available') else 'no'} "
+                f"driver={host.get('driver', 'unknown')}"
+            ),
+        }
+    )
+    checks.append(
+        {
+            "name": "target_auth",
+            "ok": auth.get("status") != "malformed-token",
+            "detail": str(auth.get("status") or "unknown"),
+        }
+    )
 
 
 def _format_model_inspect_value(value: object) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -318,3 +319,32 @@ def test_cli_targets_bootstrap_build_creates_default_pip_build(
     assert "Installing build" in result.output
     assert "DONE\t" in result.output
     assert "build ready" in result.output
+
+
+def test_cli_doctor_target_reports_remote_host_state_without_static_nag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@fake",
+    )
+    from vela.config.targets import upsert_target_file
+
+    upsert_target_file(target)
+
+    result = CliRunner().invoke(app, ["doctor", "--target", "blackbird", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {check["name"]: check for check in payload["checks"]}
+    assert payload["ok"] is True
+    assert payload["next_steps"] == []
+    assert checks["target_connection"]["ok"] is True
+    assert checks["target_version"]["detail"] == f"agent={__version__} controller={__version__}"
+    assert "config=/home/bgconley/.config/vela" in checks["target_paths"]["detail"]
+    assert "uv=yes" in checks["target_toolchain"]["detail"]
+    assert checks["target_auth"]["detail"] == "none"

@@ -2710,6 +2710,26 @@ def test_local_agent_build_prerequisites_reject_nightly_without_uv(
     assert exc_info.value.details == {"reason": "uv-required", "method": "nightly"}
 
 
+def test_local_agent_diagnose_reports_paths_toolchain_and_auth(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(local_agent_module, "_find_uv_executable", lambda: "/opt/bin/uv")
+
+    report = LocalAgent(
+        builds_root=tmp_path / "builds",
+        models_registry_path=tmp_path / "models" / "registry.json",
+    ).handle("diagnose")
+
+    assert report["paths"]["config_dir"] == str(tmp_path / "config" / "vela")
+    assert report["paths"]["builds_dir"] == str(tmp_path / "builds")
+    assert report["paths"]["models_registry"] == str(tmp_path / "models" / "registry.json")
+    assert report["toolchain"]["uv_available"] is True
+    assert report["toolchain"]["uv"] == "/opt/bin/uv"
+    assert report["auth"]["status"] == "none"
+
+
 @pytest.mark.asyncio
 async def test_local_agent_discovers_detached_runs_from_agent_side_sidecars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

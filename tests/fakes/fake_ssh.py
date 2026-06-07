@@ -132,6 +132,46 @@ def write_fake_ssh_runtime(path: Path) -> None:
                     "'result': {'ok': True}}), flush=True)"
                 ),
                 "            continue",
+                "        if method == 'diagnose':",
+                "            report = getenv('FAKE_SSH_HOST_REPORT_JSON')",
+                "            if report:",
+                "                result = json.loads(report)",
+                "            else:",
+                "                result = {",
+                "                    'host': {",
+                "                        'hostname': getenv('FAKE_SSH_HOSTNAME', 'fake-remote'),",
+                "                        'platform': getenv('FAKE_SSH_PLATFORM', 'Linux'),",
+                "                        'driver': getenv('FAKE_SSH_DRIVER', '590.48.01'),",
+                "                        'vela_version': vela_version,",
+                "                    },",
+                "                    'paths': {",
+                "                        'config_dir': '/home/bgconley/.config/vela',",
+                "                        'runs_dir': '/home/bgconley/.local/state/vela/runs',",
+                "                        'builds_dir': '/home/bgconley/.local/share/vela/builds',",
+                (
+                    "                        'models_registry': "
+                    "'/home/bgconley/.local/share/vela/models/registry.json',"
+                ),
+                (
+                    "                        'socket_path': "
+                    "'/home/bgconley/.local/state/vela/agent.sock',"
+                ),
+                "                    },",
+                "                    'toolchain': {",
+                "                        'python': getenv('FAKE_SSH_PYTHON', '/usr/bin/python3'),",
+                "                        'uv_available': truthy('FAKE_SSH_UV_AVAILABLE', '1'),",
+                (
+                    "                        'uv': getenv('FAKE_SSH_UV', "
+                    "'/home/bgconley/.local/bin/uv'),"
+                ),
+                "                    },",
+                (
+                    "                    'auth': {'status': 'none', "
+                    "'detail': 'no agent token required'},"
+                ),
+                "                }",
+                "            print(json.dumps({'id': request_id, 'result': result}), flush=True)",
+                "            continue",
                 "        if method == 'check_build_prerequisites':",
                 "            print(json.dumps({'id': request_id, 'result': {",
                 "                'ok': True,",
