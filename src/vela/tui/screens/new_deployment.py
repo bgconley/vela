@@ -6,7 +6,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Select, Static
+from textual.widgets import Checkbox, Input, Select, Static
 
 from vela.tui.theme import ACCENT, BAD, GOOD, MUTED, SURFACE_ALT, TEXT
 
@@ -123,6 +123,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.models = [dict(model) for model in (models or [])]
         self.builds = [dict(build) for build in (builds or [])]
         self.initial = dict(initial or {})
+        self._applying_initial = False
         self.step_index = 0
 
     def compose(self) -> ComposeResult:
@@ -186,6 +187,18 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-executable",
                 )
             with Vertical(id="new-deployment-step-model"):
+                yield Static("Model source", classes="new-deployment-field-label")
+                yield Select(
+                    [
+                        ("Existing pin", "existing"),
+                        ("Pin HF repo", "pin_hf"),
+                        ("Adopt local path", "adopt_local"),
+                        ("Bare repo id", "bare"),
+                    ],
+                    value="existing",
+                    allow_blank=False,
+                    id="new-deployment-model-mode",
+                )
                 yield Static("Pinned model", classes="new-deployment-field-label")
                 yield Select(
                     self._model_options(),
@@ -193,11 +206,18 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     allow_blank=False,
                     id="new-deployment-model-ref",
                 )
+                yield Static("", id="new-deployment-model-state")
                 yield Static("Model", classes="new-deployment-field-label")
                 yield Input(
-                    placeholder="Qwen/Qwen3-32B",
+                    placeholder="Qwen/Qwen3-32B or /agent/models/model",
                     id="new-deployment-model",
                 )
+                yield Static("Revision", classes="new-deployment-field-label")
+                yield Input(
+                    placeholder="main, tag, or commit",
+                    id="new-deployment-model-revision",
+                )
+                yield Checkbox("Download now", id="new-deployment-download-now")
             with Vertical(id="new-deployment-step-customize"):
                 with Horizontal(classes="new-deployment-row"):
                     with Vertical(classes="new-deployment-column"):
@@ -248,11 +268,25 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.action_submit()
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if self._applying_initial:
+            return
         if event.select.id == "new-deployment-runtime":
             runtime = str(event.value or "")
             if runtime in {"create_build", "adopt_build"}:
                 event.stop()
                 self.dismiss({"action": runtime, "draft": self._draft_state()})
+            return
+        if event.select.id == "new-deployment-model-mode":
+            mode = str(event.value or "")
+            if mode in {"pin_hf", "adopt_local"}:
+                event.stop()
+                self.dismiss(
+                    {
+                        "action": "pin_model",
+                        "draft": self._draft_state(),
+                        "initial": self._pin_model_initial(mode),
+                    }
+                )
             return
         if event.select.id == "new-deployment-recipe":
             event.stop()
@@ -261,6 +295,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         if event.select.id == "new-deployment-model-ref":
             event.stop()
             self._apply_model_ref(str(event.value or ""))
+            self._refresh_model_state()
             return
         if event.select.id == "new-deployment-build-select":
             event.stop()
@@ -288,6 +323,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         name = self._field_value("#new-deployment-name")
         model = self._field_value("#new-deployment-model")
         model_ref = self._selected_model_ref()
+        model_revision = self._field_value("#new-deployment-model-revision")
         runtime = str(self.query_one("#new-deployment-runtime", Select).value or "process")
         image = self._field_value("#new-deployment-image")
         build = self._field_value("#new-deployment-build")
@@ -311,9 +347,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             spec["model"] = model
         if model_ref is not None:
             spec["model_ref"] = model_ref
-            revision = self._selected_model_revision(model_ref)
+            revision = model_revision or self._selected_model_revision(model_ref)
             if revision:
                 spec["revision"] = revision
+        elif model_revision:
+            spec["revision"] = model_revision
+        if bool(self.query_one("#new-deployment-download-now", Checkbox).value):
+            spec["download_now"] = True
         if port:
             try:
                 spec["overrides"]["server"]["port"] = int(port)
@@ -342,6 +382,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 self.query_one("#new-deployment-runtime", Select).value or "process"
             ),
             "model": self._field_value("#new-deployment-model"),
+            "model_mode": str(
+                self.query_one("#new-deployment-model-mode", Select).value or "existing"
+            ),
+            "model_revision": self._field_value("#new-deployment-model-revision"),
+            "download_now": bool(
+                self.query_one("#new-deployment-download-now", Checkbox).value
+            ),
             "image": self._field_value("#new-deployment-image"),
             "build": self._field_value("#new-deployment-build"),
             "executable": self._field_value("#new-deployment-executable"),
@@ -366,39 +413,63 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def _field_value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()
 
+    def _pin_model_initial(self, mode: str) -> dict[str, Any]:
+        model = self._field_value("#new-deployment-model")
+        revision = self._field_value("#new-deployment-model-revision")
+        if mode == "pin_hf":
+            params: dict[str, Any] = {}
+            if model:
+                params["repo_id"] = model
+            if revision:
+                params["revision"] = revision
+            return params
+        if mode == "adopt_local":
+            return {"local_path": model} if model else {}
+        return {}
+
     def _apply_initial(self) -> None:
         initial = self.initial
         if not initial:
             return
-        for selector, key in (
-            ("#new-deployment-name", "name"),
-            ("#new-deployment-model", "model"),
-            ("#new-deployment-image", "image"),
-            ("#new-deployment-build", "build"),
-            ("#new-deployment-executable", "executable"),
-            ("#new-deployment-host", "host"),
-            ("#new-deployment-port", "port"),
-        ):
-            value = str(initial.get(key) or "").strip()
-            if value:
-                self.query_one(selector, Input).value = value
-        runtime = _initial_runtime_value(initial)
-        if runtime in {"process", "docker", "build", "executable"}:
-            self._set_select_value("#new-deployment-runtime", runtime)
-        for selector, key in (
-            ("#new-deployment-recipe", "recipe"),
-            ("#new-deployment-model-ref", "model_ref"),
-            ("#new-deployment-preset", "preset"),
-            ("#new-deployment-exposure", "exposure"),
-        ):
-            value = str(initial.get(key) or "").strip()
-            if value:
-                self._set_select_value(selector, value)
+        self._applying_initial = True
         try:
-            step_index = int(initial.get("step_index", 0))
-        except (TypeError, ValueError):
-            step_index = 0
-        self.step_index = max(0, min(step_index, len(self.STEP_TITLES) - 1))
+            for selector, key in (
+                ("#new-deployment-name", "name"),
+                ("#new-deployment-model", "model"),
+                ("#new-deployment-model-revision", "model_revision"),
+                ("#new-deployment-image", "image"),
+                ("#new-deployment-build", "build"),
+                ("#new-deployment-executable", "executable"),
+                ("#new-deployment-host", "host"),
+                ("#new-deployment-port", "port"),
+            ):
+                value = str(initial.get(key) or "").strip()
+                if value:
+                    self.query_one(selector, Input).value = value
+            runtime = _initial_runtime_value(initial)
+            if runtime in {"process", "docker", "build", "executable"}:
+                self._set_select_value("#new-deployment-runtime", runtime)
+            for selector, key in (
+                ("#new-deployment-recipe", "recipe"),
+                ("#new-deployment-model-mode", "model_mode"),
+                ("#new-deployment-model-ref", "model_ref"),
+                ("#new-deployment-preset", "preset"),
+                ("#new-deployment-exposure", "exposure"),
+            ):
+                value = str(initial.get(key) or "").strip()
+                if value:
+                    self._set_select_value(selector, value)
+            try:
+                step_index = int(initial.get("step_index", 0))
+            except (TypeError, ValueError):
+                step_index = 0
+            self.step_index = max(0, min(step_index, len(self.STEP_TITLES) - 1))
+            self.query_one("#new-deployment-download-now", Checkbox).value = bool(
+                initial.get("download_now")
+            )
+        finally:
+            self._applying_initial = False
+        self._refresh_model_state()
 
     def _set_select_value(self, selector: str, value: str) -> None:
         try:
@@ -487,13 +558,20 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
     def _apply_model_ref(self, model_ref: str) -> None:
         if model_ref == "__custom__":
+            self._refresh_model_state()
             return
         model = self._model_by_ref(model_ref)
         if model is None:
+            self._refresh_model_state()
             return
         model_arg = _model_launch_arg(model)
         if model_arg:
             self.query_one("#new-deployment-model", Input).value = model_arg
+        revision = self._selected_model_revision(model_ref)
+        if revision:
+            self.query_one("#new-deployment-model-revision", Input).value = revision
+        self._set_select_value("#new-deployment-model-mode", "existing")
+        self._refresh_model_state()
 
     def _apply_build(self, build_ref: str) -> None:
         if build_ref == "__custom__":
@@ -528,6 +606,18 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             if value:
                 return value
         return None
+
+    def _refresh_model_state(self) -> None:
+        try:
+            widget = self.query_one("#new-deployment-model-state", Static)
+        except Exception:
+            return
+        model_ref = self._selected_model_ref()
+        if model_ref is None:
+            widget.update("cache: unpinned")
+            return
+        model = self._model_by_ref(model_ref)
+        widget.update(_model_state_summary(model) if model is not None else "cache: unknown")
 
     def _refresh_step(self) -> None:
         for index, selector in enumerate(self.STEP_IDS):
@@ -593,6 +683,16 @@ def _model_launch_arg(model: dict[str, Any]) -> str:
         if value:
             return value
     return ""
+
+
+def _model_state_summary(model: dict[str, Any]) -> str:
+    cache = str(model.get("cache_state") or "unknown").strip() or "unknown"
+    parts = [f"cache: {cache}"]
+    if model.get("gated") and (model.get("token_required") or model.get("gated")):
+        parts.append("auth: gated, requires HF_TOKEN")
+    elif model.get("token_required"):
+        parts.append("auth: requires HF_TOKEN")
+    return "   ".join(parts)
 
 
 def _build_reference(build: dict[str, Any]) -> str:

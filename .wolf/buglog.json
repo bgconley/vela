@@ -2770,6 +2770,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T03:27:07Z"
+    },
+    {
+      "id": "bug-143",
+      "timestamp": "2026-06-07T03:34:33Z",
+      "error_message": "new deployment wizard lacked first-class model pin/adopt/download controls",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "The model step only offered an existing pinned-model selector plus a bare model input, leaving HF repo pinning, local-path adoption, download-now behavior, and gated/cache state visible only in the standalone model manager.",
+      "fix": "Add model source modes to New Deployment, reuse PinModelScreen for HF repo and local-path handoffs, run the existing download_model job when download-now is selected, resume the wizard with model_ref/revision pinned, and render cache/auth state for selected models.",
+      "tags": [
+        "tui",
+        "deployment-composer",
+        "models"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T03:34:33Z"
     }
   ]
 }

@@ -4298,6 +4298,404 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
+    config_dir: Path,
+) -> None:
+    class FakeEvents:
+        def __init__(self) -> None:
+            self.closed = False
+            self._events: list[dict[str, object]] = []
+
+        def arm(self, job_id: str) -> None:
+            self._events = [
+                {
+                    "event": "job_progress",
+                    "job_id": job_id,
+                    "kind": "committed",
+                    "text": "Downloading model",
+                    "level": "INFO",
+                },
+                {
+                    "event": "job_done",
+                    "job_id": job_id,
+                    "ok": True,
+                    "detail": "model cached",
+                },
+            ]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._events:
+                raise StopAsyncIteration
+            return self._events.pop(0)
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.events = FakeEvents()
+            self.pin_calls: list[dict[str, object]] = []
+            self.download_calls: list[dict[str, object]] = []
+            self.compose_params: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "list_models":
+                models = []
+                if self.pin_calls:
+                    models.append(
+                        {
+                            "entry_id": "qwen-fp8-pin",
+                            "display_name": "Qwen3.6 27B FP8",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "cache_state": "remote_only",
+                            "gated": True,
+                            "token_required": True,
+                        }
+                    )
+                return {"models": models}
+            if method == "pin_model":
+                self.pin_calls.append(dict(params))
+                return {
+                    "entry": {
+                        "entry_id": "qwen-fp8-pin",
+                        "display_name": "Qwen3.6 27B FP8",
+                        "source": "hf_repo",
+                        "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "remote_only",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                }
+            if method == "download_model":
+                self.download_calls.append(dict(params))
+                self.events.arm(str(params["job_id"]))
+                return {
+                    "job_id": params["job_id"],
+                    "kind": "download_model",
+                    "status": "running",
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen-pinned",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "model_ref": "qwen-fp8-pin",
+                        "revision": "abc123",
+                        "command": {"runtime": "process"},
+                    },
+                    "warnings": ["gated-needs-token"],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve Qwen/Qwen3.6-27B-FP8",
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
+            return self.events
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-pinned"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
+        app.screen.query_one("#new-deployment-model-revision", Input).value = "main"
+        app.screen.query_one("#new-deployment-download-now", Checkbox).value = True
+        app.screen.query_one("#new-deployment-model-mode", Select).value = "pin_hf"
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "pin-model",
+            "pin-HF handoff did not open the pin model flow",
+        )
+        assert (
+            app.screen.query_one("#pin-model-repo-id", Input).value
+            == "Qwen/Qwen3.6-27B-FP8"
+        )
+        assert app.screen.query_one("#pin-model-revision", Input).value == "main"
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-model-ref", Select).value
+            == "qwen-fp8-pin"
+            and "Review"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "pinned model was not returned to the new deployment wizard",
+        )
+        state = str(app.screen.query_one("#new-deployment-model-state", Static).content)
+        assert "cache: remote_only" in state
+        assert "auth: gated, requires HF_TOKEN" in state
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review" and client.events.closed,
+            "new deployment review did not open after download-now model handoff",
+        )
+
+    assert client.pin_calls == [
+        {
+            "repo_id": "Qwen/Qwen3.6-27B-FP8",
+            "revision": "main",
+        }
+    ]
+    assert len(client.download_calls) == 1
+    assert client.download_calls[0]["model_ref"] == "qwen-fp8-pin"
+    assert client.download_calls[0]["revision"] == "abc123"
+    assert client.compose_params is not None
+    assert client.compose_params["model_ref"] == "qwen-fp8-pin"
+    assert client.compose_params["revision"] == "abc123"
+    assert "download_now" not in client.compose_params
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_adopt_local_model_path_handoff_pins_model_ref(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.pin_calls: list[dict[str, object]] = []
+            self.compose_params: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "list_models":
+                models = []
+                if self.pin_calls:
+                    models.append(
+                        {
+                            "entry_id": "local-qwen",
+                            "display_name": "Local Qwen",
+                            "source": "local_path",
+                            "local_path": "/agent/models/qwen",
+                            "cache_state": "local",
+                        }
+                    )
+                return {"models": models}
+            if method == "pin_model":
+                self.pin_calls.append(dict(params))
+                return {
+                    "entry": {
+                        "entry_id": "local-qwen",
+                        "display_name": "Local Qwen",
+                        "source": "local_path",
+                        "local_path": "/agent/models/qwen",
+                        "cache_state": "local",
+                    }
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen-local",
+                        "target": "blackbird",
+                        "model": "/agent/models/qwen",
+                        "model_ref": "local-qwen",
+                        "command": {"runtime": "process"},
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nvllm serve /agent/models/qwen",
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("adopt-local new deployment flow should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-local"
+        app.screen.query_one("#new-deployment-model", Input).value = "/agent/models/qwen"
+        app.screen.query_one("#new-deployment-model-mode", Select).value = "adopt_local"
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "pin-model",
+            "adopt-local handoff did not open the pin model flow",
+        )
+        assert (
+            app.screen.query_one("#pin-model-local-path", Input).value
+            == "/agent/models/qwen"
+        )
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-model-ref", Select).value
+            == "local-qwen"
+            and "Review"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "local model was not returned to the new deployment wizard",
+        )
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open after local model handoff",
+        )
+
+    assert client.pin_calls == [{"local_path": "/agent/models/qwen"}]
+    assert client.compose_params is not None
+    assert client.compose_params["model_ref"] == "local-qwen"
+    assert client.compose_params["model"] == "/agent/models/qwen"
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_model_picker_shows_cache_and_gated_state(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "gated-qwen",
+                            "display_name": "Gated Qwen",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "cache_state": "remote_only",
+                            "gated": True,
+                            "token_required": True,
+                        }
+                    ]
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model picker state test should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=ComposerClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-model-ref", Select).value = "gated-qwen"
+        await pilot.pause()
+
+        state = str(app.screen.query_one("#new-deployment-model-state", Static).content)
+        assert "cache: remote_only" in state
+        assert "auth: gated, requires HF_TOKEN" in state
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> None:
     class ComposerClient:
         connected = False

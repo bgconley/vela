@@ -1621,6 +1621,72 @@ class VelaApp(App):
         resumed["step_index"] = 4
         await self._open_new_deployment(initial=resumed)
 
+    def _handle_new_deployment_pin_model_submission(
+        self,
+        params: dict[str, Any] | None,
+        draft: dict[str, Any],
+    ) -> None:
+        if not params:
+            self.run_worker(
+                self._open_new_deployment(initial=draft),
+                name="new-deployment",
+                group="new-deployment",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
+        self.run_worker(
+            self._pin_model_for_new_deployment(params, draft),
+            name="new-deployment-pin-model",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _pin_model_for_new_deployment(
+        self,
+        params: dict[str, Any],
+        draft: dict[str, Any],
+    ) -> None:
+        try:
+            result = await self._target_call("pin_model", params)
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to pin model: {exc}", style=f"bold {BAD}")
+            return
+        entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
+        model_ref = _model_ref_from_model_entry(entry, params)
+        rendered = (
+            _optional_str(entry.get("display_name"))
+            or model_ref
+            or _optional_str(params.get("repo_id"))
+            or _optional_str(params.get("local_path"))
+            or "model"
+        )
+        self.notify(f"Pinned model: {rendered}")
+        await self._resume_new_deployment_with_model(draft, entry, params)
+
+    async def _resume_new_deployment_with_model(
+        self,
+        draft: dict[str, Any],
+        entry: dict[str, Any],
+        params: dict[str, Any],
+    ) -> None:
+        model_ref = _model_ref_from_model_entry(entry, params)
+        if not model_ref:
+            self._set_error_text("Model pin completed without a model id or label")
+            return
+        resumed = dict(draft)
+        resumed["model_mode"] = "existing"
+        resumed["model_ref"] = model_ref
+        model_arg = _model_launch_arg_from_model_entry(entry, params)
+        if model_arg:
+            resumed["model"] = model_arg
+        revision = _model_revision_from_model_entry(entry, params)
+        if revision:
+            resumed["model_revision"] = revision
+        resumed["step_index"] = 4
+        await self._open_new_deployment(initial=resumed)
+
     def action_models(self) -> None:
         if self._target_capability_blocked("list_models", "models"):
             return
@@ -2281,6 +2347,16 @@ class VelaApp(App):
                 ),
             )
             return
+        if action == "pin_model":
+            initial = selection.get("initial") if isinstance(selection.get("initial"), dict) else {}
+            self.push_screen(
+                PinModelScreen(initial=initial),
+                callback=lambda params: self._handle_new_deployment_pin_model_submission(
+                    params,
+                    draft_payload,
+                ),
+            )
+            return
         self.run_worker(
             self._review_new_deployment(selection),
             name="new-deployment-review",
@@ -2291,8 +2367,12 @@ class VelaApp(App):
 
     async def _review_new_deployment(self, spec: dict[str, Any]) -> None:
         params = dict(spec)
+        download_now = bool(params.pop("download_now", False))
         params.update(self._agent_params(configs_dir=self.configs_dir))
         try:
+            if download_now:
+                if not await self._download_new_deployment_model(params):
+                    return
             draft = await self._target_call("compose_config", params)
             config = draft.get("config")
             if not isinstance(config, dict):
@@ -2330,6 +2410,26 @@ class VelaApp(App):
             ),
             callback=self._handle_new_deployment_review,
         )
+
+    async def _download_new_deployment_model(self, params: dict[str, Any]) -> bool:
+        model_ref = _optional_str(params.get("model_ref"))
+        if model_ref is None:
+            self._set_error_text(
+                "Download now requires a pinned model. Pin the HF repo or choose an existing pin.",
+                style=f"bold {BAD}",
+            )
+            return False
+        job_params: dict[str, Any] = {"job_id": uuid.uuid4().hex, "model_ref": model_ref}
+        revision = _optional_str(params.get("revision"))
+        if revision is not None:
+            job_params["revision"] = revision
+        result = await self._run_target_job(
+            "download_model",
+            job_params,
+            error_action="download model",
+            incomplete_label="Model download",
+        )
+        return result is not None and result.get("ok") is True
 
     def _handle_new_deployment_review(self, selection: object) -> None:
         if not isinstance(selection, dict):
@@ -4662,6 +4762,42 @@ def _build_ref_from_build_result(
         or _optional_str(params.get("label"))
         or _optional_str(result.get("build_id"))
         or _optional_str(params.get("build_id"))
+    )
+
+
+def _model_ref_from_model_entry(
+    entry: dict[str, Any],
+    params: dict[str, Any],
+) -> str | None:
+    return (
+        _optional_str(entry.get("entry_id"))
+        or _optional_str(entry.get("display_name"))
+        or _optional_str(params.get("entry_id"))
+        or _optional_str(params.get("display_name"))
+    )
+
+
+def _model_launch_arg_from_model_entry(
+    entry: dict[str, Any],
+    params: dict[str, Any],
+) -> str | None:
+    for source in (entry, params):
+        for field in ("repo_id", "local_path", "url", "display_name"):
+            value = _optional_str(source.get(field))
+            if value is not None:
+                return value
+    return None
+
+
+def _model_revision_from_model_entry(
+    entry: dict[str, Any],
+    params: dict[str, Any],
+) -> str | None:
+    return (
+        _optional_str(entry.get("commit_sha"))
+        or _optional_str(entry.get("revision"))
+        or _optional_str(params.get("commit_sha"))
+        or _optional_str(params.get("revision"))
     )
 
 
