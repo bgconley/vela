@@ -10515,7 +10515,7 @@ async def test_nonzero_exit_without_logs_shows_exit_code_excerpt(config_dir: Pat
 
 @pytest.mark.asyncio
 async def test_missing_executable_shows_launch_guidance_instead_of_crashing(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     missing_executable = tmp_path / "does-not-exist"
     write_yaml(
@@ -10523,6 +10523,8 @@ async def test_missing_executable_shows_launch_guidance_instead_of_crashing(
         f"""
         name: missing-bin
         model: fake/model
+        server:
+          port: {unused_tcp_port}
         command:
           entrypoint: serve
           executable: {missing_executable}
@@ -10709,7 +10711,7 @@ async def test_occupied_port_shows_port_in_use_without_launching(
 
 @pytest.mark.asyncio
 async def test_detached_missing_executable_shows_launch_guidance(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     missing_executable = tmp_path / "detached-missing"
     runs_dir = tmp_path / "runs"
@@ -10721,6 +10723,8 @@ async def test_detached_missing_executable_shows_launch_guidance(
         command:
           entrypoint: serve
           executable: {missing_executable}
+        server:
+          port: {unused_tcp_port}
         launch:
           mode: detached
           runs_dir: {runs_dir}

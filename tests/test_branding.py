@@ -18,6 +18,12 @@ LIVE_TEXT_FILES = [
     "scripts/rsync_to_gpu.sh",
 ]
 
+LAB_PATHS_WITH_LEGACY_REPO_NAME = (
+    "/home/bgconley/repos/lab-tui",
+    "/home/bgconley/venvs/lab-tui",
+    "/tank/venvs/lab-tui",
+)
+
 
 def test_project_is_branded_as_vela() -> None:
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
@@ -85,5 +91,7 @@ def test_live_docs_and_scripts_do_not_emit_old_app_names() -> None:
     )
     for relative_path in LIVE_TEXT_FILES:
         text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        for lab_path in LAB_PATHS_WITH_LEGACY_REPO_NAME:
+            text = text.replace(lab_path, "")
         for old_name in forbidden:
             assert old_name not in text, f"{old_name!r} remains in {relative_path}"

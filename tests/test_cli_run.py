@@ -3925,7 +3925,7 @@ def test_cli_run_preview_prints_command_warnings_for_nonlocal_bind(config_dir: P
 
 
 def test_cli_run_reports_missing_executable_without_traceback(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     missing_executable = tmp_path / "missing-vllm"
     write_yaml(
@@ -3933,6 +3933,8 @@ def test_cli_run_reports_missing_executable_without_traceback(
         f"""
         name: missing-bin
         model: fake/model
+        server:
+          port: {unused_tcp_port}
         command:
           entrypoint: serve
           executable: {missing_executable}

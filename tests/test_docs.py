@@ -90,7 +90,8 @@ def test_lab_topology_docs_use_current_repo_and_venv_paths() -> None:
         text = _read(path)
         assert "/home/bgconley/repos/vela" not in text
         assert "/home/bgconley/venvs/vela" not in text
-        assert "lab-tui" not in text
+        assert "/home/bgconley/repos/current-vela" not in text
+        assert "/home/bgconley/venvs/current-vela" not in text
 
 
 def test_blackwell_docs_treat_local_recipes_as_runtime_truth() -> None:

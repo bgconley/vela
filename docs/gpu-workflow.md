@@ -120,7 +120,7 @@ build/model jobs and the real-config preview/smoke commands:
 
 ```bash
 VELA_REMOTE_TARGET=blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
@@ -171,7 +171,7 @@ VELA_REMOTE_MODEL_ID=p620-target-tiny-llama \
 VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
 VELA_REMOTE_MODEL_REVISION=main \
 VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui
 ```
 
 Preferred real architecture smoke: P620-01 controller to Blackbird agent. The
@@ -184,18 +184,18 @@ Mac-to-P620 shell session. Do not put `-A` or `ForwardAgent=yes` in a target's
 NDJSON transport.
 
 ```bash
-VELA_REMOTE_VENV=/home/bgconley/venvs/current-vela \
+VELA_REMOTE_VENV=/tank/venvs/lab-tui \
 VELA_REMOTE_TIMEOUT=2700 \
 VELA_REMOTE_TARGET=blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
   -o BatchMode=yes bgconley@10.25.0.50 \
-  'cd /home/bgconley/repos/current-vela &&
-   /home/bgconley/venvs/current-vela/bin/vela targets test blackbird'
+  'cd /home/bgconley/repos/lab-tui &&
+   /tank/venvs/lab-tui/bin/vela targets test blackbird'
 ```
 
 Then run the real TUI smoke from P620 through the `blackbird` target:
@@ -203,8 +203,8 @@ Then run the real TUI smoke from P620 through the `blackbird` target:
 ```bash
 ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
   -o BatchMode=yes bgconley@10.25.0.50 \
-  'cd /home/bgconley/repos/current-vela &&
-   timeout 2700 /home/bgconley/venvs/current-vela/bin/vela smoke-tui \
+  'cd /home/bgconley/repos/lab-tui &&
+   timeout 2700 /tank/venvs/lab-tui/bin/vela smoke-tui \
      qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird'
 ```
 
@@ -261,8 +261,8 @@ Direct Mac to Blackbird validation is still useful for host-local checks:
 
 ```bash
 git push origin main
-VELA_REMOTE_VENV=/home/bgconley/venvs/current-vela \
-  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/current-vela \
+VELA_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
+  scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 

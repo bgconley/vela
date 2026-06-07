@@ -1277,7 +1277,7 @@ async def test_agent_update_config_flags_writes_agent_side_yaml(config_dir: Path
 
 @pytest.mark.asyncio
 async def test_local_agent_prepare_launch_uses_command_cwd_for_relative_model(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     work_dir = tmp_path / "serve-root"
     model_dir = work_dir / "relative-model"
@@ -1287,6 +1287,8 @@ async def test_local_agent_prepare_launch_uses_command_cwd_for_relative_model(
         f"""
         name: cwd-local
         model: relative-model
+        server:
+          port: {unused_tcp_port}
         command:
           cwd: {work_dir}
         """,
@@ -1519,7 +1521,7 @@ async def test_local_agent_restart_rpc_stops_waits_and_launches_new_run(
 
 @pytest.mark.asyncio
 async def test_local_agent_starts_and_stops_attached_run_by_run_id(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     marker = tmp_path / "marker.txt"
     child = tmp_path / "child.py"
@@ -1551,6 +1553,8 @@ async def test_local_agent_starts_and_stops_attached_run_by_run_id(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,
@@ -1839,7 +1843,7 @@ async def test_local_agent_probes_detached_run_health_by_run_id(
 
 @pytest.mark.asyncio
 async def test_local_agent_emits_attached_log_and_phase_events(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     child = tmp_path / "child.py"
     child.write_text(
@@ -1860,6 +1864,8 @@ async def test_local_agent_emits_attached_log_and_phase_events(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,
@@ -2441,7 +2447,10 @@ async def test_local_agent_preflight_reports_missing_docker_image_when_pull_neve
 
 @pytest.mark.asyncio
 async def test_local_agent_records_build_ref_for_detached_launch(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
 ) -> None:
     builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01REFBUILD"
@@ -2471,6 +2480,8 @@ async def test_local_agent_records_build_ref_for_detached_launch(
         f"""
         name: build-ref
         model: fake/model
+        server:
+          port: {unused_tcp_port}
         command:
           build: ref-build
         launch:
@@ -2601,7 +2612,10 @@ def test_local_agent_passes_typed_resource_identity_to_detached_supervisor(
 
 @pytest.mark.asyncio
 async def test_target_client_detached_launch_can_reattach_by_run_id(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
 ) -> None:
     executable = tmp_path / "child.py"
     executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
@@ -2614,6 +2628,8 @@ async def test_target_client_detached_launch_can_reattach_by_run_id(
         command:
           entrypoint: serve
           executable: {executable}
+        server:
+          port: {unused_tcp_port}
         launch:
           mode: detached
           runs_dir: {tmp_path / "runs"}
@@ -2636,7 +2652,7 @@ async def test_target_client_detached_launch_can_reattach_by_run_id(
         cwd=str(tmp_path),
         launch_mode="detached",
         host="127.0.0.1",
-        port=8000,
+        port=unused_tcp_port,
         served_model_names=["served"],
         exposure="local",
         manifest_path=str(tmp_path / "runs" / "run-1.manifest.json"),
@@ -2678,7 +2694,10 @@ async def test_target_client_detached_launch_can_reattach_by_run_id(
 
 @pytest.mark.asyncio
 async def test_target_client_detached_launch_is_idempotent_by_requested_run_id(
-    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
 ) -> None:
     executable = tmp_path / "child.py"
     executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
@@ -2691,6 +2710,8 @@ async def test_target_client_detached_launch_is_idempotent_by_requested_run_id(
         command:
           entrypoint: serve
           executable: {executable}
+        server:
+          port: {unused_tcp_port}
         launch:
           mode: detached
           runs_dir: {tmp_path / "runs"}
@@ -4979,7 +5000,7 @@ async def test_agent_remove_only_active_default_build_clears_default(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_pinned_build_handoff(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01BUILDREADY"
@@ -5016,9 +5037,11 @@ async def test_agent_prepare_launch_resolves_pinned_build_handoff(
     )
     write_yaml(
         config_dir / "built.yaml",
-        """
+        f"""
         name: built
         model: org/model
+        server:
+          port: {unused_tcp_port}
         command:
           build: nightly-cu130
         """,
@@ -5185,7 +5208,7 @@ async def test_agent_prepare_launch_uses_request_build_id_override(
 
 @pytest.mark.asyncio
 async def test_agent_prepare_launch_resolves_build_python_for_module_entrypoint(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     builds_root = tmp_path / "data" / "vela" / "builds"
     build_dir = builds_root / "01MODULEBUILD"
@@ -5216,9 +5239,11 @@ async def test_agent_prepare_launch_resolves_build_python_for_module_entrypoint(
     )
     write_yaml(
         config_dir / "module.yaml",
-        """
+        f"""
         name: module
         model: org/model
+        server:
+          port: {unused_tcp_port}
         command:
           entrypoint: module
           build: 01MODULEBUILD
@@ -5889,7 +5914,7 @@ def test_model_mark_partial_takes_entry_lock(
 
 @pytest.mark.asyncio
 async def test_agent_adopts_local_model_path_for_launch_handoff(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_dir = tmp_path / "models" / "local-llama"
@@ -5899,10 +5924,12 @@ async def test_agent_adopts_local_model_path_for_launch_handoff(
     (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
     write_yaml(
         config_dir / "local-model.yaml",
-        """
+        f"""
         name: local-model
         model: local-llama
         model_ref: 01LOCAL
+        server:
+          port: {unused_tcp_port}
         """,
     )
 
@@ -10694,7 +10721,7 @@ async def test_agent_cancel_job_emits_cancelled_job_done() -> None:
 
 @pytest.mark.asyncio
 async def test_target_client_launches_attached_run_with_serialized_events(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     child = tmp_path / "child.py"
     child.write_text(
@@ -10715,6 +10742,8 @@ async def test_target_client_launches_attached_run_with_serialized_events(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,
@@ -10763,7 +10792,7 @@ async def test_target_client_launches_attached_run_with_serialized_events(
 
 @pytest.mark.asyncio
 async def test_target_client_replays_buffered_run_events_from_sequence(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     child = tmp_path / "child.py"
     child.write_text(
@@ -10771,7 +10800,7 @@ async def test_target_client_replays_buffered_run_events_from_sequence(
             [
                 "#!/usr/bin/env python3",
                 "print('INFO Starting to load model', flush=True)",
-                "print('INFO Uvicorn running on http://127.0.0.1:8000', flush=True)",
+                f"print('INFO Uvicorn running on http://127.0.0.1:{unused_tcp_port}', flush=True)",
             ]
         ),
         encoding="utf-8",
@@ -10785,6 +10814,8 @@ async def test_target_client_replays_buffered_run_events_from_sequence(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,
@@ -10832,7 +10863,7 @@ async def test_local_agent_subscribe_all_receives_events_from_any_run() -> None:
 
 @pytest.mark.asyncio
 async def test_target_client_replays_durable_log_events_from_offset(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     child = tmp_path / "child.py"
     child.write_text(
@@ -10854,6 +10885,8 @@ async def test_target_client_replays_durable_log_events_from_offset(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,
@@ -10892,7 +10925,7 @@ async def test_target_client_replays_durable_log_events_from_offset(
 
 @pytest.mark.asyncio
 async def test_target_client_replays_from_new_active_log_after_rotation(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     child = tmp_path / "child.py"
     child.write_text(
@@ -10913,6 +10946,8 @@ async def test_target_client_replays_from_new_active_log_after_rotation(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,
@@ -10958,7 +10993,7 @@ async def test_target_client_replays_from_new_active_log_after_rotation(
 
 @pytest.mark.asyncio
 async def test_target_client_kills_attached_run_by_run_id(
-    config_dir: Path, tmp_path: Path
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
     child = tmp_path / "child.py"
     child.write_text(
@@ -10974,6 +11009,8 @@ async def test_target_client_kills_attached_run_by_run_id(
         command:
           entrypoint: serve
           executable: {child}
+        server:
+          port: {unused_tcp_port}
         launch:
           runs_dir: {tmp_path / "runs"}
         """,

@@ -50,8 +50,8 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/current-vela
-    venv: /home/bgconley/venvs/current-vela
+    workdir: /home/bgconley/repos/lab-tui
+    venv: /home/bgconley/venvs/lab-tui
     local_transport: socket
 ```
 
@@ -60,8 +60,8 @@ Register and test a target from the CLI:
 ```bash
 vela targets add blackbird \
   --host bgconley@10.25.0.51 \
-  --workdir /home/bgconley/repos/current-vela \
-  --venv /home/bgconley/venvs/current-vela
+  --workdir /home/bgconley/repos/lab-tui \
+  --venv /home/bgconley/venvs/lab-tui
 vela targets test blackbird
 ```
 
@@ -70,12 +70,12 @@ forwarding and the nested target:
 
 ```bash
 VELA_SSH_OPTS="-A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 -o BatchMode=yes" \
-VELA_REMOTE_VENV=/home/bgconley/venvs/current-vela \
+VELA_REMOTE_VENV=/tank/venvs/lab-tui \
 VELA_REMOTE_TARGET=blackbird \
 VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
 VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
 VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/current-vela \
+  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird
 ```
 

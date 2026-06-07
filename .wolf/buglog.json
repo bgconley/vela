@@ -3017,6 +3017,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T05:10:40Z"
+    },
+    {
+      "id": "bug-157",
+      "timestamp": "2026-06-07T05:23:20Z",
+      "error_message": "remote no-GPU suite failed when localhost:8000 was occupied",
+      "file": "tests/test_agent_client.py",
+      "root_cause": "Several fake launch/preflight tests asserted command, event, or missing-executable behavior without setting server.port, so the launch preflight checked the product default port 8000 first. P620 had a local service on 127.0.0.1:8000, causing unrelated PORT_IN_USE failures before the intended behavior was exercised.",
+      "fix": "Set pytest-provided free ports in the affected fake-launch YAML fixtures across agent-client, CLI, and TUI tests while leaving product defaults unchanged.",
+      "tags": [
+        "tests",
+        "remote-validation",
+        "preflight",
+        "ports"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:23:20Z"
     }
   ]
 }

@@ -16,10 +16,10 @@ targets:
     transport: ssh
     host: bgconley@10.25.0.51
     ssh_key: /home/bgconley/.ssh/vela_ed25519
-    workdir: /home/bgconley/repos/current-vela
-    venv: /home/bgconley/venvs/current-vela
+    workdir: /home/bgconley/repos/lab-tui
+    venv: /home/bgconley/venvs/lab-tui
     agent_command:
-      - /home/bgconley/venvs/current-vela/bin/vela
+      - /home/bgconley/venvs/lab-tui/bin/vela
       - agent
       - connect
     local_transport: socket
