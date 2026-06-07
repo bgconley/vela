@@ -2230,6 +2230,12 @@ class VelaApp(App):
             return True
         return capability in {str(item) for item in capabilities}
 
+    def _target_declares_capability(self, capability: str) -> bool:
+        capabilities = self._target_agent_info.get("capabilities")
+        if not isinstance(capabilities, list):
+            return False
+        return capability in {str(item) for item in capabilities}
+
     def _target_label(self) -> str:
         return self.target_name
 
@@ -2365,6 +2371,11 @@ class VelaApp(App):
                 targets=target_rows,
                 connection_state=self.target_connection_state,
                 agent_info=self._target_agent_info,
+                suggestion_resolver=(
+                    self._suggest_new_deployment_defaults
+                    if self._target_declares_capability("suggest_deployment_defaults")
+                    else None
+                ),
             ),
             callback=self._handle_new_deployment_selection,
         )
@@ -2472,6 +2483,13 @@ class VelaApp(App):
         resumed["target"] = target_name
         resumed["selected_target"] = target_name
         await self._open_new_deployment(initial=resumed)
+
+    async def _suggest_new_deployment_defaults(
+        self, spec: dict[str, Any]
+    ) -> dict[str, Any]:
+        params = dict(spec)
+        params.update(self._agent_params(configs_dir=self.configs_dir))
+        return await self._target_call("suggest_deployment_defaults", params)
 
     async def _review_new_deployment(self, spec: dict[str, Any]) -> None:
         params = dict(spec)

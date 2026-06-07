@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from textual.app import ComposeResult
@@ -64,6 +65,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     }}
 
     #new-deployment-target {{
+        margin-bottom: 1;
+        color: {MUTED};
+    }}
+
+    #new-deployment-model-suggestions {{
         margin-bottom: 1;
         color: {MUTED};
     }}
@@ -139,6 +145,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         targets: list[dict[str, Any]] | None = None,
         connection_state: str = "disconnected",
         agent_info: dict[str, Any] | None = None,
+        suggestion_resolver: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+        | None = None,
     ) -> None:
         super().__init__(id="new-deployment")
         self.target_label = target_label
@@ -150,6 +158,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.targets = _target_rows(targets, target_label)
         self.connection_state = connection_state
         self.agent_info = dict(agent_info or {})
+        self.suggestion_resolver = suggestion_resolver
+        self._suggestion_revision = 0
+        self._suppress_model_suggestion_events = False
         self._applying_initial = False
         self.step_index = 0
 
@@ -237,6 +248,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-model-ref",
                 )
                 yield Static("", id="new-deployment-model-state")
+                yield Static("", id="new-deployment-model-suggestions")
                 yield Static("Model", classes="new-deployment-field-label")
                 yield Input(
                     placeholder="Qwen/Qwen3-32B or /agent/models/model",
@@ -292,10 +304,24 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def on_mount(self) -> None:
         self._apply_initial()
         self._refresh_step()
+        self._queue_model_suggestions()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
         self.action_submit()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if self._applying_initial:
+            return
+        if self._suppress_model_suggestion_events:
+            return
+        if event.input.id in {
+            "new-deployment-name",
+            "new-deployment-model",
+            "new-deployment-model-revision",
+            "new-deployment-port",
+        }:
+            self._queue_model_suggestions()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if self._applying_initial:
@@ -316,6 +342,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             if runtime in {"create_build", "adopt_build"}:
                 event.stop()
                 self.dismiss({"action": runtime, "draft": self._draft_state()})
+            else:
+                self._queue_model_suggestions()
             return
         if event.select.id == "new-deployment-model-mode":
             mode = str(event.value or "")
@@ -337,6 +365,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             event.stop()
             self._apply_model_ref(str(event.value or ""))
             self._refresh_model_state()
+            self._queue_model_suggestions()
             return
         if event.select.id == "new-deployment-build-select":
             event.stop()
@@ -647,12 +676,16 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             self._refresh_model_state()
             return
         model_arg = _model_launch_arg(model)
-        if model_arg:
-            self.query_one("#new-deployment-model", Input).value = model_arg
-        revision = self._selected_model_revision(model_ref)
-        if revision:
-            self.query_one("#new-deployment-model-revision", Input).value = revision
-        self._set_select_value("#new-deployment-model-mode", "existing")
+        self._suppress_model_suggestion_events = True
+        try:
+            if model_arg:
+                self.query_one("#new-deployment-model", Input).value = model_arg
+            revision = self._selected_model_revision(model_ref)
+            if revision:
+                self.query_one("#new-deployment-model-revision", Input).value = revision
+            self._set_select_value("#new-deployment-model-mode", "existing")
+        finally:
+            self._suppress_model_suggestion_events = False
         self._refresh_model_state()
 
     def _apply_build(self, build_ref: str) -> None:
@@ -701,6 +734,84 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         model = self._model_by_ref(model_ref)
         widget.update(_model_state_summary(model) if model is not None else "cache: unknown")
 
+    def _queue_model_suggestions(self) -> None:
+        try:
+            widget = self.query_one("#new-deployment-model-suggestions", Static)
+        except Exception:
+            return
+        if self.suggestion_resolver is None:
+            widget.update("")
+            return
+        params = self._suggestion_params()
+        if params is None:
+            widget.update("")
+            return
+        self._suggestion_revision += 1
+        revision = self._suggestion_revision
+
+        async def refresh() -> None:
+            await self._refresh_model_suggestions(revision, params)
+
+        self.run_worker(
+            refresh,
+            name="new-deployment-suggestions",
+            group="new-deployment-suggestions",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    def _suggestion_params(self) -> dict[str, Any] | None:
+        model_ref = self._selected_model_ref()
+        model = self._field_value("#new-deployment-model")
+        if model_ref is None and not model:
+            return None
+        params: dict[str, Any] = {
+            "target": self._selected_target(),
+            "runtime": str(self.query_one("#new-deployment-runtime", Select).value or "process"),
+        }
+        name = self._field_value("#new-deployment-name")
+        if name:
+            params["name"] = name
+        if model:
+            params["model"] = model
+        if model_ref is not None:
+            params["model_ref"] = model_ref
+            revision = (
+                self._field_value("#new-deployment-model-revision")
+                or self._selected_model_revision(model_ref)
+            )
+            if revision:
+                params["revision"] = revision
+        else:
+            revision = self._field_value("#new-deployment-model-revision")
+            if revision:
+                params["revision"] = revision
+        port = self._field_value("#new-deployment-port")
+        if port:
+            try:
+                params["preferred_port"] = int(port)
+            except ValueError:
+                pass
+        return params
+
+    async def _refresh_model_suggestions(
+        self, revision: int, params: dict[str, Any]
+    ) -> None:
+        if self.suggestion_resolver is None:
+            return
+        try:
+            result = await self.suggestion_resolver(params)
+        except Exception as exc:
+            text = f"hints unavailable: {exc}"
+        else:
+            text = _model_suggestions_summary(result)
+        if revision != self._suggestion_revision:
+            return
+        try:
+            self.query_one("#new-deployment-model-suggestions", Static).update(text)
+        except Exception:
+            return
+
     def _refresh_step(self) -> None:
         for index, selector in enumerate(self.STEP_IDS):
             self.query_one(selector).display = index == self.step_index
@@ -738,6 +849,34 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
 def _model_reference(model: dict[str, Any]) -> str:
     return str(model.get("entry_id") or model.get("display_name") or "").strip()
+
+
+def _model_suggestions_summary(payload: dict[str, Any]) -> str:
+    parts: list[str] = []
+    engine = payload.get("engine_suggestions")
+    if isinstance(engine, dict):
+        field_order = (
+            "dtype",
+            "kv_cache_dtype",
+            "tensor_parallel_size",
+            "max_model_len",
+            "max_num_seqs",
+            "quantization",
+        )
+        hints = [
+            f"{field}={engine[field]}"
+            for field in field_order
+            if field in engine and engine[field] not in (None, "")
+        ]
+        if hints:
+            parts.append("hints " + " ".join(hints))
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        parts.append("warnings " + ", ".join(str(item) for item in warnings))
+    sources = payload.get("sources")
+    if isinstance(sources, list) and sources:
+        parts.append("sources " + ", ".join(str(item) for item in sources))
+    return "   ".join(parts)
 
 
 def _initial_runtime_value(initial: dict[str, Any]) -> str:

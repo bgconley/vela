@@ -4924,6 +4924,191 @@ async def test_new_deployment_model_picker_shows_cache_and_gated_state(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_model_selection_shows_live_suggestions(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.suggest_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "compose_config",
+                    "list_configs",
+                    "list_models",
+                    "list_presets",
+                    "suggest_deployment_defaults",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "qwen-fp8",
+                            "display_name": "Qwen FP8",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "cache_state": "remote_only",
+                            "gated": True,
+                            "token_required": True,
+                        }
+                    ]
+                }
+            if method == "suggest_deployment_defaults":
+                self.suggest_calls.append(dict(params))
+                return {
+                    "engine_suggestions": {
+                        "dtype": "auto",
+                        "kv_cache_dtype": "fp8",
+                        "tensor_parallel_size": 2,
+                    },
+                    "warnings": ["gated-needs-token"],
+                    "sources": ["model_registry"],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("suggestion test should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-model-ref", Select).value = "qwen-fp8"
+        await _wait_for_condition(
+            lambda: "kv_cache_dtype=fp8"
+            in str(app.screen.query_one("#new-deployment-model-suggestions", Static).content),
+            "live model suggestions did not render for registry pin",
+        )
+
+        suggestions = str(
+            app.screen.query_one("#new-deployment-model-suggestions", Static).content
+        )
+        assert "dtype=auto" in suggestions
+        assert "tensor_parallel_size=2" in suggestions
+        assert "gated-needs-token" in suggestions
+
+    assert client.suggest_calls
+    assert client.suggest_calls[-1]["model_ref"] == "qwen-fp8"
+    assert client.suggest_calls[-1]["revision"] == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_bare_model_shows_live_suggestions(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.suggest_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "capabilities": [
+                    "compose_config",
+                    "list_configs",
+                    "list_models",
+                    "list_presets",
+                    "suggest_deployment_defaults",
+                ]
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_models":
+                return {"models": []}
+            if method == "suggest_deployment_defaults":
+                self.suggest_calls.append(dict(params))
+                return {
+                    "engine_suggestions": {
+                        "dtype": "auto",
+                        "kv_cache_dtype": "fp8",
+                        "tensor_parallel_size": 1,
+                    },
+                    "warnings": ["gated-needs-token"],
+                    "sources": ["hf_config"],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("bare suggestion test should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-model", Input).value = (
+            "Qwen/Qwen3.6-27B-FP8"
+        )
+        await _wait_for_condition(
+            lambda: "kv_cache_dtype=fp8"
+            in str(app.screen.query_one("#new-deployment-model-suggestions", Static).content),
+            "live model suggestions did not render for bare model",
+        )
+
+        suggestions = str(
+            app.screen.query_one("#new-deployment-model-suggestions", Static).content
+        )
+        assert "dtype=auto" in suggestions
+        assert "tensor_parallel_size=1" in suggestions
+        assert "gated-needs-token" in suggestions
+
+    assert client.suggest_calls
+    assert client.suggest_calls[-1]["model"] == "Qwen/Qwen3.6-27B-FP8"
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> None:
     class ComposerClient:
         connected = False
