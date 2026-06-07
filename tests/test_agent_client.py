@@ -2052,6 +2052,169 @@ async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
 
 
 @pytest.mark.asyncio
+async def test_local_agent_docker_discover_reattach_across_restart(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    docker = tmp_path / "docker"
+    docker_log = tmp_path / "docker-commands.log"
+    runs_dir = tmp_path / "runs"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
+    write_yaml(
+        config_dir / "docker-restart.yaml",
+        f"""
+        name: docker-restart
+        model: fake/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:image
+            container_name: vela-qwen
+            stop_grace_seconds: 90
+        server:
+          port: {unused_tcp_port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+        vllm:
+          version_profile: current
+        """,
+    )
+    first_client = InProcessTargetClient(LocalAgent())
+    await first_client.connect()
+    try:
+        launch = await first_client.call(
+            "launch",
+            {
+                "name": "docker-restart",
+                "configs_dir": str(config_dir),
+                "run_id": "docker-restart-run",
+            },
+        )
+    finally:
+        await first_client.disconnect()
+
+    restarted_client = InProcessTargetClient(LocalAgent())
+    await restarted_client.connect()
+    try:
+        discovered = await restarted_client.call(
+            "discover_runs",
+            {"runs_dirs": [str(runs_dir)]},
+        )
+        reattached = await restarted_client.call("reattach", {"run_id": "docker-restart-run"})
+        status = await restarted_client.call("status", {"run_id": "docker-restart-run"})
+        await restarted_client.call("stop", {"run_id": "docker-restart-run"})
+    finally:
+        await restarted_client.disconnect()
+
+    assert launch == {
+        "run_id": "docker-restart-run",
+        "launch_mode": "detached",
+        "status": "started",
+    }
+    assert discovered == {
+        "runs": [{"run_id": "docker-restart-run", "config_name": "docker-restart"}]
+    }
+    assert status == reattached
+    assert reattached["sidecar"]["config_name"] == "docker-restart"
+    assert reattached["sidecar"]["launch_mode"] == "detached"
+    assert reattached["sidecar"]["vllm_version_profile"] == "current"
+    assert reattached["config"]["command"]["runtime"] == "docker"
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert "inspect container-123" in docker_commands
+    assert "stop -t 90 container-123" in docker_commands
+
+
+@pytest.mark.parametrize(
+    ("env_name", "env_value", "expected_detail"),
+    [
+        (
+            "FAKE_DOCKER_CONTAINER_ID",
+            "container-recycled",
+            "tracked docker container id does not match sidecar",
+        ),
+        (
+            "FAKE_DOCKER_IMAGE_DIGEST",
+            "sha256:recycled",
+            "tracked docker image digest does not match sidecar",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_local_agent_docker_reattach_refuses_recycled_container(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
+    env_name: str,
+    env_value: str,
+    expected_detail: str,
+) -> None:
+    docker = tmp_path / "docker"
+    docker_log = tmp_path / "docker-commands.log"
+    runs_dir = tmp_path / "runs"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
+    write_yaml(
+        config_dir / "docker-stale.yaml",
+        f"""
+        name: docker-stale
+        model: fake/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:image
+            container_name: vela-qwen
+        server:
+          port: {unused_tcp_port}
+        launch:
+          mode: detached
+          runs_dir: {runs_dir}
+        vllm:
+          version_profile: current
+        """,
+    )
+    first_client = InProcessTargetClient(LocalAgent())
+    await first_client.connect()
+    try:
+        await first_client.call(
+            "launch",
+            {
+                "name": "docker-stale",
+                "configs_dir": str(config_dir),
+                "run_id": "docker-stale-run",
+            },
+        )
+    finally:
+        await first_client.disconnect()
+
+    restarted_client = InProcessTargetClient(LocalAgent())
+    await restarted_client.connect()
+    try:
+        discovered = await restarted_client.call(
+            "discover_runs",
+            {"runs_dirs": [str(runs_dir)]},
+        )
+        monkeypatch.setenv(env_name, env_value)
+        with pytest.raises(TargetCallError) as exc_info:
+            await restarted_client.call("reattach", {"run_id": "docker-stale-run"})
+    finally:
+        await restarted_client.disconnect()
+
+    assert discovered == {
+        "runs": [{"run_id": "docker-stale-run", "config_name": "docker-stale"}]
+    }
+    assert exc_info.value.code == "identity-verification-failed"
+    assert exc_info.value.message == expected_detail
+    assert exc_info.value.details["run_id"] == "docker-stale-run"
+    docker_commands = docker_log.read_text(encoding="utf-8")
+    assert "stop" not in docker_commands
+    assert "kill" not in docker_commands
+
+
+@pytest.mark.asyncio
 async def test_local_agent_docker_launch_honors_pull_and_records_inspected_digest(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
 ) -> None:

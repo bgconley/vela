@@ -1687,7 +1687,14 @@ class LocalAgent:
             sidecar_path = self._detached_sidecar_paths.get(run_id)
             if sidecar_path is None:
                 raise TargetCallError("run-not-found", f"unknown detached run: {run_id}")
-            run = self._load_verified_detached_run(sidecar_path)
+            try:
+                run = self._load_verified_detached_run(sidecar_path)
+            except TrackedProcessMismatch as exc:
+                raise TargetCallError(
+                    "identity-verification-failed",
+                    str(exc),
+                    {"run_id": run_id, "sidecar_path": str(sidecar_path)},
+                ) from exc
         return _detached_run_payload(run)
 
     def _status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1697,7 +1704,14 @@ class LocalAgent:
             sidecar_path = self._detached_sidecar_paths.get(run_id)
             if sidecar_path is None:
                 raise TargetCallError("run-not-found", f"unknown run: {run_id}")
-            run = self._load_verified_detached_run(sidecar_path)
+            try:
+                run = self._load_verified_detached_run(sidecar_path)
+            except TrackedProcessMismatch as exc:
+                raise TargetCallError(
+                    "identity-verification-failed",
+                    str(exc),
+                    {"run_id": run_id, "sidecar_path": str(sidecar_path)},
+                ) from exc
         return _detached_run_payload(run)
 
     def _diagnose(self, params: dict[str, Any]) -> dict[str, Any]:

@@ -11376,6 +11376,10 @@ async def test_tui_detached_tail_consumes_agent_events(
             "CUDA out of memory while profiling KV cache",
             "gpu_memory_utilization",
         ),
+        (ErrorKind.IMAGE_NOT_FOUND, "No such image", "command.docker.image"),
+        (ErrorKind.DAEMON_UNREACHABLE, "Docker daemon unavailable", "daemon socket"),
+        (ErrorKind.NAME_CONFLICT, "container name already in use", "command.docker.evict"),
+        (ErrorKind.GPU_NOT_AVAILABLE, "could not select device driver", "NVIDIA runtime"),
         (ErrorKind.CRASHED, "INFO Starting to load model", "last log lines"),
     ],
 )

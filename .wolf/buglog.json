@@ -2925,6 +2925,26 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:39:54Z"
+    },
+    {
+      "id": "bug-152",
+      "timestamp": "2026-06-07T04:46:17Z",
+      "error_message": "stale docker sidecar reattach leaked raw identity mismatch instead of named RPC failure",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "stop and kill translated TrackedProcessMismatch into identity-verification-failed, but reattach/status loaded verified sidecars without translating the same mismatch. A recycled Docker container id or image digest would refuse safely, but through an unstructured Python exception at the agent boundary.",
+      "fix": "Catch TrackedProcessMismatch in reattach/status and raise TargetCallError identity-verification-failed with run_id and sidecar_path details. Add fake-Docker fresh-agent discover/reattach coverage and recycled id/digest refusal tests.",
+      "tags": [
+        "docker",
+        "sidecar",
+        "reattach",
+        "identity",
+        "track-a"
+      ],
+      "related_bugs": [
+        "bug-149"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:46:17Z"
     }
   ]
 }

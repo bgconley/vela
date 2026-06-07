@@ -396,6 +396,10 @@ OPTIONAL_MONITOR_GROUP_LABELS = {
 ERROR_GUIDANCE = {
     ErrorKind.OOM: "Try lowering gpu_memory_utilization or max_model_len.",
     ErrorKind.PORT_IN_USE: "Choose a different server.port or stop the process using it.",
+    ErrorKind.IMAGE_NOT_FOUND: "Pull or correct command.docker.image and its digest.",
+    ErrorKind.DAEMON_UNREACHABLE: "Start Docker or check the daemon socket on the target.",
+    ErrorKind.NAME_CONFLICT: "Remove the existing container or add it to command.docker.evict.",
+    ErrorKind.GPU_NOT_AVAILABLE: "Check --gpus, the NVIDIA runtime, driver, and target GPU.",
     ErrorKind.MODEL_NOT_FOUND: "Check the model path/name and Hugging Face access.",
     ErrorKind.TP_MISMATCH: "Check tensor_parallel_size, pipeline_parallel_size, and visible GPUs.",
     ErrorKind.HF_AUTH: "Set HF_TOKEN and accept the model license if it is gated.",

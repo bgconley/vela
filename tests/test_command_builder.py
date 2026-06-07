@@ -14,6 +14,7 @@ from vela.engine.command_builder import (
     mask_preview_value,
     render_standalone_docker_script,
 )
+from vela.engine.docker_runtime import DockerErrorKind, classify_docker_error
 from vela.engine.profile import bundled_profile
 
 
@@ -69,6 +70,30 @@ def test_revision_pin_is_emitted_for_standalone_model_handoff() -> None:
     result = build_command(model_cfg, bundled_profile("current"))
 
     assert result.argv[:5] == ["vllm", "serve", "org/model", "--revision", "abc123"]
+
+
+@pytest.mark.parametrize(
+    ("detail", "expected"),
+    [
+        (
+            "Error response from daemon: Conflict. The container name /vela-qwen is already in use",
+            DockerErrorKind.NAME_CONFLICT,
+        ),
+        (
+            "docker: Error response from daemon: could not select device driver "
+            "with capabilities: [[gpu]]",
+            DockerErrorKind.GPU_NOT_AVAILABLE,
+        ),
+        (
+            "NVIDIA Container Toolkit cannot find any GPU devices",
+            DockerErrorKind.GPU_NOT_AVAILABLE,
+        ),
+    ],
+)
+def test_docker_error_classifier_covers_named_runtime_failures(
+    detail: str, expected: DockerErrorKind
+) -> None:
+    assert classify_docker_error(detail) is expected
 
 
 def test_command_cwd_controls_preview_and_result(tmp_path: Path) -> None:
