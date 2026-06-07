@@ -2395,6 +2395,63 @@ def test_cli_targets_test_handshakes_with_selected_target(
     ]
 
 
+def test_cli_targets_test_handshake_error_uses_target_name_in_remediation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        agent_command=["vela", "agent", "connect"],
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        async def call(self, method: str, params):
+            assert method == "handshake"
+            assert params is None
+            raise cli_module.TargetCallError(
+                "agent-unreachable",
+                "SSH authentication failed",
+                {"reason": "ssh-auth", "stderr": "Permission denied"},
+            )
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "target_client_for_config",
+        lambda _target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "test", "blackbird"])
+
+    assert result.exit_code == 2
+    assert "ERROR AGENT_UNREACHABLE: SSH authentication failed" in result.output
+    assert "SSH stderr: Permission denied" in result.output
+    assert "vela targets setup-ssh blackbird" in result.output
+    assert "TargetConfig(" not in result.output
+
+
 def test_cli_targets_test_surfaces_invalid_ssh_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2433,6 +2490,57 @@ def test_cli_targets_test_surfaces_invalid_ssh_options(
         "ERROR: Unable to create target client: "
         "VELA_SSH_OPTS contains positional SSH argument 'evil'"
     ) in result.output
+
+
+def test_cli_targets_setup_ssh_invokes_ssh_copy_id_with_target_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    command_log = tmp_path / "ssh-copy-id.json"
+    fake_copy_id = bin_dir / "ssh-copy-id"
+    fake_copy_id.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json, os, sys",
+                f"open({str(command_log)!r}, 'w', encoding='utf-8').write(",
+                "    json.dumps(sys.argv[1:])",
+                ")",
+                "print('keys installed')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_copy_id.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    key_path = tmp_path / "vela_ed25519.pub"
+    targets_path = tmp_path / "vela" / "targets.yaml"
+    targets_path.parent.mkdir()
+    write_yaml(
+        targets_path,
+        f"""
+        targets:
+          blackbird:
+            transport: ssh
+            host: bgconley@fake
+            ssh_key: {key_path}
+        """,
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "setup-ssh", "blackbird"])
+
+    assert result.exit_code == 0, result.output
+    assert "keys installed" in result.output
+    assert "setup ssh\tblackbird\tbgconley@fake" in result.output
+    assert json.loads(command_log.read_text(encoding="utf-8")) == [
+        "-i",
+        str(key_path),
+        "bgconley@fake",
+    ]
 
 
 def test_cli_targets_add_persists_ssh_target(

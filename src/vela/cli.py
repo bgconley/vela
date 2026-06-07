@@ -38,6 +38,7 @@ from vela.transport.client import TargetClient
 from vela.transport.factory import target_client_for_config
 from vela.transport.ssh_bootstrap import DEFAULT_AGENT_INSTALL_SPEC, install_ssh_agent
 from vela.transport.ssh_discovery import discover_ssh_agent_command
+from vela.transport.ssh_setup import setup_ssh_key
 from vela.tui.app import VelaApp
 
 app = typer.Typer(
@@ -324,7 +325,7 @@ def targets_bootstrap(
     try:
         handshake = _target_call(_target_client_for_config_or_exit(target), "handshake")
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc, target_name=target)
+        _echo_target_error_or_exit(exc, target_name=target.name)
     typer.echo(
         f"OK\thandshake\tagent={handshake.get('agent_version', 'unknown')}\t"
         f"protocol={handshake.get('protocol_version', 'unknown')}"
@@ -371,7 +372,7 @@ def targets_test(
     try:
         handshake = _target_call(client, "handshake")
     except TargetCallError as exc:
-        _echo_target_error_or_exit(exc, target_name=target)
+        _echo_target_error_or_exit(exc, target_name=target.name)
     typer.echo(
         f"{name}\tok\t"
         f"agent={handshake.get('agent_version', 'unknown')}\t"
@@ -383,6 +384,27 @@ def targets_test(
         _echo_target_error_or_exit(exc, target_name=target.name)
     for line in _target_report_lines(report):
         typer.echo(line)
+
+
+@targets_app.command("setup-ssh")
+def targets_setup_ssh(
+    name: Annotated[str, typer.Argument(help="Target name to configure.")],
+    identity_file: Annotated[
+        Path | None,
+        typer.Option("--identity", "-i", help="SSH public/private key path for ssh-copy-id."),
+    ] = None,
+) -> None:
+    target = _target_config_for_name_or_exit(name)
+    try:
+        result = setup_ssh_key(target, identity_file=identity_file)
+    except ValueError as exc:
+        typer.echo(f"ERROR: Unable to set up SSH: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target.name)
+    if result.stdout.strip():
+        typer.echo(result.stdout.strip())
+    typer.echo(f"setup ssh\t{name}\t{target.host}")
 
 
 @build_app.command("list")

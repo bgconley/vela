@@ -2632,6 +2632,43 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:40:00Z"
+    },
+    {
+      "id": "bug-135",
+      "timestamp": "2026-06-07T05:15:00Z",
+      "error_message": "setup-ssh remediation command was advertised but not implemented",
+      "file": "src/vela/cli.py",
+      "root_cause": "Agent-unreachable remediation surfaced `vela targets setup-ssh <name>` as the next operator action, but the targets command group had no setup-ssh command to run ssh-copy-id for the configured SSH target.",
+      "fix": "Add a transport-level ssh-copy-id wrapper and wire `vela targets setup-ssh <name>` with optional --identity support plus a fake-binary CLI regression asserting the target key and host are passed through.",
+      "tags": [
+        "onboarding",
+        "ssh",
+        "remediation",
+        "cli"
+      ],
+      "related_bugs": [
+        "bug-130"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:15:00Z"
+    },
+    {
+      "id": "bug-136",
+      "timestamp": "2026-06-07T05:25:00Z",
+      "error_message": "targets test handshake remediation rendered TargetConfig instead of target name",
+      "file": "src/vela/cli.py",
+      "root_cause": "Bootstrap and targets-test handshake error handlers passed the full TargetConfig object to the remediation renderer instead of the target's name string.",
+      "fix": "Pass target.name for both handshake error paths and add a targets-test regression asserting setup-ssh remediation renders `blackbird` and not a Python object repr.",
+      "tags": [
+        "onboarding",
+        "remediation",
+        "cli"
+      ],
+      "related_bugs": [
+        "bug-132"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T05:25:00Z"
     }
   ]
 }

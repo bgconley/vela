@@ -117,10 +117,11 @@
 - `gpu.py` — NVML/nvidia-smi GPU sampling and CUDA_VISIBLE_DEVICES mapping (~1100 tok)
 - `health.py` — httpx health and `/v1/models` check helpers (~450 tok)
 
-## src/vllm_loader/transport/
+## src/vela/transport/
 
 - `ssh_bootstrap.py` — SSH remote agent install helper for managed bootstrap path (~700 tok)
 - `ssh_discovery.py` — SSH agent-command discovery probes using hardened target SSH options (~1500 tok)
+- `ssh_setup.py` — local `ssh-copy-id` wrapper for guided SSH key setup remediation (~220 tok)
 
 ## src/vllm_loader/tui/
 
