@@ -319,9 +319,7 @@ def test_docker_runtime_generates_masked_docker_run_without_double_serve(
         result.argv.index("--gpus") : result.argv.index("--gpus") + 2
     ]
     assert "--ipc=host" in result.argv
-    assert ["--shm-size", "32g"] == result.argv[
-        result.argv.index("--shm-size") : result.argv.index("--shm-size") + 2
-    ]
+    assert "--shm-size" not in result.argv
     assert ["--network", "host"] == result.argv[
         result.argv.index("--network") : result.argv.index("--network") + 2
     ]
@@ -343,6 +341,28 @@ def test_docker_runtime_generates_masked_docker_run_without_double_serve(
     assert "hf_live" not in result.preview
     assert "sk-live" not in result.preview
     assert result.metadata["runtime"] == "docker"
+
+
+def test_docker_runtime_honors_explicit_shm_size_with_ipc_host() -> None:
+    model_cfg = cfg(
+        {
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "ipc_host": True,
+                    "shm_size": "32g",
+                },
+            },
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert "--ipc=host" in result.argv
+    assert ["--shm-size", "32g"] == result.argv[
+        result.argv.index("--shm-size") : result.argv.index("--shm-size") + 2
+    ]
 
 
 def test_bf16_docker_runtime_does_not_inherit_fp8_kv_pin() -> None:

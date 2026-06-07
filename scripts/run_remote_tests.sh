@@ -683,7 +683,27 @@ if [[ -n "$remote_real_resume_config" ]]; then
   if [[ -n "$remote_model_revision" ]]; then
     real_resume_args+=(--revision "$remote_model_revision")
   fi
-  "$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}"
+  resume_output="$(mktemp)"
+  "$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}" | tee "$resume_output"
+  resume_run_id="$(awk '
+    $1 == "REAL_MODEL_DAEMON_RESTART_OK" {
+      for (i = 2; i <= NF; i++) {
+        if ($i ~ /^run_id=/) {
+          sub(/^run_id=/, "", $i)
+          value = $i
+        }
+      }
+    }
+    END { print value }
+  ' "$resume_output")"
+  rm -f "$resume_output"
+  if [[ -z "$resume_run_id" ]]; then
+    echo "ERROR: real model resume check did not report daemon-restart run_id"
+    exit 35
+  fi
+  "$venv_python" scripts/backend_evidence_check.py "$remote_real_resume_config" "$resume_run_id" \
+    "${target_args[@]}" \
+    --timeout "$remote_timeout"
 fi
 REMOTE
 }

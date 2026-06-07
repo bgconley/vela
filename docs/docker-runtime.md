@@ -91,8 +91,10 @@ FP8 and BF16 Blackbird configs intentionally differ:
 
 The Blackbird recipes intentionally emit both `--ipc=host` and `--shm-size 32g`
 because the proven local wrappers do the same. Generic Docker guidance treats
-them as alternatives, but this runtime preserves the validated lab launch shape
-for these configs.
+them as alternatives: Vela omits a computed default `--shm-size` when host IPC
+is enabled, but still emits an explicit `command.docker.shm_size` such as the
+Blackbird recipes' `32g`. This preserves the validated lab launch shape for
+these configs without adding noisy defaults elsewhere.
 
 ## Preview, Smoke, And Export
 

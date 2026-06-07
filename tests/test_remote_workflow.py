@@ -370,6 +370,56 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert '"$remote_real_resume_config"' in remote_script
 
 
+def test_remote_validation_checks_backend_evidence_after_real_resume_restart(
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "ssh-capture"
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'printf "%s\\n" "$@" > "${SSH_CAPTURE}.args"',
+                'cat > "${SSH_CAPTURE}.stdin"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        SSH_CAPTURE=str(capture),
+        VELA_REMOTE_TARGET="blackbird",
+        VELA_REMOTE_REAL_RESUME_CONFIG="qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "p620-controller", "/srv/vela"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
+    resume = (
+        '"$venv_python" scripts/real_model_resume_check.py '
+        '"${real_resume_args[@]}" | tee "$resume_output"'
+    )
+    backend = (
+        '"$venv_python" scripts/backend_evidence_check.py '
+        '"$remote_real_resume_config" "$resume_run_id"'
+    )
+    assert "resume_run_id=" in remote_script
+    assert "REAL_MODEL_DAEMON_RESTART_OK" in remote_script
+    assert resume in remote_script
+    assert backend in remote_script
+    assert remote_script.index(resume) < remote_script.index(backend)
+
+
 def test_remote_validation_can_run_gated_model_auth_probe(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

@@ -70,7 +70,11 @@ def build_docker_run(
         argv.extend(["--network", docker.network])
     if docker.ipc_host:
         argv.append("--ipc=host")
-    shm_size = docker.shm_size or _default_shm_size(cfg)
+    shm_size = (
+        docker.shm_size
+        if docker.ipc_host
+        else docker.shm_size or _default_shm_size(cfg)
+    )
     if shm_size:
         argv.extend(["--shm-size", shm_size])
     if docker.restart:

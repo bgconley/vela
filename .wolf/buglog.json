@@ -3202,6 +3202,45 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:58:20Z"
+    },
+    {
+      "id": "bug-167",
+      "timestamp": "2026-06-07T07:11:00Z",
+      "error_message": "remote real-model resume/restart lane did not apply backend evidence after daemon restart",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "A15 hardened the first real smoke run_id contract and backend gate, but the optional real resume/daemon-restart lane still ran `real_model_resume_check.py` without parsing its daemon-restart run id or reusing the backend evidence checker.",
+      "fix": "Capture the real resume/restart output, parse the structured `REAL_MODEL_DAEMON_RESTART_OK run_id=...` marker, and run `backend_evidence_check.py` against the same config/run before the remote validation lane exits.",
+      "tags": [
+        "remote-validation",
+        "backend-evidence",
+        "resume",
+        "blackwell"
+      ],
+      "related_bugs": [
+        "bug-158",
+        "bug-164"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T07:11:00Z"
+    },
+    {
+      "id": "bug-168",
+      "timestamp": "2026-06-07T07:15:00Z",
+      "error_message": "generic docker command builder emitted implicit --shm-size together with --ipc=host",
+      "file": "src/vela/engine/docker_runtime.py",
+      "root_cause": "The Docker argv builder always computed and emitted a default shared-memory size, even when `ipc_host` was true. That diverged from the native-Docker spec template and made default configs noisier.",
+      "fix": "Emit the computed default `--shm-size` only when host IPC is disabled, while still honoring explicit `command.docker.shm_size` values. Blackbird recipes keep their proven `--ipc=host --shm-size 32g` shape because they set `shm_size: 32g` explicitly.",
+      "tags": [
+        "docker",
+        "command-builder",
+        "spec-drift",
+        "blackwell"
+      ],
+      "related_bugs": [
+        "bug-165"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T07:15:00Z"
     }
   ]
 }
