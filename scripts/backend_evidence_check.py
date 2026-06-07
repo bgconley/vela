@@ -66,9 +66,21 @@ BLACKBIRD_QWEN36_BF16_RULE = BackendEvidenceRule(
     forbidden_extra_arg_options=("--kv-cache-memory-bytes",),
 )
 
+BLACKBIRD_TINY_RESUME_RULE = BackendEvidenceRule(
+    config_name="tiny-random-llama-detached-blackbird",
+    expected_image=BLACKBIRD_QWEN36_IMAGE,
+    expected_flashinfer_arch=None,
+    expected_kv_cache_dtype=None,
+    expected_kv_cache_memory_bytes=None,
+    expected_attention_backend=None,
+    required_patterns={},
+    forbidden_patterns={},
+)
+
 BACKEND_EVIDENCE_RULES = {
     BLACKBIRD_QWEN36_FP8_RULE.config_name: BLACKBIRD_QWEN36_FP8_RULE,
     BLACKBIRD_QWEN36_BF16_RULE.config_name: BLACKBIRD_QWEN36_BF16_RULE,
+    BLACKBIRD_TINY_RESUME_RULE.config_name: BLACKBIRD_TINY_RESUME_RULE,
 }
 
 

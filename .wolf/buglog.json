@@ -3281,6 +3281,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T07:29:00Z"
+    },
+    {
+      "id": "bug-171",
+      "timestamp": "2026-06-07T07:38:00Z",
+      "error_message": "tiny real-resume restart validation exercised backend evidence plumbing but reported BACKEND_EVIDENCE_SKIPPED",
+      "file": "scripts/backend_evidence_check.py",
+      "root_cause": "The remote restart lane called `backend_evidence_check.py` for `tiny-random-llama-detached-blackbird`, but the checker had no rule for that validation config and therefore skipped instead of proving the Docker image/runtime shape.",
+      "fix": "Add a tiny Blackbird resume backend-evidence rule that verifies native Docker runtime and the pinned Blackbird image digest, with regression coverage for a checked OK result.",
+      "tags": [
+        "backend-evidence",
+        "remote-validation",
+        "resume",
+        "blackwell"
+      ],
+      "related_bugs": [
+        "bug-167",
+        "bug-170"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T07:38:00Z"
     }
   ]
 }

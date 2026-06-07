@@ -610,6 +610,26 @@ def _blackbird_bf16_config_payload() -> dict[str, object]:
     }
 
 
+def _blackbird_tiny_resume_config_payload() -> dict[str, object]:
+    return {
+        "name": "tiny-random-llama-detached-blackbird",
+        "model": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+        "served_model_name": "tiny-random-llama",
+        "command": {
+            "runtime": "docker",
+            "docker": {
+                "image": (
+                    "vllm/vllm-openai@sha256:"
+                    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+                ),
+                "env": {},
+            },
+        },
+        "engine": {"dtype": "auto"},
+        "extra_args": [],
+    }
+
+
 def _valid_backend_log_text() -> str:
     return "\n".join(
         [
@@ -650,6 +670,24 @@ def test_backend_evidence_accepts_blackbird_bf16_recipe_shape() -> None:
     assert result == {
         "checked": True,
         "config_name": "qwen36-27b-bf16-rp6000-blackbird",
+        "required": {},
+        "forbidden": {},
+    }
+    json.dumps(result)
+
+
+def test_backend_evidence_accepts_tiny_blackbird_resume_recipe_shape() -> None:
+    module = _load_backend_evidence_check()
+
+    result = module.validate_backend_evidence(
+        "tiny-random-llama-detached-blackbird",
+        _blackbird_tiny_resume_config_payload(),
+        "INFO tiny resume reached READY",
+    )
+
+    assert result == {
+        "checked": True,
+        "config_name": "tiny-random-llama-detached-blackbird",
         "required": {},
         "forbidden": {},
     }
