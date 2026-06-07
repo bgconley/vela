@@ -1338,6 +1338,7 @@ def test_agent_lints_docker_pinning_gpus_and_exposure_mismatch() -> None:
     )
 
     warnings = "\n".join(linted["warnings"])
+    assert linted["ok"] is True
     assert "uses :latest" in warnings
     assert "not digest-pinned" in warnings
     assert "command.docker.gpus is blank" in warnings

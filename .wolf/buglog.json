@@ -2945,6 +2945,23 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:46:17Z"
+    },
+    {
+      "id": "bug-153",
+      "timestamp": "2026-06-07T04:52:19Z",
+      "error_message": "deploy create silently overwrote existing configs and made --overwrite dead",
+      "file": "src/vela/cli.py",
+      "root_cause": "The deploy create CLI always sent overwrite=true to save_config, so a repeated create clobbered the target config even when the operator did not pass --overwrite.",
+      "fix": "Only send overwrite when --overwrite is supplied, render config-exists with an explicit --overwrite hint, and print updated deployment for explicit overwrite saves.",
+      "tags": [
+        "cli",
+        "deployment-composer",
+        "overwrite",
+        "track-a"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:52:19Z"
     }
   ]
 }

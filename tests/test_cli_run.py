@@ -19,6 +19,7 @@ from typer.testing import CliRunner
 from vela import __version__
 from vela import cli as cli_module
 from vela.agent.auth import configured_agent_token, default_agent_token_file
+from vela.agent.local import TargetCallError
 from vela.cli import _enable_textual_debug_features
 from vela.config.targets import TargetConfig, TransportKind, load_targets_file
 from vela.engine import process_manager as process_manager_module
@@ -2072,6 +2073,44 @@ def test_cli_model_remove_reports_expected_freed_size(
     assert result.output == "removed model\t01MODEL\tllama-pin\tfreed ~1.5 GB\n"
 
 
+def test_cli_model_remove_reports_unique_and_nominal_freed_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        assert method == "remove_model"
+        assert params == {"model_ref": "llama-pin"}
+        assert target_name == "local"
+        return {
+            "entry_id": "01MODEL",
+            "source": "hf_repo",
+            "removed_weights": True,
+            "expected_freed_size": 2_100_000_000,
+            "entry": {
+                "display_name": "llama-pin",
+                "unique_size_bytes": 2_100_000_000,
+                "nominal_size_bytes": 16_060_530_000,
+            },
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "remove", "llama-pin", "--yes"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        result.output
+        == "removed model\t01MODEL\tllama-pin\tfreed ~2.1 GB unique / 16.1 GB nominal\n"
+    )
+
+
 def test_cli_model_download_streams_job_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2882,7 +2921,6 @@ def test_cli_deploy_create_preserves_blackbird_recipe_runtime(
                     "configs_dir": str(tmp_path),
                     "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
                     "config": blackbird_config,
-                    "overwrite": True,
                 }
                 return {
                     "path": str(tmp_path / "qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml"),
@@ -2996,7 +3034,73 @@ def test_cli_deploy_create_dry_run_does_not_preflight_or_save(
     ]
 
 
-def test_cli_deploy_create_is_idempotent_by_name(
+def test_cli_deploy_create_refuses_existing_without_overwrite(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "repeatable",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    save_params: list[dict[str, object]] = []
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            if method == "compose_config":
+                return {"config": config, "warnings": [], "derived": []}
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "preflight":
+                return {"ok": True, "checks": []}
+            if method == "save_config":
+                save_params.append(dict(params))
+                raise TargetCallError(
+                    "config-exists",
+                    "config already exists: repeatable",
+                    {"name": "repeatable", "path": str(tmp_path / "repeatable.yaml")},
+                )
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "repeatable",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert save_params == [
+        {
+            "name": "repeatable",
+            "config": config,
+            "configs_dir": str(tmp_path),
+        }
+    ]
+    assert "ERROR: Config already exists: repeatable" in result.output
+    assert "Use --overwrite to update it." in result.output
+
+
+def test_cli_deploy_create_overwrite_updates_existing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config = {
@@ -3047,6 +3151,7 @@ def test_cli_deploy_create_is_idempotent_by_name(
             "org/model",
             "--configs-dir",
             str(tmp_path),
+            "--overwrite",
         ],
     )
 
@@ -3059,6 +3164,7 @@ def test_cli_deploy_create_is_idempotent_by_name(
             "overwrite": True,
         }
     ]
+    assert f"updated deployment\trepeatable\t{tmp_path / 'repeatable.yaml'}" in result.output
 
 
 def test_cli_deploy_export_prints_agent_generated_script(

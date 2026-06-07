@@ -1174,7 +1174,7 @@ def model_remove(
         str(entry.get("display_name", "")),
     ]
     if result.get("removed_weights"):
-        fields.append(f"freed ~{_format_bytes(result.get('expected_freed_size'))}")
+        fields.append(_format_model_removed_size(result))
     typer.echo("\t".join(fields))
 
 
@@ -1468,7 +1468,8 @@ def deploy_create(
             save_params: dict[str, Any] = {"name": name, "config": config}
             if configs_dir is not None:
                 save_params["configs_dir"] = str(configs_dir)
-            save_params["overwrite"] = True
+            if overwrite:
+                save_params["overwrite"] = True
             saved = _agent_call("save_config", save_params, target_name=target)
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, fallback_name=name)
@@ -1496,6 +1497,8 @@ def deploy_create(
     _echo_warnings(preview_result.get("warnings", []))
     if dry_run:
         typer.echo(f"dry-run deployment\t{name}")
+    elif overwrite:
+        typer.echo(f"updated deployment\t{name}\t{saved.get('path') if saved else ''}")
     else:
         typer.echo(f"saved deployment\t{name}\t{saved.get('path') if saved else ''}")
     typer.echo(str(preview_result.get("preview", "")))
@@ -2464,6 +2467,24 @@ def _format_bytes(value: object) -> str:
     return f"{size} B"
 
 
+def _format_model_removed_size(result: dict[str, Any]) -> str:
+    expected = _positive_int(result.get("expected_freed_size"))
+    entry = result.get("entry")
+    if isinstance(entry, dict):
+        nominal = _positive_int(entry.get("nominal_size_bytes"))
+        if expected > 0 and nominal > 0 and nominal != expected:
+            return f"freed ~{_format_bytes(expected)} unique / {_format_bytes(nominal)} nominal"
+    return f"freed ~{_format_bytes(expected)}"
+
+
+def _positive_int(value: object) -> int:
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
+
+
 def _launch_agent_params(**values) -> dict[str, str]:
     params = _agent_params(**values)
     params["run_id"] = uuid.uuid4().hex
@@ -2645,6 +2666,14 @@ def _echo_target_error_or_exit(
                     typer.echo(str(item), err=True)
         for item in exc.details.get("matches", []):
             typer.echo(f"{Path(item['path']).name}: {'; '.join(item['errors'])}", err=True)
+        raise typer.Exit(2) from exc
+    if exc.code == "config-exists":
+        name = str(exc.details.get("name") or fallback_name or "unknown")
+        path = str(exc.details.get("path") or "").strip()
+        typer.echo(f"ERROR: Config already exists: {name}", err=True)
+        if path:
+            typer.echo(f"Existing path: {path}", err=True)
+        typer.echo("Use --overwrite to update it.", err=True)
         raise typer.Exit(2) from exc
     if exc.code == "preflight-failed":
         kind = str(exc.details.get("kind") or "PREFLIGHT_FAILED")
