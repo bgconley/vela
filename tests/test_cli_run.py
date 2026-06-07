@@ -3519,6 +3519,157 @@ def test_cli_config_push_pull_lint_call_target_agent(
     ]
 
 
+def test_cli_config_edit_round_trips_through_editor_lint_and_push(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, object] | None]] = []
+    original_yaml = "name: pushed\nmodel: /models/pushed\nserver:\n  port: 18001\n"
+    edited_yaml = "name: pushed\nmodel: /models/pushed\nserver:\n  port: 18009\n"
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "pull_config":
+                assert params == {
+                    "configs_dir": str(tmp_path / "target-configs"),
+                    "name": "pushed",
+                }
+                return {
+                    "name": "pushed",
+                    "path": "/target/configs/pushed.yaml",
+                    "config": {"name": "pushed", "model": "/models/pushed"},
+                    "yaml": original_yaml,
+                    "warnings": [],
+                }
+            if method == "lint_config":
+                assert params == {"yaml": edited_yaml}
+                return {"ok": True, "errors": [], "warnings": ["host-path warning"]}
+            if method == "push_config":
+                assert params == {
+                    "configs_dir": str(tmp_path / "target-configs"),
+                    "name": "pushed",
+                    "yaml": edited_yaml,
+                    "overwrite": True,
+                }
+                return {
+                    "name": "pushed",
+                    "path": "/target/configs/pushed.yaml",
+                    "config": {"name": "pushed", "model": "/models/pushed"},
+                    "warnings": ["host-path warning"],
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    def fake_edit(text: str, *, extension: str) -> str:
+        assert text == original_yaml
+        assert extension == ".yaml"
+        return edited_yaml
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+    monkeypatch.setattr(cli_module.typer, "edit", fake_edit)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "config",
+            "edit",
+            "pushed",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path / "target-configs"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "WARNING: host-path warning" in result.output
+    assert result.output.endswith("edited config\tpushed\t/target/configs/pushed.yaml\n")
+    assert [method for method, _params in calls] == [
+        "pull_config",
+        "lint_config",
+        "push_config",
+    ]
+
+
+def test_cli_config_edit_refuses_to_push_lint_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, dict[str, object] | None]] = []
+    original_yaml = "name: pushed\nmodel: /models/pushed\n"
+    edited_yaml = "name: pushed\nmodel: /models/pushed\nserver:\n  api_key: sk-live\n"
+
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append((method, params))
+            if method == "pull_config":
+                return {
+                    "name": "pushed",
+                    "path": "/target/configs/pushed.yaml",
+                    "config": {"name": "pushed", "model": "/models/pushed"},
+                    "yaml": original_yaml,
+                    "warnings": [],
+                }
+            if method == "lint_config":
+                assert params == {"yaml": edited_yaml}
+                return {
+                    "ok": False,
+                    "errors": [
+                        {
+                            "field": "server.api_key",
+                            "message": "contains a literal secret; prefer target env injection",
+                        }
+                    ],
+                    "warnings": [],
+                }
+            raise AssertionError(f"unexpected target call: {method}")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: FakeTargetClient(),
+    )
+    monkeypatch.setattr(
+        cli_module.typer,
+        "edit",
+        lambda text, *, extension: edited_yaml,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "config",
+            "edit",
+            "pushed",
+            "--target",
+            "blackbird",
+            "--configs-dir",
+            str(tmp_path / "target-configs"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert (
+        "server.api_key: contains a literal secret; prefer target env injection"
+        in result.output
+    )
+    assert [method for method, _params in calls] == ["pull_config", "lint_config"]
+
+
 def test_cli_run_preview_uses_target_client_factory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

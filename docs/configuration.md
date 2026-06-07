@@ -84,6 +84,12 @@ Paths are resolved on the host that owns the agent, not on the controller. Use
 `vela agent status --target <name>` to see the target host's resolved config,
 runs, builds, model-registry, token, and socket paths.
 
+Use `vela config edit <name> --target <name>` for a target-owned edit
+round-trip: Vela pulls the YAML from the target, opens `$EDITOR`, asks the
+target agent to lint the edited text, and only then pushes it back with the
+same config name. Literal secrets are rejected by the target lint step before
+the push happens.
+
 Host path overrides:
 
 - `VELA_CONFIGS`: overrides config discovery for that agent process.

@@ -1271,15 +1271,70 @@ def config_lint(
     if json_output:
         _echo_json(result)
         return
-    for error in result.get("errors") or []:
-        if isinstance(error, dict):
-            typer.echo(f"ERROR: {error.get('field', 'config')}: {error.get('message', '')}")
-        else:
-            typer.echo(f"ERROR: {error}")
-    _echo_warnings(result.get("warnings", []))
+    _echo_config_lint_result(result)
     if result.get("ok") is not True:
         raise typer.Exit(1)
     typer.echo("config lint ok")
+
+
+@config_app.command("edit")
+def config_edit(
+    name: Annotated[str, typer.Argument(help="Target config name to edit.")],
+    configs_dir: Annotated[
+        Path | None,
+        typer.Option("--configs-dir", help="Target config directory override."),
+    ] = None,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable edit result."),
+    ] = False,
+) -> None:
+    pull_params: dict[str, Any] = {"name": name}
+    if configs_dir is not None:
+        pull_params["configs_dir"] = str(configs_dir)
+    try:
+        pulled = _agent_call("pull_config", pull_params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    original_yaml = str(pulled.get("yaml") or "")
+    edited_yaml = typer.edit(original_yaml, extension=".yaml")
+    if edited_yaml is None:
+        typer.echo("edit cancelled", err=True)
+        raise typer.Exit(1)
+    if edited_yaml == original_yaml:
+        payload = {"name": name, "changed": False, "path": pulled.get("path")}
+        if json_output:
+            _echo_json(payload)
+            return
+        typer.echo(f"config unchanged\t{name}\t{pulled.get('path', '')}")
+        return
+    try:
+        linted = _agent_call("lint_config", {"yaml": edited_yaml}, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    if linted.get("ok") is not True:
+        if json_output:
+            _echo_json({"name": name, "ok": False, "lint": linted})
+            raise typer.Exit(2)
+        _echo_config_lint_result(linted)
+        raise typer.Exit(2)
+    push_params: dict[str, Any] = {
+        "name": name,
+        "yaml": edited_yaml,
+        "overwrite": True,
+    }
+    if configs_dir is not None:
+        push_params["configs_dir"] = str(configs_dir)
+    try:
+        pushed = _agent_call("push_config", push_params, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, fallback_name=name)
+    if json_output:
+        _echo_json(pushed)
+        return
+    _echo_warnings(pushed.get("warnings", []))
+    typer.echo(f"edited config\t{pushed.get('name', name)}\t{pushed.get('path', '')}")
 
 
 @deploy_app.command("create")
@@ -2074,6 +2129,17 @@ def _echo_deploy_validation_errors_or_exit(validation: dict[str, Any]) -> None:
 def _echo_warnings(warnings) -> None:
     for warning in warnings:
         typer.echo(f"WARNING: {warning}", err=True)
+
+
+def _echo_config_lint_result(result: dict[str, Any]) -> None:
+    for error in result.get("errors") or []:
+        if isinstance(error, dict):
+            field = error.get("field", "config")
+            message = error.get("message", "")
+            typer.echo(f"ERROR: {field}: {message}")
+        else:
+            typer.echo(f"ERROR: {error}")
+    _echo_warnings(result.get("warnings", []))
 
 
 def _echo_json(payload: dict[str, Any]) -> None:

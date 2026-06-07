@@ -2738,6 +2738,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:45:00Z"
+    },
+    {
+      "id": "bug-141",
+      "timestamp": "2026-06-07T07:10:00Z",
+      "error_message": "target config edit round-trip was absent",
+      "file": "src/vela/cli.py",
+      "root_cause": "`vela config` exposed push, pull, and lint, but had no `config edit` command to pull target YAML through an editor, lint the edited result on the target, and push it back without manual SSH/file copying.",
+      "fix": "Add `vela config edit <name> --target <name>` using pull_config, Typer's editor helper, lint_config, and push_config with name/overwrite enforcement; add tests for successful editor round-trip and lint refusal before push.",
+      "tags": [
+        "onboarding",
+        "config",
+        "cli"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T07:10:00Z"
     }
   ]
 }
