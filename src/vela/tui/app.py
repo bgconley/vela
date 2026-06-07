@@ -2833,7 +2833,8 @@ class VelaApp(App):
                 reachable_url=_optional_str(probe.get("reachable_url")),
             )
             if not ready:
-                self._set_error_text(f"Smoke did not reach READY: {detail}")
+                if error_kind is None:
+                    self._set_error_text(f"Smoke did not reach READY: {detail}")
                 return
             suffix = f" ({', '.join(self.served_models)})" if self.served_models else ""
             self.notify(f"Smoke READY: {self.ready_url or self._server_url(cfg)}{suffix}")

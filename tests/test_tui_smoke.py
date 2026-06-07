@@ -5686,6 +5686,72 @@ async def test_new_deployment_save_and_smoke_walks_fake_docker_to_ready(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_save_and_smoke_surfaces_named_failure(
+    config_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unused_tcp_port: int,
+) -> None:
+    docker = tmp_path / "docker"
+    docker_log = tmp_path / "docker-commands.log"
+    docker_state = tmp_path / "docker-state"
+    write_fake_docker_runtime(docker)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FAKE_DOCKER_COMMAND_LOG", str(docker_log))
+    monkeypatch.setenv("FAKE_DOCKER_STATE_FILE", str(docker_state))
+    monkeypatch.setenv("FAKE_DOCKER_WAIT_SECONDS", "10")
+
+    async def auth_failure_probe_loop(cfg, *, emit, is_process_alive, **_kwargs) -> None:
+        emit(
+            HealthEvent(
+                ready=False,
+                detail="HF token missing for gated model",
+                error_kind=ErrorKind.HF_AUTH,
+            )
+        )
+
+    monkeypatch.setattr(agent_local_module, "probe_loop", auth_failure_probe_loop)
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=InProcessTargetClient(LocalAgent()),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-runtime", Select).value = "docker"
+        app.screen.query_one("#new-deployment-image", Input).value = (
+            "vllm/vllm-openai@sha256:image"
+        )
+        app.screen.query_one("#new-deployment-port", Input).value = str(unused_tcp_port)
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open for fake docker smoke failure",
+        )
+
+        await pilot.press("s")
+        await _wait_for_condition(
+            lambda: app.phase is Phase.STOPPED,
+            "fake docker smoke failure did not stop",
+        )
+
+    assert "HF_AUTH" in app.error_text
+    assert "Set HF_TOKEN" in app.error_text
+    assert "HF token missing for gated model" in app.error_text
+    assert "Smoke did not reach READY" not in app.error_text
+    assert "stop -t 90 container-123" in docker_log.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_review_cancel_does_not_write(config_dir: Path) -> None:
     class ComposerClient:
         connected = False
