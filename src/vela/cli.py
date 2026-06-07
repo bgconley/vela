@@ -2194,6 +2194,7 @@ def _append_target_doctor_checks(
     try:
         report = _target_call(client, "diagnose")
     except TargetCallError as exc:
+        auth_status = _target_auth_status_from_error(exc)
         remediation = remediation_for_error(
             exc.code,
             target_name=target_name,
@@ -2209,6 +2210,18 @@ def _append_target_doctor_checks(
         )
         if remediation is not None:
             next_steps.append(remediation.fix.removeprefix("Fix: ").rstrip("."))
+        if auth_status is not None:
+            command = f"vela agent gen-token --install --target {target_name}"
+            checks.append(
+                {
+                    "name": "target_auth",
+                    "ok": False,
+                    "detail": auth_status,
+                    "remediation": f"run `{command}`",
+                }
+            )
+            if command not in next_steps:
+                next_steps.append(command)
         return
     checks.append({"name": "target_connection", "ok": True, "detail": "agent reachable"})
     _append_target_report_checks(checks, report)
@@ -2290,6 +2303,21 @@ def _target_report_parts(report: dict[str, Any]) -> dict[str, str]:
         ),
         "auth_status": str(auth.get("status") or "unknown"),
     }
+
+
+def _target_auth_status_from_error(exc: TargetCallError) -> str | None:
+    if exc.code != "agent-auth-required":
+        return None
+    reason = str(exc.details.get("reason") or "")
+    if reason == "capability-token-misconfigured":
+        return "malformed-token"
+    try:
+        token = configured_agent_token()
+    except AgentTokenError:
+        return "malformed-token"
+    if token is None:
+        return "required+missing"
+    return "mismatch"
 
 
 def _format_model_inspect_value(value: object) -> str:
@@ -2475,17 +2503,31 @@ async def _agent_call_async(
 def _target_call(
     client: TargetClient, method: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    return asyncio.run(_target_call_async(client, method, params))
+    try:
+        return asyncio.run(_target_call_async(client, method, params))
+    except AgentTokenError as exc:
+        raise TargetCallError(
+            "agent-auth-required",
+            "controller agent token is malformed",
+            {"reason": "capability-token-misconfigured"},
+        ) from exc
 
 
 async def _target_call_async(
     client: TargetClient, method: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    await client.connect()
     try:
-        return await client.call(method, params)
-    finally:
-        await client.disconnect()
+        await client.connect()
+        try:
+            return await client.call(method, params)
+        finally:
+            await client.disconnect()
+    except AgentTokenError as exc:
+        raise TargetCallError(
+            "agent-auth-required",
+            "controller agent token is malformed",
+            {"reason": "capability-token-misconfigured"},
+        ) from exc
 
 
 def _echo_target_error_or_exit(

@@ -134,3 +134,9 @@ include the matching capability token. Other RPC methods on that stream return
 `agent-auth-required` until the handshake succeeds. Single-user lab hosts can
 leave it unset; the default Unix-socket permissions, same-user peer check, and
 SSH authentication still apply.
+
+`vela doctor --target <name>` renders target auth as `none`,
+`required+provided`, `required+missing`, `mismatch`, or `malformed-token`.
+Missing, mismatched, and malformed states point at
+`vela agent gen-token --install --target <name>` so the controller and target
+converge on the same high-entropy token.

@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from tests.fakes.fake_ssh import write_fake_ssh_runtime
 from vela import __version__
-from vela.agent.auth import default_agent_token_file
+from vela.agent.auth import default_agent_token_file, generate_agent_token
 from vela.agent.local import TargetCallError
 from vela.cli import app
 from vela.config.targets import (
@@ -392,6 +392,115 @@ def test_cli_doctor_target_reports_remote_host_state_without_static_nag(
     assert "config=/home/bgconley/.config/vela" in checks["target_paths"]["detail"]
     assert "uv=yes" in checks["target_toolchain"]["detail"]
     assert checks["target_auth"]["detail"] == "none"
+
+
+def test_cli_doctor_target_reports_required_missing_auth_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_AGENT_AUTH_REQUIRED", "1")
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN_FILE", raising=False)
+    upsert_target_file(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+            agent_command=["vela", "agent", "connect"],
+        )
+    )
+
+    result = CliRunner().invoke(app, ["doctor", "--target", "blackbird", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {check["name"]: check for check in payload["checks"]}
+    assert payload["ok"] is False
+    assert checks["target_auth"]["ok"] is False
+    assert checks["target_auth"]["detail"] == "required+missing"
+    assert "vela agent gen-token --install --target blackbird" in payload["next_steps"]
+
+
+def test_cli_doctor_target_reports_mismatched_auth_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("VELA_AGENT_TOKEN", generate_agent_token())
+    monkeypatch.setenv("FAKE_SSH_AGENT_AUTH_REQUIRED", "1")
+    monkeypatch.setenv("FAKE_SSH_EXPECTED_AGENT_TOKEN", generate_agent_token())
+    upsert_target_file(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+            agent_command=["vela", "agent", "connect"],
+        )
+    )
+
+    result = CliRunner().invoke(app, ["doctor", "--target", "blackbird", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {check["name"]: check for check in payload["checks"]}
+    assert payload["ok"] is False
+    assert checks["target_auth"]["ok"] is False
+    assert checks["target_auth"]["detail"] == "mismatch"
+    assert "vela agent gen-token --install --target blackbird" in payload["next_steps"]
+
+
+def test_cli_doctor_target_reports_malformed_controller_auth_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("VELA_AGENT_TOKEN", "shared-secret")
+    upsert_target_file(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+            agent_command=["vela", "agent", "connect"],
+        )
+    )
+
+    result = CliRunner().invoke(app, ["doctor", "--target", "blackbird", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {check["name"]: check for check in payload["checks"]}
+    assert payload["ok"] is False
+    assert checks["target_auth"]["ok"] is False
+    assert checks["target_auth"]["detail"] == "malformed-token"
+    assert "vela agent gen-token --install --target blackbird" in payload["next_steps"]
+
+
+def test_cli_targets_test_agent_auth_failure_prints_token_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_AGENT_AUTH_REQUIRED", "1")
+    upsert_target_file(
+        TargetConfig(
+            name="blackbird",
+            transport=TransportKind.SSH,
+            host="bgconley@fake",
+            agent_command=["vela", "agent", "connect"],
+        )
+    )
+
+    result = CliRunner().invoke(app, ["targets", "test", "blackbird"])
+
+    assert result.exit_code == 2
+    assert "ERROR AGENT_AUTH_REQUIRED" in result.output
+    assert "vela agent gen-token --install --target blackbird" in result.output
+    assert "vela targets setup-ssh" not in result.output
 
 
 def test_cli_agent_status_target_reports_remote_paths(

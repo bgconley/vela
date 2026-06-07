@@ -48,6 +48,19 @@ def remediation_for_error(
             fix=f"Fix: run `vela targets setup-ssh {target}`.",
             extra_lines=extra_lines,
         )
+    if code == "agent-auth-required":
+        reason = str(detail_map.get("reason") or "")
+        if reason == "capability-token-misconfigured":
+            return ErrorRemediation(
+                label="AGENT_TOKEN_MALFORMED",
+                cause="agent capability token is malformed",
+                fix=f"Fix: run `vela agent gen-token --install --target {target}`.",
+            )
+        return ErrorRemediation(
+            label="AGENT_AUTH_REQUIRED",
+            cause="target agent requires a capability token",
+            fix=f"Fix: run `vela agent gen-token --install --target {target}`.",
+        )
     if code == "feature-unavailable" and detail_map.get("reason") == "uv-required":
         return ErrorRemediation(
             label="UV_REQUIRED",

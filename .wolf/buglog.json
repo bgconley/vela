@@ -2703,6 +2703,41 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T06:15:00Z"
+    },
+    {
+      "id": "bug-139",
+      "timestamp": "2026-06-07T06:45:00Z",
+      "error_message": "target auth failures surfaced only as generic connection errors",
+      "file": "src/vela/cli.py",
+      "root_cause": "`vela doctor --target` appended target_auth only after diagnose succeeded, while handshake-time `agent-auth-required` failures returned only a target_connection failure and malformed controller tokens escaped as exceptions.",
+      "fix": "Infer `required+missing`, `mismatch`, and `malformed-token` from agent-auth-required failures, append a target_auth doctor check with target-aware token-install remediation, and convert malformed controller token configuration into the named auth error path.",
+      "tags": [
+        "onboarding",
+        "auth",
+        "doctor",
+        "cli"
+      ],
+      "related_bugs": [
+        "bug-138"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:45:00Z"
+    },
+    {
+      "id": "bug-140",
+      "timestamp": "2026-06-07T06:45:00Z",
+      "error_message": "fresh uv pytest run could not import tests.fakes or conftest consistently",
+      "file": "pyproject.toml",
+      "root_cause": "The suite imported both `tests.fakes...` and `conftest` as top-level modules, but pytest did not explicitly put both the repo root and tests directory on sys.path in a newly created uv environment.",
+      "fix": "Set pytest pythonpath to include both `.` and `tests`; avoid adding tests/__init__.py because making tests a package breaks existing top-level conftest imports.",
+      "tags": [
+        "test",
+        "pytest",
+        "import-path"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T06:45:00Z"
     }
   ]
 }

@@ -29,6 +29,26 @@ def test_agent_unreachable_remediation_names_setup_ssh_and_stderr() -> None:
     assert "vela targets setup-ssh blackbird" in remediation.fix
 
 
+def test_agent_auth_required_remediation_names_token_install_command() -> None:
+    remediation = remediation_for_error("agent-auth-required", target_name="blackbird")
+
+    assert remediation is not None
+    assert remediation.label == "AGENT_AUTH_REQUIRED"
+    assert "vela agent gen-token --install --target blackbird" in remediation.fix
+
+
+def test_malformed_agent_token_remediation_names_token_install_command() -> None:
+    remediation = remediation_for_error(
+        "agent-auth-required",
+        target_name="blackbird",
+        details={"reason": "capability-token-misconfigured"},
+    )
+
+    assert remediation is not None
+    assert remediation.label == "AGENT_TOKEN_MALFORMED"
+    assert "vela agent gen-token --install --target blackbird" in remediation.fix
+
+
 def test_version_mismatch_remediation_names_bootstrap_command() -> None:
     remediation = remediation_for_error("version-mismatch", target_name="blackbird")
 
