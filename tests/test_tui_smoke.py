@@ -5058,6 +5058,396 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class EventStream:
+        def __init__(self, events: list[dict[str, object]] | None = None) -> None:
+            self.events = list(events or [])
+            self.closed = False
+
+        def arm(self, events: list[dict[str, object]]) -> None:
+            self.events = list(events)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self.events:
+                raise StopAsyncIteration
+            return self.events.pop(0)
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.create_calls: list[dict[str, object]] = []
+            self.pin_calls: list[dict[str, object]] = []
+            self.download_calls: list[dict[str, object]] = []
+            self.saved_config: dict | None = None
+            self.compose_params: dict | None = None
+            self.calls: list[tuple[str, dict | None]] = []
+            self.job_events: dict[str, EventStream] = {}
+            self.smoke_events = EventStream(
+                [
+                    {
+                        "event": "exited",
+                        "run_id": "acceptance-smoke-run",
+                        "returncode": 0,
+                        "intentional": False,
+                        "phase": Phase.STOPPED.value,
+                        "seq": 1,
+                        "ts": "2026-06-07T00:00:00Z",
+                        "mono": 1.0,
+                    }
+                ]
+            )
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "target": "blackbird",
+                "agent_version": "0.9.0",
+                "capabilities": [
+                    "compose_config",
+                    "list_deployment_recipes",
+                    "list_models",
+                    "list_builds",
+                    "list_presets",
+                ],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                if self.saved_config is None:
+                    return {"valid": [], "invalid": []}
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "qwen-acceptance.yaml"),
+                            "name": "qwen-acceptance",
+                            "model": "Qwen/Qwen3.6-27B-FP8",
+                            "target": "blackbird",
+                            "warnings": [],
+                            "config": self.saved_config,
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_builds":
+                builds = []
+                if self.create_calls:
+                    builds.append(
+                        {
+                            "build_id": "01CREATED",
+                            "label": "nightly-cu130-sm120",
+                            "status": "ready",
+                        }
+                    )
+                return {"builds": builds, "skipped": []}
+            if method == "list_models":
+                models = []
+                if self.pin_calls:
+                    models.append(
+                        {
+                            "entry_id": "qwen-fp8-pin",
+                            "display_name": "Qwen3.6 27B FP8",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                            "revision": "main",
+                            "commit_sha": "abc123",
+                            "cache_state": "remote_only",
+                            "gated": True,
+                            "token_required": True,
+                        }
+                    )
+                return {"models": models}
+            if method == "check_build_prerequisites":
+                return {"ok": True, "method": params["method"], "uv_available": True}
+            if method == "create_build":
+                self.create_calls.append(dict(params))
+                job_id = str(params["job_id"])
+                self.job_events.setdefault(job_id, EventStream()).arm(
+                    [
+                        {
+                            "event": "job_progress",
+                            "job_id": job_id,
+                            "kind": "committed",
+                            "text": "Creating build",
+                            "level": "INFO",
+                        },
+                        {
+                            "event": "job_done",
+                            "job_id": job_id,
+                            "ok": True,
+                            "detail": "build ready",
+                            "label": "nightly-cu130-sm120",
+                            "build_id": "01CREATED",
+                        },
+                    ]
+                )
+                return {"job_id": job_id, "kind": "create_build", "status": "running"}
+            if method == "pin_model":
+                self.pin_calls.append(dict(params))
+                return {
+                    "entry": {
+                        "entry_id": "qwen-fp8-pin",
+                        "display_name": "Qwen3.6 27B FP8",
+                        "source": "hf_repo",
+                        "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "cache_state": "remote_only",
+                        "gated": True,
+                        "token_required": True,
+                    }
+                }
+            if method == "download_model":
+                self.download_calls.append(dict(params))
+                job_id = str(params["job_id"])
+                self.job_events.setdefault(job_id, EventStream()).arm(
+                    [
+                        {
+                            "event": "job_progress",
+                            "job_id": job_id,
+                            "kind": "committed",
+                            "text": "Downloading model",
+                            "level": "INFO",
+                        },
+                        {
+                            "event": "job_done",
+                            "job_id": job_id,
+                            "ok": True,
+                            "detail": "model cached",
+                        },
+                    ]
+                )
+                return {"job_id": job_id, "kind": "download_model", "status": "running"}
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                assert params["runtime"] == {
+                    "kind": "build",
+                    "build": "nightly-cu130-sm120",
+                }
+                assert params["model_ref"] == "qwen-fp8-pin"
+                assert params["revision"] == "abc123"
+                return {
+                    "config": {
+                        "name": "qwen-acceptance",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "model_ref": "qwen-fp8-pin",
+                        "revision": "abc123",
+                        "server": {"host": "127.0.0.1", "port": 18003},
+                        "command": {
+                            "runtime": "process",
+                            "build": "nightly-cu130-sm120",
+                        },
+                    },
+                    "warnings": ["gated-needs-token"],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": (
+                        "cwd=/agent\nnightly-cu130-sm120/bin/vllm serve "
+                        "Qwen/Qwen3.6-27B-FP8"
+                    ),
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "preflight":
+                return {"ok": True, "failures": []}
+            if method == "save_config":
+                self.saved_config = dict(params["config"])
+                return {
+                    "path": str(config_dir / "qwen-acceptance.yaml"),
+                    "name": "qwen-acceptance",
+                    "config": self.saved_config,
+                }
+            if method == "prepare_launch":
+                assert params["name"] == "qwen-acceptance"
+                return {
+                    "config": self.saved_config,
+                    "build": {
+                        "argv": [
+                            "nightly-cu130-sm120/bin/vllm",
+                            "serve",
+                            "Qwen/Qwen3.6-27B-FP8",
+                        ],
+                        "env": {},
+                        "cwd": str(config_dir),
+                        "warnings": [],
+                        "metadata": {"vllm_version_profile": "current"},
+                        "preview": (
+                            "cwd=/agent\nnightly-cu130-sm120/bin/vllm serve "
+                            "Qwen/Qwen3.6-27B-FP8"
+                        ),
+                    },
+                    "preflight": None,
+                }
+            if method == "launch":
+                assert params["name"] == "qwen-acceptance"
+                return {
+                    "run_id": "acceptance-smoke-run",
+                    "launch_mode": "attached",
+                    "status": "started",
+                }
+            if method == "probe_until_ready":
+                assert params["run_id"] == "acceptance-smoke-run"
+                return {
+                    "run_id": "acceptance-smoke-run",
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["qwen-acceptance"],
+                    "reachable_url": "http://127.0.0.1:18003",
+                    "error_kind": None,
+                }
+            if method == "stop":
+                assert params["run_id"] == "acceptance-smoke-run"
+                return {"run_id": "acceptance-smoke-run", "status": "stopped"}
+            if method == "wait":
+                assert params["run_id"] == "acceptance-smoke-run"
+                return {
+                    "run_id": "acceptance-smoke-run",
+                    "returncode": 0,
+                    "intentional": False,
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            if list(run_ids) == ["__agent__"]:
+                async def gpu_events():
+                    while True:
+                        await asyncio.sleep(60)
+                        yield {}
+
+                return gpu_events()
+            if list(run_ids) == ["acceptance-smoke-run"]:
+                return self.smoke_events
+            job_id = str(list(run_ids)[0])
+            return self.job_events.setdefault(job_id, EventStream())
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-acceptance"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
+        app.screen.query_one("#new-deployment-model-revision", Input).value = "main"
+        app.screen.query_one("#new-deployment-download-now", Checkbox).value = True
+        app.screen.query_one("#new-deployment-runtime", Select).value = "create_build"
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build",
+            "acceptance flow did not open create-build",
+        )
+        app.screen.query_one("#create-build-method", Select).value = "nightly"
+        app.screen.query_one("#create-build-label", Input).value = "nightly-cu130-sm120"
+        app.screen.query_one("#create-build-channel", Input).value = "cu130"
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
+            and app.screen.query_one("#new-deployment-build", Input).value
+            == "nightly-cu130-sm120",
+            "acceptance flow did not return created build",
+        )
+        app.screen.query_one("#new-deployment-model-mode", Select).value = "pin_hf"
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "pin-model",
+            "acceptance flow did not open pin-model",
+        )
+        await pilot.press("enter")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-model-ref", Select).value
+            == "qwen-fp8-pin",
+            "acceptance flow did not return pinned model",
+        )
+        await pilot.press("ctrl+s")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "acceptance flow did not open review",
+        )
+        await pilot.press("s")
+        await _wait_for_condition(
+            lambda: app.phase is Phase.STOPPED,
+            "acceptance flow did not smoke to stopped",
+        )
+
+    assert client.create_calls
+    assert client.pin_calls == [
+        {"repo_id": "Qwen/Qwen3.6-27B-FP8", "revision": "main"}
+    ]
+    assert len(client.download_calls) == 1
+    assert client.download_calls[0]["model_ref"] == "qwen-fp8-pin"
+    assert client.saved_config is not None
+    assert client.saved_config["command"]["build"] == "nightly-cu130-sm120"
+    assert client.compose_params is not None
+    methods = [method for method, _params in client.calls]
+    assert methods.index("save_config") < methods.index("prepare_launch")
+    assert methods.index("prepare_launch") < methods.index("launch")
+    assert methods.index("launch") < methods.index("probe_until_ready")
+    assert methods.index("probe_until_ready") < methods.index("stop")
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_adopt_local_model_path_handoff_pins_model_ref(
     config_dir: Path,
 ) -> None:
