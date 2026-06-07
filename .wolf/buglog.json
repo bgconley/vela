@@ -2962,6 +2962,23 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T04:52:19Z"
+    },
+    {
+      "id": "bug-154",
+      "timestamp": "2026-06-07T04:56:54Z",
+      "error_message": "remote validation parsed smoke run_id from a loose READY-line substring",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "The remote backend-evidence gate extracted smoke_run_id with a sed expression over any line containing run_id=, coupling CI to incidental human-readable output formatting.",
+      "fix": "Have smoke-tui emit a dedicated tab-delimited VELA_SMOKE_RUN_ID marker and parse that marker in run_remote_tests.sh before invoking backend_evidence_check.",
+      "tags": [
+        "remote-validation",
+        "backend-evidence",
+        "run-id",
+        "track-a"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-07T04:56:54Z"
     }
   ]
 }

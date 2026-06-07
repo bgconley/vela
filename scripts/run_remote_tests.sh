@@ -660,7 +660,7 @@ if [[ -n "$real_config" ]]; then
   "$venv_bin/vela" preview "$real_config" "${target_args[@]}"
   smoke_output="$(mktemp)"
   timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config" "${target_args[@]}" | tee "$smoke_output"
-  smoke_run_id="$(sed -n 's/.* run_id=\([^ ]*\).*/\1/p' "$smoke_output" | tail -1)"
+  smoke_run_id="$(awk -F '\t' '$1 == "VELA_SMOKE_RUN_ID" && $2 != "" { value=$2 } END { print value }' "$smoke_output")"
   rm -f "$smoke_output"
   if [[ -z "$smoke_run_id" ]]; then
     echo "ERROR: smoke-tui did not report run_id"

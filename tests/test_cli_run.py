@@ -4207,6 +4207,7 @@ async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -
         assert proc.returncode == 0, stderr
         assert f"READY http://127.0.0.1:{port} models=fake-model" in stdout
         assert "run_id=" in stdout
+        assert "VELA_SMOKE_RUN_ID\t" in stdout
         assert "Traceback" not in stderr
         await _wait_for_health(port, expected=False)
     finally:

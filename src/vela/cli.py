@@ -2989,6 +2989,8 @@ async def _smoke_tui_config_cli(
             run_id = tui.current_run_id or tui.reattached_run_id
             run_suffix = f" run_id={run_id}" if run_id else ""
             typer.echo(f"READY {url}{suffix}{run_suffix}")
+            if run_id:
+                typer.echo(f"VELA_SMOKE_RUN_ID\t{run_id}")
             tui.action_stop()
             if not await _wait_for_tui_stopped(
                 tui, timeout=_smoke_tui_stop_timeout(cfg)

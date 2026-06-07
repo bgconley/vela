@@ -61,6 +61,9 @@ def test_remote_validation_checks_backend_evidence_after_real_smoke() -> None:
     smoke = 'timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config"'
     backend = '"$venv_python" scripts/backend_evidence_check.py "$real_config" "$smoke_run_id"'
     assert "smoke_run_id=" in script
+    assert 'VELA_SMOKE_RUN_ID' in script
+    assert "awk -F '\\t'" in script
+    assert "sed -n 's/.* run_id=" not in script
     assert smoke in script
     assert backend in script
     assert script.index(smoke) < script.index(backend)
