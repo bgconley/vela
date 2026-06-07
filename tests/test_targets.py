@@ -32,6 +32,11 @@ def test_targets_registry_loads_ssh_targets_with_local_first(tmp_path: Path) -> 
           blackbird:
             transport: ssh
             host: bgconley@10.25.0.51
+            ssh_key: /home/bgconley/.ssh/vela_ed25519
+            agent_command:
+              - /home/bgconley/venvs/current-vela/bin/vela
+              - agent
+              - connect
             workdir: /tank/repos/vela
             venv: /tank/venvs/vela
             ssh_opts_env: VELA_SSH_OPTS
@@ -44,6 +49,12 @@ def test_targets_registry_loads_ssh_targets_with_local_first(tmp_path: Path) -> 
     assert [target.name for target in registry.targets] == ["local", "blackbird"]
     assert blackbird.transport is TransportKind.SSH
     assert blackbird.host == "bgconley@10.25.0.51"
+    assert blackbird.ssh_key == Path("/home/bgconley/.ssh/vela_ed25519")
+    assert blackbird.agent_command == [
+        "/home/bgconley/venvs/current-vela/bin/vela",
+        "agent",
+        "connect",
+    ]
     assert blackbird.workdir == Path("/tank/repos/vela")
     assert blackbird.venv == Path("/tank/venvs/vela")
     assert blackbird.ssh_opts_env == "VELA_SSH_OPTS"

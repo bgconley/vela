@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -27,8 +28,10 @@ class TargetConfig(BaseModel):
     name: str
     transport: TransportKind = TransportKind.LOCAL
     host: str | None = None
+    ssh_key: Path | None = None
     workdir: Path | None = None
     venv: Path | None = None
+    agent_command: list[str] | None = None
     ssh_opts_env: str | None = None
     local_transport: LocalTransportKind = LocalTransportKind.SOCKET
     socket_path: Path | None = None
@@ -39,6 +42,21 @@ class TargetConfig(BaseModel):
         if not value.strip():
             raise ValueError("name must not be empty")
         return value
+
+    @field_validator("agent_command", mode="before")
+    @classmethod
+    def agent_command_from_shell_string(cls, value: object) -> list[str] | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            command = shlex.split(value)
+        elif isinstance(value, list | tuple):
+            command = [str(part) for part in value]
+        else:
+            raise ValueError("agent_command must be a shell string or list of strings")
+        if not command or any(not part for part in command):
+            raise ValueError("agent_command must not be empty")
+        return command
 
     @model_validator(mode="after")
     def validate_transport_fields(self) -> TargetConfig:

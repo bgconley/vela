@@ -112,11 +112,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         target_label: str,
         presets: list[dict[str, Any]],
         recipes: list[dict[str, Any]] | None = None,
+        models: list[dict[str, Any]] | None = None,
+        builds: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(id="new-deployment")
         self.target_label = target_label
         self.presets = [dict(preset) for preset in presets]
         self.recipes = [dict(recipe) for recipe in (recipes or [])]
+        self.models = [dict(model) for model in (models or [])]
+        self.builds = [dict(build) for build in (builds or [])]
         self.step_index = 0
 
     def compose(self) -> ComposeResult:
@@ -162,6 +166,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-image",
                 )
                 yield Static("Build", classes="new-deployment-field-label")
+                yield Select(
+                    self._build_options(),
+                    value="__custom__",
+                    allow_blank=False,
+                    id="new-deployment-build-select",
+                )
                 yield Input(
                     placeholder="target build id or label",
                     id="new-deployment-build",
@@ -172,6 +182,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-executable",
                 )
             with Vertical(id="new-deployment-step-model"):
+                yield Static("Pinned model", classes="new-deployment-field-label")
+                yield Select(
+                    self._model_options(),
+                    value="__custom__",
+                    allow_blank=False,
+                    id="new-deployment-model-ref",
+                )
                 yield Static("Model", classes="new-deployment-field-label")
                 yield Input(
                     placeholder="Qwen/Qwen3-32B",
@@ -226,10 +243,18 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.action_submit()
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id != "new-deployment-recipe":
+        if event.select.id == "new-deployment-recipe":
+            event.stop()
+            self._apply_recipe(str(event.value or ""))
             return
-        event.stop()
-        self._apply_recipe(str(event.value or ""))
+        if event.select.id == "new-deployment-model-ref":
+            event.stop()
+            self._apply_model_ref(str(event.value or ""))
+            return
+        if event.select.id == "new-deployment-build-select":
+            event.stop()
+            self._apply_build(str(event.value or ""))
+            return
 
     def action_next_step(self) -> None:
         self.step_index = min(self.step_index + 1, len(self.STEP_TITLES) - 1)
@@ -251,6 +276,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def _collect_spec(self) -> dict[str, Any]:
         name = self._field_value("#new-deployment-name")
         model = self._field_value("#new-deployment-model")
+        model_ref = self._selected_model_ref()
         runtime = str(self.query_one("#new-deployment-runtime", Select).value or "process")
         image = self._field_value("#new-deployment-image")
         build = self._field_value("#new-deployment-build")
@@ -261,16 +287,22 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         exposure = str(self.query_one("#new-deployment-exposure", Select).value or "local")
         if not name:
             raise ValueError("Name is required")
-        if not model:
+        if not model and model_ref is None:
             raise ValueError("Model is required")
         spec: dict[str, Any] = {
             "name": name,
             "target": self.target_label,
-            "model": model,
             "preset": preset,
             "runtime": runtime,
             "overrides": {"server": {"host": host, "exposure": exposure}},
         }
+        if model:
+            spec["model"] = model
+        if model_ref is not None:
+            spec["model_ref"] = model_ref
+            revision = self._selected_model_revision(model_ref)
+            if revision:
+                spec["revision"] = revision
         if port:
             try:
                 spec["overrides"]["server"]["port"] = int(port)
@@ -308,6 +340,24 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             label = str(recipe.get("label") or key).strip()
             if key:
                 options.append((label, key))
+        return options
+
+    def _model_options(self) -> list[tuple[str, str]]:
+        options = [("Custom model", "__custom__")]
+        for model in self.models:
+            ref = _model_reference(model)
+            if not ref:
+                continue
+            options.append((_model_option_label(model), ref))
+        return options
+
+    def _build_options(self) -> list[tuple[str, str]]:
+        options = [("Custom build", "__custom__")]
+        for build in self.builds:
+            ref = _build_reference(build)
+            if not ref:
+                continue
+            options.append((_build_option_label(build), ref))
         return options
 
     def _default_preset(self) -> str:
@@ -354,10 +404,48 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             if exposure in {"local", "lan", "public"}:
                 self.query_one("#new-deployment-exposure", Select).value = exposure
 
+    def _apply_model_ref(self, model_ref: str) -> None:
+        if model_ref == "__custom__":
+            return
+        model = self._model_by_ref(model_ref)
+        if model is None:
+            return
+        model_arg = _model_launch_arg(model)
+        if model_arg:
+            self.query_one("#new-deployment-model", Input).value = model_arg
+
+    def _apply_build(self, build_ref: str) -> None:
+        if build_ref == "__custom__":
+            return
+        self.query_one("#new-deployment-runtime", Select).value = "build"
+        self.query_one("#new-deployment-build", Input).value = build_ref
+
     def _recipe_by_key(self, key: str) -> dict[str, Any] | None:
         for recipe in self.recipes:
             if str(recipe.get("key") or "") == key:
                 return recipe
+        return None
+
+    def _model_by_ref(self, model_ref: str) -> dict[str, Any] | None:
+        for model in self.models:
+            if _model_reference(model) == model_ref:
+                return model
+        return None
+
+    def _selected_model_ref(self) -> str | None:
+        value = str(self.query_one("#new-deployment-model-ref", Select).value or "")
+        if not value or value == "__custom__":
+            return None
+        return value
+
+    def _selected_model_revision(self, model_ref: str) -> str | None:
+        model = self._model_by_ref(model_ref)
+        if model is None:
+            return None
+        for field in ("commit_sha", "revision"):
+            value = str(model.get(field) or "").strip()
+            if value:
+                return value
         return None
 
     def _refresh_step(self) -> None:
@@ -384,7 +472,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         selector = {
             0: "#new-deployment-name",
             1: "#new-deployment-runtime",
-            2: "#new-deployment-model",
+            2: "#new-deployment-model-ref",
             3: "#new-deployment-preset",
         }.get(self.step_index)
         if selector is None:
@@ -393,6 +481,47 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             self.query_one(selector).focus()
         except Exception:
             return
+
+
+def _model_reference(model: dict[str, Any]) -> str:
+    return str(model.get("entry_id") or model.get("display_name") or "").strip()
+
+
+def _model_option_label(model: dict[str, Any]) -> str:
+    label = str(model.get("display_name") or model.get("entry_id") or "model").strip()
+    cache = str(model.get("cache_state") or "").strip()
+    revision = str(model.get("commit_sha") or model.get("revision") or "").strip()
+    suffixes = []
+    if cache:
+        suffixes.append(cache)
+    if revision:
+        suffixes.append(revision[:12])
+    return f"{label} ({', '.join(suffixes)})" if suffixes else label
+
+
+def _model_launch_arg(model: dict[str, Any]) -> str:
+    for field in ("repo_id", "local_path", "url", "display_name"):
+        value = str(model.get(field) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _build_reference(build: dict[str, Any]) -> str:
+    return str(build.get("label") or build.get("build_id") or "").strip()
+
+
+def _build_option_label(build: dict[str, Any]) -> str:
+    label = str(build.get("label") or build.get("build_id") or "build").strip()
+    status = str(build.get("status") or "").strip()
+    resolved = build.get("resolved") if isinstance(build.get("resolved"), dict) else {}
+    vllm = str(resolved.get("vllm") or "").strip()
+    suffixes = []
+    if status:
+        suffixes.append(status)
+    if vllm:
+        suffixes.append(f"vLLM {vllm}")
+    return f"{label} ({', '.join(suffixes)})" if suffixes else label
 
 
 class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):

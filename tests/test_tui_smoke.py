@@ -765,6 +765,8 @@ async def test_target_manager_add_persists_new_target(
         )
         app.screen.query_one("#target-edit-input", Input).value = (
             "name=blackbird transport=ssh host=bgconley@10.25.0.51 "
+            "ssh_key=/home/bgconley/.ssh/vela_ed25519 "
+            "agent_command='/home/bgconley/venvs/current-vela/bin/vela agent connect' "
             "workdir=/tank/repos/vela venv=/tank/venvs/vela"
         )
         await pilot.press("enter")
@@ -777,6 +779,12 @@ async def test_target_manager_add_persists_new_target(
         saved = saved_targets[0]
         assert saved.transport is TransportKind.SSH
         assert saved.host == "bgconley@10.25.0.51"
+        assert saved.ssh_key == Path("/home/bgconley/.ssh/vela_ed25519")
+        assert saved.agent_command == [
+            "/home/bgconley/venvs/current-vela/bin/vela",
+            "agent",
+            "connect",
+        ]
         assert saved.workdir == Path("/tank/repos/vela")
         assert saved.venv == Path("/tank/venvs/vela")
         target_list = str(app.screen.query_one("#target-manager-list", Static).content)
@@ -791,6 +799,12 @@ async def test_target_manager_edit_persists_selected_target(
         name="blackbird",
         transport=TransportKind.SSH,
         host="bgconley@10.25.0.51",
+        ssh_key=Path("/home/bgconley/.ssh/vela_ed25519"),
+        agent_command=[
+            "/home/bgconley/venvs/current-vela/bin/vela",
+            "agent",
+            "connect",
+        ],
     )
     targets = [TargetConfig(name="local"), blackbird]
     saved_targets: list[TargetConfig] = []
@@ -862,6 +876,11 @@ async def test_target_manager_edit_persists_selected_target(
         )
         form = app.screen.query_one("#target-edit-input", Input)
         assert "name=blackbird" in form.value
+        assert "ssh_key=/home/bgconley/.ssh/vela_ed25519" in form.value
+        assert (
+            "agent_command='/home/bgconley/venvs/current-vela/bin/vela agent connect'"
+            in form.value
+        )
         form.value = "name=blackbird transport=ssh host=bgconley@10.25.0.52"
         await pilot.press("enter")
         await _wait_for_condition(
@@ -3825,6 +3844,122 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
         assert "deployment.recipe" in str(
             app.screen.query_one("#new-deployment-review-derived", Static).content
         )
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_selects_target_model_and_build_from_tui(
+    config_dir: Path,
+) -> None:
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.compose_params: dict | None = None
+            self.calls: list[str] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append(method)
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_builds":
+                return {
+                    "builds": [
+                        {
+                            "build_id": "01NIGHTLY",
+                            "label": "nightly-cu130",
+                            "status": "ready",
+                            "resolved": {"vllm": "0.20.2rc1.dev9", "cuda": "13.0"},
+                        }
+                    ],
+                    "skipped": [],
+                }
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "qwen-fp8-pin",
+                            "display_name": "Qwen3.6 27B FP8",
+                            "source": "hf_repo",
+                            "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                            "commit_sha": "abc123",
+                            "cache_state": "cached",
+                        }
+                    ]
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen-pinned",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "model_ref": "qwen-fp8-pin",
+                        "revision": "abc123",
+                        "command": {"runtime": "process", "build": "nightly-cu130"},
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {
+                    "preview": "cwd=/agent\nnightly-cu130/bin/vllm serve Qwen/Qwen3.6-27B-FP8",
+                    "warnings": [],
+                    "metadata": {},
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment selector test should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_name="blackbird", target_client=client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-pinned"
+        app.screen.query_one("#new-deployment-model-ref", Select).value = "qwen-fp8-pin"
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-build-select", Select).value = "nightly-cu130"
+        await pilot.pause()
+
+        assert (
+            app.screen.query_one("#new-deployment-model", Input).value
+            == "Qwen/Qwen3.6-27B-FP8"
+        )
+        assert app.screen.query_one("#new-deployment-runtime", Select).value == "build"
+        assert app.screen.query_one("#new-deployment-build", Input).value == "nightly-cu130"
+
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "new deployment review did not open for target model/build selectors",
+        )
+
+    assert client.compose_params is not None
+    assert client.compose_params["model_ref"] == "qwen-fp8-pin"
+    assert client.compose_params["revision"] == "abc123"
+    assert client.compose_params["runtime"] == {"kind": "build", "build": "nightly-cu130"}
+    assert "list_models" in client.calls
+    assert "list_builds" in client.calls
 
 
 @pytest.mark.asyncio

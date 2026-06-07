@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -74,7 +75,10 @@ class TargetEditScreen(ModalScreen[TargetConfig | None]):
 
 
 def _parse_target_config(value: str) -> TargetConfig:
-    tokens = [token.strip() for token in value.split() if token.strip()]
+    try:
+        tokens = [token.strip() for token in shlex.split(value) if token.strip()]
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
     if not tokens:
         raise ValueError("Enter target fields")
     params: dict[str, object] = {}
@@ -106,6 +110,11 @@ def _target_to_input(target: TargetConfig) -> str:
     ]
     if target.host:
         parts.append(f"host={target.host}")
+    if target.ssh_key:
+        parts.append(f"ssh_key={_path_value(target.ssh_key)}")
+    if target.agent_command:
+        command = " ".join(shlex.quote(part) for part in target.agent_command)
+        parts.append(f"agent_command={shlex.quote(command)}")
     if target.workdir:
         parts.append(f"workdir={_path_value(target.workdir)}")
     if target.venv:

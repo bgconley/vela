@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from conftest import write_yaml
 
 from vela.agent import local as local_agent_module
@@ -560,11 +561,22 @@ def test_agent_lists_lab_deployment_recipes_for_tui() -> None:
     assert fp8["engine"]["kv_cache_dtype"] == "fp8"
     assert fp8["docker"]["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
     assert "--kv-cache-memory-bytes" in fp8["extra_args"]
+    assert fp8["source_artifacts"] == [
+        "infx/qwen36-27b-test/start-qwen36-27b-fp8-rp6000-blackbird.sh",
+        (
+            "infx/qwen36-27b-test/"
+            "qwen36-27b-fp8-bf16-stack-redeploy-blackbird-20260528.md"
+        ),
+    ]
     assert bf16["model"] == "Qwen/Qwen3.6-27B"
     assert bf16["server"]["port"] == 18002
     assert bf16["engine"]["kv_cache_dtype"] == "bfloat16"
     assert "--kv-cache-memory-bytes" not in bf16["extra_args"]
     assert "FLASHINFER_CUDA_ARCH_LIST" not in bf16["docker"]["env"]
+    assert bf16["source_artifacts"] == [
+        "infx/qwen36-27b-test/start-qwen36-bf16-rp6000-blackbird.sh",
+        "infx/qwen36-27b-test/qwen-bf16-rp6000-blackbird-reload-20260509.md",
+    ]
 
 
 def test_agent_lists_spec_aligned_composer_presets_for_wizard() -> None:
@@ -951,9 +963,8 @@ def test_agent_push_pull_list_and_lint_config_round_trip(config_dir: Path) -> No
     server:
       host: 127.0.0.1
       port: 18008
-      api_key: sk-live
     env:
-      HF_TOKEN: hf_live
+      VLLM_LOGGING_LEVEL: DEBUG
     """
 
     pushed = _call(
@@ -977,19 +988,56 @@ def test_agent_push_pull_list_and_lint_config_round_trip(config_dir: Path) -> No
     pulled = _call(agent, "pull_config", {"configs_dir": str(config_dir), "name": "pushed"})
     assert pulled["config"]["name"] == "pushed"
     assert "name: pushed" in pulled["yaml"]
-    assert "api_key: sk-live" in pulled["yaml"]
+    assert "VLLM_LOGGING_LEVEL: DEBUG" in pulled["yaml"]
 
     linted = _call(agent, "lint_config", {"config": pulled["config"]})
     assert linted["ok"] is True
     warnings = "\n".join(linted["warnings"])
     assert "model uses a host-local absolute path" in warnings
     assert "command.executable is host-local" in warnings
-    assert "server.api_key contains a literal secret" in warnings
-    assert "env.HF_TOKEN contains a literal secret" in warnings
 
     with pytest.raises(TargetCallError) as exc_info:
         _call(agent, "push_config", {"configs_dir": str(config_dir), "yaml": raw_yaml})
     assert exc_info.value.code == "config-exists"
+
+
+def test_agent_lint_save_and_push_block_literal_config_secrets(config_dir: Path) -> None:
+    agent = LocalAgent()
+    secret_config = {
+        "name": "secret-config",
+        "model": "Qwen/Qwen3-32B",
+        "server": {"host": "127.0.0.1", "port": 18008, "api_key": "sk-live"},
+        "env": {"HF_TOKEN": "hf_live"},
+    }
+    raw_yaml = yaml.safe_dump(secret_config, sort_keys=False)
+
+    linted = _call(agent, "lint_config", {"config": secret_config})
+
+    assert linted["ok"] is False
+    assert linted["warnings"] == []
+    assert linted["errors"] == [
+        {
+            "field": "server.api_key",
+            "message": "contains a literal secret; prefer target env injection",
+        },
+        {
+            "field": "env.HF_TOKEN",
+            "message": "contains a literal secret; prefer target env injection",
+        },
+    ]
+
+    with pytest.raises(TargetCallError) as push_exc:
+        _call(agent, "push_config", {"configs_dir": str(config_dir), "yaml": raw_yaml})
+    with pytest.raises(TargetCallError) as save_exc:
+        _call(
+            agent,
+            "save_config",
+            {"configs_dir": str(config_dir), "name": "secret-config", "config": secret_config},
+        )
+
+    assert push_exc.value.code == "invalid-config"
+    assert save_exc.value.code == "invalid-config"
+    assert not (config_dir / "secret-config.yaml").exists()
 
 
 def test_agent_lints_docker_pinning_gpus_and_exposure_mismatch() -> None:

@@ -126,6 +126,8 @@ def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> li
     command = ["ssh"]
     ssh_opts = _ssh_options_from_env(target)
     command.extend(ssh_opts)
+    if target.ssh_key is not None:
+        command.extend(["-i", str(target.ssh_key)])
     command.append("-a")
     for key, value in REQUIRED_SSH_OPTIONS.items():
         command.extend(["-o", f"{key}={value}"])
@@ -133,7 +135,7 @@ def _ssh_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> li
         if not _ssh_option_present(ssh_opts, key):
             command.extend(["-o", f"{key}={value}"])
     command.append(target.host)
-    command.append(_remote_agent_command(target, agent_command))
+    command.append(_remote_agent_command(target, target.agent_command or agent_command))
     return command
 
 

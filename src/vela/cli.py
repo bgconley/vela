@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shlex
 import signal
 import uuid
 from pathlib import Path
@@ -15,7 +16,11 @@ from vela import __version__
 from vela.agent.auth import (
     DEFAULT_AGENT_TOKEN_BYTES,
     MIN_AGENT_TOKEN_BYTES,
+    AgentTokenError,
+    configured_agent_token,
+    default_agent_token_file,
     generate_agent_token,
+    install_agent_token,
 )
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.config.schema import ModelConfig, RuntimeKind
@@ -169,6 +174,24 @@ def _default_debug_log_path() -> Path:
     return state_home / "vela" / "debug.jsonl"
 
 
+@app.command("doctor")
+def doctor(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable setup checks."),
+    ] = False,
+) -> None:
+    payload = _doctor_payload()
+    if json_output:
+        _echo_json(payload)
+        return
+    for check in payload["checks"]:
+        status = "ok" if check["ok"] else "warn"
+        typer.echo(f"{status}\t{check['name']}\t{check['detail']}")
+    for step in payload["next_steps"]:
+        typer.echo(f"next\t{step}")
+
+
 @targets_app.command("list")
 def targets_list() -> None:
     registry = _load_targets_or_exit()
@@ -184,6 +207,10 @@ def targets_add(
         typer.Option("--transport", help="Target transport kind."),
     ] = TransportKind.SSH,
     host: Annotated[str | None, typer.Option("--host", help="SSH host.")] = None,
+    ssh_key: Annotated[
+        Path | None,
+        typer.Option("--ssh-key", help="SSH private key path for this target."),
+    ] = None,
     workdir: Annotated[
         Path | None,
         typer.Option("--workdir", help="Remote working directory."),
@@ -191,6 +218,10 @@ def targets_add(
     venv: Annotated[
         Path | None,
         typer.Option("--venv", help="Remote virtualenv path."),
+    ] = None,
+    agent_command: Annotated[
+        str | None,
+        typer.Option("--agent-command", help="Remote agent command, shell-split safely."),
     ] = None,
     ssh_opts_env: Annotated[
         str | None,
@@ -202,8 +233,10 @@ def targets_add(
             name=name,
             transport=transport,
             host=host,
+            ssh_key=ssh_key,
             workdir=workdir,
             venv=venv,
+            agent_command=_agent_command_argv(agent_command),
             ssh_opts_env=ssh_opts_env,
         )
         upsert_target_file(target)
@@ -211,6 +244,50 @@ def targets_add(
         typer.echo(f"ERROR: Unable to add target: {exc}", err=True)
         raise typer.Exit(2) from exc
     typer.echo(f"added target {name}")
+
+
+@targets_app.command("bootstrap")
+def targets_bootstrap(
+    name: Annotated[str, typer.Argument(help="Target name to add or update.")],
+    host: Annotated[str, typer.Option("--host", help="SSH host, e.g. user@host.")],
+    ssh_key: Annotated[
+        Path | None,
+        typer.Option("--ssh-key", help="SSH private key path for this target."),
+    ] = None,
+    workdir: Annotated[
+        Path | None,
+        typer.Option("--workdir", help="Remote working directory."),
+    ] = None,
+    venv: Annotated[
+        Path | None,
+        typer.Option("--venv", help="Remote virtualenv path."),
+    ] = None,
+    agent_command: Annotated[
+        str | None,
+        typer.Option("--agent-command", help="Remote agent command, shell-split safely."),
+    ] = None,
+    ssh_opts_env: Annotated[
+        str | None,
+        typer.Option("--ssh-opts-env", help="Environment variable with SSH options."),
+    ] = None,
+) -> None:
+    try:
+        target = TargetConfig(
+            name=name,
+            transport=TransportKind.SSH,
+            host=host,
+            ssh_key=ssh_key,
+            workdir=workdir,
+            venv=venv,
+            agent_command=_agent_command_argv(agent_command),
+            ssh_opts_env=ssh_opts_env,
+        )
+        path = upsert_target_file(target)
+    except ValueError as exc:
+        typer.echo(f"ERROR: Unable to bootstrap target: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"bootstrapped target {name}\t{path}")
+    typer.echo(f"next\tvela targets test {name}")
 
 
 @targets_app.command("remove")
@@ -1848,6 +1925,53 @@ def _echo_json(payload: dict[str, Any]) -> None:
     typer.echo(json.dumps(payload, sort_keys=True))
 
 
+def _agent_command_argv(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    argv = shlex.split(value)
+    if not argv:
+        raise ValueError("--agent-command must not be empty")
+    return argv
+
+
+def _doctor_payload() -> dict[str, Any]:
+    checks: list[dict[str, object]] = []
+    try:
+        registry = load_targets_file()
+    except ValueError as exc:
+        checks.append({"name": "targets", "ok": False, "detail": str(exc)})
+    else:
+        remote_targets = [target for target in registry.targets if target.name != "local"]
+        checks.append(
+            {
+                "name": "targets",
+                "ok": True,
+                "detail": f"{len(remote_targets)} remote target(s) configured",
+            }
+        )
+
+    try:
+        token = configured_agent_token()
+    except AgentTokenError as exc:
+        checks.append({"name": "agent_token", "ok": False, "detail": str(exc)})
+    else:
+        detail = (
+            "configured via VELA_AGENT_TOKEN or token file"
+            if token
+            else f"not installed; default path is {default_agent_token_file()}"
+        )
+        checks.append({"name": "agent_token", "ok": True, "detail": detail})
+
+    return {
+        "ok": all(bool(check["ok"]) for check in checks),
+        "checks": checks,
+        "next_steps": [
+            "vela targets bootstrap",
+            "vela agent gen-token --install",
+        ],
+    }
+
+
 def _format_model_inspect_value(value: object) -> str:
     return _format_inspect_value(value)
 
@@ -1992,6 +2116,15 @@ def _echo_target_error_or_exit(exc: TargetCallError, *, fallback_name: str | Non
     if exc.code == "invalid-config":
         name = str(exc.details.get("name") or fallback_name or "unknown")
         typer.echo(f"ERROR: Invalid config: {name}", err=True)
+        validation = exc.details.get("validation")
+        if isinstance(validation, dict):
+            for item in validation.get("errors", []):
+                if isinstance(item, dict):
+                    field = str(item.get("field") or "config")
+                    message = str(item.get("message") or "")
+                    typer.echo(f"{field}: {message}", err=True)
+                else:
+                    typer.echo(str(item), err=True)
         for item in exc.details.get("matches", []):
             typer.echo(f"{Path(item['path']).name}: {'; '.join(item['errors'])}", err=True)
         raise typer.Exit(2) from exc
@@ -2301,7 +2434,9 @@ async def _smoke_tui_config_cli(
             url = tui.ready_url
             models = ",".join(tui.served_models)
             suffix = f" models={models}" if models else ""
-            typer.echo(f"READY {url}{suffix}")
+            run_id = tui.current_run_id or tui.reattached_run_id
+            run_suffix = f" run_id={run_id}" if run_id else ""
+            typer.echo(f"READY {url}{suffix}{run_suffix}")
             tui.action_stop()
             if not await _wait_for_tui_stopped(
                 tui, timeout=_smoke_tui_stop_timeout(cfg)
@@ -2529,6 +2664,14 @@ def agent_gen_token(
             help="Random bytes of token entropy; 16 bytes is the minimum.",
         ),
     ] = DEFAULT_AGENT_TOKEN_BYTES,
+    install: Annotated[
+        bool,
+        typer.Option("--install", help="Write the token to the default agent token file."),
+    ] = False,
+    install_path: Annotated[
+        Path | None,
+        typer.Option("--install-path", help="Override the token install path."),
+    ] = None,
 ) -> None:
     if entropy_bytes < MIN_AGENT_TOKEN_BYTES:
         typer.echo(
@@ -2536,7 +2679,16 @@ def agent_gen_token(
             err=True,
         )
         raise typer.Exit(2)
-    typer.echo(generate_agent_token(entropy_bytes))
+    token = generate_agent_token(entropy_bytes)
+    if install:
+        try:
+            token_path, _token = install_agent_token(token, path=install_path)
+        except AgentTokenError as exc:
+            typer.echo(f"ERROR: unable to install agent token: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        typer.echo(f"installed agent token\t{token_path}")
+        return
+    typer.echo(token)
 
 
 @agent_app.command("run")

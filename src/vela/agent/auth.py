@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import secrets
+from pathlib import Path
 
 AGENT_TOKEN_ENV = "VELA_AGENT_TOKEN"
+AGENT_TOKEN_FILE_ENV = "VELA_AGENT_TOKEN_FILE"
 MIN_AGENT_TOKEN_BYTES = 16
 DEFAULT_AGENT_TOKEN_BYTES = 32
 MIN_AGENT_TOKEN_CHARS = 22
@@ -18,8 +20,35 @@ class AgentTokenError(ValueError):
 def configured_agent_token() -> str | None:
     token = os.environ.get(AGENT_TOKEN_ENV)
     if not token:
-        return None
+        token_path = _configured_agent_token_file()
+        if not token_path.exists():
+            return None
+        try:
+            token = token_path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise AgentTokenError(f"unable to read agent token file {token_path}: {exc}") from exc
     return validate_agent_token(token)
+
+
+def default_agent_token_file() -> Path:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return config_home / "vela" / "agent-token"
+
+
+def install_agent_token(
+    token: str | None = None,
+    *,
+    path: str | Path | None = None,
+) -> tuple[Path, str]:
+    installed_token = validate_agent_token(token or generate_agent_token())
+    token_path = Path(path).expanduser() if path is not None else default_agent_token_file()
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(installed_token)
+        handle.write("\n")
+    token_path.chmod(0o600)
+    return token_path, installed_token
 
 
 def generate_agent_token(nbytes: int = DEFAULT_AGENT_TOKEN_BYTES) -> str:
@@ -50,3 +79,10 @@ def _looks_low_entropy(token: str) -> bool:
         return True
     most_common = max(counts.values(), default=0)
     return most_common / len(token) > MAX_AGENT_TOKEN_CHAR_FREQUENCY
+
+
+def _configured_agent_token_file() -> Path:
+    token_file = os.environ.get(AGENT_TOKEN_FILE_ENV)
+    if token_file:
+        return Path(token_file).expanduser()
+    return default_agent_token_file()

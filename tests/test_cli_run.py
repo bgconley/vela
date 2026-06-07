@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 
 from vela import __version__
 from vela import cli as cli_module
+from vela.agent.auth import configured_agent_token, default_agent_token_file
 from vela.cli import _enable_textual_debug_features
 from vela.config.targets import TargetConfig, TransportKind, load_targets_file
 from vela.engine import process_manager as process_manager_module
@@ -56,6 +57,25 @@ def test_cli_agent_gen_token_prints_strong_urlsafe_token() -> None:
     token = result.output.strip()
     assert len(token) >= 43
     assert re.fullmatch(r"[A-Za-z0-9_-]+", token)
+
+
+def test_cli_agent_gen_token_install_writes_default_token_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN_FILE", raising=False)
+
+    result = CliRunner().invoke(cli_module.app, ["agent", "gen-token", "--install"])
+
+    assert result.exit_code == 0, result.output
+    token_path = default_agent_token_file()
+    assert f"installed agent token\t{token_path}" in result.output
+    token = token_path.read_text(encoding="utf-8").strip()
+    assert len(token) >= 43
+    assert configured_agent_token() == token
+    assert (token_path.stat().st_mode & 0o777) == 0o600
 
 
 def test_cli_root_target_option_launches_tui_with_target(
@@ -2323,6 +2343,10 @@ def test_cli_targets_add_persists_ssh_target(
             "ssh",
             "--host",
             "bgconley@10.25.0.51",
+            "--ssh-key",
+            "/home/bgconley/.ssh/vela_ed25519",
+            "--agent-command",
+            "/home/bgconley/venvs/current-vela/bin/vela agent connect",
             "--workdir",
             "/tank/repos/vela",
             "--venv",
@@ -2340,9 +2364,68 @@ def test_cli_targets_add_persists_ssh_target(
     assert [target.name for target in registry.targets] == ["local", "blackbird"]
     assert blackbird.transport is TransportKind.SSH
     assert blackbird.host == "bgconley@10.25.0.51"
+    assert blackbird.ssh_key == Path("/home/bgconley/.ssh/vela_ed25519")
+    assert blackbird.agent_command == [
+        "/home/bgconley/venvs/current-vela/bin/vela",
+        "agent",
+        "connect",
+    ]
     assert blackbird.workdir == Path("/tank/repos/vela")
     assert blackbird.venv == Path("/tank/venvs/vela")
     assert blackbird.ssh_opts_env == "VELA_SSH_OPTS"
+
+
+def test_cli_doctor_prints_onboarding_next_steps(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN_FILE", raising=False)
+
+    result = CliRunner().invoke(cli_module.app, ["doctor", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["ok"] is True
+    assert any(check["name"] == "targets" for check in payload["checks"])
+    assert any(check["name"] == "agent_token" for check in payload["checks"])
+    assert "vela targets bootstrap" in payload["next_steps"]
+    assert "vela agent gen-token --install" in payload["next_steps"]
+
+
+def test_cli_targets_bootstrap_persists_target_and_agent_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "targets",
+            "bootstrap",
+            "blackbird",
+            "--host",
+            "bgconley@10.25.0.51",
+            "--ssh-key",
+            "/home/bgconley/.ssh/vela_ed25519",
+            "--workdir",
+            "/tank/repos/vela",
+            "--agent-command",
+            "/home/bgconley/venvs/current-vela/bin/vela agent connect",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "bootstrapped target blackbird" in result.output
+    target = load_targets_file(tmp_path / "vela" / "targets.yaml").by_name("blackbird")
+    assert target.ssh_key == Path("/home/bgconley/.ssh/vela_ed25519")
+    assert target.agent_command == [
+        "/home/bgconley/venvs/current-vela/bin/vela",
+        "agent",
+        "connect",
+    ]
 
 
 def test_cli_targets_remove_deletes_named_target(
@@ -2993,12 +3076,36 @@ def test_cli_config_push_pull_lint_call_target_agent(
                     "yaml": source.read_text(encoding="utf-8"),
                     "overwrite": True,
                 }
-                return {
-                    "name": "pushed",
-                    "path": "/target/configs/pushed.yaml",
-                    "config": {"name": "pushed", "model": "/models/pushed"},
-                    "warnings": ["server.api_key contains a literal secret"],
-                }
+                raise cli_module.TargetCallError(
+                    "invalid-config",
+                    "pushed config is invalid",
+                    {
+                        "name": "pushed",
+                        "validation": {
+                            "ok": False,
+                            "errors": [
+                                {
+                                    "field": "server.api_key",
+                                    "message": (
+                                        "contains a literal secret; prefer target env injection"
+                                    ),
+                                },
+                                {
+                                    "field": "env.HF_TOKEN",
+                                    "message": (
+                                        "contains a literal secret; prefer target env injection"
+                                    ),
+                                },
+                            ],
+                            "warnings": [
+                                (
+                                    "model uses a host-local absolute path; "
+                                    "prefer model_ref for portability"
+                                )
+                            ],
+                        },
+                    },
+                )
             if method == "pull_config":
                 assert params == {
                     "configs_dir": str(tmp_path / "target-configs"),
@@ -3014,12 +3121,19 @@ def test_cli_config_push_pull_lint_call_target_agent(
             if method == "lint_config":
                 assert params == {"yaml": source.read_text(encoding="utf-8")}
                 return {
-                    "ok": True,
-                    "errors": [],
+                    "ok": False,
+                    "errors": [
+                        {
+                            "field": "server.api_key",
+                            "message": "contains a literal secret; prefer target env injection",
+                        },
+                        {
+                            "field": "env.HF_TOKEN",
+                            "message": "contains a literal secret; prefer target env injection",
+                        },
+                    ],
                     "warnings": [
                         "model uses a host-local absolute path; prefer model_ref for portability",
-                        "server.api_key contains a literal secret",
-                        "env.HF_TOKEN contains a literal secret",
                     ],
                 }
             raise AssertionError(f"unexpected target call: {method}")
@@ -3063,15 +3177,32 @@ def test_cli_config_push_pull_lint_call_target_agent(
         ["config", "lint", str(source), "--target", "blackbird", "--json"],
     )
 
-    assert push_result.exit_code == 0, push_result.output
-    assert json.loads(push_result.output)["path"] == "/target/configs/pushed.yaml"
+    assert push_result.exit_code == 2, push_result.output
+    assert "ERROR: Invalid config: pushed" in push_result.output
+    assert (
+        "server.api_key: contains a literal secret; prefer target env injection"
+        in push_result.output
+    )
+    assert (
+        "env.HF_TOKEN: contains a literal secret; prefer target env injection"
+        in push_result.output
+    )
     assert pull_result.exit_code == 0, pull_result.output
     assert pull_result.output == f"pulled config\tpushed\t{pulled}\n"
     assert pulled.read_text(encoding="utf-8") == "name: pushed\nmodel: /models/pushed\n"
     assert lint_result.exit_code == 0, lint_result.output
     lint_payload = json.loads(lint_result.output)
-    assert lint_payload["ok"] is True
-    assert "server.api_key contains a literal secret" in lint_payload["warnings"]
+    assert lint_payload["ok"] is False
+    assert lint_payload["errors"] == [
+        {
+            "field": "server.api_key",
+            "message": "contains a literal secret; prefer target env injection",
+        },
+        {
+            "field": "env.HF_TOKEN",
+            "message": "contains a literal secret; prefer target env injection",
+        },
+    ]
     assert [method for method, _params in calls] == [
         "push_config",
         "pull_config",
@@ -3496,6 +3627,7 @@ async def test_cli_smoke_tui_runs_textual_load_and_stop_flow(config_dir: Path) -
 
         assert proc.returncode == 0, stderr
         assert f"READY http://127.0.0.1:{port} models=fake-model" in stdout
+        assert "run_id=" in stdout
         assert "Traceback" not in stderr
         await _wait_for_health(port, expected=False)
     finally:

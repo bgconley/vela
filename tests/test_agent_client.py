@@ -92,7 +92,7 @@ def _isolate_hf_cache_scan(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         model_registry_module,
         "_hf_model_info",
-        lambda repo_id, revision=None: None,
+        lambda repo_id, revision=None: SimpleNamespace(sha="abc123", gated=False),
         raising=False,
     )
 
@@ -5896,26 +5896,54 @@ async def test_agent_verify_marks_cached_hf_model_partial_without_identity(
     tmp_path: Path,
 ) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01REMOTE",
+                        "display_name": "remote-llama",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": None,
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 3,
+                            "total_bytes": 130,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 130,
+                        "cache_state": "cached",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "legacy missing commit",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        pinned = await client.call(
-            "pin_model",
-            {
-                "entry_id": "01REMOTE",
-                "display_name": "remote-llama",
-                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
-                "cache_state": "cached",
-            },
-        )
         verified = await client.call("verify_model", {"model_ref": "01REMOTE"})
         listed = await client.call("list_models")
     finally:
         await client.disconnect()
 
-    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
-    assert verified["entry_id"] == entry_id
+    assert verified["entry_id"] == "01REMOTE"
     assert verified["ok"] is False
     assert verified["cache_state"] == "partial"
     assert verified["reason"] == "missing-commit"
@@ -6243,6 +6271,100 @@ async def test_agent_pin_model_resolves_revision_to_commit_sha(
     assert inspected["entry"]["gated"] is True
     assert inspected["entry"]["token_required"] is True
     json.dumps(inspected)
+
+
+@pytest.mark.asyncio
+async def test_agent_pin_model_resolves_default_revision_to_commit_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    calls: list[dict[str, str | None]] = []
+
+    def fake_hf_model_info(repo_id: str, revision: str | None = None) -> object:
+        calls.append({"repo_id": repo_id, "revision": revision})
+        return SimpleNamespace(sha="def456", gated=False)
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", fake_hf_model_info)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "llama-remote",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert calls == [
+        {
+            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+            "revision": None,
+        }
+    ]
+    assert pinned["entry"]["revision"] is None
+    assert pinned["entry"]["commit_sha"] == "def456"
+    json.dumps(pinned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "expected_code", "expected_reason"),
+    [
+        (
+            "GatedRepoError: Cannot access gated repo; 403 Client Error",
+            "gated-auth",
+            "gated-auth",
+        ),
+        (
+            "RevisionNotFoundError: revision main does not exist",
+            "revision-not-found",
+            "revision-not-found",
+        ),
+    ],
+)
+async def test_agent_pin_model_surfaces_hf_resolution_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    message: str,
+    expected_code: str,
+    expected_reason: str,
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def failing_hf_model_info(repo_id: str, revision: str | None = None) -> object:
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", failing_hf_model_info)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "pin_model",
+                {
+                    "entry_id": "01REMOTE",
+                    "display_name": "llama-remote",
+                    "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                    "revision": "main",
+                },
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.details == {
+        "model_ref": "01REMOTE",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "revision": "main",
+        "reason": expected_reason,
+    }
+    assert not registry_path.exists()
 
 
 @pytest.mark.asyncio
@@ -7036,6 +7158,7 @@ async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override
                         "source": "hf_repo",
                         "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
                         "revision": "main",
+                        "commit_sha": "abc123",
                         "cache_state": "cached",
                     }
                 ],
@@ -7194,6 +7317,64 @@ async def test_agent_prepare_launch_blocks_gated_model_ref_without_hf_token(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_blocks_hf_model_ref_without_commit_sha(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01UNRESOLVED",
+                        "display_name": "llama-unresolved",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": None,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "unresolved-model.yaml",
+        f"""
+        name: unresolved-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01UNRESOLVED
+        server:
+          port: {unused_tcp_port}
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "unresolved-model", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "model-unavailable"
+    assert exc_info.value.details == {
+        "model_ref": "01UNRESOLVED",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "revision": "main",
+        "reason": "missing-commit",
+    }
+
+
+@pytest.mark.asyncio
 async def test_agent_preflight_reports_gated_model_missing_hf_token(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -7247,6 +7428,66 @@ async def test_agent_preflight_reports_gated_model_missing_hf_token(
             "detail": (
                 "model llama-gated requires HF_TOKEN; "
                 "accept the model license and set HF_TOKEN"
+            ),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_preflight_reports_hf_model_ref_without_commit_sha(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01UNRESOLVED",
+                        "display_name": "llama-unresolved",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": None,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "unresolved-model.yaml",
+        f"""
+        name: unresolved-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01UNRESOLVED
+        server:
+          port: {unused_tcp_port}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {"name": "unresolved-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["failures"] == [
+        {
+            "kind": ErrorKind.MODEL_NOT_FOUND.value,
+            "detail": (
+                "model llama-unresolved is missing an immutable Hugging Face "
+                "commit sha; re-pin the model before launch"
             ),
         }
     ]
@@ -9749,7 +9990,7 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     assert snapshot_calls == [
         {
             "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
-            "revision": "main",
+            "revision": "abc123",
             "allow_patterns": ["*.safetensors", "*.json"],
             "ignore_patterns": ["*.msgpack"],
         }
@@ -9757,6 +9998,7 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     [entry] = registry["entries"]
     assert entry["cache_state"] == "cached"
+    assert entry["revision"] == "main"
     assert entry["commit_sha"] == "abc123"
     assert entry["files"]["total_bytes"] == 130
     json.dumps(progress)
@@ -9920,7 +10162,7 @@ async def test_agent_download_model_job_injects_hf_token_without_persisting_it(
     assert snapshot_calls == [
         {
             "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
-            "revision": "main",
+            "revision": "abc123",
             "token": hf_token,
         }
     ]
@@ -9996,7 +10238,9 @@ async def test_agent_download_model_job_classifies_snapshot_failures(
     assert done["error_kind"] == expected_kind
     assert done["model_ref"] == "01REMOTE"
     assert done["repo_id"] == "meta-llama/Llama-3.1-8B-Instruct"
-    assert done["revision"] == "main"
+    assert done["revision"] == "abc123"
+    assert entry["revision"] == "main"
+    assert entry["commit_sha"] == "abc123"
     assert entry["cache_state"] == "partial"
     json.dumps(done)
 

@@ -352,3 +352,84 @@
 | 01:35 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |
 | 01:36 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |
 | 01:37 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 57 reads | ~101368 tok |
+| 11:56 | Session end: 25 writes across 3 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md) | 65 reads | ~102018 tok |
+| 11:57 | Created vllm-agent-architecture-review-punchlist-v3.md | — | ~2276 |
+| 11:58 | Session end: 26 writes across 4 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md) | 65 reads | ~104457 tok |
+| 14:06 | Session end: 26 writes across 4 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md) | 69 reads | ~104457 tok |
+| 14:29 | Created vllm-agent-architecture-review-punchlist-v4.md | — | ~1742 |
+| 14:29 | Session end: 27 writes across 5 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md, vllm-agent-architecture-review-punchlist-v4.md) | 69 reads | ~106323 tok |
+| 14:31 | Session end: 27 writes across 5 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md, vllm-agent-architecture-review-punchlist-v4.md) | 69 reads | ~106323 tok |
+| 15:50 | Session end: 27 writes across 5 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md, vllm-agent-architecture-review-punchlist-v4.md) | 77 reads | ~106603 tok |
+| 17:53 | Session end: 27 writes across 5 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md, vllm-agent-architecture-review-punchlist-v4.md) | 81 reads | ~106603 tok |
+| 17:54 | Created vllm-agent-architecture-review-punchlist-v5.md | — | ~2033 |
+| 17:55 | Session end: 28 writes across 6 files (vllm-agent-architecture-spec-v1.md, vllm-agent-architecture-review-punchlist.md, vllm-agent-architecture-review-punchlist-v2.md, vllm-agent-architecture-review-punchlist-v3.md, vllm-agent-architecture-review-punchlist-v4.md) | 81 reads | ~108781 tok |
+
+## Session: 2026-06-04 18:53
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 19:17 | Created ../../.claude/jobs/1ec9bb76/tmp/capture_screens.py | — | ~4789 |
+| 19:17 | Edited ../../.claude/jobs/1ec9bb76/tmp/capture_screens.py | — | ~0 |
+| 19:32 | Created vllm-full-repo-review-findings-v1.md | — | ~5225 |
+| 19:30 | Full cross-spec repo review (7 Sonnet 4.6 agents + Opus 4.8 scrutiny); wrote findings v1 | vllm-full-repo-review-findings-v1.md | 580 tests reconfirmed; ~83-86% to v1; P1 -32002 contract + P2 64KB frame-drop verified; 2 agent over-ratings corrected | ~0 |
+| 19:33 | Session end: 3 writes across 2 files (capture_screens.py, vllm-full-repo-review-findings-v1.md) | 71 reads | ~91246 tok |
+| 23:45 | Created vllm-full-repo-review-findings-v2.md | — | ~2976 |
+| 20:10 | Re-evaluation of agentic coder progress (17 commits c20d6c1..aa497e0); 4 Sonnet 4.6 agents + Opus 4.8 scrutiny; wrote findings v2 | vllm-full-repo-review-findings-v2.md | ~20/21 punchlist items FIXED w/ tests; ~89-91% to v1; agent-arch ~93| 23:56 | Edited vllm-full-repo-review-findings-v2.md | inline fix | ~124 |
+| 23:56 | Edited vllm-full-repo-review-findings-v2.md | 1→4 lines | ~454 |
+| 23:56 | Edited vllm-full-repo-review-findings-v2.md | 5→6 lines | ~169 |
+| 20:15 | Re-evaluated agentic coder progress (17 commits c20d6c1..aa497e0); 4 Sonnet 4.6 agents + Opus 4.8 verify; wrote findings v2 | vllm-full-repo-review-findings-v2.md | ~20/21 punchlist FIXED w/ tests; ~89-91% to v1, agent-arch ~93%; NEW High N1 deep-verify OOM + N6 flaky TUI test; invariants held | ~0 |
+| 23:57 | Session end: 7 writes across 3 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md) | 75 reads | ~101734 tok |
+| 02:45 | Created vllm-full-repo-review-findings-v3.md | — | ~2936 |
+| 00:40 | 3rd re-eval of coder progress (aa497e0..1f473c7, 20 commits, live HEAD); 4 Sonnet 4.6 agents + Opus verify; wrote findings v3 | vllm-full-repo-review-findings-v3.md | v2 punchlist N1-N6+Q10 all FIXED w/ tests; N1 hash verified backward-compat; suite deterministically green ~706, ruff clean; NEW SSH/token-auth hardening sound (no bypass); all new findings Low; agent-arch ~95-96% | ~0 |
+| 02:46 | Session end: 8 writes across 4 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md) | 79 reads | ~104880 tok |
+| 03:00 | Created vllm-full-repo-review-findings-v4.md | — | ~2133 |
+| 01:15 | Reviewed original v1 punchlist + docs/ accuracy (the "other punch" + additional spec docs); 2 Sonnet 4.6 agents + Opus verify; wrote findings v4 | vllm-full-repo-review-findings-v4.md | v1 punchlist CLOSED (discover_runs_no_paths now dispatched); docs substantially accurate & in-sync; 5 drift items (D1 vllm-loader tui Med, rest Low); corrected typed_sidecar_resources misread | ~0 |
+| 03:00 | Session end: 9 writes across 5 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 85 reads | ~110936 tok |
+| 03:28 | Session end: 9 writes across 5 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 85 reads | ~110936 tok |
+| 16:11 | Created vllm-full-repo-review-findings-v5.md | — | ~2386 |
+| 02:00 | Validated "finished" claim + vela rename (0034df1..8ebb3db, 3 commits); dynamic fan-out of 4 Sonnet 4.6 agents + Opus verify; wrote findings v5 | vllm-full-repo-review-findings-v5.md | Rename DONE PROPERLY (complete/correct/consistent, branding-guard test); v3 punchlist V3-1..V3-7+N4+V3-6+D1 all FIXED; 746 tests deterministic green; NEW Med N5-1 malformed VELA_AGENT_TOKEN silently drops connections; D2/D3 doc open; ~95-96% to v1 | ~0 |
+| 16:11 | Session end: 10 writes across 6 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~114642 tok |
+| 23:58 | Session end: 10 writes across 6 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~114642 tok |
+| 01:22 | Session end: 10 writes across 6 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~114642 tok |
+| 01:27 | Session end: 10 writes across 6 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~114642 tok |
+| 01:31 | Created vela-onboarding-ux-spec-v1.md | — | ~3245 |
+| 01:32 | Session end: 11 writes across 7 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~118119 tok |
+| 01:57 | Session end: 11 writes across 7 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~118119 tok |
+| 02:13 | Session end: 11 writes across 7 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~118119 tok |
+| 02:20 | Session end: 11 writes across 7 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 100 reads | ~118119 tok |
+| 02:30 | Created scripts/blackbird_qwen36_bf16_vllm_foreground.sh | — | ~1267 |
+| 02:30 | Created configs/qwen36-27b-bf16-rp6000-blackbird.yaml | — | ~327 |
+| 02:34 | Session end: 13 writes across 9 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 102 reads | ~119804 tok |
+| 02:46 | Created vela-deployment-composer-user-stories-v1.md | — | ~2774 |
+| 02:47 | Created vela-deployment-composer-spec-v1.md | — | ~5259 |
+| 02:49 | Created vela-docker-runtime-spec-v1.md | — | ~5500 |
+| 02:51 | Created vela-deployment-composer-implementation-plan-v1.md | — | ~3786 |
+| 04:30 | Wrote deployment-composer + docker-runtime artifacts (user stories, 2 specs, impl plan); researched vLLM docker best practices via Exa | vela-deployment-composer-{user-stories,spec,implementation-plan}-v1.md, vela-docker-runtime-spec-v1.md | implementation-ready hand-off for agentic coder; no code modified | ~0 |
+| 02:52 | Session end: 17 writes across 13 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 102 reads | ~138360 tok |
+| 02:57 | Session end: 17 writes across 13 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 102 reads | ~138360 tok |
+| 03:02 | Created vela-docker-runtime-examples-v1.md | — | ~3990 |
+| 05:00 | Wrote DK4 anchor: Blackbird FP8/BF16 wrappers converted to native runtime:docker example configs + expected docker run + acceptance hooks | vela-docker-runtime-examples-v1.md | implementation anchor; kept out of configs/ until DK0/DK1 land; no code modified | ~0 |
+| 03:02 | Session end: 18 writes across 14 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 102 reads | ~142635 tok |
+| 03:14 | Created vela-session-context-2026-06-06.md | — | ~7319 |
+| 05:30 | Wrote comprehensive whole-session context/handoff doc (5 review rounds, rename, lab infra, BF16 deploy, forward specs) | vela-session-context-2026-06-06.md | full resumable session record; no code modified | ~0 |
+| 03:14 | Session end: 19 writes across 15 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 102 reads | ~150477 tok |
+| 03:33 | Created vela-session-context-2026-06-06.md | — | ~9564 |
+| 03:34 | Session end: 20 writes across 15 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 102 reads | ~160724 tok |
+| 03:37 | Edited vela-session-context-2026-06-06.md | modified changes() | ~2212 |
+| 03:38 | Session end: 21 writes across 15 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 105 reads | ~163094 tok |
+| 04:31 | Session end: 21 writes across 15 files (capture_screens.py, vllm-full-repo-review-findings-v1.md, vllm-full-repo-review-findings-v2.md, vllm-full-repo-review-findings-v3.md, vllm-full-repo-review-findings-v4.md) | 105 reads | ~163094 tok |
+
+## Session: 2026-06-06 15:16
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 15:44 | Created ../../.claude/jobs/1ec9bb76/tmp/digest.py | — | ~954 |
+| 15:44 | Edited ../../.claude/jobs/1ec9bb76/tmp/digest.py | modified isinstance() | ~69 |
+| 15:48 | Created vela-docker-composer-review-findings-v6.md | — | ~4446 |
+| 15:47 | Review round 6: docker-runtime + deployment-composer spec-compliance audit (7 Sonnet finders → Opus verify+completeness → Opus synthesis; 14 agents, 1.64M tok). HEAD 4d2fdca, 803 tests green, ruff+crown-jewel clean. DK1–DK4 + DC0–DC5 all LANDED & committed since v5 snapshot; native-docker FP8/BF16 hardware-validated. 0 high bugs (all 12 highs are positive safety confirmations); ~85% to polished v1, functional MVP ~95%. Punchlist all medium-: M1 docker-run stderr discarded + no DockerErrorKind; M2 pull policy dead config + string-parsed digest (no docker image inspect); M3 TUI smoke open-ended (bounded helper exists, unwired); M5 FlagManager can't add/remove raw flags; M6 palette entry missing; M10 digest/name stop-refusal tests + live-run-guard test hollow. | vela-docker-composer-review-findings-v6.md | read-only, no code changed | ~52000 |
+| 15:49 | Session end: 3 writes across 2 files (digest.py, vela-docker-composer-review-findings-v6.md) | 44 reads | ~42465 tok |
+| 18:32 | Session end: 3 writes across 2 files (digest.py, vela-docker-composer-review-findings-v6.md) | 54 reads | ~61905 tok |
+| 18:46 | Created ../../.claude/jobs/1ec9bb76/tmp/digest7.py | — | ~1055 |
+| 18:50 | Created vela-docker-composer-review-findings-v7.md | — | ~3656 |
+| 16:30 | Review round 7: validate agentic coder's 8 spec-check findings + reassess (7 Sonnet finders → Opus verify → Opus synth; 14 agents, 1.12M tok). HEAD d0ca4e6, 830 tests green, ruff+crown-jewel clean. Coder findings 29 accurate/3 mostly/1 partially — all honest. P1 onboarding ACCURATE (~13% built, forward spec). P1 Blackwell-gate accurate RISK but mis-framed (hardening beyond FR-D5 health-driven READY, not a compliance gap). P2 secrets-at-rest ACCURATE: lint warns not blocks, saves 0644 plaintext (corrects my v6 'blocks' wording — code unchanged, my wording loose). P2 model-pin: new HIGH — no pre-launch unresolved-commit_sha guard (local.py:4356; spec PM1:442); pinned model_ref launches mutable ref. P2 TUI breadth accurate. 3 aligned/closed claims CONFIRMED. v6 M1-M10 punchlist ~94% closed (commit 79729f8). Completion by track: docker/composer ~90% (up from 85), model-pin ~55%, onboarding ~13%; overall polished-v1 ~72% (scope expanded, not regression). | vela-docker-composer-review-findings-v7.md | read-only, no code changed | ~58000 |
+| 18:50 | Session end: 5 writes across 4 files (digest.py, vela-docker-composer-review-findings-v6.md, digest7.py, vela-docker-composer-review-findings-v7.md) | 62 reads | ~67197 tok |

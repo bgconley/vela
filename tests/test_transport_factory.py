@@ -115,6 +115,45 @@ def test_target_client_factory_builds_ssh_subprocess_client(
     ]
 
 
+def test_target_client_factory_uses_first_class_ssh_key_and_agent_command() -> None:
+    target = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        workdir=Path("/tank/repos/vela"),
+        ssh_key=Path("/home/bgconley/.ssh/vela_ed25519"),
+        agent_command=[
+            "/home/bgconley/venvs/current-vela/bin/vela",
+            "agent",
+            "connect",
+        ],
+    )
+
+    client = _target_client_for_config()(target)
+
+    assert isinstance(client, SubprocessTargetClient)
+    assert client._command == [
+        "ssh",
+        "-i",
+        "/home/bgconley/.ssh/vela_ed25519",
+        "-a",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=60s",
+        "-o",
+        "ControlPath=~/.ssh/vela-%C",
+        "bgconley@10.25.0.51",
+        "cd /tank/repos/vela && /home/bgconley/venvs/current-vela/bin/vela agent connect",
+    ]
+
+
 def test_target_client_factory_rejects_positional_ssh_opts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

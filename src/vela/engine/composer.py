@@ -51,6 +51,7 @@ class DeploymentRecipe:
     extra_args: tuple[str, ...]
     launch: dict[str, Any]
     docker: dict[str, Any]
+    source_artifacts: tuple[str, ...] = ()
     vllm: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
@@ -174,6 +175,13 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
             "evict": list(BLACKBIRD_QWEN36_EVICT),
             "extra_run_args": ["--ulimit", "memlock=-1", "--ulimit", "stack=67108864"],
         },
+        source_artifacts=(
+            "infx/qwen36-27b-test/start-qwen36-27b-fp8-rp6000-blackbird.sh",
+            (
+                "infx/qwen36-27b-test/"
+                "qwen36-27b-fp8-bf16-stack-redeploy-blackbird-20260528.md"
+            ),
+        ),
         vllm={"version_profile": "0.11"},
     ),
     DeploymentRecipe(
@@ -227,6 +235,10 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
             "evict": list(BLACKBIRD_QWEN36_EVICT),
             "extra_run_args": ["--ulimit", "memlock=-1", "--ulimit", "stack=67108864"],
         },
+        source_artifacts=(
+            "infx/qwen36-27b-test/start-qwen36-bf16-rp6000-blackbird.sh",
+            "infx/qwen36-27b-test/qwen-bf16-rp6000-blackbird-reload-20260509.md",
+        ),
         vllm={"version_profile": "0.11"},
     ),
 )
@@ -340,6 +352,7 @@ def list_deployment_recipes(target: str | None = None) -> list[dict[str, Any]]:
                 "extra_args": list(recipe.extra_args),
                 "launch": dict(recipe.launch),
                 "docker": docker,
+                "source_artifacts": list(recipe.source_artifacts),
                 "vllm": dict(recipe.vllm),
                 "warnings": list(recipe.warnings),
             }
@@ -530,6 +543,7 @@ def validate_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         }
     except Exception as exc:
         return {"ok": False, "errors": [{"field": "config", "message": str(exc)}], "warnings": []}
+    errors.extend(_secret_literal_errors(cfg))
     warnings.extend(_lint_config(cfg))
     try:
         result = build_command(cfg, select_profile_for_config(cfg))
@@ -665,13 +679,22 @@ def _fresh_container_name(preferred: str, occupied_container_names: Iterable[str
 def _recipe_derived(recipe: DeploymentRecipe | None) -> list[dict[str, str]]:
     if recipe is None:
         return []
-    return [
+    derived = [
         {
             "field": "deployment.recipe",
             "value": recipe.key,
             "source": "lab_recipe",
         }
     ]
+    for artifact in recipe.source_artifacts:
+        derived.append(
+            {
+                "field": "deployment.recipe_source",
+                "value": artifact,
+                "source": "local_recipe_artifact",
+            }
+        )
+    return derived
 
 
 def _engine_derived(
@@ -1064,15 +1087,30 @@ def _lint_config(cfg: ModelConfig) -> list[str]:
         warnings.append("command.executable is host-local; prefer command.build or docker image")
     if cfg.command.cwd and str(cfg.command.cwd).startswith(("/", "~")):
         warnings.append("command.cwd is host-local; verify it exists on the target")
-    if _literal_secret(cfg.server.api_key):
-        warnings.append("server.api_key contains a literal secret; prefer target env injection")
-    for key, value in sorted(cfg.env.items()):
-        if _secretish_key(key) and _literal_secret(value):
-            warnings.append(f"env.{key} contains a literal secret; prefer target env injection")
     if cfg.command.runtime is RuntimeKind.DOCKER and cfg.command.docker is not None:
         warnings.extend(_docker_lint_warnings(cfg))
     warnings.extend(_exposure_lint_warnings(cfg))
     return warnings
+
+
+def _secret_literal_errors(cfg: ModelConfig) -> list[dict[str, str]]:
+    errors: list[dict[str, str]] = []
+    if _literal_secret(cfg.server.api_key):
+        errors.append(
+            {
+                "field": "server.api_key",
+                "message": "contains a literal secret; prefer target env injection",
+            }
+        )
+    for key, value in sorted(cfg.env.items()):
+        if _secretish_key(key) and _literal_secret(value):
+            errors.append(
+                {
+                    "field": f"env.{key}",
+                    "message": "contains a literal secret; prefer target env injection",
+                }
+            )
+    return errors
 
 
 def _compose_config_warnings(cfg: ModelConfig) -> list[str]:

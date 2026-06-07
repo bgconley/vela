@@ -757,6 +757,14 @@ class LocalAgent:
                 "save_config name must match config.name",
                 {"name": name, "config_name": cfg.name},
             )
+        normalized = cfg.model_dump(mode="json", exclude_none=True)
+        validation = validate_config_payload(normalized)
+        if validation.get("ok") is not True:
+            raise TargetCallError(
+                "invalid-config",
+                "saved config is invalid",
+                {"name": name, "validation": validation},
+            )
         configs_dir = _configs_dir(params) or Path.cwd() / "configs"
         config_path = Path(configs_dir).expanduser() / f"{_safe_config_file_stem(name)}.yaml"
         if config_path.exists() and not bool(params.get("overwrite")):
@@ -767,10 +775,7 @@ class LocalAgent:
             )
         _write_public_text_atomic(
             config_path,
-            yaml.safe_dump(
-                cfg.model_dump(mode="json", exclude_none=True),
-                sort_keys=False,
-            ),
+            yaml.safe_dump(normalized, sort_keys=False),
         )
         return {"path": str(config_path), "name": cfg.name, "config": cfg.model_dump(mode="json")}
 
@@ -977,11 +982,17 @@ class LocalAgent:
                 {"name": cfg.name, "path": str(config_path)},
             )
         normalized = cfg.model_dump(mode="json", exclude_none=True)
+        linted = validate_config_payload(normalized)
+        if linted.get("ok") is not True:
+            raise TargetCallError(
+                "invalid-config",
+                "pushed config is invalid",
+                {"name": cfg.name, "path": str(config_path), "validation": linted},
+            )
         _write_public_text_atomic(
             config_path,
             yaml.safe_dump(normalized, sort_keys=False),
         )
-        linted = validate_config_payload(normalized)
         return {
             "name": cfg.name,
             "path": str(config_path),
@@ -4356,6 +4367,20 @@ def _extra_args_with_model_handoff(
 def _validate_model_handoff_prelaunch(cfg: ModelConfig, handoff: ModelHandoff) -> None:
     if handoff.source != "hf_repo":
         return
+    if handoff.commit_sha is None:
+        raise TargetCallError(
+            "model-unavailable",
+            (
+                f"model {handoff.display_name} is missing an immutable Hugging Face "
+                "commit sha; re-pin the model before launch"
+            ),
+            {
+                "model_ref": handoff.entry_id,
+                "repo_id": handoff.repo_id,
+                "revision": handoff.revision,
+                "reason": "missing-commit",
+            },
+        )
     if (handoff.cache_state or "").lower() == "remote_only" and _cfg_env_truthy(
         cfg, "HF_HUB_OFFLINE"
     ):

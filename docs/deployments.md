@@ -27,6 +27,10 @@ Current Blackbird recipes are available from the TUI recipe picker and from
 - `blackbird-qwen36-27b-fp8-rp6000`
 - `blackbird-qwen36-27b-bf16-rp6000`
 
+Each recipe payload includes `source_artifacts` entries pointing to the local
+deployment script and run record that justify the vLLM image, backend, cache, and
+memory shape.
+
 The legacy `scripts/blackbird_qwen36_*_foreground.sh` wrappers remain as recipe
 provenance and manual comparison tools. Active Vela configs should use native
 `command.runtime: docker`.

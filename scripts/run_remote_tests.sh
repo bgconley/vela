@@ -658,7 +658,17 @@ fi
 
 if [[ -n "$real_config" ]]; then
   "$venv_bin/vela" preview "$real_config" "${target_args[@]}"
-  timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config" "${target_args[@]}"
+  smoke_output="$(mktemp)"
+  timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config" "${target_args[@]}" | tee "$smoke_output"
+  smoke_run_id="$(sed -n 's/.* run_id=\([^ ]*\).*/\1/p' "$smoke_output" | tail -1)"
+  rm -f "$smoke_output"
+  if [[ -z "$smoke_run_id" ]]; then
+    echo "ERROR: smoke-tui did not report run_id"
+    exit 34
+  fi
+  "$venv_python" scripts/backend_evidence_check.py "$real_config" "$smoke_run_id" \
+    "${target_args[@]}" \
+    --timeout "$remote_timeout"
 fi
 
 if [[ -n "$remote_real_resume_config" ]]; then

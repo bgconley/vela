@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -29,6 +30,16 @@ def _load_real_model_resume_check():
     return module
 
 
+def _load_backend_evidence_check():
+    path = Path("scripts/backend_evidence_check.py")
+    spec = importlib.util.spec_from_file_location("backend_evidence_check_test", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"unable to import {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
@@ -42,6 +53,17 @@ def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
     assert 'remote_venv="${4:-/tank/venvs/vela}"' in script
     assert '"$venv_python" -m pip --version' in script
     assert "install python3-venv/ensurepip or set VELA_REMOTE_PYTHON" in script
+
+
+def test_remote_validation_checks_backend_evidence_after_real_smoke() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    smoke = 'timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config"'
+    backend = '"$venv_python" scripts/backend_evidence_check.py "$real_config" "$smoke_run_id"'
+    assert "smoke_run_id=" in script
+    assert smoke in script
+    assert backend in script
+    assert script.index(smoke) < script.index(backend)
 
 
 def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
@@ -467,6 +489,83 @@ def test_real_model_resume_check_accepts_build_and_model_overrides() -> None:
     assert 'parser.add_argument("--model-ref"' in script
     assert 'params["build"] = build' in script
     assert 'params["model_ref"] = model_ref' in script
+
+
+def _blackbird_fp8_config_payload() -> dict[str, object]:
+    return {
+        "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+        "model": "Qwen/Qwen3.6-27B-FP8",
+        "served_model_name": "qwen36-27b-fp8-kvfp8-rp6000",
+        "command": {
+            "runtime": "docker",
+            "docker": {
+                "image": (
+                    "vllm/vllm-openai@sha256:"
+                    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+                ),
+                "env": {"FLASHINFER_CUDA_ARCH_LIST": "12.0f"},
+            },
+        },
+        "engine": {"kv_cache_dtype": "fp8"},
+        "extra_args": ["--attention-backend", "FLASHINFER"],
+    }
+
+
+def test_backend_evidence_accepts_blackbird_fp8_recipe_log() -> None:
+    module = _load_backend_evidence_check()
+    log_text = "\n".join(
+        [
+            "INFO Selected CutlassFp8BlockScaledMMKernel for Fp8LinearMethod",
+            "INFO Using AttentionBackendEnum.FLASHINFER backend",
+            "INFO Graph capturing finished in 2 secs, took 0.54 GiB",
+        ]
+    )
+
+    result = module.validate_backend_evidence(
+        "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+        _blackbird_fp8_config_payload(),
+        log_text,
+    )
+
+    assert result["checked"] is True
+    assert result["config_name"] == "qwen36-27b-fp8-kvfp8-rp6000-blackbird"
+    assert result["required"] == {
+        "cutlass_fp8": True,
+        "flashinfer_attention": True,
+    }
+    json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    ("log_text", "expected_error"),
+    [
+        (
+            "INFO Using AttentionBackendEnum.FLASHINFER backend\n",
+            "missing required backend evidence: cutlass_fp8",
+        ),
+        (
+            "\n".join(
+                [
+                    "INFO Selected CutlassFp8BlockScaledMMKernel for Fp8LinearMethod",
+                    "INFO Using AttentionBackendEnum.FLASHINFER backend",
+                    "INFO Selected MARLIN fallback backend",
+                ]
+            ),
+            "forbidden backend evidence detected: marlin_fallback",
+        ),
+    ],
+)
+def test_backend_evidence_rejects_missing_or_forbidden_blackbird_fp8_log(
+    log_text: str, expected_error: str
+) -> None:
+    module = _load_backend_evidence_check()
+
+    with pytest.raises(module.BackendEvidenceError, match=expected_error):
+        module.validate_backend_evidence(
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            _blackbird_fp8_config_payload(),
+            log_text,
+        )
 
 
 def test_real_model_resume_check_fails_fast_on_health_errors() -> None:

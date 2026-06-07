@@ -15,8 +15,13 @@ targets:
   blackbird:
     transport: ssh
     host: bgconley@10.25.0.51
+    ssh_key: /home/bgconley/.ssh/vela_ed25519
     workdir: /home/bgconley/repos/current-vela
     venv: /home/bgconley/venvs/current-vela
+    agent_command:
+      - /home/bgconley/venvs/current-vela/bin/vela
+      - agent
+      - connect
     local_transport: socket
 ```
 
@@ -24,8 +29,11 @@ Fields:
 
 - `transport`: `local` or `ssh`.
 - `host`: SSH host for remote targets.
+- `ssh_key`: optional target-specific private key passed as `ssh -i`.
 - `workdir`: remote directory used before starting `vela agent connect`.
 - `venv`: remote venv whose `bin` directory is prepended to `PATH`.
+- `agent_command`: optional argv list replacing the default `vela agent connect`.
+  This is useful when the target has Vela installed in an absolute venv path.
 - `local_transport`: `socket` or `in_process`; use `in_process` only for tests.
 - `ssh_opts_env`: optional environment variable containing SSH options. It may
   add option flags such as `-a`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
@@ -51,6 +59,11 @@ Fields:
   stays disabled even when a user's SSH config enables it by default.
   The configured target host and `agent connect` command cannot be replaced by
   the environment.
+
+For first-run setup, `vela targets bootstrap` writes the same registry shape and
+`vela doctor` reports missing setup steps. `vela agent gen-token --install`
+writes a capability token to the default file read by the agent when
+`VELA_AGENT_TOKEN` is not set.
 
 ## Config Discovery
 

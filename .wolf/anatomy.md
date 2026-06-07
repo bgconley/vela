@@ -1,7 +1,13 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-04T02:38:13.493Z
-> Files: 62 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-06T22:50:04.693Z
+> Files: 84 tracked | Anatomy hits: 0 | Misses: 0
+
+## ../../.claude/jobs/1ec9bb76/tmp/
+
+- `capture_screens.py` — MinimalAgent: log, handle, subscribe, connected + 12 more (~4772 tok)
+- `digest.py` — trim (~977 tok)
+- `digest7.py` — trim (~1055 tok)
 
 ## ./
 
@@ -9,10 +15,27 @@
 - `CLAUDE.md` — OpenWolf (~57 tok)
 - `pyproject.toml` — package metadata, dependencies, console script, pytest and ruff settings (~330 tok)
 - `README.md` — install, CLI, Mac-to-GPU workflow, config discovery, security note (~280 tok)
+- `vela-deployment-composer-implementation-plan-v1.md` — Vela — Deployment Composer + Docker Runtime — Implementation Plan (v1) (~3549 tok)
+- `vela-deployment-composer-spec-v1.md` — Vela — Deployment Composer — Feature Specification & Implementation Plan (v1) (~4930 tok)
+- `vela-deployment-composer-user-stories-v1.md` — Vela — Deployment Composer & Docker Runtime — User Stories (v1) (~2600 tok)
+- `vela-docker-composer-review-findings-v6.md` — Vela — Docker Runtime + Deployment Composer Review (Findings v6) — 2026-06-06 (~4168 tok)
+- `vela-docker-composer-review-findings-v7.md` — Vela — Review v7: Validating the Coder's Spec-Check + Reassessment — 2026-06-06 (~3427 tok)
+- `vela-docker-runtime-examples-v1.md` — Vela — Docker Runtime — Worked Examples (DK4 anchor): Blackbird Qwen3.6 27B FP8 & BF16 (~3741 tok)
+- `vela-docker-runtime-spec-v1.md` — Vela — Docker Runtime (First-Class Container Deployments) — Feature Specification (v1) (~5157 tok)
+- `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)
+- `vela-session-context-2026-06-06.md` — Vela — Session Context & Handoff (2026‑06‑04 → 2026‑06‑06) — COMPREHENSIVE (~10608 tok)
 - `vllm-agent-architecture-review-punchlist-v2.md` — vLLM Agent Architecture — Implementation Review Punch List **v2** (~3031 tok)
+- `vllm-agent-architecture-review-punchlist-v3.md` — vLLM Agent Architecture — Implementation Review Punch List **v3** (~2134 tok)
+- `vllm-agent-architecture-review-punchlist-v4.md` — vLLM Agent Architecture — Implementation Review Punch List **v4** (~1633 tok)
+- `vllm-agent-architecture-review-punchlist-v5.md` — vLLM Agent Architecture — Implementation Review Punch List **v5** (v1 sign-off checklist) (~1906 tok)
 - `vllm-agent-architecture-review-punchlist.md` — vLLM Agent Architecture — Implementation Review Punch List (~2840 tok)
 - `vllm-agent-architecture-spec-v1.md` — vLLM Loader — Agent/Controller Architecture (Remote Execution) — Specification & Implementation Plan (~14470 tok)
 - `vllm-build-management-spec-v1.md` — vLLM Build Management — Feature Specification & Implementation Plan (v1) (~12531 tok)
+- `vllm-full-repo-review-findings-v1.md` — vLLM Loader — Full-Repo Review & Findings (cross-spec) **v1** (~4899 tok)
+- `vllm-full-repo-review-findings-v2.md` — vLLM Loader — Progress Re-Evaluation (cross-spec) **v2** (~3200 tok)
+- `vllm-full-repo-review-findings-v3.md` — vLLM Loader — Progress Re-Evaluation (cross-spec) **v3** (~2753 tok)
+- `vllm-full-repo-review-findings-v4.md` — vLLM Loader — Docs & Original-Punchlist Review **v4** (~2000 tok)
+- `vllm-full-repo-review-findings-v5.md` — Vela — "Finished" Claim + Rename Validation **v5** (~2236 tok)
 - `vllm-model-management-spec-v1.md` — vLLM Model Registry & Management — Feature Specification & Implementation Plan (v1) (~12230 tok)
 - `vllm-tui-loader-spec-v2-CANONICAL.md` — vLLM TUI Model Loader — Canonical Specification & Implementation Plan (v2) (~13104 tok)
 
@@ -40,6 +63,7 @@
 
 - `fake-child.yaml` — local no-GPU fake child config for smoke tests (~115 tok)
 - `qwen3-32b-fp8-62001.yaml` — host-specific 620-01 real Qwen3 FP8 vLLM smoke config (~190 tok)
+- `qwen36-27b-bf16-rp6000-blackbird.yaml` (~327 tok)
 - `real-vllm.example.yaml` — real vLLM GPU-host example config template (~160 tok)
 
 ## docs/
@@ -48,6 +72,7 @@
 
 ## scripts/
 
+- `blackbird_qwen36_bf16_vllm_foreground.sh` (~1267 tok)
 - `fake_vllm_child.py` — executable wrapper around `vllm_loader.fake_child` (~20 tok)
 - `rsync_to_gpu.sh` — rsync helper excluding caches, envs, and run artifacts (~260 tok)
 - `run_remote_tests.sh` — SSH remote install/lint/test/optional real-config runner (~320 tok)

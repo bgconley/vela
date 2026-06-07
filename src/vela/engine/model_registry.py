@@ -1132,13 +1132,24 @@ def _hf_repo_entry_from_params(
     repo_id = _required_param(params, "repo_id")
     revision = _optional_str(params.get("revision"))
     commit_sha = _optional_str(params.get("commit_sha"))
-    info = (
-        _hf_model_info(repo_id, revision)
-        if revision is not None and commit_sha is None
-        else None
-    )
+    info = _resolved_hf_model_info(params, entry_id, repo_id, revision, commit_sha)
     if info is not None:
         commit_sha = _optional_str(getattr(info, "sha", None)) or commit_sha
+    if commit_sha is None:
+        model_ref = _optional_str(params.get("entry_id")) or entry_id
+        raise ModelRegistryError(
+            "model-unavailable",
+            (
+                f"model {repo_id} is missing an immutable Hugging Face commit sha; "
+                "re-pin the model before launch"
+            ),
+            {
+                "model_ref": model_ref,
+                "repo_id": repo_id,
+                "revision": revision,
+                "reason": "missing-commit",
+            },
+        )
     gated = bool(params.get("gated"))
     token_required = bool(params.get("token_required"))
     if info is not None and _hf_model_info_is_gated(getattr(info, "gated", None)):
@@ -1168,19 +1179,72 @@ def _hf_repo_entry_from_params(
     return entry
 
 
+def _resolved_hf_model_info(
+    params: dict[str, Any],
+    entry_id: str,
+    repo_id: str,
+    revision: str | None,
+    commit_sha: str | None,
+) -> object | None:
+    if commit_sha is not None:
+        return None
+    model_ref = _optional_str(params.get("entry_id")) or entry_id
+    try:
+        return _hf_model_info(repo_id, revision)
+    except Exception as exc:
+        raise _hf_model_info_error(
+            exc,
+            model_ref=model_ref,
+            repo_id=repo_id,
+            revision=revision,
+        ) from exc
+
+
 def _hf_model_info(repo_id: str, revision: str | None = None) -> object | None:
     try:
         from huggingface_hub import HfApi
-    except Exception:
-        return None
+    except Exception as exc:
+        raise ModelRegistryError(
+            "feature-unavailable",
+            "huggingface_hub is required to resolve Hugging Face model revisions",
+            {"repo_id": repo_id, "revision": revision, "reason": "missing-huggingface-hub"},
+        ) from exc
 
     kwargs: dict[str, Any] = {"repo_id": repo_id}
     if revision is not None:
         kwargs["revision"] = revision
-    try:
-        return HfApi().model_info(**kwargs)
-    except Exception:
-        return None
+    return HfApi().model_info(**kwargs)
+
+
+def _hf_model_info_error(
+    exc: Exception,
+    *,
+    model_ref: str,
+    repo_id: str,
+    revision: str | None,
+) -> ModelRegistryError:
+    kind = _classify_snapshot_download_error(exc)
+    details: dict[str, Any] = {
+        "model_ref": model_ref,
+        "repo_id": repo_id,
+        "reason": kind,
+    }
+    if revision is not None:
+        details["revision"] = revision
+    if kind == "gated-auth":
+        message = (
+            f"Hugging Face access denied for {repo_id}; accept the model license "
+            "and set HF_TOKEN if required"
+        )
+    elif kind == "revision-not-found":
+        selected = revision or "default revision"
+        message = f"Hugging Face revision not found for {repo_id}: {selected}"
+    elif kind == "network":
+        message = f"network error resolving Hugging Face metadata for {repo_id}: {exc}"
+    else:
+        message = f"unable to resolve Hugging Face metadata for {repo_id}: {exc}"
+    return ModelRegistryError(kind, message, details)
+
 
 
 def _hf_model_info_is_gated(value: Any) -> bool:

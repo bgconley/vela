@@ -2042,6 +2042,8 @@ class VelaApp(App):
             return
         presets = presets_result.get("presets")
         recipes: object = []
+        models: object = []
+        builds: object = []
         if self._target_supports_capability("list_deployment_recipes"):
             try:
                 recipe_result = await self._target_call(
@@ -2050,11 +2052,25 @@ class VelaApp(App):
             except Exception:
                 recipe_result = {}
             recipes = recipe_result.get("recipes")
+        if self._target_supports_capability("list_models"):
+            try:
+                models_result = await self._target_call("list_models", {})
+            except Exception:
+                models_result = {}
+            models = models_result.get("models")
+        if self._target_supports_capability("list_builds"):
+            try:
+                builds_result = await self._target_call("list_builds", {})
+            except Exception:
+                builds_result = {}
+            builds = builds_result.get("builds")
         self.push_screen(
             NewDeploymentScreen(
                 target_label=self.target_name,
                 presets=presets if isinstance(presets, list) else [],
                 recipes=recipes if isinstance(recipes, list) else [],
+                models=models if isinstance(models, list) else [],
+                builds=builds if isinstance(builds, list) else [],
             ),
             callback=self._handle_new_deployment_selection,
         )
