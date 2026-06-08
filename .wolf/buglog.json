@@ -3354,6 +3354,22 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-07T20:57:41Z"
+    },
+    {
+      "id": "bug-175",
+      "timestamp": "2026-06-08T07:52:44.574Z",
+      "error_message": "Missing await",
+      "file": "vela-tui-figma-redesign-handoff.md",
+      "root_cause": "Async call without await — returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T07:52:44.574Z"
     }
   ]
 }

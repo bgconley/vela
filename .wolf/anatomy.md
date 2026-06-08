@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-07T08:00:13.859Z
-> Files: 102 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-08T07:52:44.561Z
+> Files: 107 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
@@ -10,6 +10,8 @@
 - `digest7.py` — trim (~1055 tok)
 - `digest8.py` — trim (~1068 tok)
 - `digest9.py` — trim (~947 tok)
+- `inv.sh` (~668 tok)
+- `setpath.sh` (~326 tok)
 
 ## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/workflows/scripts/
 
@@ -26,6 +28,7 @@
 - `vela-deployment-composer-user-stories-v1.md` — Vela — Deployment Composer & Docker Runtime — User Stories (v1) (~2600 tok)
 - `vela-docker-composer-review-findings-v10.md` — Vela — Review v10: Near-Complete Punchlist Execution — 2026-06-07 (~3122 tok)
 - `vela-docker-composer-review-findings-v11.md` — Vela — Review v11: Punchlist Tail Close-Out (essentially v1-complete) — 2026-06-07 (~2579 tok)
+- `vela-docker-composer-review-findings-v12.md` — Vela — Review v12: Final v1-Done Verification (coder reports done) — 2026-06-07 (~2168 tok)
 - `vela-docker-composer-review-findings-v6.md` — Vela — Docker Runtime + Deployment Composer Review (Findings v6) — 2026-06-06 (~4168 tok)
 - `vela-docker-composer-review-findings-v7.md` — Vela — Review v7: Validating the Coder's Spec-Check + Reassessment — 2026-06-06 (~3427 tok)
 - `vela-docker-composer-review-findings-v8.md` — Vela — Review v8: Adversarial Completion Audit ("coder asserts complete") — 2026-06-06 (~3243 tok)
@@ -34,6 +37,7 @@
 - `vela-docker-runtime-spec-v1.md` — Vela — Docker Runtime (First-Class Container Deployments) — Feature Specification (v1) (~5157 tok)
 - `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)
 - `vela-session-context-2026-06-06.md` — Vela — Session Context & Handoff (2026‑06‑04 → 2026‑06‑06) — COMPREHENSIVE (~10608 tok)
+- `vela-tui-figma-redesign-handoff.md` — Vela TUI → Figma Workflow-Screen Redesign — COMPREHENSIVE SESSION HANDOFF (~13665 tok)
 - `vela-v1-completion-audit-2026-06-07.md` — v1 completion audit, verification snapshot, and Blackwell local-recipe authority boundary (~1800 tok)
 - `vela-v1-completion-punchlist.md` — Vela — v1 Completion Punchlist & Coder Handoff (~10796 tok)
 - `vllm-agent-architecture-review-punchlist-v2.md` — vLLM Agent Architecture — Implementation Review Punch List **v2** (~3031 tok)
@@ -71,16 +75,16 @@
 - `textual-screens.md` — Firecrawl snapshot of official Textual Screen and ModalScreen guide (~30000 tok)
 - `textual-workers.md` — Firecrawl snapshot of official Textual worker/thread-worker guide (~35000 tok)
 
+## artifacts/remote-validation/
+
+- `2026-06-07T08-07-22Z-bootstrap-and-hf-blackwell-recipe-audit.md` — fake-SSH bootstrap acceptance plus HF metadata boundary against local Blackwell recipes (~950 tok)
+
 ## configs/
 
 - `fake-child.yaml` — local no-GPU fake child config for smoke tests (~115 tok)
 - `qwen3-32b-fp8-62001.yaml` — host-specific 620-01 real Qwen3 FP8 vLLM smoke config (~190 tok)
 - `qwen36-27b-bf16-rp6000-blackbird.yaml` (~327 tok)
 - `real-vllm.example.yaml` — real vLLM GPU-host example config template (~160 tok)
-
-## artifacts/remote-validation/
-
-- `2026-06-07T08-07-22Z-bootstrap-and-hf-blackwell-recipe-audit.md` — fake-SSH bootstrap acceptance plus HF metadata boundary against local Blackwell recipes (~950 tok)
 
 ## docs/
 

@@ -10,6 +10,8 @@
 
 - User clarified that code is generated on the Mac and rsynced to GPU boxes for real vLLM/GPU tests; keep local validation no-GPU/no-vLLM by default and provide explicit rsync/remote-test workflow.
 - User explicitly rejected mirroring existing TUI screenshots for Figma screen work; build Figma screens from the canonical app spec and implementation plan only.
+- On Figma workflow/form screens the user wants explicit explanatory context: every field/selection needs a helper saying what it does AND where the value comes from, and method/mode choices (e.g. build Method=nightly) need a plain-language description of what will happen (what gets downloaded/built, which option to pick and why, what it does NOT do). Be target-aware where possible (e.g. recommend the CUDA wheel channel that matches the selected target's GPU). Applies to ALL remaining redesign screens. (Confirmed 2026-06-08 reviewing Create Build 48:2; approved Target Manager 44:2 as-is.)
+- NEVER put the user's unique environment details into Figma UI mockups (they may be shared). No real hostnames (e.g. `blackbird`), usernames (`bgconley`), IPs (`10.25.0.51`), home paths (`/home/bgconley/...`), specific card models (`rp6000`/RTX PRO 6000), or real run_ids. Use generic placeholders: target name `gpu-node`, host `user@gpu-host`, paths `/home/user/...`. For ANY Blackwell GPU/card, label it `Blackwell sm_120`. (Correction 2026-06-08 — applies to all current + future mock screens.)
 
 ## Key Learnings
 
@@ -192,3 +194,9 @@
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
 
 - [2026-06-02] Detached mode uses a separate Python supervisor process launched with `start_new_session=True`; it owns child pipes, writes scrubbed logs, and writes sidecar/manifest artifacts so the Mac-authored code can be verified on GPU hosts.
+
+## Session 2026-06-08 learnings
+- **Vela config discovery dir is `~/.config/vela/configs/` (the `configs/` SUBDIR), not `~/.config/vela/`.** Order: `--configs-dir` > `$VELA_CONFIGS` > `$CWD/configs` > `~/.config/vela/configs` (src/vela/config/loader.py:50-53). Targets live in `~/.config/vela/targets.yaml`. (Do-Not-Repeat: I copied configs to ~/.config/vela/ first and `vela list` was empty.)
+- **Canonical Figma file** = `9xUgzyoFqWmd40tV5dwaHv`, current page "Polished Textual Rich UX" `22:2`; redesign page "Workflow Screens — Redesign v1" `39:2`; tokens collection `39:3`. Design language: IBM Plex Mono + dark terminal palette (green #67e8a5 active, cyan #60d7f8 title/focus, amber #f6c85f warn, red #ff6b7a error on #0c141b base / #101923 panel).
+- **Figma use_figma spacer gotcha:** a freshly created empty frame is 100×100; used as an auto-layout spacer it inflates its row to ~128px. FIX: `spacer.resize(10,1); spacer.layoutSizingVertical="FIXED"; spacer.layoutGrow=1`. Also `counterAxisAlignItems` has NO "STRETCH" (use child `layoutSizing*="FILL"`). Master-detail sizing: right pane HUGs (drives height), left pane + divider FILL.
+- **The implemented TUI workflow screens miss the canonical mocks because those workflow screens were never designed** — only the dashboard/monitoring screens were mocked. The redesign adds the missing form/master-detail/wizard language (terminal-faithful). Full plan + reusable build kit + per-screen specs in `vela-tui-figma-redesign-handoff.md`.
