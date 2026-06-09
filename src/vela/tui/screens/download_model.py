@@ -8,42 +8,50 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
-from vela.tui.theme import ACCENT, BAD, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    BG_BASE,
+    BG_INSET,
+    BG_PANEL,
+    BORDER_STRONG,
+    BORDER_SUBTLE,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_SECONDARY,
+)
+from vela.tui.widgets import ContextCard, Field, KeyHintBar, PresetChips
 
 
 class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     DownloadModelScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
-
     #download-model-panel {{
-        width: 86;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        width: 80;
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
-
-    #download-model-title {{
-        margin-bottom: 1;
-        color: {TEXT};
-        text-style: bold;
-    }}
-
-    #download-model-summary {{
-        color: {TEXT};
-    }}
-
-    .download-model-field-label {{
+    #download-model-title {{ color: {CYAN}; text-style: bold; margin-bottom: 1; }}
+    .dm-section-label {{ color: {TEXT_SECONDARY}; text-style: bold; margin-top: 1; }}
+    #download-model-files-help {{ color: {TEXT_FAINT}; height: auto; }}
+    #download-model-preview {{
+        border: round {BORDER_SUBTLE};
+        background: {BG_INSET};
+        padding: 1 2;
         margin-top: 1;
-        color: {TEXT};
+        height: auto;
     }}
-
-    #download-model-error {{
-        margin-top: 1;
-        color: {BAD};
-    }}
+    #download-model-preview-title {{ color: {TEXT_FAINT}; }}
+    #download-model-preview-cmd {{ color: {GREEN}; height: auto; }}
+    #download-model-preview-note {{ color: {TEXT_SECONDARY}; height: auto; }}
+    #download-model-error {{ color: {RED}; height: auto; margin-top: 1; }}
+    #download-model-footer {{ margin-top: 1; }}
     """
 
     BINDINGS = [("escape", "cancel", "Cancel")]
@@ -55,25 +63,68 @@ class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="download-model-panel"):
             yield Static("Download Model", id="download-model-title")
-            yield Static(self._summary(), id="download-model-summary")
-            yield Static("Revision override", classes="download-model-field-label")
-            yield Input(
-                placeholder=self._revision_placeholder(),
-                id="download-model-revision",
+            yield ContextCard("MODEL · read-only", self._card_rows())
+            yield Field(
+                "Revision",
+                Input(
+                    placeholder=self._revision_placeholder(),
+                    id="download-model-revision",
+                ),
+                helper=(
+                    "Downloads the pinned commit for reproducibility. "
+                    "Paste a branch / tag / sha to override."
+                ),
+                id="dm-revision",
             )
-            yield Static("Allow patterns", classes="download-model-field-label")
-            yield Input(
-                value=self._patterns_value("allow_patterns"),
-                placeholder="*.safetensors *.json",
-                id="download-model-allow",
+            yield Static("Files", classes="dm-section-label")
+            yield PresetChips(
+                ["safetensors only", "everything", "no pickle"],
+                selected=0,
+                id="download-model-presets",
             )
-            yield Static("Ignore patterns", classes="download-model-field-label")
-            yield Input(
-                value=self._patterns_value("ignore_patterns"),
-                placeholder="*.bin *.pth",
-                id="download-model-ignore",
+            yield Static(
+                "safetensors only = *.safetensors *.json (skips .bin / .pth). "
+                "Raw patterns below for fine control.",
+                id="download-model-files-help",
             )
+            yield Field(
+                "Allow patterns (raw)",
+                Input(
+                    value=self._patterns_value("allow_patterns"),
+                    placeholder="*.safetensors *.json",
+                    id="download-model-allow",
+                ),
+                helper="Space-separated globs to include.",
+                id="dm-allow",
+            )
+            yield Field(
+                "Ignore patterns (raw)",
+                Input(
+                    value=self._patterns_value("ignore_patterns"),
+                    placeholder="*.bin *.pth",
+                    id="download-model-ignore",
+                ),
+                helper="Space-separated globs to exclude.",
+                id="dm-ignore",
+            )
+            with Vertical(id="download-model-preview"):
+                yield Static("▸ WILL DOWNLOAD", id="download-model-preview-title")
+                yield Static(self._download_summary(), id="download-model-preview-cmd")
+                yield Static(
+                    "Fetches missing shards into the target's HF cache; already-cached "
+                    "files are skipped. Nothing is launched.",
+                    id="download-model-preview-note",
+                )
             yield Static("", id="download-model-error")
+            yield KeyHintBar(
+                [
+                    ("⏎", "Download"),
+                    ("o", "Override revision"),
+                    ("a", "Advanced patterns"),
+                    ("Esc", "Cancel"),
+                ],
+                id="download-model-footer",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#download-model-revision", Input).focus()
@@ -91,19 +142,27 @@ class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
-    def _summary(self) -> str:
-        parts = [
-            f"name: {_model_label(self.model)}",
-            f"ref: {_model_ref(self.model)}",
-            f"repo: {self.model.get('repo_id') or '-'}",
-            f"cache: {self.model.get('cache_state') or 'unknown'}",
+    def _card_rows(self) -> list[tuple[str, str]]:
+        rows: list[tuple[str, str]] = [
+            ("repo", str(self.model.get("repo_id") or _model_ref(self.model) or "-")),
         ]
+        sha = self.model.get("commit_sha") or self.model.get("revision")
+        if sha:
+            rows.append(("pinned", f"{sha}  ✓ immutable"))
+        rows.append(("cache", str(self.model.get("cache_state") or "unknown")))
         if self.model.get("gated") or self.model.get("token_required"):
-            parts.append("auth: HF_TOKEN must be set on the target")
-        return "\n".join(parts)
+            rows.append(("access", "needs HF_TOKEN on the target"))
+        else:
+            rows.append(("access", "public · no token required"))
+        return rows
+
+    def _download_summary(self) -> str:
+        ref = _model_ref(self.model)
+        cache = self.model.get("cache_state") or "unknown"
+        return f"snapshot of {ref} → the target's HF cache (currently: {cache})"
 
     def _revision_placeholder(self) -> str:
-        return str(self.model.get("commit_sha") or self.model.get("revision") or "main")
+        return "leave blank to keep the pinned commit"
 
     def _field_value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()

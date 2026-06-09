@@ -3370,6 +3370,118 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-08T07:52:44.574Z"
+    },
+    {
+      "id": "bug-176",
+      "timestamp": "2026-06-08T14:03:57.093Z",
+      "error_message": "Incorrect value in code",
+      "file": "vela-tui-overhaul-implementation-plan-v1.md",
+      "root_cause": "Had `ScreenFrame`",
+      "fix": "Changed to `KeyHintBar`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T14:03:57.093Z"
+    },
+    {
+      "id": "bug-177",
+      "timestamp": "2026-06-08T14:23:52.603Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/vela/tui/screens/create_build.py",
+      "root_cause": "Had \"pip requirement - e.g. vllm==0.11.2 or vllm.\"",
+      "fix": "Changed to \"pip requirement · e.g. vllm==0.11.2 or vllm.\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-08T14:23:54.931Z"
+    },
+    {
+      "id": "bug-178",
+      "timestamp": "2026-06-08T14:36:18.775Z",
+      "error_message": "Incorrect value in code",
+      "file": "vela-tui-overhaul-implementation-plan-v1.md",
+      "root_cause": "Had `52:2`",
+      "fix": "Changed to \"advanced\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T14:36:18.775Z"
+    },
+    {
+      "id": "bug-179",
+      "timestamp": "2026-06-09T03:51:14.016Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "Async call without await — returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T03:51:14.016Z"
+    },
+    {
+      "id": "bug-180",
+      "timestamp": "2026-06-09T05:40:43.824Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "Async call without await — returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T05:40:43.824Z"
+    },
+    {
+      "id": "bug-181",
+      "timestamp": "2026-06-09T05:42:15.175Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 7→9 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T05:42:15.175Z"
+    },
+    {
+      "id": "bug-182",
+      "timestamp": "2026-06-09T06:15:04.166Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/flag_manager.py",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 5→11 lines (3 removed) | Also: def _render_list(self) -> str:; lines = [ | Also: def _render_detail(self) -> str:; lines = [\"Editor + live preview\", \"\", \"Resolved co",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-09T06:16:39.389Z"
     }
   ]
 }

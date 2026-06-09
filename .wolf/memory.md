@@ -567,3 +567,87 @@
 | 03:50 | Built Component Kit reference frame (§8.6) node 61:2 (120,3550) 1080×1162: color-token swatches w/ hex, type ramp, field states (default/focused/error), controls (select/checkbox/radio/buttons), status pills + source tags, cards (context/validation/recipe), sample table row + keybar — single spec for the Textual impl. Screenshot-verified | Figma node 61:2 | verified | ~14000 |
 | 03:55 | FIGMA PHASE COMPLETE — captured full-page contact sheet of page 39:2 (all 7 screen-sets + component kit); updated handoff §0/§10 + added §13 final node-ID map & "no code until user approves". All 8 redesign tasks done. Next: Textual implementation (handoff Appendix B) ONLY after user approves mocks | Figma 39:2; vela-tui-figma-redesign-handoff.md | DONE — awaiting approval | ~10000 |
 | 03:53 | Session end: 4 writes across 1 files (vela-tui-figma-redesign-handoff.md) | 19 reads | ~10620 tok |
+| 04:06 | Session end: 4 writes across 1 files (vela-tui-figma-redesign-handoff.md) | 19 reads | ~10620 tok |
+| 04:08 | Session end: 4 writes across 1 files (vela-tui-figma-redesign-handoff.md) | 19 reads | ~10620 tok |
+| 04:10 | STARTED Textual UI overhaul (branch claude-ui-implementation; canonical plan vela-tui-overhaul-implementation-plan-v1.md). It's a PRESENTATION REFACTOR — all 14 screens already exist+wired in src/vela/tui/ (package is `vela` not vllm_loader; anatomy.md stale); PRESERVE contracts (dismiss payloads, ids, handlers). Adopted STRICT red-green TDD (superpowers skill) after user correction. Env: Textual 8.2.7; run tests via homebrew `python3 -m pytest` (NOT .venv — pytest only in homebrew); render screens with run_test save_screenshot→SVG then `qlmanage -t -s 1400 -o` for PNG (playwright blocks file://, no svg converters installed). | plan doc, theme.py | TDD adopted | ~6000 |
+| 04:10 | Phase 1 DONE: expanded theme.py → full "Vela Terminal" token set (legacy names kept as back-compat); built widgets/ Field + KeyHintBar (each red→green); refactored screens/create_build.py → Figma 49:2 (progressive disclosure by method = inputs stay mounted + visibility toggled so ids/payload preserved; self-explaining helpers; WILL-RUN preview; KeyHintBar footer; ·/→/— separator polish). User approved fidelity. | src/vela/tui/{theme.py,widgets/{field,keyhintbar}.py,screens/create_build.py}, tests/{test_tui_widgets,test_create_build_screen}.py | done | ~60000 |
+| 04:10 | Phase 2 (mid): built widgets/ ContextCard + PresetChips (red→green); refactored screens/download_model.py → 50:2 (read-only ContextCard, revision-override TRUE hint = killed ghost-placeholder-sha bug, PresetChips, WILL-DOWNLOAD preview; payload preserved; raw allow/ignore inputs kept mounted for smoke contract). All red→green; 195 TUI smoke green twice (no regression); ruff clean. NEXT: Adopt Build 52:2 (ValidationCard + copy checkbox), then Phase 3 master-detail. | src/vela/tui/{widgets/{contextcard,preset_chips}.py,screens/download_model.py}, tests/test_download_model_screen.py | verified | ~40000 |
+| 04:35 | Phase 2 DONE: widget ValidationCard (red→green) + adopt_build.py → 52:2 (subtitle, ValidationCard auto-detect display, Field-wrapped inputs, copy checkbox + tradeoff helper, WILL-DO preview). Kept all 4 inputs + #adopt-build-copy + dismiss payload for smoke contract; no _parse_adopt_build_params. red→green; 195 smoke green; ruff clean; rendered+verified. NEXT = Phase 3 master-detail: Target Manager 44:2 + Flag Manager 55:2 — needs widgets MasterDetail, StatusPill/SourceTag, ResolvedCommandPanel. | src/vela/tui/{widgets/validation_card.py,screens/adopt_build.py}, tests/test_adopt_build_screen.py | verified | ~30000 |
+| 04:18 | Created vela-tui-overhaul-implementation-plan-v1.md | — | ~3689 |
+| 04:24 | Created src/vela/tui/theme.py | — | ~467 |
+| 04:24 | Created src/vela/tui/widgets/field.py | — | ~772 |
+| 04:24 | Created tests/test_tui_widgets.py | — | ~508 |
+| 04:27 | Edited tests/test_tui_widgets.py | 3→3 lines | ~36 |
+| 04:31 | Created src/vela/tui/widgets/field.py | — | ~772 |
+| 04:33 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→3 lines | ~112 |
+| 04:33 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→2 lines | ~38 |
+| 04:33 | Session end: 12 writes across 5 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 37 reads | ~18237 tok |
+| 10:02 | Created tests/test_tui_widgets.py | — | ~653 |
+| 10:02 | Created src/vela/tui/widgets/keyhintbar.py | — | ~417 |
+| 10:03 | Created src/vela/tui/widgets/__init__.py | — | ~95 |
+| 10:03 | Edited vela-tui-overhaul-implementation-plan-v1.md | 3→3 lines | ~59 |
+| 10:06 | Session end: 16 writes across 7 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 37 reads | ~19465 tok |
+| 10:10 | Created tests/test_create_build_screen.py | — | ~857 |
+| 10:12 | Created src/vela/tui/screens/create_build.py | — | ~3950 |
+| 10:21 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→2 lines | ~65 |
+| 10:21 | Session end: 19 writes across 9 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 38 reads | ~24342 tok |
+| 10:23 | Edited src/vela/tui/screens/create_build.py | "pip requirement - e.g. vl" → "pip requirement · e.g. vl" | ~20 |
+| 10:23 | Edited src/vela/tui/screens/create_build.py | 2→2 lines | ~49 |
+| 10:23 | Edited src/vela/tui/screens/create_build.py | inline fix | ~25 |
+| 10:24 | Edited src/vela/tui/screens/create_build.py | 6→6 lines | ~134 |
+| 10:24 | Edited src/vela/tui/screens/create_build.py | 7→7 lines | ~86 |
+| 10:25 | Edited vela-tui-overhaul-implementation-plan-v1.md | inline fix | ~27 |
+| 10:25 | Session end: 25 writes across 9 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 38 reads | ~24684 tok |
+| 10:29 | Created tests/test_tui_widgets.py | — | ~1011 |
+| 10:29 | Created src/vela/tui/widgets/contextcard.py | — | ~517 |
+| 10:29 | Created src/vela/tui/widgets/preset_chips.py | — | ~468 |
+| 10:29 | Created src/vela/tui/widgets/__init__.py | — | ~134 |
+| 10:30 | Created tests/test_download_model_screen.py | — | ~800 |
+| 10:33 | Created src/vela/tui/screens/download_model.py | — | ~2183 |
+| 10:36 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→2 lines | ~80 |
+| 10:38 | Session end: 32 writes across 13 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 39 reads | ~29883 tok |
+| 23:51 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~33 |
+| 23:51 | Edited tests/test_tui_widgets.py | modified compose() | ~394 |
+| 23:51 | Created src/vela/tui/widgets/validation_card.py | — | ~607 |
+| 23:52 | Created src/vela/tui/widgets/__init__.py | — | ~157 |
+| 23:53 | Created tests/test_adopt_build_screen.py | — | ~620 |
+| 23:55 | Created src/vela/tui/screens/adopt_build.py | — | ~1723 |
+| 23:56 | Edited src/vela/tui/screens/adopt_build.py | 1→4 lines | ~49 |
+| 23:56 | Edited src/vela/tui/screens/adopt_build.py | 1→4 lines | ~49 |
+| 00:00 | Edited vela-tui-overhaul-implementation-plan-v1.md | inline fix | ~36 |
+| 00:01 | Session end: 41 writes across 16 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 40 reads | ~33554 tok |
+| 00:11 | Created vela-tui-session-context-2026-06-09.md | — | ~10161 |
+| 00:12 | SESSION SUMMARY — Textual UI overhaul Phase 1+2 DONE on branch claude-ui-implementation (PRESENTATION refactor of existing screens; strict red-green TDD). theme.py full "Vela Terminal" token set; widgets Field/KeyHintBar/ContextCard/PresetChips/ValidationCard (each red→green); screens create_build→Figma 49:2, download_model→50:2 (killed ghost-placeholder sha bug), adopt_build→52:2; payloads+ids+uv-gating preserved; 195 TUI smoke green throughout; ruff clean; each rendered via qlmanage + eyeballed. Wrote 10.4k-token cold-resume doc vela-tui-session-context-2026-06-09.md (tiktoken-verified). Updated cerebrum (2026-06-09 session learnings + do-not-repeat). NEXT = Phase 3 master-detail: Target Manager 44:2 + Flag Manager 55:2 (widgets MasterDetail/StatusPill/SourceTag/ResolvedCommandPanel). ALL Phase 1+2 code UNCOMMITTED; user offered a Phase-1+2 commit checkpoint (pending). | vela-tui-session-context-2026-06-09.md, .wolf/{memory,cerebrum}.md | context preserved | ~13000 |
+| 00:16 | Session end: 42 writes across 17 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 40 reads | ~44441 tok |
+
+## Session: 2026-06-09 01:20
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 01:27 | Edited vela-tui-session-context-2026-06-09.md | tracker() → below() | ~91 |
+| 01:28 | Session restore + Phase 3 start: rebuilt ephemeral TaskCreate tracker (#1-6) from context §9 after /clear wiped it; added cerebrum do-not-repeat + §9 note so future restores auto-rebuild it. Phase 3 audit: read target_manager.py, grepped smoke contracts (#target/flag-manager-list/-detail Static.content; flag value/extra-args/preset/changed-only). | .wolf/cerebrum.md, vela-tui-session-context-2026-06-09.md | tracker restored; auditing | ~3500 |
+| 01:34 | Created ../../.claude/jobs/1ec9bb76/tmp/probe_static_content.py | — | ~466 |
+| 01:37 | Edited tests/test_tui_widgets.py | expanded (+7 lines) | ~122 |
+| 01:37 | Edited tests/test_tui_widgets.py | modified test_validation_card_bad_uses_bad_class() | ~625 |
+| 01:38 | Created src/vela/tui/widgets/tags.py | — | ~679 |
+| 01:40 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~38 |
+| 01:40 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~46 |
+| 01:40 | Edited tests/test_tui_widgets.py | modified test_recipe_flags_cover_precision_critical_fields() | ~351 |
+| 01:41 | Created src/vela/tui/widgets/masterdetail.py | — | ~550 |
+| 01:42 | Edited tests/test_tui_widgets.py | 7→9 lines | ~178 |
+| 01:42 | Created src/vela/tui/widgets/__init__.py | — | ~245 |
+| 01:46 | Created tests/test_target_manager_screen.py | — | ~1411 |
+| 02:03 | Created src/vela/tui/screens/target_manager.py | — | ~3194 |
+| 02:05 | Created ../../.claude/jobs/1ec9bb76/tmp/render_target_manager.py | — | ~506 |
+| 02:07 | Phase 3 (Target Manager DONE): built widgets/tags.py (source_tag/summarize_capabilities/is_recipe_flag) + masterdetail.py (MasterDetail wraps caller panes), each red→green; refactored target_manager.py → Figma 44:2 (stacked→side-by-side MasterDetail, grouped detail CONNECTION/VERSIONS/PATHS/CAPABILITIES/RUNTIME, ~60-cap wall collapsed to "N supported ✓ · view all", KeyHintBar footer, Rich Text color). 5 new TM tests + 12 widget tests green; 195 smoke green; ruff clean; rendered+eyeballed. KEY FINDING: Static.content leaks markup STRINGS but NOT Rich Text — color manager panes via Text.append(style=) so str(content) stays plain + substring asserts survive. NEXT: flag_manager 55:2 (hardest). | tags.py, masterdetail.py, target_manager.py, widgets/__init__.py, test_tui_widgets.py, test_target_manager_screen.py | verified | ~42000 |
+| 02:11 | Created tests/test_flag_manager_screen.py | — | ~1374 |
+| 02:14 | Edited src/vela/tui/screens/flag_manager.py | expanded (+33 lines) | ~545 |
+| 02:14 | Edited src/vela/tui/screens/flag_manager.py | 55→53 lines | ~277 |
+| 02:15 | Edited src/vela/tui/screens/flag_manager.py | Static() → KeyHintBar() | ~102 |
+| 02:16 | Edited src/vela/tui/screens/flag_manager.py | modified _render_list() | ~626 |
+| 02:16 | Edited src/vela/tui/screens/flag_manager.py | modified _render_detail() | ~598 |
+| 02:17 | Edited src/vela/tui/screens/flag_manager.py | removed 7 lines | ~15 |
+| 02:18 | Edited tests/test_flag_manager_screen.py | 2→7 lines | ~58 |
+| 02:20 | Created ../../.claude/jobs/1ec9bb76/tmp/render_flag_manager.py | — | ~652 |
+| 02:23 | Phase 3 (Flag Manager DONE — hardest screen) → Figma 55:2: Rich Text grouped table (MODELED/PASSTHROUGH/UNKNOWN, source-tag colors cyan/violet/amber, amber changed-dots, visible amber "recipe" tag on dtype/kv-cache-dtype), self-explaining detail (_FLAG_DESCRIPTIONS per engine field + "value · preset · → engine.X" mapping + amber Recipe-protected warning [Refinement B]), masked resolved-command panel, KeyHintBar footer, token CSS. Kept bespoke list+editor layout (right pane composite: value Input+raw-args Input+detail Static, not MasterDetail). 5 new tests + 195 smoke green; ruff clean; rendered+eyeballed. Phase 3 CORE COMPLETE (Target 44:2 + Flag 55:2 = user-flagged screenshots #2/#6). model/build mgr consistency pass → Phase 6 (no Figma mock). | flag_manager.py, test_flag_manager_screen.py | verified | ~42000 |
+| 02:27 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg.txt | — | ~424 |

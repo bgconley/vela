@@ -1,16 +1,20 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-08T07:52:44.561Z
-> Files: 107 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T06:27:29.504Z
+> Files: 133 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
 - `capture_screens.py` — MinimalAgent: log, handle, subscribe, connected + 12 more (~4772 tok)
+- `commit_msg.txt` (~397 tok)
 - `digest.py` — trim (~977 tok)
 - `digest7.py` — trim (~1055 tok)
 - `digest8.py` — trim (~1068 tok)
 - `digest9.py` — trim (~947 tok)
 - `inv.sh` (~668 tok)
+- `probe_static_content.py` — Probe: how does Static.content behave with markup vs Rich Text in Textual 8.2.7? (~466 tok)
+- `render_flag_manager.py` — Render the refactored FlagManagerScreen to an SVG for visual QC vs Figma 55:2. (~652 tok)
+- `render_target_manager.py` — Render the refactored TargetManagerScreen to an SVG for visual QC vs Figma 44:2. (~506 tok)
 - `setpath.sh` (~326 tok)
 
 ## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/e61ac61b-cafc-4e6e-9e1b-60304f66f7d9/workflows/scripts/
@@ -38,6 +42,8 @@
 - `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)
 - `vela-session-context-2026-06-06.md` — Vela — Session Context & Handoff (2026‑06‑04 → 2026‑06‑06) — COMPREHENSIVE (~10608 tok)
 - `vela-tui-figma-redesign-handoff.md` — Vela TUI → Figma Workflow-Screen Redesign — COMPREHENSIVE SESSION HANDOFF (~13665 tok)
+- `vela-tui-overhaul-implementation-plan-v1.md` — Vela TUI Overhaul — Implementation Plan (v1) (~3664 tok)
+- `vela-tui-session-context-2026-06-09.md` — Vela TUI — Figma Redesign → Textual Implementation: COMPREHENSIVE SESSION CONTEXT (~9600 tok)
 - `vela-v1-completion-audit-2026-06-07.md` — v1 completion audit, verification snapshot, and Blackwell local-recipe authority boundary (~1800 tok)
 - `vela-v1-completion-punchlist.md` — Vela — v1 Completion Punchlist & Coder Handoff (~10796 tok)
 - `vllm-agent-architecture-review-punchlist-v2.md` — vLLM Agent Architecture — Implementation Review Punch List **v2** (~3031 tok)
@@ -104,6 +110,29 @@
 - `ssh_discovery.py` — SSH agent-command discovery probes using hardened target SSH options (~1500 tok)
 - `ssh_setup.py` — local `ssh-copy-id` wrapper for guided SSH key setup remediation (~220 tok)
 
+## src/vela/tui/
+
+- `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~467 tok)
+
+## src/vela/tui/screens/
+
+- `adopt_build.py` — AdoptBuildScreen: compose, on_mount, on_input_submitted, action_submit + 1 more (~1759 tok)
+- `create_build.py` — CreateBuildScreen: compose, on_mount, on_input_submitted, on_input_changed + 3 more (~3950 tok)
+- `download_model.py` — DownloadModelScreen: compose, on_mount, on_input_submitted, action_submit + 1 more (~2183 tok)
+- `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7396 tok)
+- `target_manager.py` — from: compose, on_mount, action_previous, action_next + 8 more (~3194 tok)
+
+## src/vela/tui/widgets/
+
+- `__init__.py` — Reusable Textual widgets for the Vela TUI. (~245 tok)
+- `contextcard.py` — ``ContextCard`` — a read-only "what you're operating on" card. (~517 tok)
+- `field.py` — The ``Field`` compound widget — the shared "form language" for Vela screens. (~772 tok)
+- `keyhintbar.py` — ``KeyHintBar`` — renders footer keybinding hints as ``key label`` pairs. (~417 tok)
+- `masterdetail.py` — ``MasterDetail`` — the shared two-pane layout for the manager screens. (~550 tok)
+- `preset_chips.py` — ``PresetChips`` — a row of selectable preset chips. (~468 tok)
+- `tags.py` — Shared color/text primitives for the master-detail manager screens. (~679 tok)
+- `validation_card.py` — ``ValidationCard`` — a green/red live-validation result card. (~607 tok)
+
 ## src/vllm_loader/
 
 - `__init__.py` — package version (~20 tok)
@@ -146,10 +175,14 @@
 
 - `conftest.py` — config fixtures and YAML writer (~360 tok)
 - `fakes/fake_ssh.py` — writes a fake SSH executable for onboarding/remote harness tests (~950 tok)
+- `test_adopt_build_screen.py` — Headless tests for the refactored AdoptBuildScreen (Mac-safe; no GPU/vLLM). (~620 tok)
 - `test_cli_run.py` — CLI attached and detached fake-child integration tests (~1150 tok)
 - `test_command_builder.py` — command builder/profile/request-logging/masking tests (~1500 tok)
 - `test_config_loader.py` — config loader/schema/default tests (~900 tok)
+- `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~857 tok)
+- `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~800 tok)
 - `test_fake_ssh.py` — fake SSH harness tests for discovery, handshake, auth failure, install, and host reports (~1150 tok)
+- `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~1391 tok)
 - `test_gpu.py` — GPU fallback and CUDA visibility tests (~550 tok)
 - `test_health.py` — health auth/probe-host tests (~700 tok)
 - `test_log_sink.py` — log split/scrub/truncation/mode tests (~900 tok)
@@ -159,4 +192,6 @@
 - `test_remediation.py` — shared remediation map tests for agent-not-installed, unreachable, version mismatch, and uv-required (~450 tok)
 - `test_sidecar.py` — sidecar identity, manifest, permissions tests (~900 tok)
 - `test_ssh_discovery.py` — SSH agent discovery tests for command-v, canonical paths, version mismatch, and CLI persistence (~1200 tok)
+- `test_target_manager_screen.py` — Headless tests for the refactored TargetManagerScreen (Mac-safe; no GPU/vLLM). (~1411 tok)
 - `test_tui_smoke.py` — Textual start/help/lifecycle/fake-child launch smoke tests (~950 tok)
+- `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~2332 tok)
