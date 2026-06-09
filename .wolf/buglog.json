@@ -3548,6 +3548,38 @@
       "related_bugs": [],
       "occurrences": 2,
       "last_seen": "2026-06-09T07:54:24.193Z"
+    },
+    {
+      "id": "bug-187",
+      "timestamp": "2026-06-09T08:12:12.600Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/model_manager.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 9→21 lines (2 removed) | Also: with Vertical(id=\"model-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Model Manager\", \"\"]",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-09T08:13:34.284Z"
+    },
+    {
+      "id": "bug-188",
+      "timestamp": "2026-06-09T08:15:56.482Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/build_manager.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 8→19 lines (2 removed) | Also: with Vertical(id=\"build-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Build Manager\", \"\"]",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-09T08:16:49.968Z"
     }
   ]
 }

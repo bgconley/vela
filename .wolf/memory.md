@@ -681,3 +681,19 @@
 | 04:01 | Created ../../.claude/jobs/1ec9bb76/tmp/render_dashboard.py | — | ~442 |
 | 04:02 | Phase 5 (Dashboard log classification — screenshot #7 fix) DONE: added display_level_for_line + BENIGN_PATTERNS (destroy_process_group) to log_sink.py (level_for_line + FSM untouched); BENIGN→faint #56707c in app.py LEVEL_STYLE/LEVEL_RAIL_STYLE; wired into _handle_committed_log (live) + _load_scrubbed_log_file (replay). Benign NCCL/torch shutdown noise now DIMMED not amber. 1 new log_sink test (red→green); FULL suite 994 passed; ruff clean; dashboard rendered — benign faint-gray vs amber WARNING / red ERROR confirmed. Dashboard chrome already clean from v1 (3-zone header, sidebar cards, footer keybar; no cryptic glyphs/giant banner). PhaseStepper extraction = optional Phase 6 (existing _render_phase_timeline works). | log_sink.py, app.py, test_log_sink.py | verified | ~25000 |
 | 04:07 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p5.txt | — | ~198 |
+| 04:11 | Created tests/test_model_manager_screen.py | — | ~780 |
+| 04:12 | Edited src/vela/tui/screens/model_manager.py | expanded (+12 lines) | ~122 |
+| 04:12 | Edited src/vela/tui/screens/model_manager.py | reduced (-14 lines) | ~159 |
+| 04:12 | Edited src/vela/tui/screens/model_manager.py | modified compose() | ~170 |
+| 04:13 | Edited src/vela/tui/screens/model_manager.py | modified _render_list() | ~621 |
+| 04:13 | Edited src/vela/tui/screens/model_manager.py | modified _model_status_dot() | ~238 |
+| 04:14 | Edited src/vela/tui/screens/model_manager.py | 5→4 lines | ~26 |
+| 04:15 | Created tests/test_build_manager_screen.py | — | ~666 |
+| 04:15 | Edited src/vela/tui/screens/build_manager.py | expanded (+11 lines) | ~106 |
+| 04:16 | Edited src/vela/tui/screens/build_manager.py | reduced (-14 lines) | ~159 |
+| 04:16 | Edited src/vela/tui/screens/build_manager.py | modified compose() | ~179 |
+| 04:16 | Edited src/vela/tui/screens/build_manager.py | modified _render_list() | ~624 |
+| 04:17 | Edited src/vela/tui/screens/build_manager.py | modified _build_status_dot() | ~212 |
+| 04:22 | Created ../../.claude/jobs/1ec9bb76/tmp/render_managers.py | — | ~650 |
+| 04:26 | Phase 6 (final polish) DONE: Model+Build Manager consistency → master-detail language (MasterDetail + Rich Text colored status dots + KeyHintBar + token CSS), all #model/build-manager-* ids + content substrings preserved; 4 new tests red→green. anatomy refresh: openwolf scan ignores .gitignore + was indexing .mypy_cache (565 junk lines) — root-cause fix = added .mypy_cache/.pytest_cache/.ruff_cache/.venv/.playwright-mcp to .wolf/config.json exclude_patterns, rescanned → 305 lines/223 files, vllm_loader staleness gone. Ghost-placeholder audit: flagged #4 (download-model sha) already fixed Phase 2; rest clear hints. FULL suite 998 passed; ruff clean; both managers rendered+eyeballed. DEFERRED optional (non-flagged): small-modals CSS consistency + Download advanced-toggle. ALL 6 PHASES DONE — overhaul meets §15. | model_manager.py, build_manager.py, .wolf/config.json | verified | ~35000 |
+| 04:26 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p6.txt | — | ~250 |
