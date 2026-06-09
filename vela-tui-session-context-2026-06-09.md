@@ -19,9 +19,9 @@
   2. **Textual implementation overhaul — IN PROGRESS (this is the current work).** We are bringing the *running* TUI up to the approved mocks. Branch **`claude-ui-implementation`**. (See §7 onward.)
 - **The implementation is a PRESENTATION REFACTOR, not a rewrite.** All 14 screens already exist and are wired to real logic. **Rule #1: preserve every functional contract** (dismiss-payload shapes, widget `id=`s, action handlers, RPC calls). We restyle `compose()`/CSS only.
 - **Discipline: STRICT red-green TDD** (the `superpowers:test-driven-development` skill). Failing test first → watch it fail for the right reason → minimal code to green → refactor. (Adopted mid-session after a user correction; see §11.)
-- **Progress:** **Phase 1 ✅ + Phase 2 ✅** of 6. Built shared widgets `Field`, `KeyHintBar`, `ContextCard`, `PresetChips`, `ValidationCard` (all red→green). Refactored screens **Create Build (`49:2`)**, **Download Model (`50:2`)**, **Adopt Build (`52:2`)**. **195 TUI smoke tests stay green** at every step; ruff clean; each screen rendered + visually verified.
-- **Immediate next: Phase 3 — master-detail screens** (Target Manager `44:2`, Flag Manager `55:2`). Needs new widgets `MasterDetail`, `StatusPill`/`SourceTag`, `ResolvedCommandPanel`. (See §9.)
-- **All Phase 1+2 implementation code is UNCOMMITTED** on `claude-ui-implementation`. The user was offered a "commit the Phase 1+2 milestone" checkpoint and had not yet answered when we paused.
+- **Progress: ALL 6 PHASES ✅ DONE + COMMITTED** (2026-06-09). 4 commits on `claude-ui-implementation` (not pushed): `0ea1518` Phases 1-3, `19baa94` Phase 4, `f993be5` Phase 5, `2935f2c` Phase 6. Shared widget kit (each red→green): `Field`, `KeyHintBar`, `ContextCard`, `PresetChips`, `ValidationCard`, `MasterDetail`, `StepIndicator` + `tags.py` helpers (`source_tag`/`summarize_capabilities`/`is_recipe_flag`). Screens refactored to their Figma nodes: Create Build `49:2`, Download Model `50:2`, Adopt Build `52:2`, Target Manager `44:2`, Flag Manager `55:2`, New Deployment wizard+review `56:2-58:2`, Model/Build managers (consistency), dashboard log-classification `60:2` (screenshot #7). **Full test suite 998 green**; ruff clean; every screen rendered + eyeballed.
+- **Overhaul COMPLETE — meets §15 definition of done.** Only OPTIONAL polish remains (live tracker #7, all non-flagged/functional): small-modals CSS modernization (`confirm`/`help`/`log_prompt`/`config_picker`/`pin_model`/`target_edit` still use old `ACCENT`/`SURFACE_ALT`/solid borders) + the Download-Model advanced-patterns toggle.
+- **All work is COMMITTED** on `claude-ui-implementation` (4 phase commits above). **Not yet pushed** — push on user request.
 - **CRITICAL constraint:** never put the user's unique environment into UI text — use generic placeholders (`gpu-node`, `user@gpu-host`, `/home/user/...`, config `qwen36-27b-bf16-blackwell`, any Blackwell GPU = `Blackwell sm_120`, placeholder run_ids). (See §11.)
 
 ---
@@ -198,12 +198,13 @@ Each: TDD (new-behavior tests written first → red → refactor → green), pay
 > **This section is the DURABLE task state.** The harness `TaskCreate` tracker is ephemeral — a `/clear` wipes it and reassigns IDs. On session restore, reconstruct the live tracker from the list below (do not treat an empty task list as "tasks lost"). Originally IDs #9–#14; rebuilt as #1–#6 on the 2026-06-09 restore.
 
 Live task tracker:
-- **#9 Phase 1 — Foundation + Create Build vertical slice — ✅ COMPLETED.**
-- **#10 Phase 2 — Form screens (Download Model, Adopt Build) — ✅ COMPLETED.**
-- **#11 Phase 3 — Master-detail (Target Manager, Flag Manager) — ◐ IN PROGRESS** (just opened; no code yet).
-- **#12 Phase 4 — New Deployment wizard — ⬜ PENDING.**
-- **#13 Phase 5 — Dashboard + log classification — ⬜ PENDING.**
-- **#14 Phase 6 — Polish (small modals, behavior audit, anatomy refresh) — ⬜ PENDING.**
+- **Phase 1 — Foundation + Create Build — ✅ COMPLETED** (commit `0ea1518`).
+- **Phase 2 — Form screens (Download Model, Adopt Build) — ✅ COMPLETED** (`0ea1518`).
+- **Phase 3 — Master-detail (Target Manager `44:2`, Flag Manager `55:2`) — ✅ COMPLETED** (`0ea1518`). Built `MasterDetail` + `tags.py` (`source_tag`/`summarize_capabilities`/`is_recipe_flag`); recipe-safety cues delivered. (StatusPill/SourceTag/ResolvedCommandPanel realized as styled-`Text` render helpers, not mounted widgets — the panes are pinned Statics.)
+- **Phase 4 — New Deployment wizard + review `56:2-58:2` — ✅ COMPLETED** (`19baa94`). Built `StepIndicator`; kept Selects (no RadioSet) to protect the 24-test contract.
+- **Phase 5 — Dashboard log classification `60:2` (screenshot #7) — ✅ COMPLETED** (`f993be5`). `display_level_for_line` + `BENIGN` dim level; dashboard chrome was already v1-styled.
+- **Phase 6 — Polish — ✅ COMPLETED** (`2935f2c`). Model/Build manager consistency + anatomy.md refresh (+ `.wolf/config.json` cache excludes).
+- **#7 (optional, non-flagged) — small-modals CSS modernization + Download advanced-patterns toggle — ⬜ PENDING.** Not required for §15 done.
 
 ### IMMEDIATE NEXT STEPS — Phase 3 (master-detail), in order:
 1. **Audit the contracts first** (do NOT trust memory): `Read` `src/vela/tui/screens/target_manager.py`, `flag_manager.py`, and also `model_manager.py` + `build_manager.py` (they share the list+detail pattern). Then `grep -rn "target-manager\|target_manager\|TargetManager" tests/` and the same for `flag-manager`/`flag_manager` to learn which ids + dismiss payloads the smoke suite drives. (We already know from the earlier audit excerpt that `flag_manager.py` compose has `#flag-manager-preset` Select, `#flag-manager-changed-only` Checkbox, `#flag-manager-list` Static, `#flag-manager-editor`, `#flag-manager-value` Input, `#flag-manager-extra-args` Input, `#flag-manager-detail` Static, `#flag-manager-footer`; and its dismiss payload is `{"action": "save_flags", "name", "engine": {...}, "extra_args": [...]}` — but RE-READ the full file to confirm before editing.)
