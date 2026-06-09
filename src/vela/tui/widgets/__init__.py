@@ -9,6 +9,7 @@ from vela.tui.widgets.field import Field
 from vela.tui.widgets.keyhintbar import KeyHintBar
 from vela.tui.widgets.masterdetail import MasterDetail
 from vela.tui.widgets.preset_chips import PresetChips
+from vela.tui.widgets.step_indicator import StepIndicator
 from vela.tui.widgets.tags import (
     RECIPE_FLAGS,
     is_recipe_flag,
@@ -24,6 +25,7 @@ __all__ = [
     "KeyHintBar",
     "MasterDetail",
     "PresetChips",
+    "StepIndicator",
     "ValidationCard",
     "is_recipe_flag",
     "source_tag",

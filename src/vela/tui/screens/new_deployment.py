@@ -9,7 +9,20 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, Select, Static
 
-from vela.tui.theme import ACCENT, BAD, GOOD, MUTED, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    BG_BASE,
+    BG_INSET,
+    BG_PANEL,
+    BORDER_STRONG,
+    BORDER_SUBTLE,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
+from vela.tui.widgets import KeyHintBar, StepIndicator
 
 
 def _recipe_name(recipe: dict[str, Any]) -> str:
@@ -56,66 +69,42 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #new-deployment-panel {{
         width: 76;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #new-deployment-title {{
-        margin-bottom: 1;
-        color: {TEXT};
-        text-style: bold;
-    }}
+    #new-deployment-title {{ color: {CYAN}; text-style: bold; }}
 
-    #new-deployment-target {{
-        margin-bottom: 1;
-        color: {MUTED};
-    }}
+    #new-deployment-target {{ margin-bottom: 1; color: {TEXT_FAINT}; }}
 
-    #new-deployment-model-suggestions {{
-        margin-bottom: 1;
-        color: {MUTED};
-    }}
-
-    #new-deployment-steps {{
-        margin-bottom: 1;
-        color: {ACCENT};
-    }}
+    #new-deployment-steps {{ margin-bottom: 1; }}
 
     #new-deployment-current-step {{
         margin-bottom: 1;
-        color: {TEXT};
+        color: {CYAN};
         text-style: bold;
     }}
 
-    .new-deployment-field-label {{
-        margin-top: 1;
-        color: {TEXT};
-    }}
+    #new-deployment-model-suggestions {{ margin-bottom: 1; color: {TEXT_SECONDARY}; }}
+    #new-deployment-model-state {{ color: {TEXT_SECONDARY}; }}
+    #new-deployment-target-state {{ color: {TEXT_SECONDARY}; }}
 
-    .new-deployment-row {{
-        height: auto;
-    }}
+    .new-deployment-field-label {{ margin-top: 1; color: {TEXT_SECONDARY}; }}
+    .new-deployment-helper {{ color: {TEXT_FAINT}; }}
 
-    .new-deployment-column {{
-        width: 1fr;
-        padding-right: 2;
-    }}
+    .new-deployment-row {{ height: auto; }}
+    .new-deployment-column {{ width: 1fr; padding-right: 2; }}
 
-    #new-deployment-error {{
-        margin-top: 1;
-        color: {BAD};
-    }}
-
-    #new-deployment-actions {{
-        margin-top: 1;
-        color: {GOOD};
-    }}
+    #new-deployment-error {{ margin-top: 1; color: {RED}; }}
+    #new-deployment-footer {{ margin-top: 1; }}
     """
 
     STEP_TITLES = (
@@ -181,9 +170,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         with Vertical(id="new-deployment-panel"):
             yield Static("New Deployment", id="new-deployment-title")
             yield Static(f"Target: {self.target_label}", id="new-deployment-target")
-            yield Static(
-                "Target -> Runtime -> Model -> Customize -> Review -> Save",
-                id="new-deployment-steps",
+            yield StepIndicator(
+                self.STEP_TITLES, current=self.step_index, id="new-deployment-steps"
             )
             yield Static("", id="new-deployment-current-step")
             with Vertical(id="new-deployment-step-target"):
@@ -211,13 +199,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         ("Process", "process"),
                         ("Docker", "docker"),
                         ("Build", "build"),
-                        ("Create build", "create_build"),
-                        ("Adopt venv", "adopt_build"),
+                        ("Create build →", "create_build"),
+                        ("Adopt venv →", "adopt_build"),
                         ("Executable", "executable"),
                     ],
                     value="process",
                     allow_blank=False,
                     id="new-deployment-runtime",
+                )
+                yield Static(
+                    "Create build / Adopt venv open a dedicated screen, then return here.",
+                    classes="new-deployment-helper",
                 )
                 yield Static("Docker image", classes="new-deployment-field-label")
                 yield Input(
@@ -245,13 +237,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 yield Select(
                     [
                         ("Existing pin", "existing"),
-                        ("Pin HF repo", "pin_hf"),
-                        ("Adopt local path", "adopt_local"),
+                        ("Pin HF repo →", "pin_hf"),
+                        ("Adopt local path →", "adopt_local"),
                         ("Bare repo id", "bare"),
                     ],
                     value="existing",
                     allow_blank=False,
                     id="new-deployment-model-mode",
+                )
+                yield Static(
+                    "Pin HF repo / Adopt local path open a dedicated screen, then return here.",
+                    classes="new-deployment-helper",
                 )
                 yield Static("Pinned model", classes="new-deployment-field-label")
                 yield Select(
@@ -312,7 +308,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-save-summary",
                 )
             yield Static("", id="new-deployment-error")
-            yield Static("", id="new-deployment-actions")
+            yield KeyHintBar(
+                [
+                    ("Ctrl+B", "Back"),
+                    ("Ctrl+N", "Next"),
+                    ("Ctrl+S", "Review"),
+                    ("Esc", "Cancel"),
+                ],
+                id="new-deployment-footer",
+            )
 
     def on_mount(self) -> None:
         self._apply_initial()
@@ -913,22 +917,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def _refresh_step(self) -> None:
         for index, selector in enumerate(self.STEP_IDS):
             self.query_one(selector).display = index == self.step_index
+        self.query_one("#new-deployment-steps", StepIndicator).set_current(self.step_index)
         self.query_one("#new-deployment-current-step", Static).update(
             f"Step {self.step_index + 1} of {len(self.STEP_TITLES)}: "
             f"{self.STEP_TITLES[self.step_index]}"
         )
-        self.query_one("#new-deployment-actions", Static).update(self._actions_text())
         self._focus_current_step()
-
-    def _actions_text(self) -> str:
-        parts: list[str] = []
-        if self.step_index > 0:
-            parts.append("Ctrl+B Back")
-        if self.step_index < len(self.STEP_TITLES) - 1:
-            parts.append("Ctrl+N Next")
-        parts.append("Ctrl+S Review")
-        parts.append("Esc Cancel")
-        return "   ".join(parts)
 
     def _focus_current_step(self) -> None:
         selector = {
@@ -1051,50 +1045,44 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentReviewScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #new-deployment-review-panel {{
         width: 92;
-        max-height: 38;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #new-deployment-review-title {{
-        color: {TEXT};
-        text-style: bold;
-    }}
+    #new-deployment-review-title {{ color: {CYAN}; text-style: bold; }}
 
-    #new-deployment-review-steps {{
-        margin-bottom: 1;
-        color: {ACCENT};
-    }}
+    #new-deployment-review-steps {{ margin-bottom: 1; }}
 
     .new-deployment-review-label {{
         margin-top: 1;
-        color: {TEXT};
+        color: {TEXT_SECONDARY};
         text-style: bold;
     }}
 
     #new-deployment-review-summary,
     #new-deployment-review-derived,
-    #new-deployment-review-warnings,
-    #new-deployment-review-preview {{
-        color: {TEXT};
+    #new-deployment-review-warnings {{
+        color: {TEXT_PRIMARY};
     }}
 
     #new-deployment-review-preview {{
         max-height: 12;
-        background: #091015;
+        overflow-y: auto;
+        border: round {BORDER_SUBTLE};
+        background: {BG_INSET};
+        color: {GREEN};
         padding: 0 1;
     }}
 
-    #new-deployment-review-actions {{
-        margin-top: 1;
-        color: {GOOD};
-    }}
+    #new-deployment-review-actions {{ margin-top: 1; }}
     """
 
     BINDINGS = [
@@ -1123,9 +1111,8 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-review-panel"):
             yield Static("Review Deployment", id="new-deployment-review-title")
-            yield Static(
-                "Target -> Runtime -> Model -> Customize -> Review -> Save",
-                id="new-deployment-review-steps",
+            yield StepIndicator(
+                NewDeploymentScreen.STEP_TITLES, current=4, id="new-deployment-review-steps"
             )
             yield Static("Summary", classes="new-deployment-review-label")
             yield Static(self._summary_text(), id="new-deployment-review-summary")
@@ -1135,8 +1122,13 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             yield Static(self._warnings_text(), id="new-deployment-review-warnings")
             yield Static("Resolved command", classes="new-deployment-review-label")
             yield Static(self.preview, id="new-deployment-review-preview")
-            yield Static(
-                "F Flags   Ctrl+S Save   S Save & Smoke   Esc Cancel",
+            yield KeyHintBar(
+                [
+                    ("F", "Flags"),
+                    ("Ctrl+S", "Save"),
+                    ("S", "Save & Smoke"),
+                    ("Esc", "Cancel"),
+                ],
                 id="new-deployment-review-actions",
             )
 

@@ -651,3 +651,23 @@
 | 02:20 | Created ../../.claude/jobs/1ec9bb76/tmp/render_flag_manager.py | — | ~652 |
 | 02:23 | Phase 3 (Flag Manager DONE — hardest screen) → Figma 55:2: Rich Text grouped table (MODELED/PASSTHROUGH/UNKNOWN, source-tag colors cyan/violet/amber, amber changed-dots, visible amber "recipe" tag on dtype/kv-cache-dtype), self-explaining detail (_FLAG_DESCRIPTIONS per engine field + "value · preset · → engine.X" mapping + amber Recipe-protected warning [Refinement B]), masked resolved-command panel, KeyHintBar footer, token CSS. Kept bespoke list+editor layout (right pane composite: value Input+raw-args Input+detail Static, not MasterDetail). 5 new tests + 195 smoke green; ruff clean; rendered+eyeballed. Phase 3 CORE COMPLETE (Target 44:2 + Flag 55:2 = user-flagged screenshots #2/#6). model/build mgr consistency pass → Phase 6 (no Figma mock). | flag_manager.py, test_flag_manager_screen.py | verified | ~42000 |
 | 02:27 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg.txt | — | ~424 |
+| 02:31 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~62 |
+| 02:31 | Edited tests/test_tui_widgets.py | modified compose() | ~265 |
+| 02:32 | Created src/vela/tui/widgets/step_indicator.py | — | ~452 |
+| 02:33 | Created src/vela/tui/widgets/step_indicator.py | — | ~446 |
+| 02:34 | Edited src/vela/tui/widgets/__init__.py | added 1 import(s) | ~151 |
+| 02:37 | Edited src/vela/tui/screens/new_deployment.py | expanded (+13 lines) | ~71 |
+| 02:37 | Edited src/vela/tui/screens/new_deployment.py | reduced (-24 lines) | ~341 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | 7→6 lines | ~100 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | 14→18 lines | ~230 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | 12→16 lines | ~207 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | modified on_mount() | ~107 |
+| 02:39 | Edited src/vela/tui/screens/new_deployment.py | modified _refresh_step() | ~154 |
+| 02:40 | Edited src/vela/tui/screens/new_deployment.py | reduced (-6 lines) | ~288 |
+| 02:40 | Edited src/vela/tui/screens/new_deployment.py | 6→5 lines | ~84 |
+| 02:40 | Edited src/vela/tui/screens/new_deployment.py | 6→11 lines | ~129 |
+| 02:42 | Edited src/vela/tui/screens/new_deployment.py | 8→8 lines | ~57 |
+| 02:44 | Created tests/test_new_deployment_screen.py | — | ~917 |
+| 02:46 | Created ../../.claude/jobs/1ec9bb76/tmp/render_new_deployment.py | — | ~653 |
+| 02:48 | Phase 4 (New Deployment wizard + review) DONE → Figma 56:2-58:2: StepIndicator widget (red→green; logged bug-184 = Static subclass must set renderable in __init__ not on_mount). Wizard: StepIndicator breadcrumb replaces plain arrow, token round-border CSS, KeyHintBar footer (dropped _actions_text), "→" handoff labels + .new-deployment-helper signposts on runtime/model-mode. Review: token CSS, StepIndicator @Review, inset GREEN masked resolved-command, KeyHintBar. Preserved all 24 #new-deployment-* ids + handoff dismisses + payloads + review substrings. NO Select->Radio / NO mass Field-wrap (deferred Phase 6 to protect 24-test contract). Fixed self-introduced regression (panel 80->76 for centering test). 3 new screen tests + 13 widget + 195 smoke green; ruff clean; both rendered+eyeballed. | new_deployment.py, step_indicator.py, widgets/__init__.py, test_new_deployment_screen.py, test_tui_widgets.py, buglog.json | verified | ~55000 |
+| 03:45 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p4.txt | — | ~293 |

@@ -1,11 +1,12 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T06:27:29.504Z
-> Files: 133 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T07:45:27.644Z
+> Files: 138 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
 - `capture_screens.py` — MinimalAgent: log, handle, subscribe, connected + 12 more (~4772 tok)
+- `commit_msg_p4.txt` — Declares must (~275 tok)
 - `commit_msg.txt` (~397 tok)
 - `digest.py` — trim (~977 tok)
 - `digest7.py` — trim (~1055 tok)
@@ -14,6 +15,7 @@
 - `inv.sh` (~668 tok)
 - `probe_static_content.py` — Probe: how does Static.content behave with markup vs Rich Text in Textual 8.2.7? (~466 tok)
 - `render_flag_manager.py` — Render the refactored FlagManagerScreen to an SVG for visual QC vs Figma 55:2. (~652 tok)
+- `render_new_deployment.py` — Render the refactored New Deployment wizard + review for visual QC (56:2-58:2). (~653 tok)
 - `render_target_manager.py` — Render the refactored TargetManagerScreen to an SVG for visual QC vs Figma 44:2. (~506 tok)
 - `setpath.sh` (~326 tok)
 
@@ -120,16 +122,18 @@
 - `create_build.py` — CreateBuildScreen: compose, on_mount, on_input_submitted, on_input_changed + 3 more (~3950 tok)
 - `download_model.py` — DownloadModelScreen: compose, on_mount, on_input_submitted, action_submit + 1 more (~2183 tok)
 - `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7396 tok)
+- `new_deployment.py` — NewDeploymentScreen: compose (~13129 tok)
 - `target_manager.py` — from: compose, on_mount, action_previous, action_next + 8 more (~3194 tok)
 
 ## src/vela/tui/widgets/
 
-- `__init__.py` — Reusable Textual widgets for the Vela TUI. (~245 tok)
+- `__init__.py` — Reusable Textual widgets for the Vela TUI. (~267 tok)
 - `contextcard.py` — ``ContextCard`` — a read-only "what you're operating on" card. (~517 tok)
 - `field.py` — The ``Field`` compound widget — the shared "form language" for Vela screens. (~772 tok)
 - `keyhintbar.py` — ``KeyHintBar`` — renders footer keybinding hints as ``key label`` pairs. (~417 tok)
 - `masterdetail.py` — ``MasterDetail`` — the shared two-pane layout for the manager screens. (~550 tok)
 - `preset_chips.py` — ``PresetChips`` — a row of selectable preset chips. (~468 tok)
+- `step_indicator.py` — ``StepIndicator`` — the shared wizard step breadcrumb. (~446 tok)
 - `tags.py` — Shared color/text primitives for the master-detail manager screens. (~679 tok)
 - `validation_card.py` — ``ValidationCard`` — a green/red live-validation result card. (~607 tok)
 
@@ -187,6 +191,7 @@
 - `test_health.py` — health auth/probe-host tests (~700 tok)
 - `test_log_sink.py` — log split/scrub/truncation/mode tests (~900 tok)
 - `test_messages.py` — canonical Textual message taxonomy and log-record conversion tests (~260 tok)
+- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~917 tok)
 - `test_phases.py` — FSM success/error/ready/degraded tests (~850 tok)
 - `test_process_manager.py` — attached PTY fake-child integration test (~650 tok)
 - `test_remediation.py` — shared remediation map tests for agent-not-installed, unreachable, version mismatch, and uv-required (~450 tok)
@@ -194,4 +199,4 @@
 - `test_ssh_discovery.py` — SSH agent discovery tests for command-v, canonical paths, version mismatch, and CLI persistence (~1200 tok)
 - `test_target_manager_screen.py` — Headless tests for the refactored TargetManagerScreen (Mac-safe; no GPU/vLLM). (~1411 tok)
 - `test_tui_smoke.py` — Textual start/help/lifecycle/fake-child launch smoke tests (~950 tok)
-- `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~2332 tok)
+- `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~2589 tok)

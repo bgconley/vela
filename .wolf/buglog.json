@@ -3482,6 +3482,56 @@
       "related_bugs": [],
       "occurrences": 3,
       "last_seen": "2026-06-09T06:16:39.389Z"
+    },
+    {
+      "id": "bug-183",
+      "timestamp": "2026-06-09T06:31:43.144Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "Async call without await — returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T06:31:43.144Z"
+    },
+    {
+      "id": "bug-184",
+      "timestamp": "2026-06-09T06:34:32Z",
+      "error_message": "Textual layout error: 'NoneType' object has no attribute 'get_height' when mounting StepIndicator",
+      "file": "src/vela/tui/widgets/step_indicator.py",
+      "root_cause": "StepIndicator subclassed Static but left its renderable unset in __init__, deferring self.update() to on_mount. During the initial layout pass the renderable was None, so Textual's height calculation crashed before on_mount ran.",
+      "fix": "Build the Rich Text content in __init__ and pass it to super().__init__(content); set_current() re-renders via self.update(). A Static subclass must set its initial renderable in __init__, not defer it to on_mount.",
+      "tags": [
+        "tui",
+        "textual",
+        "static",
+        "widget",
+        "layout"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T06:34:32Z"
+    },
+    {
+      "id": "bug-185",
+      "timestamp": "2026-06-09T06:38:26.004Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 14→18 lines (2 removed) | Also: (\"Pin HF repo\", \"pin_hf\"),; (\"Adopt local path\", \"adopt_local\"), | Also: self.query_one(\"#new-deployment-actions\", Static).; def _actions_text(self) -> str: | Also: yield Static(; \"F Flags   Ctrl+S Save   S Save & Smoke   Esc Canc",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 4,
+      "last_seen": "2026-06-09T06:40:23.050Z"
     }
   ]
 }

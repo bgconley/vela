@@ -13,6 +13,7 @@ from vela.tui.widgets.field import Field
 from vela.tui.widgets.keyhintbar import KeyHintBar
 from vela.tui.widgets.masterdetail import MasterDetail
 from vela.tui.widgets.preset_chips import PresetChips
+from vela.tui.widgets.step_indicator import StepIndicator
 from vela.tui.widgets.tags import (
     RECIPE_FLAGS,
     is_recipe_flag,
@@ -223,3 +224,26 @@ async def test_master_detail_lays_out_panes_side_by_side_with_footer() -> None:
         assert body.query_one("#md-detail", Static) is app.query_one("#md-detail", Static)
         # The optional footer is mounted.
         assert len(md.query(KeyHintBar)) == 1
+
+
+class _StepIndicatorHarness(App):
+    def compose(self) -> ComposeResult:
+        yield StepIndicator(["Target", "Runtime", "Model", "Review"], current=1, id="si")
+
+
+@pytest.mark.asyncio
+async def test_step_indicator_marks_done_current_and_future() -> None:
+    app = _StepIndicatorHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        si = app.query_one("#si", StepIndicator)
+        content = str(si.content)
+        assert "✓ Target" in content  # a completed step
+        assert "▸ Runtime" in content  # the current step
+        assert "Model" in content  # future steps still labelled
+        assert "Review" in content
+        # Advancing re-marks done/current.
+        si.set_current(2)
+        content2 = str(si.content)
+        assert "✓ Runtime" in content2
+        assert "▸ Model" in content2
