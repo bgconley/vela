@@ -4,8 +4,28 @@ import errno
 import os
 from pathlib import Path
 
-from vela.engine.log_sink import LogSink, OSErrorByteReader, is_pty_eof
+from vela.engine.log_sink import (
+    LogSink,
+    OSErrorByteReader,
+    display_level_for_line,
+    is_pty_eof,
+)
 from vela.engine.redaction import scrub_text
+
+
+def test_display_level_dims_known_benign_shutdown_noise() -> None:
+    # The screenshot-#7 NCCL/torch shutdown line is benign — classify it dim so
+    # the log view de-emphasizes it instead of styling it as a warning/error.
+    benign = (
+        "[rank0]:[W1231 23:59:59.000 ProcessGroupNCCL.cpp:1234] Warning: "
+        "destroy_process_group() was not called before program exit"
+    )
+    assert display_level_for_line(benign) == "BENIGN"
+    # Real warnings/errors keep their level (not downgraded).
+    assert display_level_for_line("WARNING something is off") == "WARNING"
+    assert display_level_for_line("ERROR boom") == "ERROR"
+    # Plain / useful lines stay unclassified.
+    assert display_level_for_line("Uvicorn running on http://0.0.0.0:8000") is None
 
 
 def test_splits_carriage_return_and_newline_and_persists_only_committed(tmp_path: Path) -> None:

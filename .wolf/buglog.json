@@ -3532,6 +3532,22 @@
       "related_bugs": [],
       "occurrences": 4,
       "last_seen": "2026-06-09T06:40:23.050Z"
+    },
+    {
+      "id": "bug-186",
+      "timestamp": "2026-06-09T07:54:08.623Z",
+      "error_message": "Wrong reference: level_for_line should be display_level_for_line",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "Used \"level_for_line\" instead of \"display_level_for_line\"",
+      "fix": "Changed level_for_line → display_level_for_line",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-09T07:54:24.193Z"
     }
   ]
 }

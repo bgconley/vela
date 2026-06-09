@@ -1,12 +1,13 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T07:45:27.644Z
-> Files: 138 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T08:07:55.669Z
+> Files: 142 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
 
 - `capture_screens.py` — MinimalAgent: log, handle, subscribe, connected + 12 more (~4772 tok)
 - `commit_msg_p4.txt` — Declares must (~275 tok)
+- `commit_msg_p5.txt` (~186 tok)
 - `commit_msg.txt` (~397 tok)
 - `digest.py` — trim (~977 tok)
 - `digest7.py` — trim (~1055 tok)
@@ -14,6 +15,7 @@
 - `digest9.py` — trim (~947 tok)
 - `inv.sh` (~668 tok)
 - `probe_static_content.py` — Probe: how does Static.content behave with markup vs Rich Text in Textual 8.2.7? (~466 tok)
+- `render_dashboard.py` — Render the dashboard log pane to verify benign-line dimming (screenshot #7 fix). (~442 tok)
 - `render_flag_manager.py` — Render the refactored FlagManagerScreen to an SVG for visual QC vs Figma 55:2. (~652 tok)
 - `render_new_deployment.py` — Render the refactored New Deployment wizard + review for visual QC (56:2-58:2). (~653 tok)
 - `render_target_manager.py` — Render the refactored TargetManagerScreen to an SVG for visual QC vs Figma 44:2. (~506 tok)
@@ -106,6 +108,10 @@
 - `run_remote_tests.sh` — SSH remote install/lint/test/optional real-config runner (~320 tok)
 - `smoke_fake_child.sh` — local editable install plus fake-child/TUI smoke tests (~70 tok)
 
+## src/vela/engine/
+
+- `log_sink.py` — from: feed, close, rotate_to, scrub + 5 more (~1715 tok)
+
 ## src/vela/transport/
 
 - `ssh_bootstrap.py` — SSH remote agent install helper for managed bootstrap path (~700 tok)
@@ -114,6 +120,7 @@
 
 ## src/vela/tui/
 
+- `app.py` (~56754 tok)
 - `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~467 tok)
 
 ## src/vela/tui/screens/
@@ -189,7 +196,7 @@
 - `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~1391 tok)
 - `test_gpu.py` — GPU fallback and CUDA visibility tests (~550 tok)
 - `test_health.py` — health auth/probe-host tests (~700 tok)
-- `test_log_sink.py` — log split/scrub/truncation/mode tests (~900 tok)
+- `test_log_sink.py` — test_display_level_dims_known_benign_shutdown_noise, test_splits_carriage_return_and_newline_and_per (~1945 tok)
 - `test_messages.py` — canonical Textual message taxonomy and log-record conversion tests (~260 tok)
 - `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~917 tok)
 - `test_phases.py` — FSM success/error/ready/degraded tests (~850 tok)

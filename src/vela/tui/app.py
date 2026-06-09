@@ -41,7 +41,7 @@ from vela.config.targets import (
     upsert_target_file,
 )
 from vela.engine.command_builder import CommandBuildResult
-from vela.engine.log_sink import LogRecord, level_for_line
+from vela.engine.log_sink import LogRecord, display_level_for_line
 from vela.engine.phases import ErrorKind, Phase, PhaseFSM
 from vela.engine.profile import (
     VllmProfileError,
@@ -107,6 +107,9 @@ LEVEL_STYLE = {
     "WARNING": "#f6c85f",
     "INFO": "",
     "DEBUG": "#526a75",
+    # Known-benign shutdown/teardown noise: de-emphasized so it never reads as
+    # a warning (the screenshot-#7 NCCL destroy_process_group fix).
+    "BENIGN": "#56707c",
 }
 
 LEVEL_RAIL_STYLE = {
@@ -115,6 +118,7 @@ LEVEL_RAIL_STYLE = {
     "WARNING": "#f6c85f",
     "INFO": "#e8f1f2",
     "DEBUG": "#526a75",
+    "BENIGN": "#56707c",
 }
 NEW_DEPLOYMENT_TARGET_PROBE_TIMEOUT_SECONDS = 3.0
 LEVEL_FILTER_ALIASES = {
@@ -3354,7 +3358,8 @@ class VelaApp(App):
         self._set_phase(self.fsm.phase)
         if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
             self._set_error_banner(self.fsm.error_kind)
-        self._write_log(text, level)
+        # Dim known-benign noise; otherwise keep the upstream level.
+        self._write_log(text, "BENIGN" if display_level_for_line(text) == "BENIGN" else level)
 
     def _write_log(self, text: str, level: str | None = None) -> None:
         self.log_lines.append(text)
@@ -3537,7 +3542,7 @@ class VelaApp(App):
             position = file.tell()
         for line in text.splitlines():
             self.fsm.feed_line(line)
-            self._write_log(line, level_for_line(line))
+            self._write_log(line, display_level_for_line(line))
         self._set_phase(self.fsm.phase)
         if self.fsm.phase is Phase.ERROR and self.fsm.error_kind is not None:
             self._set_error_banner(self.fsm.error_kind)

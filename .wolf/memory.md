@@ -671,3 +671,13 @@
 | 02:46 | Created ../../.claude/jobs/1ec9bb76/tmp/render_new_deployment.py | — | ~653 |
 | 02:48 | Phase 4 (New Deployment wizard + review) DONE → Figma 56:2-58:2: StepIndicator widget (red→green; logged bug-184 = Static subclass must set renderable in __init__ not on_mount). Wizard: StepIndicator breadcrumb replaces plain arrow, token round-border CSS, KeyHintBar footer (dropped _actions_text), "→" handoff labels + .new-deployment-helper signposts on runtime/model-mode. Review: token CSS, StepIndicator @Review, inset GREEN masked resolved-command, KeyHintBar. Preserved all 24 #new-deployment-* ids + handoff dismisses + payloads + review substrings. NO Select->Radio / NO mass Field-wrap (deferred Phase 6 to protect 24-test contract). Fixed self-introduced regression (panel 80->76 for centering test). 3 new screen tests + 13 widget + 195 smoke green; ruff clean; both rendered+eyeballed. | new_deployment.py, step_indicator.py, widgets/__init__.py, test_new_deployment_screen.py, test_tui_widgets.py, buglog.json | verified | ~55000 |
 | 03:45 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p4.txt | — | ~293 |
+| 03:49 | Edited tests/test_log_sink.py | modified test_display_level_dims_known_benign_shutdown_noise() | ~267 |
+| 03:50 | Edited src/vela/engine/log_sink.py | modified level_for_line() | ~264 |
+| 03:54 | Edited src/vela/tui/app.py | inline fix | ~19 |
+| 03:54 | Edited src/vela/tui/app.py | 15→19 lines | ~143 |
+| 03:54 | Edited src/vela/tui/app.py | 3→3 lines | ~56 |
+| 03:54 | Edited src/vela/tui/app.py | level_for_line() → display_level_for_line() | ~52 |
+| 03:54 | Edited src/vela/tui/app.py | 3→4 lines | ~85 |
+| 04:01 | Created ../../.claude/jobs/1ec9bb76/tmp/render_dashboard.py | — | ~442 |
+| 04:02 | Phase 5 (Dashboard log classification — screenshot #7 fix) DONE: added display_level_for_line + BENIGN_PATTERNS (destroy_process_group) to log_sink.py (level_for_line + FSM untouched); BENIGN→faint #56707c in app.py LEVEL_STYLE/LEVEL_RAIL_STYLE; wired into _handle_committed_log (live) + _load_scrubbed_log_file (replay). Benign NCCL/torch shutdown noise now DIMMED not amber. 1 new log_sink test (red→green); FULL suite 994 passed; ruff clean; dashboard rendered — benign faint-gray vs amber WARNING / red ERROR confirmed. Dashboard chrome already clean from v1 (3-zone header, sidebar cards, footer keybar; no cryptic glyphs/giant banner). PhaseStepper extraction = optional Phase 6 (existing _render_phase_timeline works). | log_sink.py, app.py, test_log_sink.py | verified | ~25000 |
+| 04:07 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p5.txt | — | ~198 |
