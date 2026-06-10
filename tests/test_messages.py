@@ -47,3 +47,13 @@ def test_log_record_conversion_uses_progress_updated_for_transient_records() -> 
     assert committed.text == "INFO server"
     assert isinstance(transient, messages.ProgressUpdated)
     assert transient.text == "Loading 33% 1/3"
+
+
+def test_process_exited_carries_signaled_flag() -> None:
+    # Spec §6.3: ProcessExited(code, signaled). POSIX negative returncodes mean
+    # killed-by-signal; signaled derives from that unless given explicitly.
+    assert messages.ProcessExited(7).signaled is False
+    assert messages.ProcessExited(0).signaled is False
+    assert messages.ProcessExited(None).signaled is False
+    assert messages.ProcessExited(-15).signaled is True
+    assert messages.ProcessExited(-15, signaled=False).signaled is False

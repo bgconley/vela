@@ -9,7 +9,20 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, Select, Static
 
-from vela.tui.theme import ACCENT, BAD, GOOD, MUTED, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    BG_BASE,
+    BG_INSET,
+    BG_PANEL,
+    BORDER_STRONG,
+    BORDER_SUBTLE,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
+from vela.tui.widgets import KeyHintBar, StepIndicator
 
 
 def _recipe_name(recipe: dict[str, Any]) -> str:
@@ -56,66 +69,45 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #new-deployment-panel {{
         width: 76;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #new-deployment-title {{
-        margin-bottom: 1;
-        color: {TEXT};
-        text-style: bold;
-    }}
+    #new-deployment-title {{ color: {CYAN}; text-style: bold; }}
 
-    #new-deployment-target {{
-        margin-bottom: 1;
-        color: {MUTED};
-    }}
+    #new-deployment-target {{ margin-bottom: 1; color: {TEXT_FAINT}; }}
 
-    #new-deployment-model-suggestions {{
-        margin-bottom: 1;
-        color: {MUTED};
-    }}
-
-    #new-deployment-steps {{
-        margin-bottom: 1;
-        color: {ACCENT};
-    }}
+    #new-deployment-steps {{ margin-bottom: 1; }}
 
     #new-deployment-current-step {{
         margin-bottom: 1;
-        color: {TEXT};
+        color: {CYAN};
         text-style: bold;
     }}
 
-    .new-deployment-field-label {{
-        margin-top: 1;
-        color: {TEXT};
-    }}
+    #new-deployment-model-suggestions {{ margin-bottom: 1; color: {TEXT_SECONDARY}; }}
+    #new-deployment-model-state {{ color: {TEXT_SECONDARY}; }}
+    #new-deployment-target-state {{ color: {TEXT_SECONDARY}; }}
 
-    .new-deployment-row {{
-        height: auto;
-    }}
+    .new-deployment-field-label {{ margin-top: 1; color: {TEXT_SECONDARY}; }}
+    .new-deployment-helper {{ color: {TEXT_FAINT}; }}
 
-    .new-deployment-column {{
-        width: 1fr;
-        padding-right: 2;
-    }}
+    .new-deployment-row {{ height: auto; }}
+    .new-deployment-column {{ width: 1fr; height: auto; padding-right: 2; }}
 
-    #new-deployment-error {{
-        margin-top: 1;
-        color: {BAD};
-    }}
+    #nd-group-image, #nd-group-build, #nd-group-executable,
+    #nd-group-pinned, #nd-group-bare, #nd-group-derived {{ height: auto; }}
 
-    #new-deployment-actions {{
-        margin-top: 1;
-        color: {GOOD};
-    }}
+    #new-deployment-error {{ margin-top: 1; color: {RED}; }}
+    #new-deployment-footer {{ margin-top: 1; }}
     """
 
     STEP_TITLES = (
@@ -137,6 +129,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [
         Binding("ctrl+n", "next_step", "Next", priority=True),
         Binding("ctrl+b", "previous_step", "Back", priority=True),
+        ("enter", "advance_or_submit", "Next"),
+        ("ctrl+r", "toggle_advanced", "Advanced"),
         ("ctrl+s", "submit", "Review"),
         ("escape", "cancel", "Cancel"),
     ]
@@ -153,12 +147,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         targets: list[dict[str, Any]] | None = None,
         connection_state: str = "disconnected",
         agent_info: dict[str, Any] | None = None,
+        error_message: str = "",
         target_state_resolver: Callable[[], Awaitable[list[dict[str, Any]]]]
         | None = None,
         suggestion_resolver: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
         | None = None,
     ) -> None:
         super().__init__(id="new-deployment")
+        self.error_message = error_message
+        # Captured at submit so the app can restore the wizard if server-side
+        # review fails — the dismiss payload (the spec) stays contract-exact.
+        self.last_draft: dict[str, Any] | None = None
         self.target_label = target_label
         self.presets = [dict(preset) for preset in presets]
         self.recipes = [dict(recipe) for recipe in (recipes or [])]
@@ -175,15 +174,18 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self._suppress_target_events = False
         self._target_selection_touched = False
         self._applying_initial = False
+        self._advanced_visible = any(
+            (initial or {}).get(key)
+            for key in ("served_model_name", "runs_dir", "container_name")
+        )
         self.step_index = 0
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-panel"):
             yield Static("New Deployment", id="new-deployment-title")
             yield Static(f"Target: {self.target_label}", id="new-deployment-target")
-            yield Static(
-                "Target -> Runtime -> Model -> Customize -> Review -> Save",
-                id="new-deployment-steps",
+            yield StepIndicator(
+                self.STEP_TITLES, current=self.step_index, id="new-deployment-steps"
             )
             yield Static("", id="new-deployment-current-step")
             with Vertical(id="new-deployment-step-target"):
@@ -202,6 +204,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     allow_blank=False,
                     id="new-deployment-recipe",
                 )
+                yield Static(
+                    "A validated stack for this target — picking one pre-fills "
+                    "runtime, image, model, flags & port. Custom starts blank.",
+                    id="new-deployment-recipe-note",
+                    classes="new-deployment-helper",
+                )
                 yield Static("Name", classes="new-deployment-field-label")
                 yield Input(placeholder="qwen3-32b-bf16", id="new-deployment-name")
             with Vertical(id="new-deployment-step-runtime"):
@@ -211,62 +219,88 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         ("Process", "process"),
                         ("Docker", "docker"),
                         ("Build", "build"),
-                        ("Create build", "create_build"),
-                        ("Adopt venv", "adopt_build"),
+                        ("Create build →", "create_build"),
+                        ("Adopt venv →", "adopt_build"),
                         ("Executable", "executable"),
                     ],
                     value="process",
                     allow_blank=False,
                     id="new-deployment-runtime",
                 )
-                yield Static("Docker image", classes="new-deployment-field-label")
-                yield Input(
-                    placeholder="vllm/vllm-openai@sha256:...",
-                    id="new-deployment-image",
+                yield Static(
+                    "Create build / Adopt venv open a dedicated screen, then return here.",
+                    classes="new-deployment-helper",
                 )
-                yield Static("Build", classes="new-deployment-field-label")
-                yield Select(
-                    self._build_options(),
-                    value="__custom__",
-                    allow_blank=False,
-                    id="new-deployment-build-select",
-                )
-                yield Input(
-                    placeholder="target build id or label",
-                    id="new-deployment-build",
-                )
-                yield Static("Executable", classes="new-deployment-field-label")
-                yield Input(
-                    placeholder="/path/to/vllm",
-                    id="new-deployment-executable",
-                )
+                with Vertical(id="nd-group-image"):
+                    yield Static("Docker image", classes="new-deployment-field-label")
+                    yield Input(
+                        placeholder="vllm/vllm-openai@sha256:...",
+                        id="new-deployment-image",
+                    )
+                    yield Static(
+                        "Blank = recipe/preset default. Pin a digest "
+                        "(vllm/vllm-openai@sha256:…) from Docker Hub for reproducibility.",
+                        id="new-deployment-image-help",
+                        classes="new-deployment-helper",
+                    )
+                with Vertical(id="nd-group-build"):
+                    yield Static("Build", classes="new-deployment-field-label")
+                    yield Select(
+                        self._build_options(),
+                        value="__custom__",
+                        allow_blank=False,
+                        id="new-deployment-build-select",
+                    )
+                    yield Input(
+                        placeholder="target build id or label",
+                        id="new-deployment-build",
+                    )
+                with Vertical(id="nd-group-executable"):
+                    yield Static("Executable", classes="new-deployment-field-label")
+                    yield Input(
+                        placeholder="/path/to/vllm",
+                        id="new-deployment-executable",
+                    )
             with Vertical(id="new-deployment-step-model"):
                 yield Static("Model source", classes="new-deployment-field-label")
                 yield Select(
                     [
                         ("Existing pin", "existing"),
-                        ("Pin HF repo", "pin_hf"),
-                        ("Adopt local path", "adopt_local"),
+                        ("Pin HF repo →", "pin_hf"),
+                        ("Adopt local path →", "adopt_local"),
                         ("Bare repo id", "bare"),
                     ],
                     value="existing",
                     allow_blank=False,
                     id="new-deployment-model-mode",
                 )
-                yield Static("Pinned model", classes="new-deployment-field-label")
-                yield Select(
-                    self._model_options(),
-                    value="__custom__",
-                    allow_blank=False,
-                    id="new-deployment-model-ref",
+                yield Static(
+                    "Pin HF repo / Adopt local path open a dedicated screen, then return here.",
+                    classes="new-deployment-helper",
                 )
-                yield Static("", id="new-deployment-model-state")
+                with Vertical(id="nd-group-pinned"):
+                    yield Static("Pinned model", classes="new-deployment-field-label")
+                    yield Select(
+                        self._model_options(),
+                        value="__custom__",
+                        allow_blank=False,
+                        id="new-deployment-model-ref",
+                    )
+                    yield Static("", id="new-deployment-model-state")
                 yield Static("", id="new-deployment-model-suggestions")
-                yield Static("Model", classes="new-deployment-field-label")
-                yield Input(
-                    placeholder="Qwen/Qwen3-32B or /agent/models/model",
-                    id="new-deployment-model",
-                )
+                with Vertical(id="nd-group-bare"):
+                    yield Static("Model", classes="new-deployment-field-label")
+                    yield Static(
+                        "No pin: the repo id is resolved at launch — no immutable "
+                        "commit, no pre-download. Pin it (mode above) for "
+                        "reproducibility.",
+                        id="new-deployment-bare-help",
+                        classes="new-deployment-helper",
+                    )
+                    yield Input(
+                        placeholder="Qwen/Qwen3-32B or /agent/models/model",
+                        id="new-deployment-model",
+                    )
                 yield Static("Revision", classes="new-deployment-field-label")
                 yield Input(
                     placeholder="main, tag, or commit",
@@ -283,6 +317,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                             allow_blank=False,
                             id="new-deployment-preset",
                         )
+                        yield Static(
+                            "",
+                            id="new-deployment-preset-help",
+                            classes="new-deployment-helper",
+                        )
                         yield Static("Host", classes="new-deployment-field-label")
                         yield Input(
                             value="127.0.0.1",
@@ -292,6 +331,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     with Vertical(classes="new-deployment-column"):
                         yield Static("Port", classes="new-deployment-field-label")
                         yield Input(placeholder="auto", id="new-deployment-port")
+                        yield Static(
+                            "Blank = auto-allocated on the target (collision-safe).",
+                            id="new-deployment-port-help",
+                            classes="new-deployment-helper",
+                        )
                         yield Static("Exposure", classes="new-deployment-field-label")
                         yield Select(
                             [("Local", "local"), ("LAN", "lan"), ("Public", "public")],
@@ -299,6 +343,32 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                             allow_blank=False,
                             id="new-deployment-exposure",
                         )
+                yield Static(
+                    "Ctrl+R Advanced — override the auto-derived served name, "
+                    "runs dir & container name",
+                    id="new-deployment-derived-hint",
+                    classes="new-deployment-helper",
+                )
+                with Vertical(id="nd-group-derived"):
+                    yield Static(
+                        "Served model name", classes="new-deployment-field-label"
+                    )
+                    yield Input(
+                        placeholder="auto — derived from the model",
+                        id="new-deployment-served-name",
+                    )
+                    yield Static("Runs dir", classes="new-deployment-field-label")
+                    yield Input(
+                        placeholder="auto — per-deployment under the state dir",
+                        id="new-deployment-runs-dir",
+                    )
+                    yield Static(
+                        "Container name", classes="new-deployment-field-label"
+                    )
+                    yield Input(
+                        placeholder="auto — vela-<name> (docker runtime only)",
+                        id="new-deployment-container-name",
+                    )
             with Vertical(id="new-deployment-step-review"):
                 yield Static("Review", classes="new-deployment-field-label")
                 yield Static(
@@ -312,17 +382,36 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-save-summary",
                 )
             yield Static("", id="new-deployment-error")
-            yield Static("", id="new-deployment-actions")
+            yield KeyHintBar(
+                [
+                    ("Ctrl+B", "Back"),
+                    ("Ctrl+N", "Next"),
+                    ("Ctrl+S", "Review"),
+                    ("Esc", "Cancel"),
+                ],
+                id="new-deployment-footer",
+            )
 
     def on_mount(self) -> None:
+        # Step containers are focus anchors: when a step has no visible Input,
+        # focusing the container keeps Textual's focus-restoration from
+        # grabbing a Select (which would swallow the Enter-walk).
+        for selector in self.STEP_IDS:
+            self.query_one(selector).can_focus = True
         self._apply_initial()
         self._refresh_step()
+        self._render_preset_help()
+        self._apply_runtime_disclosure()
+        self._apply_model_disclosure()
+        self._apply_advanced_disclosure()
+        if self.error_message:
+            self.query_one("#new-deployment-error", Static).update(self.error_message)
         self.call_later(self._queue_target_state_refresh)
         self._queue_model_suggestions()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
-        self.action_submit()
+        self.action_advance_or_submit()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if self._applying_initial:
@@ -335,6 +424,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             "new-deployment-model-revision",
             "new-deployment-port",
         }:
+            if event.input.id == "new-deployment-model":
+                self._refresh_name_suggestion()
             self._queue_model_suggestions()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -362,6 +453,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 event.stop()
                 self.dismiss({"action": runtime, "draft": self._draft_state()})
             else:
+                self._apply_runtime_disclosure()
                 self._queue_model_suggestions()
             return
         if event.select.id == "new-deployment-model-mode":
@@ -375,15 +467,21 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         "initial": self._pin_model_initial(mode),
                     }
                 )
+                return
+            self._apply_model_disclosure()
             return
         if event.select.id == "new-deployment-recipe":
             event.stop()
             self._apply_recipe(str(event.value or ""))
             return
+        if event.select.id == "new-deployment-preset":
+            self._render_preset_help()
+            return
         if event.select.id == "new-deployment-model-ref":
             event.stop()
             self._apply_model_ref(str(event.value or ""))
             self._refresh_model_state()
+            self._refresh_name_suggestion()
             self._queue_model_suggestions()
             return
         if event.select.id == "new-deployment-build-select":
@@ -392,18 +490,59 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             return
 
     def action_next_step(self) -> None:
+        # Detach focus BEFORE hiding the old step: Textual otherwise restores
+        # focus to the next focusable widget (a Select, which then swallows
+        # Enter) after our own focus handling has run.
+        self.set_focus(None)
         self.step_index = min(self.step_index + 1, len(self.STEP_TITLES) - 1)
         self._refresh_step()
+        self._focus_step_entry()
 
     def action_previous_step(self) -> None:
+        self.set_focus(None)
         self.step_index = max(self.step_index - 1, 0)
         self._refresh_step()
+        self._focus_step_entry()
+
+    def _focus_step_entry(self) -> None:
+        # Keep the Enter-walk chaining: focus the step's first Input so Enter
+        # advances again; with no Input (e.g. Review) clear focus so the
+        # screen-level Enter binding fires instead of a Select swallowing it.
+        try:
+            container = self.query_one(self.STEP_IDS[self.step_index])
+        except Exception:
+            return
+        for input_widget in container.query(Input):
+            if self._effectively_visible(input_widget, container):
+                input_widget.focus()
+                return
+        container.focus()
+
+    @staticmethod
+    def _effectively_visible(widget: Input, container: object) -> bool:
+        node = widget
+        while node is not None and node is not container:
+            if not node.display:
+                return False
+            node = node.parent
+        return True
+
+    def action_advance_or_submit(self) -> None:
+        # Enter walks the steps; only the Review step submits the wizard.
+        # Ctrl+S remains the submit-from-anywhere shortcut.
+        if self.step_index >= 4:
+            self.action_submit()
+        else:
+            self.action_next_step()
 
     def action_submit(self) -> None:
         try:
-            self.dismiss(self._collect_spec())
+            spec = self._collect_spec()
         except ValueError as exc:
             self.query_one("#new-deployment-error", Static).update(str(exc))
+            return
+        self.last_draft = self._draft_state()
+        self.dismiss(spec)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -422,10 +561,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         host = self._field_value("#new-deployment-host") or "127.0.0.1"
         port = self._field_value("#new-deployment-port")
         exposure = str(self.query_one("#new-deployment-exposure", Select).value or "local")
-        if not name:
-            raise ValueError("Name is required")
         if not model and model_ref is None:
             raise ValueError("Model is required")
+        if not name:
+            name = self._suggested_name()
+        if not name:
+            raise ValueError("Name is required")
         spec: dict[str, Any] = {
             "name": name,
             "target": target,
@@ -433,6 +574,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             "runtime": runtime,
             "overrides": {"server": {"host": host, "exposure": exposure}},
         }
+        served_name = self._field_value("#new-deployment-served-name")
+        if served_name:
+            spec["overrides"]["served_model_name"] = served_name
+        runs_dir = self._field_value("#new-deployment-runs-dir")
+        if runs_dir:
+            spec["overrides"]["launch"] = {"runs_dir": runs_dir}
+        container_name = self._field_value("#new-deployment-container-name")
+        if container_name:
+            spec["overrides"]["container_name"] = container_name
         if model:
             spec["model"] = model
         if model_ref is not None:
@@ -495,6 +645,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             "recipe": str(
                 self.query_one("#new-deployment-recipe", Select).value or "__custom__"
             ),
+            "served_model_name": self._field_value("#new-deployment-served-name"),
+            "runs_dir": self._field_value("#new-deployment-runs-dir"),
+            "container_name": self._field_value("#new-deployment-container-name"),
             "step_index": self.step_index,
         }
         if model_ref is not None:
@@ -546,6 +699,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 ("#new-deployment-executable", "executable"),
                 ("#new-deployment-host", "host"),
                 ("#new-deployment-port", "port"),
+                ("#new-deployment-served-name", "served_model_name"),
+                ("#new-deployment-runs-dir", "runs_dir"),
+                ("#new-deployment-container-name", "container_name"),
             ):
                 value = str(initial.get(key) or "").strip()
                 if value:
@@ -725,18 +881,73 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         names = {value for _, value in self._preset_options()}
         return "balanced" if "balanced" in names else next(iter(names))
 
+    def _suggested_name(self) -> str:
+        model = (
+            self._field_value("#new-deployment-model")
+            or self._selected_model_ref()
+            or ""
+        )
+        slug = "".join(
+            ch if ch.isalnum() or ch == "-" else "-"
+            for ch in str(model).split("/")[-1].lower()
+        ).strip("-")
+        target = self._selected_target() or self.target_label
+        if not slug:
+            return ""
+        return f"{slug}-{target}" if target else slug
+
+    def _refresh_name_suggestion(self) -> None:
+        suggestion = self._suggested_name()
+        name_input = self.query_one("#new-deployment-name", Input)
+        name_input.placeholder = (
+            f"{suggestion} (blank uses it)" if suggestion else "qwen3-32b-bf16"
+        )
+
+    def action_toggle_advanced(self) -> None:
+        self._advanced_visible = not self._advanced_visible
+        self._apply_advanced_disclosure()
+
+    def _apply_advanced_disclosure(self) -> None:
+        self.query_one("#nd-group-derived").display = self._advanced_visible
+        self.query_one("#new-deployment-derived-hint").display = not self._advanced_visible
+
+    def _apply_runtime_disclosure(self) -> None:
+        runtime = str(self.query_one("#new-deployment-runtime", Select).value or "process")
+        visible = {"docker": "image", "build": "build", "executable": "executable"}.get(runtime)
+        for key in ("image", "build", "executable"):
+            self.query_one(f"#nd-group-{key}").display = key == visible
+
+    def _apply_model_disclosure(self) -> None:
+        mode = str(self.query_one("#new-deployment-model-mode", Select).value or "existing")
+        if mode in {"pin_hf", "adopt_local"}:
+            return  # handoffs dismiss immediately; keep the current state
+        self.query_one("#nd-group-pinned").display = mode == "existing"
+        self.query_one("#nd-group-bare").display = mode == "bare"
+
+    def _render_preset_help(self) -> None:
+        selected = str(self.query_one("#new-deployment-preset", Select).value or "")
+        description = ""
+        for preset in self.presets:
+            if str(preset.get("name") or "") == selected:
+                description = str(preset.get("description") or "")
+                break
+        self.query_one("#new-deployment-preset-help", Static).update(description)
+
     def _apply_recipe(self, key: str) -> None:
         if key == "__custom__":
             return
         recipe = self._recipe_by_key(key)
         if recipe is None:
             return
+        applied: list[str] = []
         name = _recipe_name(recipe)
         if name:
             self.query_one("#new-deployment-name", Input).value = name
+            applied.append(f"name={name}")
         runtime = str(recipe.get("runtime") or "process")
         if runtime in {"process", "docker", "build", "executable"}:
             self.query_one("#new-deployment-runtime", Select).value = runtime
+            applied.append(f"runtime={runtime}")
         model = str(recipe.get("model") or "").strip()
         if not model:
             models = recipe.get("models")
@@ -744,9 +955,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 model = str(models[0] or "").strip()
         if model:
             self.query_one("#new-deployment-model", Input).value = model
+            self.query_one("#new-deployment-model-mode", Select).value = "bare"
+            applied.append(f"model={model}")
         image = str(recipe.get("image") or "").strip()
         if image:
             self.query_one("#new-deployment-image", Input).value = image
+            applied.append("image pinned")
         build = str(recipe.get("build") or "").strip()
         if build:
             self.query_one("#new-deployment-build", Input).value = build
@@ -762,8 +976,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 self.query_one("#new-deployment-host", Input).value = host
             if port is not None:
                 self.query_one("#new-deployment-port", Input).value = str(port)
+                applied.append(f"port={port}")
             if exposure in {"local", "lan", "public"}:
                 self.query_one("#new-deployment-exposure", Select).value = exposure
+                applied.append(f"exposure={exposure}")
+        self.query_one("#new-deployment-recipe-note", Static).update(
+            "Recipe applied: " + " · ".join(applied)
+            if applied
+            else "Recipe applied (no fields changed)."
+        )
 
     def _apply_model_ref(self, model_ref: str) -> None:
         if model_ref == "__custom__":
@@ -913,22 +1134,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def _refresh_step(self) -> None:
         for index, selector in enumerate(self.STEP_IDS):
             self.query_one(selector).display = index == self.step_index
+        self.query_one("#new-deployment-steps", StepIndicator).set_current(self.step_index)
         self.query_one("#new-deployment-current-step", Static).update(
             f"Step {self.step_index + 1} of {len(self.STEP_TITLES)}: "
             f"{self.STEP_TITLES[self.step_index]}"
         )
-        self.query_one("#new-deployment-actions", Static).update(self._actions_text())
         self._focus_current_step()
-
-    def _actions_text(self) -> str:
-        parts: list[str] = []
-        if self.step_index > 0:
-            parts.append("Ctrl+B Back")
-        if self.step_index < len(self.STEP_TITLES) - 1:
-            parts.append("Ctrl+N Next")
-        parts.append("Ctrl+S Review")
-        parts.append("Esc Cancel")
-        return "   ".join(parts)
 
     def _focus_current_step(self) -> None:
         selector = {
@@ -967,7 +1178,7 @@ def _model_suggestions_summary(payload: dict[str, Any]) -> str:
             if field in engine and engine[field] not in (None, "")
         ]
         if hints:
-            parts.append("hints " + " ".join(hints))
+            parts.append("suggested: " + " ".join(hints))
     warnings = payload.get("warnings")
     if isinstance(warnings, list) and warnings:
         parts.append("warnings " + ", ".join(str(item) for item in warnings))
@@ -1024,9 +1235,9 @@ def _model_state_summary(model: dict[str, Any]) -> str:
     cache = str(model.get("cache_state") or "unknown").strip() or "unknown"
     parts = [f"cache: {cache}"]
     if model.get("gated") and (model.get("token_required") or model.get("gated")):
-        parts.append("auth: gated, requires HF_TOKEN")
+        parts.append("auth: gated, requires HF_TOKEN (agent env or config env: block)")
     elif model.get("token_required"):
-        parts.append("auth: requires HF_TOKEN")
+        parts.append("auth: requires HF_TOKEN (agent env or config env: block)")
     return "   ".join(parts)
 
 
@@ -1051,53 +1262,48 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentReviewScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #new-deployment-review-panel {{
         width: 92;
-        max-height: 38;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #new-deployment-review-title {{
-        color: {TEXT};
-        text-style: bold;
-    }}
+    #new-deployment-review-title {{ color: {CYAN}; text-style: bold; }}
 
-    #new-deployment-review-steps {{
-        margin-bottom: 1;
-        color: {ACCENT};
-    }}
+    #new-deployment-review-steps {{ margin-bottom: 1; }}
 
     .new-deployment-review-label {{
         margin-top: 1;
-        color: {TEXT};
+        color: {TEXT_SECONDARY};
         text-style: bold;
     }}
 
     #new-deployment-review-summary,
     #new-deployment-review-derived,
-    #new-deployment-review-warnings,
-    #new-deployment-review-preview {{
-        color: {TEXT};
+    #new-deployment-review-warnings {{
+        color: {TEXT_PRIMARY};
     }}
 
     #new-deployment-review-preview {{
         max-height: 12;
-        background: #091015;
+        overflow-y: auto;
+        border: round {BORDER_SUBTLE};
+        background: {BG_INSET};
+        color: {GREEN};
         padding: 0 1;
     }}
 
-    #new-deployment-review-actions {{
-        margin-top: 1;
-        color: {GOOD};
-    }}
+    #new-deployment-review-actions {{ margin-top: 1; }}
     """
 
     BINDINGS = [
+        ("b", "back", "Back"),
         ("f", "customize", "Flags"),
         Binding("s", "save_smoke", "Smoke", priority=True),
         ("ctrl+s", "save", "Save"),
@@ -1123,9 +1329,8 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-review-panel"):
             yield Static("Review Deployment", id="new-deployment-review-title")
-            yield Static(
-                "Target -> Runtime -> Model -> Customize -> Review -> Save",
-                id="new-deployment-review-steps",
+            yield StepIndicator(
+                NewDeploymentScreen.STEP_TITLES, current=4, id="new-deployment-review-steps"
             )
             yield Static("Summary", classes="new-deployment-review-label")
             yield Static(self._summary_text(), id="new-deployment-review-summary")
@@ -1135,10 +1340,19 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             yield Static(self._warnings_text(), id="new-deployment-review-warnings")
             yield Static("Resolved command", classes="new-deployment-review-label")
             yield Static(self.preview, id="new-deployment-review-preview")
-            yield Static(
-                "F Flags   Ctrl+S Save   S Save & Smoke   Esc Cancel",
+            yield KeyHintBar(
+                [
+                    ("B", "Back"),
+                    ("F", "Flags"),
+                    ("Ctrl+S", "Save"),
+                    ("S", "Save & Smoke"),
+                    ("Esc", "Cancel"),
+                ],
                 id="new-deployment-review-actions",
             )
+
+    def action_back(self) -> None:
+        self.dismiss({"action": "back", "config": self.config})
 
     def action_customize(self) -> None:
         self.dismiss(

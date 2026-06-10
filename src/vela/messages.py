@@ -59,6 +59,14 @@ class HealthChanged(LoaderMessage):
 @dataclass
 class ProcessExited(LoaderMessage):
     returncode: int | None
+    # Spec §6.3: killed-by-signal. Derived from the POSIX negative returncode
+    # when not given explicitly.
+    signaled: bool | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.signaled is None:
+            self.signaled = self.returncode is not None and self.returncode < 0
 
 
 @dataclass

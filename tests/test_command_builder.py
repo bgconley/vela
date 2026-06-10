@@ -12,6 +12,7 @@ from vela.engine.command_builder import (
     build_command,
     is_local_model_reference,
     mask_preview_value,
+    render_preview,
     render_standalone_docker_script,
 )
 from vela.engine.docker_runtime import DockerErrorKind, classify_docker_error
@@ -473,6 +474,33 @@ def test_secret_masking_in_preview() -> None:
     assert mask_preview_value("HF_TOKEN", "hf_secret") == "••••"
     assert mask_preview_value("VLLM_API_KEY", "sk-secret") == "••••"
     assert mask_preview_value("CUDA_VISIBLE_DEVICES", "0") == "0"
+
+
+def test_render_preview_puts_each_env_var_on_its_own_line(tmp_path: Path) -> None:
+    # The handoff's "env wall" fix: one env var per line, command on its own
+    # line — not a single space-joined line.
+    preview = render_preview(
+        ["vllm", "serve", "org/model"],
+        {
+            "VLLM_LOGGING_LEVEL": "INFO",
+            "VLLM_API_KEY": "sk-secret",
+            "PYTHONUNBUFFERED": "1",
+        },
+        tmp_path,
+    )
+    assert preview.splitlines() == [
+        f"cwd={tmp_path}",
+        "PYTHONUNBUFFERED=1",
+        "VLLM_API_KEY='••••'",
+        "VLLM_LOGGING_LEVEL=INFO",
+        "vllm serve org/model",
+    ]
+
+
+def test_render_preview_without_env_keeps_two_line_shape(tmp_path: Path) -> None:
+    # Pinned elsewhere by the smoke suite: "cwd=...\n<argv>" when env is empty.
+    preview = render_preview(["vllm", "serve", "org/model"], {}, tmp_path)
+    assert preview == f"cwd={tmp_path}\nvllm serve org/model"
 
 
 def test_secret_like_argv_values_are_masked_in_preview() -> None:

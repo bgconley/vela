@@ -195,13 +195,12 @@ def mask_preview_value(key: str, value: str) -> str:
 
 
 def render_preview(argv: list[str], env: dict[str, str], cwd: Path) -> str:
-    env_text = " ".join(
+    # One env var per line so the preview never degrades into an "env wall".
+    env_lines = [
         f"{key}={shlex.quote(mask_preview_value(key, value))}" for key, value in sorted(env.items())
-    )
+    ]
     argv_text = " ".join(shlex.quote(scrub_text(part)) for part in argv)
-    if env_text:
-        return f"cwd={cwd}\n{env_text} {argv_text}"
-    return f"cwd={cwd}\n{argv_text}"
+    return "\n".join([f"cwd={cwd}", *env_lines, argv_text])
 
 
 def render_standalone_docker_script(result: CommandBuildResult, *, name: str | None = None) -> str:

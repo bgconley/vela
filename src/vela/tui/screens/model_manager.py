@@ -2,48 +2,45 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from vela.tui.theme import ACCENT, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    AMBER,
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_PRIMARY,
+)
+from vela.tui.widgets import KeyHintBar, MasterDetail
 
 
 class ModelManagerScreen(ModalScreen):
     CSS = f"""
     ModelManagerScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #model-manager-panel {{
         width: 104;
-        max-height: 34;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #model-manager-list {{
-        width: 50;
-        height: auto;
-        max-height: 20;
-        color: {TEXT};
-    }}
-
-    #model-manager-detail {{
-        width: 1fr;
-        height: auto;
-        max-height: 20;
-        color: {TEXT};
-    }}
-
-    #model-manager-footer {{
-        margin-top: 1;
-        color: #8ba4ae;
-    }}
+    #model-manager-list {{ width: 50; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
+    #model-manager-detail {{ width: 1fr; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
+    #model-manager-footer {{ margin-top: 1; }}
     """
 
     BINDINGS = [
@@ -58,21 +55,32 @@ class ModelManagerScreen(ModalScreen):
         ("escape", "cancel", "Close"),
     ]
 
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(
+        self, payload: dict[str, Any], *, focus_model: str | None = None
+    ) -> None:
         super().__init__(id="model-manager")
         models = payload.get("models", [])
         self.models = [dict(item) for item in models if isinstance(item, dict)]
-        self.selected_index = 0
+        self.selected_index = self._focus_index(focus_model)
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="model-manager-panel"):
-            with Horizontal():
-                yield Static("", id="model-manager-list")
-                yield Static("", id="model-manager-detail")
-            yield Static(
-                "Enter Select   d Download   p Pin   r Refresh   v Verify   x Remove   Esc Close",
+        yield MasterDetail(
+            Static(id="model-manager-list"),
+            Static(id="model-manager-detail"),
+            footer=KeyHintBar(
+                [
+                    ("⏎", "Select"),
+                    ("d", "Download"),
+                    ("p", "Pin"),
+                    ("r", "Refresh"),
+                    ("v", "Verify"),
+                    ("x", "Remove"),
+                    ("Esc", "Close"),
+                ],
                 id="model-manager-footer",
-            )
+            ),
+            id="model-manager-panel",
+        )
 
     def on_mount(self) -> None:
         self._refresh()
@@ -139,50 +147,78 @@ class ModelManagerScreen(ModalScreen):
         self.query_one("#model-manager-list", Static).update(self._render_list())
         self.query_one("#model-manager-detail", Static).update(self._render_detail())
 
-    def _render_list(self) -> str:
-        lines = ["Model Manager", ""]
+    def _render_list(self) -> Text:
+        text = Text()
+        text.append("Model Manager\n", style=f"bold {CYAN}")
         if not self.models:
-            lines.append("No models found")
-            return "\n".join(lines)
+            text.append(
+                "\nNo models yet — press p to pin one (HF repo id, local path, or URL)",
+                style=TEXT_FAINT,
+            )
+            return text
+        text.append("\n")
         for index, model in enumerate(self.models):
-            marker = ">" if index == self.selected_index else " "
+            selected = index == self.selected_index
+            text.append(">" if selected else " ", style=CYAN if selected else TEXT_FAINT)
+            text.append(" ")
+            text.append(f"{_model_status_dot(model)} ", style=_model_status_color(model))
+            text.append(
+                _model_label(model),
+                style=f"bold {TEXT_PRIMARY}" if selected else TEXT_PRIMARY,
+            )
             revision = _revision_label(model)
             gated = " 🔒" if model.get("gated") else ""
-            lines.append(
-                f"{marker} {_model_status_dot(model)} {_model_label(model)}  "
-                f"{_quant_label(model)}  {_size_label(model)} @{revision}{gated}"
+            text.append(
+                f"  {_quant_label(model)}  {_size_label(model)} @{revision}{gated}\n",
+                style=TEXT_FAINT,
             )
-        return "\n".join(lines)
+        return text
 
-    def _render_detail(self) -> str:
+    def _render_detail(self) -> Text:
         model = self._selected_model()
         if model is None:
-            return "No model selected"
+            return Text("No model selected", style=TEXT_FAINT)
         files = _dict_or_empty(model.get("files"))
-        lines = [
-            "Detail",
-            "",
-            f"name: {_model_label(model)}",
-            f"entry_id: {model.get('entry_id') or '-'}",
-            f"source: {model.get('source') or '-'}",
-            f"repo: {model.get('repo_id') or '-'}",
-            f"revision: {_revision_detail(model)}",
-            f"cache: {model.get('cache_state') or 'unknown'}",
-            f"size: {_size_label(model)}",
-            f"files: {_files_label(files)}",
+        text = Text()
+        text.append(f"{_model_label(model)}\n", style=f"bold {TEXT_PRIMARY}")
+        text.append("\n")
+        rows = [
+            ("entry_id", str(model.get("entry_id") or "-")),
+            ("source", str(model.get("source") or "-")),
+            ("repo", str(model.get("repo_id") or "-")),
+            ("revision", _revision_detail(model)),
+            ("cache", str(model.get("cache_state") or "unknown")),
+            ("size", _size_label(model)),
         ]
         auth = _auth_detail(model)
         if auth:
-            lines.insert(-1, f"auth: {auth}")
+            rows.append(("auth", auth))
+        config_refs = model.get("config_refs")
+        if isinstance(config_refs, list):
+            rows.append(("used_by", _config_refs_label(config_refs)))
+        rows.append(("files", _files_label(files)))
         if _is_url_model(model):
-            lines.append("download: launch-time-only")
-            lines.append(f"url: {model.get('url') or '-'}")
-        return "\n".join(lines)
+            rows.append(("download", "launch-time-only"))
+            rows.append(("url", str(model.get("url") or "-")))
+        for key, value in rows:
+            text.append(f"{key}: ", style=TEXT_FAINT)
+            text.append(f"{value}\n", style=TEXT_PRIMARY)
+        return text
 
     def _selected_model(self) -> dict[str, Any] | None:
         if not self.models:
             return None
         return self.models[self.selected_index]
+
+    def _focus_index(self, focus_model: str | None) -> int:
+        if focus_model:
+            for index, model in enumerate(self.models):
+                if focus_model in {
+                    str(model.get("entry_id") or ""),
+                    str(model.get("display_name") or ""),
+                }:
+                    return index
+        return 0
 
 
 def _model_label(model: dict[str, Any]) -> str:
@@ -288,6 +324,19 @@ def _model_status_dot(model: dict[str, Any]) -> str:
     return "○"
 
 
+def _model_status_color(model: dict[str, Any]) -> str:
+    state = str(model.get("cache_state") or "").lower()
+    if state in {"cached", "ready", "local"}:
+        return GREEN
+    if state in {"partial", "drift"}:
+        return AMBER
+    if state in {"downloading", "in-progress"}:
+        return CYAN
+    if state in {"missing", "unresolved"}:
+        return RED
+    return TEXT_FAINT
+
+
 def _size_label(model: dict[str, Any]) -> str:
     unique = _size_value(model.get("unique_size_bytes"))
     nominal = _size_value(model.get("nominal_size_bytes"))
@@ -299,13 +348,25 @@ def _size_label(model: dict[str, Any]) -> str:
     return _gb_label(size)
 
 
+_HF_TOKEN_WHERE = "(agent env or config env: block)"
+
+
+def _config_refs_label(refs: list[object]) -> str:
+    names = [str(item) for item in refs if str(item)]
+    if not names:
+        return "0 configs"
+    visible = names[:3]
+    suffix = f", +{len(names) - len(visible)}" if len(names) > len(visible) else ""
+    return f"{len(names)} ({', '.join(visible)}{suffix})"
+
+
 def _auth_detail(model: dict[str, Any]) -> str:
     gated = bool(model.get("gated"))
     token_required = bool(model.get("token_required")) or gated
     if gated and token_required:
-        return "gated, requires HF_TOKEN"
+        return f"gated, requires HF_TOKEN {_HF_TOKEN_WHERE}"
     if token_required:
-        return "requires HF_TOKEN"
+        return f"requires HF_TOKEN {_HF_TOKEN_WHERE}"
     return ""
 
 

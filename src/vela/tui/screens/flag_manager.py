@@ -4,6 +4,7 @@ import shlex
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -13,36 +14,69 @@ from textual.widgets import Checkbox, Input, Select, Static
 from vela.config.schema import ModelConfig
 from vela.engine.command_builder import ENGINE_VALUE_FIELDS
 from vela.engine.profile import bundled_profile
-from vela.tui.theme import ACCENT, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    AMBER,
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    VIOLET,
+)
+from vela.tui.widgets import KeyHintBar
+from vela.tui.widgets.tags import is_recipe_flag, source_tag
+
+# Plain-language, one-line descriptions for the modeled engine flags (the
+# self-explaining-fields preference). Keyed by engine field name.
+_FLAG_DESCRIPTIONS = {
+    "tensor_parallel_size": "Shards the model across N GPUs on one node (TP).",
+    "pipeline_parallel_size": "Splits the model's layers across N GPUs/nodes (PP).",
+    "gpu_memory_utilization": "Fraction (0-1) of each GPU's memory vLLM may use.",
+    "max_model_len": "Max context length (tokens) accepted per request.",
+    "dtype": "Weight / compute precision (auto, float16, bfloat16).",
+    "kv_cache_dtype": "Precision of the KV cache (e.g. auto, fp8).",
+    "quantization": "Weight quantization the build was compiled for.",
+    "load_format": "How weights load (auto, safetensors). Usually auto.",
+    "swap_space": "CPU swap space (GiB/GPU) for KV-cache overflow.",
+    "block_size": "KV-cache block size in tokens. Leave default.",
+    "seed": "Random seed for reproducible sampling.",
+    "max_num_seqs": "Max concurrent sequences (batch width).",
+    "enforce_eager": "Disable CUDA-graph capture (debugging). Slower.",
+}
 
 
 class FlagManagerScreen(ModalScreen):
     CSS = f"""
     FlagManagerScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #flag-manager-panel {{
         width: 104;
-        max-height: 34;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
     #flag-manager-list {{
-        width: 44;
+        width: 46;
         height: auto;
-        max-height: 21;
-        color: {TEXT};
+        max-height: 24;
+        color: {TEXT_PRIMARY};
     }}
 
     #flag-manager-detail {{
         width: 1fr;
         height: auto;
-        max-height: 21;
-        color: {TEXT};
+        max-height: 14;
+        color: {TEXT_PRIMARY};
     }}
 
     #flag-manager-controls {{
@@ -67,10 +101,7 @@ class FlagManagerScreen(ModalScreen):
         margin-bottom: 1;
     }}
 
-    #flag-manager-footer {{
-        margin-top: 1;
-        color: #8ba4ae;
-    }}
+    #flag-manager-footer {{ margin-top: 1; }}
     """
 
     BINDINGS = [
@@ -130,6 +161,10 @@ class FlagManagerScreen(ModalScreen):
                     value=self.show_changed_only,
                     id="flag-manager-changed-only",
                 )
+            yield Static(
+                self._preset_description(),
+                id="flag-manager-preset-help",
+            )
             with Horizontal():
                 yield Static(self._render_list(), id="flag-manager-list")
                 with Vertical(id="flag-manager-editor"):
@@ -144,14 +179,27 @@ class FlagManagerScreen(ModalScreen):
                         id="flag-manager-extra-args",
                     )
                     yield Static(self._render_detail(), id="flag-manager-detail")
-            yield Static(
-                "↑↓ Select   edit value   edit raw args   d Default   "
-                "p Preset   x Changed-only   Ctrl+S Save   Esc Close",
+            yield KeyHintBar(
+                [
+                    ("↑↓", "Select"),
+                    ("Tab", "Edit value"),
+                    ("d", "Default"),
+                    ("p", "Preset"),
+                    ("x", "Changed-only"),
+                    ("Ctrl+S", "Save"),
+                    ("Esc", "Close"),
+                ],
                 id="flag-manager-footer",
             )
 
     def on_mount(self) -> None:
         self.call_later(lambda: self.set_focus(None))
+
+    def _preset_description(self) -> str:
+        for preset in self.presets:
+            if str(preset.get("name") or "") == (self.selected_preset or ""):
+                return str(preset.get("description") or "")
+        return ""
 
     def action_previous(self) -> None:
         if self.modeled:
@@ -427,53 +475,112 @@ class FlagManagerScreen(ModalScreen):
             )
         self._refresh()
 
-    def _render_list(self) -> str:
-        lines = [
-            "Flag Manager",
-            f"build: {_build_label(self.config, self.metadata)}",
-            f"config: {self.config.name}",
-            "",
-            (
-                f"modeled {len(self.modeled)} · passthrough {len(self.passthrough)} · "
-                f"unknown {len(self.unknown)}"
-            ),
-            "",
-            "MODELED",
-        ]
+    def _render_list(self) -> Text:
+        text = Text()
+        text.append("Flag Manager\n", style=f"bold {CYAN}")
+        text.append(f"build: {_build_label(self.config, self.metadata)}\n", style=TEXT_FAINT)
+        text.append(f"config: {self.config.name}\n", style=TEXT_FAINT)
+        text.append("\n")
+        text.append(
+            f"modeled {len(self.modeled)} · passthrough {len(self.passthrough)} · "
+            f"unknown {len(self.unknown)}\n",
+            style=TEXT_SECONDARY,
+        )
+        text.append(
+            "modeled = typed flags this build understands · passthrough = raw args "
+            "forwarded as-is · unknown = not recognized by this build\n",
+            style=TEXT_FAINT,
+        )
+        text.append("\n")
+        text.append("MODELED\n", style=f"bold {TEXT_SECONDARY}")
         if self.modeled:
-            lines.extend(
-                f"{'>' if index == self.selected_index else ' '} {_flag_value_text(item)}"
-                for index, item in enumerate(self.modeled)
-            )
+            for index, item in enumerate(self.modeled):
+                self._append_modeled_row(text, index, item)
         else:
-            lines.append("  none")
-        lines.append("PASSTHROUGH")
+            text.append("  none\n", style=TEXT_FAINT)
+        text.append("PASSTHROUGH\n", style=f"bold {TEXT_SECONDARY}")
         if self.passthrough:
-            lines.extend(f"  {item}" for item in self.passthrough)
+            for item in self.passthrough:
+                text.append("  ")
+                text.append(f"{item}\n", style=VIOLET)
         else:
-            lines.append("  none")
-        lines.append("UNKNOWN-TO-BUILD")
+            text.append("  none\n", style=TEXT_FAINT)
+        text.append("UNKNOWN-TO-BUILD\n", style=f"bold {TEXT_SECONDARY}")
         if self.unknown:
-            lines.extend(f"  {item}" for item in self.unknown)
+            for item in self.unknown:
+                text.append("  ")
+                text.append(f"{item}\n", style=AMBER)
         else:
-            lines.append("  none")
-        return "\n".join(lines)
+            text.append("  none\n", style=TEXT_FAINT)
+        return text
 
-    def _render_detail(self) -> str:
-        lines = ["Editor + live preview", "", "Resolved command"]
+    def _append_modeled_row(self, text: Text, index: int, item: dict[str, object]) -> None:
+        selected = index == self.selected_index
+        changed = bool(item.get("changed"))
+        text.append(">" if selected else " ", style=CYAN if selected else TEXT_FAINT)
+        text.append(" ")
+        text.append("*" if changed else " ", style=AMBER if changed else TEXT_FAINT)
+        text.append(" ")
+        label = str(item["label"])
+        value = str(item.get("value") or "unset")
+        text.append(
+            f"{label} = {value}",
+            style=f"bold {TEXT_PRIMARY}" if selected else CYAN,
+        )
+        if is_recipe_flag(str(item.get("field"))):
+            text.append(" ")
+            text.append_text(source_tag("recipe"))
+        text.append("\n")
+
+    def _render_detail(self) -> Text:
+        text = Text()
+        item = self._selected_item()
+        if item is not None:
+            self._append_flag_detail(text, item)
+            text.append("\n")
+        text.append("Resolved command\n", style=f"bold {TEXT_SECONDARY}")
         if self.extra_args_error:
-            lines.append(self.extra_args_error)
-            lines.append("")
+            text.append(f"{self.extra_args_error}\n", style=RED)
         if self.preview:
-            lines.extend(self.preview.splitlines())
+            for line in self.preview.splitlines():
+                text.append(f"{line}\n", style=GREEN)
         else:
-            lines.append("Preview unavailable")
-        warnings = self.warnings
-        if warnings:
-            lines.append("")
-            lines.append(f"warnings {len(warnings)}")
-            lines.extend(f"- {item}" for item in warnings)
-        return "\n".join(lines)
+            text.append("Preview unavailable\n", style=TEXT_FAINT)
+        if self.warnings:
+            text.append(f"\nwarnings {len(self.warnings)}\n", style=AMBER)
+            for warning in self.warnings:
+                text.append(f"- {warning}\n", style=AMBER)
+        return text
+
+    def _append_flag_detail(self, text: Text, item: dict[str, object]) -> None:
+        field = str(item.get("field"))
+        label = str(item.get("label"))
+        recipe = is_recipe_flag(field)
+        text.append(label, style=f"bold {TEXT_PRIMARY}")
+        if recipe:
+            text.append(" ")
+            text.append_text(source_tag("recipe"))
+        text.append("\n")
+        description = _FLAG_DESCRIPTIONS.get(field)
+        if description:
+            text.append(f"{description}\n", style=TEXT_SECONDARY)
+        value = str(item.get("value") or "unset")
+        preset_value = item.get("preset_value")
+        preset_text = "—" if preset_value is None else str(preset_value)
+        text.append("value: ", style=TEXT_FAINT)
+        text.append(value, style=TEXT_PRIMARY)
+        text.append("  ·  preset: ", style=TEXT_FAINT)
+        text.append(preset_text, style=TEXT_PRIMARY)
+        text.append("  ·  → ", style=TEXT_FAINT)
+        text.append(f"engine.{field}\n", style=CYAN)
+        if recipe:
+            text.append(
+                "Recipe-protected — the local Blackwell sm_120 recipe is the "
+                "authority for this flag; changing it may diverge from the "
+                "validated stack. To change precision safely, switch recipe "
+                "or preset instead.\n",
+                style=AMBER,
+            )
 
 
 def _modeled_flags(config: ModelConfig, metadata: dict[str, Any]) -> list[dict[str, str]]:
@@ -635,12 +742,6 @@ def _flag_name(token: str) -> str | None:
     if not token.startswith("--"):
         return None
     return token.split("=", 1)[0]
-
-
-def _flag_value_text(item: dict[str, object]) -> str:
-    marker = "*" if item.get("changed") else " "
-    value = str(item.get("value") or "unset")
-    return f"{marker} {item['label']} = {value} -> {item['target']}"
 
 
 def _quote_extra_args(extra_args: list[str]) -> str:

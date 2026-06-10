@@ -155,6 +155,24 @@ def level_for_line(text: str) -> str | None:
     return "WARNING" if level == "WARN" else level
 
 
+# Known-benign shutdown/teardown noise that scares operators but is harmless
+# (the screenshot-#7 NCCL/torch line). Extend as more benign patterns surface.
+BENIGN_PATTERNS = ("destroy_process_group() was not called",)
+
+
+def display_level_for_line(text: str) -> str | None:
+    """Classify a log line for *display* styling.
+
+    Known-benign noise is downgraded to ``"BENIGN"`` so the TUI dims it instead
+    of styling it as a warning/error. This is display-only: the error-detecting
+    FSM keeps using :func:`level_for_line` unchanged.
+    """
+    cleaned = strip_ansi_controls(text)
+    if any(pattern in cleaned for pattern in BENIGN_PATTERNS):
+        return "BENIGN"
+    return level_for_line(text)
+
+
 def is_pty_eof(exc: OSError) -> bool:
     return exc.errno == errno.EIO
 

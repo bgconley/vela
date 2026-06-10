@@ -2,13 +2,37 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from vela.config.targets import TargetConfig, TargetsRegistry
-from vela.tui.theme import ACCENT, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    AMBER,
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
+from vela.tui.widgets import KeyHintBar, MasterDetail, summarize_capabilities
+
+_FOOTER_HINTS = [
+    ("↑↓", "Select"),
+    ("⏎", "Switch"),
+    ("n", "New"),
+    ("e", "Edit"),
+    ("b", "Bootstrap"),
+    ("p", "Push"),
+    ("R", "Reconnect"),
+    ("x", "Remove"),
+    ("Esc", "Close"),
+]
 
 
 @dataclass(frozen=True)
@@ -21,27 +45,31 @@ class TargetManagerScreen(ModalScreen):
     CSS = f"""
     TargetManagerScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #target-manager-panel {{
-        width: 84;
-        max-height: 32;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        width: 100;
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
     #target-manager-list {{
+        width: 40;
         height: auto;
-        max-height: 14;
-        color: {TEXT};
+        color: {TEXT_PRIMARY};
     }}
 
     #target-manager-detail {{
-        margin-top: 1;
-        color: {TEXT};
+        width: 1fr;
+        height: auto;
+        color: {TEXT_PRIMARY};
     }}
+
+    #target-manager-footer {{ margin-top: 1; }}
     """
 
     BINDINGS = [
@@ -54,6 +82,7 @@ class TargetManagerScreen(ModalScreen):
         ("p", "push_config", "Push config"),
         ("R", "reconnect", "Reconnect"),
         ("x", "remove", "Remove"),
+        ("v", "view_capabilities", "View all capabilities"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -79,11 +108,15 @@ class TargetManagerScreen(ModalScreen):
         self.active_runs = [dict(run) for run in active_runs or []]
         self.gpu_summary = gpu_summary
         self.selected_index = self._active_index()
+        self._show_all_capabilities = False
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="target-manager-panel"):
-            yield Static("", id="target-manager-list")
-            yield Static("", id="target-manager-detail")
+        yield MasterDetail(
+            Static(id="target-manager-list"),
+            Static(id="target-manager-detail"),
+            footer=KeyHintBar(_FOOTER_HINTS, id="target-manager-footer"),
+            id="target-manager-panel",
+        )
 
     def on_mount(self) -> None:
         self._refresh()
@@ -143,49 +176,101 @@ class TargetManagerScreen(ModalScreen):
             return
         self.dismiss(TargetManagerRequest("remove", target.name))
 
+    def action_view_capabilities(self) -> None:
+        self._show_all_capabilities = not self._show_all_capabilities
+        self._refresh()
+
     def _refresh(self) -> None:
         self.query_one("#target-manager-list", Static).update(self._render_list())
         self.query_one("#target-manager-detail", Static).update(self._render_detail())
 
-    def _render_list(self) -> str:
-        lines = ["Target Manager", ""]
+    def _render_list(self) -> Text:
+        text = Text()
+        text.append("Target Manager\n", style=f"bold {CYAN}")
         if not self.targets:
-            lines.append("No targets configured")
-            return "\n".join(lines)
+            text.append("\nNo targets configured", style=TEXT_FAINT)
+            return text
+        text.append("\n")
         for index, target in enumerate(self.targets):
-            marker = ">" if index == self.selected_index else " "
-            dot = (
-                _connection_dot(self.connection_state)
-                if target.name == self.active_target
-                else "○"
-            )
+            selected = index == self.selected_index
+            if target.name == self.active_target:
+                dot = _connection_dot(self.connection_state)
+                dot_color = _connection_color(self.connection_state)
+            else:
+                dot = "○"
+                dot_color = TEXT_FAINT
             host = target.host or "-"
-            lines.append(
-                f"{marker} {dot} {target.name}  {target.transport.value}  {host}"
+            marker = ">" if selected else " "
+            text.append(f"{marker} ", style=CYAN if selected else TEXT_FAINT)
+            text.append(f"{dot} ", style=dot_color)
+            text.append(
+                target.name,
+                style=f"bold {TEXT_PRIMARY}" if selected else TEXT_SECONDARY,
             )
-        return "\n".join(lines)
+            text.append(f"  {target.transport.value}  {host}\n", style=TEXT_FAINT)
+        return text
 
-    def _render_detail(self) -> str:
+    def _render_detail(self) -> Text:
         target = self._selected_target()
         if target is None:
-            return "No target selected"
-        lines = [
-            f"name: {target.name}",
-            f"transport: {target.transport.value}",
-            f"host: {target.host or '-'}",
-            f"workdir: {_path_or_dash(target.workdir)}",
-            f"venv: {_path_or_dash(target.venv)}",
-        ]
-        if target.name == self.active_target:
-            lines.append(f"connection: {self.connection_state}")
-            if self.connection_detail:
-                lines.append(f"detail: {self.connection_detail}")
-            lines.extend(_agent_detail_lines(self.agent_info, self.last_seen))
-            lines.extend(_runtime_detail_lines(self.active_runs, self.gpu_summary))
-        else:
-            lines.append("connection: inactive")
-        lines.append("actions: Enter switch | B bootstrap | P push config | E edit")
-        return "\n".join(lines)
+            return Text("No target selected", style=TEXT_FAINT)
+        active = target.name == self.active_target
+        state = self.connection_state if active else "inactive"
+        text = Text()
+        # Header: target name + connection state.
+        text.append(target.name, style=f"bold {TEXT_PRIMARY}")
+        text.append("  ")
+        text.append(f"{_connection_dot(state)} {state}", style=_connection_color(state))
+        text.append("\n")
+        # CONNECTION.
+        self._section(text, "CONNECTION")
+        self._kv(text, "connection", state)
+        if active and self.connection_detail:
+            self._kv(text, "detail", self.connection_detail)
+        self._kv(text, "transport", target.transport.value)
+        self._kv(text, "host", target.host or "-")
+        if active and self.last_seen:
+            self._kv(text, "last_seen", self.last_seen)
+        # VERSIONS.
+        if active:
+            versions = _agent_version_rows(self.agent_info)
+            if versions:
+                self._section(text, "VERSIONS")
+                for key, value in versions:
+                    self._kv(text, key, value)
+        # PATHS.
+        self._section(text, "PATHS")
+        self._kv(text, "workdir", _path_or_dash(target.workdir))
+        self._kv(text, "venv", _path_or_dash(target.venv))
+        # CAPABILITIES (collapse the wall once it grows past the limit; the
+        # `v` binding toggles the full list).
+        if active:
+            capabilities = _agent_capabilities(self.agent_info.get("capabilities"))
+            if capabilities:
+                self._section(text, "CAPABILITIES")
+                if self._show_all_capabilities:
+                    value = ", ".join(capabilities)
+                    if len(capabilities) > 8:
+                        value += "  · v collapse"
+                    self._kv(text, "capabilities", value)
+                else:
+                    self._kv(text, "capabilities", summarize_capabilities(capabilities, limit=8))
+        # RUNTIME.
+        if active:
+            self._section(text, "RUNTIME")
+            self._kv(text, "active_runs", _active_runs_value(self.active_runs))
+            gpu = _gpu_summary_value(self.gpu_summary)
+            if gpu is not None:
+                self._kv(text, "gpu", gpu)
+        return text
+
+    def _section(self, text: Text, title: str) -> None:
+        text.append("\n")
+        text.append(f"{title}\n", style=f"bold {TEXT_SECONDARY}")
+
+    def _kv(self, text: Text, key: str, value: str) -> None:
+        text.append(f"  {key}: ", style=TEXT_FAINT)
+        text.append(f"{value}\n", style=TEXT_PRIMARY)
 
     def _selected_target(self) -> TargetConfig | None:
         if not self.targets:
@@ -210,29 +295,34 @@ def _connection_dot(state: str) -> str:
     }.get(state, "○")
 
 
+def _connection_color(state: str) -> str:
+    return {
+        "connected": GREEN,
+        "connecting": AMBER,
+        "reconnecting": AMBER,
+        "version-mismatch": AMBER,
+        "unreachable": RED,
+    }.get(state, TEXT_FAINT)
+
+
 def _path_or_dash(value: object | None) -> str:
     return str(value) if value is not None else "-"
 
 
-def _agent_detail_lines(agent_info: dict[str, object], last_seen: str | None) -> list[str]:
-    lines: list[str] = []
+def _agent_version_rows(agent_info: dict[str, object]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
     agent_version = _optional_agent_str(agent_info.get("agent_version"))
     controller_version = _optional_agent_str(agent_info.get("controller_version"))
     protocol_version = _optional_agent_str(
         agent_info.get("agent_protocol_version") or agent_info.get("protocol_version")
     )
-    capabilities = _agent_capabilities(agent_info.get("capabilities"))
     if agent_version is not None:
-        lines.append(f"agent: {agent_version}")
+        rows.append(("agent", agent_version))
     if controller_version is not None:
-        lines.append(f"controller: {controller_version}")
+        rows.append(("controller", controller_version))
     if protocol_version is not None:
-        lines.append(f"protocol: {protocol_version}")
-    if capabilities:
-        lines.append(f"capabilities: {', '.join(capabilities)}")
-    if last_seen:
-        lines.append(f"last_seen: {last_seen}")
-    return lines
+        rows.append(("protocol", protocol_version))
+    return rows
 
 
 def _agent_capabilities(value: object) -> list[str]:
@@ -241,17 +331,7 @@ def _agent_capabilities(value: object) -> list[str]:
     return sorted(str(item) for item in value if isinstance(item, str) and item)
 
 
-def _runtime_detail_lines(
-    active_runs: list[dict[str, object]], gpu_summary: str | None
-) -> list[str]:
-    lines = [_active_runs_line(active_runs)]
-    gpu = _gpu_summary_line(gpu_summary)
-    if gpu is not None:
-        lines.append(f"gpu: {gpu}")
-    return lines
-
-
-def _active_runs_line(active_runs: list[dict[str, object]]) -> str:
+def _active_runs_value(active_runs: list[dict[str, object]]) -> str:
     labels = [
         label
         for label in (
@@ -262,14 +342,14 @@ def _active_runs_line(active_runs: list[dict[str, object]]) -> str:
         if label is not None
     ]
     if not labels:
-        return f"active_runs: {len(active_runs)}"
+        return str(len(active_runs))
     visible = labels[:3]
     if len(labels) > len(visible):
         visible.append(f"+{len(labels) - len(visible)}")
-    return f"active_runs: {len(active_runs)} ({', '.join(visible)})"
+    return f"{len(active_runs)} ({', '.join(visible)})"
 
 
-def _gpu_summary_line(value: str | None) -> str | None:
+def _gpu_summary_value(value: str | None) -> str | None:
     if value is None:
         return None
     for line in value.splitlines():

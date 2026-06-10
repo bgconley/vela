@@ -39,6 +39,7 @@ class ConfigPickerScreen(ModalScreen):
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
         ("enter", "accept", "Select"),
+        ("ctrl+t", "push", "Push to target"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -92,6 +93,15 @@ class ConfigPickerScreen(ModalScreen):
     def action_cancel(self) -> None:
         self.app.pop_screen()
 
+    def action_push(self) -> None:
+        configs = self._filtered_valid()
+        if not configs:
+            return
+        config = configs[self.selected_index].config
+        self.app.select_config(config.name)
+        self.app.pop_screen()
+        self.app.push_config_affordance()
+
     def _refresh(self) -> None:
         lines = ["Config Picker", ""]
         configs = self._filtered_valid()
@@ -102,6 +112,8 @@ class ConfigPickerScreen(ModalScreen):
             lines.append(f"{marker} {item.config.name}  {item.config.model}")
         if self.registry.valid and not configs:
             lines.append("No matching configs")
+        if not self.registry.valid and not self.registry.invalid:
+            lines.append("No configs yet — press n (New deployment) to create one")
         if self.registry.invalid:
             lines.append("")
             lines.append("Invalid configs")

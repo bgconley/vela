@@ -86,7 +86,11 @@ if [[ -n "${VELA_SSH_OPTS:-}" ]]; then
   ssh_cmd+=(${VELA_SSH_OPTS})
 fi
 ssh_cmd+=("$host")
+remote_branch_local="${VELA_REMOTE_BRANCH:-main}"
 remote_env=()
+if [[ "$remote_branch_local" != "main" ]]; then
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_BRANCH=$remote_branch_local")")
+fi
 if [[ -n "$remote_target" ]]; then
   remote_env+=("$(quote_remote_word "VELA_REMOTE_TARGET=$remote_target")")
 fi
@@ -200,9 +204,12 @@ if [[ "$remote_python" == "auto" ]]; then
 fi
 
 cd "$remote_path"
-echo "== Remote git pull =="
+remote_branch="${VELA_REMOTE_BRANCH:-main}"
+echo "== Remote git pull ($remote_branch) =="
 git -C "$remote_path" rev-parse --is-inside-work-tree >/dev/null
-git -C "$remote_path" pull --ff-only origin main
+git -C "$remote_path" fetch origin "$remote_branch"
+git -C "$remote_path" checkout "$remote_branch"
+git -C "$remote_path" pull --ff-only origin "$remote_branch"
 venv_python="$remote_venv/bin/python"
 venv_bin="$remote_venv/bin"
 if [[ ! -x "$venv_python" ]]; then

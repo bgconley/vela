@@ -567,3 +567,271 @@
 | 03:50 | Built Component Kit reference frame (§8.6) node 61:2 (120,3550) 1080×1162: color-token swatches w/ hex, type ramp, field states (default/focused/error), controls (select/checkbox/radio/buttons), status pills + source tags, cards (context/validation/recipe), sample table row + keybar — single spec for the Textual impl. Screenshot-verified | Figma node 61:2 | verified | ~14000 |
 | 03:55 | FIGMA PHASE COMPLETE — captured full-page contact sheet of page 39:2 (all 7 screen-sets + component kit); updated handoff §0/§10 + added §13 final node-ID map & "no code until user approves". All 8 redesign tasks done. Next: Textual implementation (handoff Appendix B) ONLY after user approves mocks | Figma 39:2; vela-tui-figma-redesign-handoff.md | DONE — awaiting approval | ~10000 |
 | 03:53 | Session end: 4 writes across 1 files (vela-tui-figma-redesign-handoff.md) | 19 reads | ~10620 tok |
+| 04:06 | Session end: 4 writes across 1 files (vela-tui-figma-redesign-handoff.md) | 19 reads | ~10620 tok |
+| 04:08 | Session end: 4 writes across 1 files (vela-tui-figma-redesign-handoff.md) | 19 reads | ~10620 tok |
+| 04:10 | STARTED Textual UI overhaul (branch claude-ui-implementation; canonical plan vela-tui-overhaul-implementation-plan-v1.md). It's a PRESENTATION REFACTOR — all 14 screens already exist+wired in src/vela/tui/ (package is `vela` not vllm_loader; anatomy.md stale); PRESERVE contracts (dismiss payloads, ids, handlers). Adopted STRICT red-green TDD (superpowers skill) after user correction. Env: Textual 8.2.7; run tests via homebrew `python3 -m pytest` (NOT .venv — pytest only in homebrew); render screens with run_test save_screenshot→SVG then `qlmanage -t -s 1400 -o` for PNG (playwright blocks file://, no svg converters installed). | plan doc, theme.py | TDD adopted | ~6000 |
+| 04:10 | Phase 1 DONE: expanded theme.py → full "Vela Terminal" token set (legacy names kept as back-compat); built widgets/ Field + KeyHintBar (each red→green); refactored screens/create_build.py → Figma 49:2 (progressive disclosure by method = inputs stay mounted + visibility toggled so ids/payload preserved; self-explaining helpers; WILL-RUN preview; KeyHintBar footer; ·/→/— separator polish). User approved fidelity. | src/vela/tui/{theme.py,widgets/{field,keyhintbar}.py,screens/create_build.py}, tests/{test_tui_widgets,test_create_build_screen}.py | done | ~60000 |
+| 04:10 | Phase 2 (mid): built widgets/ ContextCard + PresetChips (red→green); refactored screens/download_model.py → 50:2 (read-only ContextCard, revision-override TRUE hint = killed ghost-placeholder-sha bug, PresetChips, WILL-DOWNLOAD preview; payload preserved; raw allow/ignore inputs kept mounted for smoke contract). All red→green; 195 TUI smoke green twice (no regression); ruff clean. NEXT: Adopt Build 52:2 (ValidationCard + copy checkbox), then Phase 3 master-detail. | src/vela/tui/{widgets/{contextcard,preset_chips}.py,screens/download_model.py}, tests/test_download_model_screen.py | verified | ~40000 |
+| 04:35 | Phase 2 DONE: widget ValidationCard (red→green) + adopt_build.py → 52:2 (subtitle, ValidationCard auto-detect display, Field-wrapped inputs, copy checkbox + tradeoff helper, WILL-DO preview). Kept all 4 inputs + #adopt-build-copy + dismiss payload for smoke contract; no _parse_adopt_build_params. red→green; 195 smoke green; ruff clean; rendered+verified. NEXT = Phase 3 master-detail: Target Manager 44:2 + Flag Manager 55:2 — needs widgets MasterDetail, StatusPill/SourceTag, ResolvedCommandPanel. | src/vela/tui/{widgets/validation_card.py,screens/adopt_build.py}, tests/test_adopt_build_screen.py | verified | ~30000 |
+| 04:18 | Created vela-tui-overhaul-implementation-plan-v1.md | — | ~3689 |
+| 04:24 | Created src/vela/tui/theme.py | — | ~467 |
+| 04:24 | Created src/vela/tui/widgets/field.py | — | ~772 |
+| 04:24 | Created tests/test_tui_widgets.py | — | ~508 |
+| 04:27 | Edited tests/test_tui_widgets.py | 3→3 lines | ~36 |
+| 04:31 | Created src/vela/tui/widgets/field.py | — | ~772 |
+| 04:33 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→3 lines | ~112 |
+| 04:33 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→2 lines | ~38 |
+| 04:33 | Session end: 12 writes across 5 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 37 reads | ~18237 tok |
+| 10:02 | Created tests/test_tui_widgets.py | — | ~653 |
+| 10:02 | Created src/vela/tui/widgets/keyhintbar.py | — | ~417 |
+| 10:03 | Created src/vela/tui/widgets/__init__.py | — | ~95 |
+| 10:03 | Edited vela-tui-overhaul-implementation-plan-v1.md | 3→3 lines | ~59 |
+| 10:06 | Session end: 16 writes across 7 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 37 reads | ~19465 tok |
+| 10:10 | Created tests/test_create_build_screen.py | — | ~857 |
+| 10:12 | Created src/vela/tui/screens/create_build.py | — | ~3950 |
+| 10:21 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→2 lines | ~65 |
+| 10:21 | Session end: 19 writes across 9 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 38 reads | ~24342 tok |
+| 10:23 | Edited src/vela/tui/screens/create_build.py | "pip requirement - e.g. vl" → "pip requirement · e.g. vl" | ~20 |
+| 10:23 | Edited src/vela/tui/screens/create_build.py | 2→2 lines | ~49 |
+| 10:23 | Edited src/vela/tui/screens/create_build.py | inline fix | ~25 |
+| 10:24 | Edited src/vela/tui/screens/create_build.py | 6→6 lines | ~134 |
+| 10:24 | Edited src/vela/tui/screens/create_build.py | 7→7 lines | ~86 |
+| 10:25 | Edited vela-tui-overhaul-implementation-plan-v1.md | inline fix | ~27 |
+| 10:25 | Session end: 25 writes across 9 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 38 reads | ~24684 tok |
+| 10:29 | Created tests/test_tui_widgets.py | — | ~1011 |
+| 10:29 | Created src/vela/tui/widgets/contextcard.py | — | ~517 |
+| 10:29 | Created src/vela/tui/widgets/preset_chips.py | — | ~468 |
+| 10:29 | Created src/vela/tui/widgets/__init__.py | — | ~134 |
+| 10:30 | Created tests/test_download_model_screen.py | — | ~800 |
+| 10:33 | Created src/vela/tui/screens/download_model.py | — | ~2183 |
+| 10:36 | Edited vela-tui-overhaul-implementation-plan-v1.md | 2→2 lines | ~80 |
+| 10:38 | Session end: 32 writes across 13 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 39 reads | ~29883 tok |
+| 23:51 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~33 |
+| 23:51 | Edited tests/test_tui_widgets.py | modified compose() | ~394 |
+| 23:51 | Created src/vela/tui/widgets/validation_card.py | — | ~607 |
+| 23:52 | Created src/vela/tui/widgets/__init__.py | — | ~157 |
+| 23:53 | Created tests/test_adopt_build_screen.py | — | ~620 |
+| 23:55 | Created src/vela/tui/screens/adopt_build.py | — | ~1723 |
+| 23:56 | Edited src/vela/tui/screens/adopt_build.py | 1→4 lines | ~49 |
+| 23:56 | Edited src/vela/tui/screens/adopt_build.py | 1→4 lines | ~49 |
+| 00:00 | Edited vela-tui-overhaul-implementation-plan-v1.md | inline fix | ~36 |
+| 00:01 | Session end: 41 writes across 16 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 40 reads | ~33554 tok |
+| 00:11 | Created vela-tui-session-context-2026-06-09.md | — | ~10161 |
+| 00:12 | SESSION SUMMARY — Textual UI overhaul Phase 1+2 DONE on branch claude-ui-implementation (PRESENTATION refactor of existing screens; strict red-green TDD). theme.py full "Vela Terminal" token set; widgets Field/KeyHintBar/ContextCard/PresetChips/ValidationCard (each red→green); screens create_build→Figma 49:2, download_model→50:2 (killed ghost-placeholder sha bug), adopt_build→52:2; payloads+ids+uv-gating preserved; 195 TUI smoke green throughout; ruff clean; each rendered via qlmanage + eyeballed. Wrote 10.4k-token cold-resume doc vela-tui-session-context-2026-06-09.md (tiktoken-verified). Updated cerebrum (2026-06-09 session learnings + do-not-repeat). NEXT = Phase 3 master-detail: Target Manager 44:2 + Flag Manager 55:2 (widgets MasterDetail/StatusPill/SourceTag/ResolvedCommandPanel). ALL Phase 1+2 code UNCOMMITTED; user offered a Phase-1+2 commit checkpoint (pending). | vela-tui-session-context-2026-06-09.md, .wolf/{memory,cerebrum}.md | context preserved | ~13000 |
+| 00:16 | Session end: 42 writes across 17 files (vela-tui-figma-redesign-handoff.md, vela-tui-overhaul-implementation-plan-v1.md, theme.py, field.py, test_tui_widgets.py) | 40 reads | ~44441 tok |
+
+## Session: 2026-06-09 01:20
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 01:27 | Edited vela-tui-session-context-2026-06-09.md | tracker() → below() | ~91 |
+| 01:28 | Session restore + Phase 3 start: rebuilt ephemeral TaskCreate tracker (#1-6) from context §9 after /clear wiped it; added cerebrum do-not-repeat + §9 note so future restores auto-rebuild it. Phase 3 audit: read target_manager.py, grepped smoke contracts (#target/flag-manager-list/-detail Static.content; flag value/extra-args/preset/changed-only). | .wolf/cerebrum.md, vela-tui-session-context-2026-06-09.md | tracker restored; auditing | ~3500 |
+| 01:34 | Created ../../.claude/jobs/1ec9bb76/tmp/probe_static_content.py | — | ~466 |
+| 01:37 | Edited tests/test_tui_widgets.py | expanded (+7 lines) | ~122 |
+| 01:37 | Edited tests/test_tui_widgets.py | modified test_validation_card_bad_uses_bad_class() | ~625 |
+| 01:38 | Created src/vela/tui/widgets/tags.py | — | ~679 |
+| 01:40 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~38 |
+| 01:40 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~46 |
+| 01:40 | Edited tests/test_tui_widgets.py | modified test_recipe_flags_cover_precision_critical_fields() | ~351 |
+| 01:41 | Created src/vela/tui/widgets/masterdetail.py | — | ~550 |
+| 01:42 | Edited tests/test_tui_widgets.py | 7→9 lines | ~178 |
+| 01:42 | Created src/vela/tui/widgets/__init__.py | — | ~245 |
+| 01:46 | Created tests/test_target_manager_screen.py | — | ~1411 |
+| 02:03 | Created src/vela/tui/screens/target_manager.py | — | ~3194 |
+| 02:05 | Created ../../.claude/jobs/1ec9bb76/tmp/render_target_manager.py | — | ~506 |
+| 02:07 | Phase 3 (Target Manager DONE): built widgets/tags.py (source_tag/summarize_capabilities/is_recipe_flag) + masterdetail.py (MasterDetail wraps caller panes), each red→green; refactored target_manager.py → Figma 44:2 (stacked→side-by-side MasterDetail, grouped detail CONNECTION/VERSIONS/PATHS/CAPABILITIES/RUNTIME, ~60-cap wall collapsed to "N supported ✓ · view all", KeyHintBar footer, Rich Text color). 5 new TM tests + 12 widget tests green; 195 smoke green; ruff clean; rendered+eyeballed. KEY FINDING: Static.content leaks markup STRINGS but NOT Rich Text — color manager panes via Text.append(style=) so str(content) stays plain + substring asserts survive. NEXT: flag_manager 55:2 (hardest). | tags.py, masterdetail.py, target_manager.py, widgets/__init__.py, test_tui_widgets.py, test_target_manager_screen.py | verified | ~42000 |
+| 02:11 | Created tests/test_flag_manager_screen.py | — | ~1374 |
+| 02:14 | Edited src/vela/tui/screens/flag_manager.py | expanded (+33 lines) | ~545 |
+| 02:14 | Edited src/vela/tui/screens/flag_manager.py | 55→53 lines | ~277 |
+| 02:15 | Edited src/vela/tui/screens/flag_manager.py | Static() → KeyHintBar() | ~102 |
+| 02:16 | Edited src/vela/tui/screens/flag_manager.py | modified _render_list() | ~626 |
+| 02:16 | Edited src/vela/tui/screens/flag_manager.py | modified _render_detail() | ~598 |
+| 02:17 | Edited src/vela/tui/screens/flag_manager.py | removed 7 lines | ~15 |
+| 02:18 | Edited tests/test_flag_manager_screen.py | 2→7 lines | ~58 |
+| 02:20 | Created ../../.claude/jobs/1ec9bb76/tmp/render_flag_manager.py | — | ~652 |
+| 02:23 | Phase 3 (Flag Manager DONE — hardest screen) → Figma 55:2: Rich Text grouped table (MODELED/PASSTHROUGH/UNKNOWN, source-tag colors cyan/violet/amber, amber changed-dots, visible amber "recipe" tag on dtype/kv-cache-dtype), self-explaining detail (_FLAG_DESCRIPTIONS per engine field + "value · preset · → engine.X" mapping + amber Recipe-protected warning [Refinement B]), masked resolved-command panel, KeyHintBar footer, token CSS. Kept bespoke list+editor layout (right pane composite: value Input+raw-args Input+detail Static, not MasterDetail). 5 new tests + 195 smoke green; ruff clean; rendered+eyeballed. Phase 3 CORE COMPLETE (Target 44:2 + Flag 55:2 = user-flagged screenshots #2/#6). model/build mgr consistency pass → Phase 6 (no Figma mock). | flag_manager.py, test_flag_manager_screen.py | verified | ~42000 |
+| 02:27 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg.txt | — | ~424 |
+| 02:31 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~62 |
+| 02:31 | Edited tests/test_tui_widgets.py | modified compose() | ~265 |
+| 02:32 | Created src/vela/tui/widgets/step_indicator.py | — | ~452 |
+| 02:33 | Created src/vela/tui/widgets/step_indicator.py | — | ~446 |
+| 02:34 | Edited src/vela/tui/widgets/__init__.py | added 1 import(s) | ~151 |
+| 02:37 | Edited src/vela/tui/screens/new_deployment.py | expanded (+13 lines) | ~71 |
+| 02:37 | Edited src/vela/tui/screens/new_deployment.py | reduced (-24 lines) | ~341 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | 7→6 lines | ~100 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | 14→18 lines | ~230 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | 12→16 lines | ~207 |
+| 02:38 | Edited src/vela/tui/screens/new_deployment.py | modified on_mount() | ~107 |
+| 02:39 | Edited src/vela/tui/screens/new_deployment.py | modified _refresh_step() | ~154 |
+| 02:40 | Edited src/vela/tui/screens/new_deployment.py | reduced (-6 lines) | ~288 |
+| 02:40 | Edited src/vela/tui/screens/new_deployment.py | 6→5 lines | ~84 |
+| 02:40 | Edited src/vela/tui/screens/new_deployment.py | 6→11 lines | ~129 |
+| 02:42 | Edited src/vela/tui/screens/new_deployment.py | 8→8 lines | ~57 |
+| 02:44 | Created tests/test_new_deployment_screen.py | — | ~917 |
+| 02:46 | Created ../../.claude/jobs/1ec9bb76/tmp/render_new_deployment.py | — | ~653 |
+| 02:48 | Phase 4 (New Deployment wizard + review) DONE → Figma 56:2-58:2: StepIndicator widget (red→green; logged bug-184 = Static subclass must set renderable in __init__ not on_mount). Wizard: StepIndicator breadcrumb replaces plain arrow, token round-border CSS, KeyHintBar footer (dropped _actions_text), "→" handoff labels + .new-deployment-helper signposts on runtime/model-mode. Review: token CSS, StepIndicator @Review, inset GREEN masked resolved-command, KeyHintBar. Preserved all 24 #new-deployment-* ids + handoff dismisses + payloads + review substrings. NO Select->Radio / NO mass Field-wrap (deferred Phase 6 to protect 24-test contract). Fixed self-introduced regression (panel 80->76 for centering test). 3 new screen tests + 13 widget + 195 smoke green; ruff clean; both rendered+eyeballed. | new_deployment.py, step_indicator.py, widgets/__init__.py, test_new_deployment_screen.py, test_tui_widgets.py, buglog.json | verified | ~55000 |
+| 03:45 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p4.txt | — | ~293 |
+| 03:49 | Edited tests/test_log_sink.py | modified test_display_level_dims_known_benign_shutdown_noise() | ~267 |
+| 03:50 | Edited src/vela/engine/log_sink.py | modified level_for_line() | ~264 |
+| 03:54 | Edited src/vela/tui/app.py | inline fix | ~19 |
+| 03:54 | Edited src/vela/tui/app.py | 15→19 lines | ~143 |
+| 03:54 | Edited src/vela/tui/app.py | 3→3 lines | ~56 |
+| 03:54 | Edited src/vela/tui/app.py | level_for_line() → display_level_for_line() | ~52 |
+| 03:54 | Edited src/vela/tui/app.py | 3→4 lines | ~85 |
+| 04:01 | Created ../../.claude/jobs/1ec9bb76/tmp/render_dashboard.py | — | ~442 |
+| 04:02 | Phase 5 (Dashboard log classification — screenshot #7 fix) DONE: added display_level_for_line + BENIGN_PATTERNS (destroy_process_group) to log_sink.py (level_for_line + FSM untouched); BENIGN→faint #56707c in app.py LEVEL_STYLE/LEVEL_RAIL_STYLE; wired into _handle_committed_log (live) + _load_scrubbed_log_file (replay). Benign NCCL/torch shutdown noise now DIMMED not amber. 1 new log_sink test (red→green); FULL suite 994 passed; ruff clean; dashboard rendered — benign faint-gray vs amber WARNING / red ERROR confirmed. Dashboard chrome already clean from v1 (3-zone header, sidebar cards, footer keybar; no cryptic glyphs/giant banner). PhaseStepper extraction = optional Phase 6 (existing _render_phase_timeline works). | log_sink.py, app.py, test_log_sink.py | verified | ~25000 |
+| 04:07 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p5.txt | — | ~198 |
+| 04:11 | Created tests/test_model_manager_screen.py | — | ~780 |
+| 04:12 | Edited src/vela/tui/screens/model_manager.py | expanded (+12 lines) | ~122 |
+| 04:12 | Edited src/vela/tui/screens/model_manager.py | reduced (-14 lines) | ~159 |
+| 04:12 | Edited src/vela/tui/screens/model_manager.py | modified compose() | ~170 |
+| 04:13 | Edited src/vela/tui/screens/model_manager.py | modified _render_list() | ~621 |
+| 04:13 | Edited src/vela/tui/screens/model_manager.py | modified _model_status_dot() | ~238 |
+| 04:14 | Edited src/vela/tui/screens/model_manager.py | 5→4 lines | ~26 |
+| 04:15 | Created tests/test_build_manager_screen.py | — | ~666 |
+| 04:15 | Edited src/vela/tui/screens/build_manager.py | expanded (+11 lines) | ~106 |
+| 04:16 | Edited src/vela/tui/screens/build_manager.py | reduced (-14 lines) | ~159 |
+| 04:16 | Edited src/vela/tui/screens/build_manager.py | modified compose() | ~179 |
+| 04:16 | Edited src/vela/tui/screens/build_manager.py | modified _render_list() | ~624 |
+| 04:17 | Edited src/vela/tui/screens/build_manager.py | modified _build_status_dot() | ~212 |
+| 04:22 | Created ../../.claude/jobs/1ec9bb76/tmp/render_managers.py | — | ~650 |
+| 04:26 | Phase 6 (final polish) DONE: Model+Build Manager consistency → master-detail language (MasterDetail + Rich Text colored status dots + KeyHintBar + token CSS), all #model/build-manager-* ids + content substrings preserved; 4 new tests red→green. anatomy refresh: openwolf scan ignores .gitignore + was indexing .mypy_cache (565 junk lines) — root-cause fix = added .mypy_cache/.pytest_cache/.ruff_cache/.venv/.playwright-mcp to .wolf/config.json exclude_patterns, rescanned → 305 lines/223 files, vllm_loader staleness gone. Ghost-placeholder audit: flagged #4 (download-model sha) already fixed Phase 2; rest clear hints. FULL suite 998 passed; ruff clean; both managers rendered+eyeballed. DEFERRED optional (non-flagged): small-modals CSS consistency + Download advanced-toggle. ALL 6 PHASES DONE — overhaul meets §15. | model_manager.py, build_manager.py, .wolf/config.json | verified | ~35000 |
+| 04:26 | Created ../../.claude/jobs/1ec9bb76/tmp/commit_msg_p6.txt | — | ~250 |
+| 04:28 | Edited vela-tui-session-context-2026-06-09.md | modified kit() | ~328 |
+| 04:28 | Edited vela-tui-session-context-2026-06-09.md | 6→7 lines | ~309 |
+| 04:28 | SESSION END — Vela TUI overhaul COMPLETE: all 6 phases done + committed (0ea1518 P1-3, 19baa94 P4, f993be5 P5, 2935f2c P6) on claude-ui-implementation (NOT pushed). Every flagged screen + dashboard refactored to Figma; shared widget kit (Field/KeyHintBar/ContextCard/PresetChips/ValidationCard/MasterDetail/StepIndicator + tags helpers) + token theme in place; full suite 998 green; ruff clean; every screen rendered+eyeballed. Context doc §0/§9 updated to DONE. Optional remaining = tracker #7 (small-modals CSS consistency + Download advanced toggle, non-flagged). Meets §15 definition of done. | vela-tui-session-context-2026-06-09.md, .wolf/memory.md | DONE | ~6000 |
+| 04:29 | Session end: 69 writes across 29 files (vela-tui-session-context-2026-06-09.md, probe_static_content.py, test_tui_widgets.py, tags.py, masterdetail.py) | 23 reads | ~100329 tok |
+
+## Session: 2026-06-09 17:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-09 17:09
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 14:30 | Code-review of unpushed TUI refactor commits (0ea1518..bd72b3f) for correctness | src/vela/tui/* | clean except create_build disclosure-leak (minor) + over-promising footer hints (download/adopt); log classification & secret masking verified sound; 11 pre-existing smoke failures (subprocess launch, not regressions) | ~38k |
+| 17:20 | DoD verification: ruff clean ✓; re-rendered all 9 overhauled screens (CB/DM/AB/target/flag/wizard/review/model/build/dashboard) + eyeballed ✓ | render scripts in jobs tmp | verified | ~30000 |
+| 17:40 | FULL suite NOT green locally: 14 launch/attach tests fail (984/998). Proven environmental NOT regression: same tests fail at origin/claude-ui-implementation in clean worktree /tmp/lab-tui-base. Cause: ~9676 leaked run records in ~/.local/state/vela/runs + leaked fake_vllm_child/supervisor procs (Jun 7) + stale agent pid 19907 on default socket. Cleanup blocked by permissions — needs user. Logged bug-185. | buglog.json | logged | ~20000 |
+| 17:50 | Diff review (5 commits) via agent: NO blockers. F1 minor: hidden fields leak into create-build payload (inert downstream); F2 minor: download_model footer advertises dead o/a keys; F3 minor: PresetChips decorative only; F4 major-UX: adopt_build ValidationCard hardcoded green "Validated" (documented deferral but misleading). Masking/log-classification/contracts clean. | — | reviewed | ~125000 |
+| 17:45 | Compliance review of TUI overhaul vs handoff/plan/contracts (review agent): theme+widgets+8 screens verified, all §8 contracts hold; gaps noted (dead o/a footer keys in download_model, env-not-per-line resolved cmd, header glyphs unchanged); 15 fake-child launch tests fail locally on BOTH branch and main (env timing, not regression) | src/vela/tui/*, tests/* | review only, no code changes | ~60000 |
+| 18:25 | Loader-spec compliance review (agent): yes-with-gaps. 1 MAJOR: FR-18 post-READY liveness polling not wired in production (probe_until_ready cancels at READY; verified at agent/local.py:1442-1473 + app.py callers 3019/3953/4472) — components support it (probe_loop/FSM/TUI handler) but no caller keeps probing. Minors: ProcessExited lacks signaled field; fixed-interval probe (no backoff); §10 structure deviations; nvidia-ml-py optional extra; toasts-vs-chrome ambiguity. | — | reviewed | ~219000 |
+| 18:25 | Figma/contract review (agent): PASS, ZERO contract violations (§8 verified line-by-line). Gaps: header de-crowding NOT delivered (glyphs ▣/M remain app.py:4185-4233 — session-context "chrome already v1-styled" claim inaccurate; glyphs only render when connected/config-loaded which is how eyeball missed it); one-env-per-line resolved cmd silently missed (command_builder.py:197-204 space-joins); dead keys o/a (download_model), dead "view all" (target_manager); plan §10 checklist stale Phases 3-6. | — | reviewed | ~191000 |
+| 18:35 | Edited tests/test_create_build_screen.py | 6→6 lines | ~52 |
+| 18:35 | Edited tests/test_create_build_screen.py | modified test_create_build_hidden_fields_do_not_leak_into_params() | ~426 |
+| 18:36 | Edited src/vela/tui/screens/create_build.py | modified _collect_build_params() | ~367 |
+| 18:36 | Edited tests/test_command_builder.py | 6→7 lines | ~50 |
+| 18:36 | Edited tests/test_command_builder.py | modified test_render_preview_puts_each_env_var_on_its_own_line() | ~288 |
+| 18:37 | Edited src/vela/engine/command_builder.py | modified render_preview() | ~118 |
+| 18:40 | Edited tests/test_download_model_screen.py | 2→2 lines | ~37 |
+| 18:40 | Edited tests/test_download_model_screen.py | modified test_download_model_preset_selection_fills_pattern_inputs() | ~862 |
+| 18:41 | Edited tests/test_tui_widgets.py | modified test_preset_chips_renders_chip_per_option_and_marks_selected() | ~604 |
+| 18:42 | Created src/vela/tui/widgets/preset_chips.py | — | ~996 |
+| 18:42 | Edited src/vela/tui/screens/download_model.py | modified __init__() | ~298 |
+| 18:42 | Edited src/vela/tui/screens/download_model.py | 11→14 lines | ~178 |
+| 18:42 | Edited src/vela/tui/screens/download_model.py | modified on_mount() | ~558 |
+| 18:44 | Edited tests/test_target_manager_screen.py | modified test_target_manager_view_all_expands_and_collapses_capabilities() | ~338 |
+| 18:44 | Edited src/vela/tui/widgets/tags.py | 4→4 lines | ~49 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | 4→5 lines | ~52 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | 2→3 lines | ~38 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | modified action_remove() | ~104 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | expanded (+7 lines) | ~194 |
+| 18:48 | Created tests/test_build_registry.py | — | ~791 |
+| 18:48 | Edited tests/test_adopt_build_screen.py | modified test_adopt_build_validation_starts_neutral_without_fabrication() | ~871 |
+| 18:48 | Edited tests/test_adopt_build_screen.py | 6→6 lines | ~62 |
+| 18:49 | Edited src/vela/engine/build_registry.py | modified inspect_venv() | ~696 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | added 1 import(s) | ~79 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | modified __init__() | ~237 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | modified Vertical() | ~40 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | modified on_mount() | ~936 |
+| 18:50 | Edited src/vela/agent/local.py | 4→5 lines | ~32 |
+| 18:50 | Edited src/vela/agent/local.py | 3→4 lines | ~23 |
+| 18:50 | Edited src/vela/agent/local.py | 4→6 lines | ~88 |
+| 18:50 | Edited src/vela/agent/local.py | modified _adopt_build() | ~160 |
+| 18:50 | Edited src/vela/tui/app.py | 5→5 lines | ~65 |
+| 18:50 | Edited src/vela/tui/app.py | 9→9 lines | ~96 |
+| 18:50 | Edited src/vela/tui/app.py | modified _probe_adopt_venv() | ~179 |
+| 18:54 | Edited src/vela/tui/app.py | modified _render_active_model() | ~257 |
+| 18:54 | Edited src/vela/tui/app.py | 3→3 lines | ~48 |
+| 18:54 | Edited src/vela/tui/app.py | modified _composition_detail_rows() | ~112 |
+| 18:58 | Edited src/vela/fake_child.py | modified do_GET() | ~249 |
+| 18:59 | Edited src/vela/agent/local.py | 3→4 lines | ~78 |
+| 19:00 | Edited src/vela/agent/local.py | modified _track_post_ready_probe() | ~397 |
+| 19:04 | Edited src/vela/tui/app.py | modified on_phase_changed() | ~124 |
+| 19:12 | Created tests/test_state_isolation.py | — | ~444 |
+| 19:13 | Edited src/vela/config/schema.py | modified default_run_artifacts_dir() | ~65 |
+| 19:14 | Edited tests/conftest.py | modified isolated_vela_state() | ~626 |
+| 19:14 | Edited src/vela/config/schema.py | modified default_run_artifacts_dir() | ~70 |
+| 19:35 | FUNCTIONAL PASS COMPLETE (user: "resolve all identified issues, make everything functional and real"): (1) create_build payload filtered by _VISIBLE; (2) render_preview one-env-per-line; (3) download_model PresetChips interactive + Ctrl+R raw toggle + dead o/a hints removed; (4) target_manager v view-all real; (5) adopt_build REAL venv validation (inspect_venv engine fn + agent method + probe kwarg, neutral until probed); (6) header de-crowding (build:/model: labeled segments, sidebar ellipsis no-wrap); (7) FR-18 wired end-to-end (agent keeps probe_loop post-READY + on_phase_changed allows READY<->DEGRADED; new e2e smoke test w/ fake-child /admin/health-off); (8) test/state isolation (session XDG temp dir + fresh daemon + teardown stop; default_run_artifacts_dir honors XDG_STATE_HOME); (9) ProcessExited.signaled. All strict red->green. | 14 src + 9 test files | FULL SUITE 1023 passed, ruff clean, screens re-rendered+eyeballed | ~200000 |
+| 19:36 | CRITICAL DISCOVERY (bug-204): tests talk to a PERSISTENT local agent daemon on the real socket; daemon spawned by the first run keeps serving OLD code after src changes (FR-18 fix invisible until daemon restart). Found via HANDLE-print instrumentation showing agent.handle never called in-process. Fixed by session state isolation. Also corrected plan §10 checklist (was stale, Phases 3-6 unticked) + session-context "chrome already v1-styled" false claim. | conftest.py, plan, session-context | verified | ~40000 |
+| 19:22 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 63 reads | ~283851 tok |
+| 19:32 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 71 reads | ~313184 tok |
+| 19:39 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~349169 tok |
+| 19:40 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~349169 tok |
+| 20:05 | UX journey audit (3 agents + cold-start probe): builds journey, models+wizard journey, scoped-intent baseline (onboarding/composer/user-stories specs). VERDICT: forms exemplary, journey spine weak. Top: wizard draft destroyed on validation-fail/Review-Esc + Enter-anywhere-submits (new_deployment.py:327-329,406-410; app.py:2700-2728); post-action dead ends (build done→no next step, select semantics unexplained, smoke→STOPPED no bridge); cold start dead end (n missing from footer app.py:4358-4363, "No configs found" no CTA); PinModelScreen weakest form (9 fields, zero helpers); HF_TOKEN named 4 places located 0; recipe never defined; clone missing in TUI (US E1.4). Findings reported to user, NO fixes applied. | findings only | reported | ~470000 |
+| 19:41 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~349169 tok |
+| 20:54 | Created vela-tui-journey-friction-punchlist-v1.md | — | ~5737 |
+| 20:20 | Created vela-tui-journey-friction-punchlist-v1.md: 37 items (J1-J37) in 7 phases (A never-lose-work, B next-step bridges, C first-contact/empty-states, D pin-model rebuild+model data, E jargon-at-point-of-use, F wizard structure/clone/derived-editable, G build-surface power) + 11 Figma mocks (new page "Journey v2 — Friction Pass"; M-B1/M-M1/M-M2 net-new since Build/Model/Pin never had mocks) + sequencing (~13.5 dev days) + DoD incl. golden-path Pilot test + zero UI-silent info sources. | vela-tui-journey-friction-punchlist-v1.md, anatomy.md | created | ~8000 |
+| 20:55 | Session end: 46 writes across 22 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~355316 tok |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | modified __init__() | ~383 |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | modified on_mount() | ~124 |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | modified action_next_step() | ~248 |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | 6→7 lines | ~65 |
+| 21:35 | Edited src/vela/tui/screens/new_deployment.py | modified action_back() | ~134 |
+| 21:36 | Edited src/vela/tui/app.py | modified _open_new_deployment() | ~45 |
+| 21:36 | Edited src/vela/tui/app.py | modified _push_new_deployment_screen() | ~544 |
+| 21:36 | Edited src/vela/tui/app.py | modified _new_deployment_target_rows() | ~130 |
+| 21:36 | Edited src/vela/tui/app.py | modified _review_new_deployment() | ~775 |
+| 21:37 | Edited src/vela/tui/app.py | modified _download_new_deployment_model() | ~283 |
+| 21:37 | Edited src/vela/tui/app.py | modified _handle_new_deployment_review() | ~194 |
+| 21:40 | Edited src/vela/tui/screens/new_deployment.py | modified action_next_step() | ~250 |
+| 21:42 | Edited src/vela/tui/app.py | modified _render_footer_bindings() | ~134 |
+| 21:46 | Edited src/vela/tui/app.py | modified start() | ~204 |
+| 22:10 | PHASES A-C of journey punchlist DELIVERED (J1-J14, strict red->green): A) wizard last_draft stash at submit (payload contract intact) + _review_new_deployment fail() reopens wizard w/ initial=draft+error_message; Review B Back action; Enter advances steps (submit only from Review step; _focus_step_entry chains Inputs / clears focus for screen-level Enter); golden-path test. C) n New + c Configs in footer (front-loaded); empty-state CTAs (dashboard/model/build/picker); first-run Quick start block in log pane; Help markers legend + journey-spine sentence. B) build/adopt completion bridges (toast + reopen Build Manager focus_build=new); smoke pass/fail bridges (press l / F adjust flags); download bridge (toast + reopen Model Manager); select toast names default-for-unpinned semantics; build manager helper line + default_for row; "Build started" announcement. Smoke suite 210 green; ruff clean; dashboards/build-manager/help rendered+eyeballed. | new_deployment.py, app.py, build_manager.py, model_manager.py, config_picker.py, help.py + 4 test files | verified | ~180000 |
+| 22:06 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:08 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:10 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:15 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:45 | PHASE D progress: J16 (pin bridge: toast + Model Manager reopen focus_model), J17 (agent config_refs annotation via configs_dir + used_by row + remove-confirm reclaim/irreversibility; dedup sizes were already plumbed), J18 (canonical HF_TOKEN location string across model_manager/download_model/new_deployment/app HF_AUTH guidance/agent preflight; 2 pins updated deliberately) — all red->green, smoke 214 green, ruff clean. J15: built M-M1 Pin Model mock in Figma on NEW page "Journey v2 — Friction Pass" (66:2): window 67:2 + disclosure-states annotation card 67:63, Vela Terminal tokens reused. AWAITING user fidelity approval before rebuilding pin_model.py. | model_manager.py, download_model.py, new_deployment.py, app.py, agent/local.py + tests + Figma 66:2/67:2/67:63 | verified | ~120000 |
+| 23:03 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 83 reads | ~358829 tok |
+| 23:45 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 85 reads | ~358829 tok |
+| 00:54 | Created tests/test_pin_model_screen.py | — | ~2011 |
+| 00:55 | Created src/vela/tui/screens/pin_model.py | — | ~4855 |
+| 00:56 | Edited src/vela/tui/screens/pin_model.py | 3→3 lines | ~37 |
+| 00:56 | Edited src/vela/tui/screens/pin_model.py | modified Vertical() | ~68 |
+| 00:56 | Edited tests/test_pin_model_screen.py | 8→9 lines | ~128 |
+| 23:30 | J15 DELIVERED (M-M1 approved w/ Advanced section): pin_model.py rebuilt — Source select disclosure (hf/local/url), Field helpers, Ctrl+R Advanced (quant/tokenizer/notes/detection-override checkboxes/Download-now), canonical gated note, live WILL PIN preview, KeyHintBar, token CSS (legacy ACCENT/SURFACE_ALT gone). All 11 #pin-model-* controls mounted (display-toggled); payload exact + optional download_now (app strips before pin RPC, kicks _download_model job, bridge "Pinned & downloading"); hidden-source fields filtered; human per-source validation messages; target_label kwarg at both push sites. 9 new screen tests + download_now wiring smoke test, red->green; all pin/model smoke green; rendered both states + eyeballed vs Figma 70:2/70:64. | pin_model.py, app.py, test_pin_model_screen.py, test_tui_smoke.py | verified | ~90000 |
+| 01:03 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 87 reads | ~365928 tok |
+| 03:00 | PHASES E+F DELIVERED (J19-J29, user-directed, strict red->green): E) recipe note+loud application summary; flag-source legend; recipe-protection alternative action; preset descriptions (wizard+flag mgr); image/port helpers; suggested: label; Tab Edit-value hint. F) runtime+model step disclosure (nd-group-* wrappers, ids preserved); bare-model tradeoff helper; recipe model -> flips mode to bare; name suggested from model-slug+target (live placeholder ghost, blank uses it); Customize Ctrl+R advanced group (served_model_name/runs_dir/container_name -> composer overrides extended for scalars); palette "Clone deployment: <name>" -> prefilled wizard (port blank=auto); preflight banner lists ALL failures; compose-time TPxPP vs visible-GPU advisory (agent _world_size_advisory). GOTCHAS fixed: focus-anchor (step containers can_focus, set_focus before display flips — Textual async refocus steals Enter into Selects); nd-group/column height:auto (1fr children inflate rows, clip siblings); pin-model mount race (bug-207: never wait on screen.id alone). FULL SUITE 1074 passed; ruff clean; 5 wizard/flag renders eyeballed. | new_deployment.py, flag_manager.py, app.py, composer.py, agent/local.py + 4 test files | verified | ~250000 |
+| 01:50 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 92 reads | ~365928 tok |
+| 02:44 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 97 reads | ~620488 tok |
+| 06:30 | PHASE G DELIVERED (J30-J37): wheel-trap helper + pip channel drop + git Ref field; remove-refusals name blocking configs (_blocker_suffix); picker Ctrl+T push affordance; managers settle-then-reopen-focused after verify/repair/failed-select (bug-208: push-during-dismissal gets popped — set_timer defer); P pin/unpin build on current config (agent set_config_build, alias-aware toggle, atomic 0600 write); Ctrl+G install-uv job (cancellation-safe subprocess via _terminate_build_subprocess) reopening form w/ values; venv discovery (engine discover_venvs + agent + Adopt Select picker). REVIEW: 2 agents over full working tree — acceptance: ALL 37 punchlist items delivered, zero contract drift, DoD met; bugs: 3 majors fixed (uv subprocess leak, non-atomic config write, compose blocking event loop -> to_thread) + 2 minors (pin-toggle aliases, url download_now). run_remote_tests.sh gains VELA_REMOTE_BRANCH (conditional injection, default byte-identical; workflow pins updated + new test). FULL SUITE pending final run. | many | verified | ~300000 |
+| 03:16 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 03:17 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 03:26 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 03:27 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 07:45 | GPU validation rounds 1-2 on blackbird (10.25.0.51, repo ~/repos/vela, venv ~/venvs/vela, provisioned local blackbird target): round1 4F (2 hermeticity banner tests fixed in 604520d + XDG_CONFIG_HOME isolation), round2 2F/1085P — wizard handoff tests NoMatches SelectCurrent#label = Select-internals mount race on slower box (bug-207 family; Textual 8.2.7 both sides). Smoke phase NOT yet run. Handoff doc vela-session-context-2026-06-10-gpu-validation.md committed+pushed with exact invocation + fix + checklist. | handoff doc | committed | ~30000 |
+| 03:33 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+
+## Session: 2026-06-10 03:35
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 03:43 | Edited tests/test_tui_smoke.py | 5→6 lines | ~98 |
+| 03:43 | Edited tests/test_tui_smoke.py | 2→3 lines | ~58 |
+| 03:43 | Edited tests/test_tui_smoke.py | 5→6 lines | ~99 |
+| 03:43 | Edited tests/test_tui_smoke.py | 2→3 lines | ~56 |
+| 07:46 | Fixed GPU-box Select mount-race in 2 wizard smoke tests (4 gates strengthened w/ SelectCurrent #label check; bug-209) | tests/test_tui_smoke.py | ruff clean, 2 tests green local, full suite running | ~9k |
+| 03:46 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 2 reads | ~138406 tok |
+| 03:48 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:48 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:51 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:51 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:53 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:55 | Edited vela-tui-journey-friction-punchlist-v1.md | inline fix | ~90 |
+| 08:00 | Blackbird round 3 GREEN end-to-end: 1087/1087 pytest, DAEMON_RESTART_LIVE_RUN_OK, DISCONNECT_RECONNECT_RESUME_OK, live smoke READY (qwen36-27b-bf16-rp6000, run 6223ea08) -> auto-stop, BACKEND_EVIDENCE_OK | artifacts/remote-validation/2026-06-10T07-47-58Z-* | bug-209 fix verified on GPU host; punchlist remote leg closed | ~4k |
+| 03:56 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~143881 tok |
+| 04:00 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~143881 tok |
+| 04:01 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~143881 tok |
+| 04:07 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~144117 tok |

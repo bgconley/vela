@@ -2,47 +2,44 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from vela.tui.theme import ACCENT, SURFACE_ALT, TEXT
+from vela.tui.theme import (
+    AMBER,
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_FAINT,
+    TEXT_PRIMARY,
+)
+from vela.tui.widgets import KeyHintBar, MasterDetail
 
 
 class BuildManagerScreen(ModalScreen):
     CSS = f"""
     BuildManagerScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #build-manager-panel {{
         width: 96;
-        max-height: 34;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        max-height: 90%;
+        overflow-y: auto;
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #build-manager-list {{
-        width: 42;
-        height: auto;
-        max-height: 20;
-        color: {TEXT};
-    }}
-
-    #build-manager-detail {{
-        width: 1fr;
-        height: auto;
-        max-height: 20;
-        color: {TEXT};
-    }}
-
-    #build-manager-footer {{
-        margin-top: 1;
-        color: #8ba4ae;
-    }}
+    #build-manager-list {{ width: 42; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
+    #build-manager-detail {{ width: 1fr; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
+    #build-manager-footer {{ margin-top: 1; }}
     """
 
     BINDINGS = [
@@ -52,28 +49,41 @@ class BuildManagerScreen(ModalScreen):
         ("n", "new", "New"),
         ("a", "adopt", "Adopt"),
         ("v", "verify", "Verify"),
+        ("P", "pin_config", "Pin to config"),
         ("r", "repair", "Repair"),
         ("F", "flags", "Flags"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(
+        self, payload: dict[str, Any], *, focus_build: str | None = None
+    ) -> None:
         super().__init__(id="build-manager")
         builds = payload.get("builds", [])
         self.builds = [dict(item) for item in builds if isinstance(item, dict)]
-        self.selected_index = self._active_index()
+        self.selected_index = self._focus_index(focus_build)
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="build-manager-panel"):
-            with Horizontal():
-                yield Static("", id="build-manager-list")
-                yield Static("", id="build-manager-detail")
-            yield Static(
-                "Enter Select   n New   a Adopt   v Verify   r Repair   "
-                "F Flags   x Remove   Esc Close",
+        yield MasterDetail(
+            Static(id="build-manager-list"),
+            Static(id="build-manager-detail"),
+            footer=KeyHintBar(
+                [
+                    ("⏎", "Select"),
+                    ("n", "New"),
+                    ("a", "Adopt"),
+                    ("v", "Verify"),
+                    ("r", "Repair"),
+                    ("P", "Pin to config"),
+                    ("F", "Flags"),
+                    ("x", "Remove"),
+                    ("Esc", "Close"),
+                ],
                 id="build-manager-footer",
-            )
+            ),
+            id="build-manager-panel",
+        )
 
     def on_mount(self) -> None:
         self._refresh()
@@ -100,6 +110,22 @@ class BuildManagerScreen(ModalScreen):
 
     def action_adopt(self) -> None:
         self.dismiss({"action": "adopt_build"})
+
+    def action_pin_config(self) -> None:
+        build = self._selected_build()
+        if build is None:
+            self.dismiss(None)
+            return
+        self.dismiss(
+            {
+                "action": "pin_config_build",
+                "build": _build_reference(build),
+                # Both identifiers so the toggle matches however the config
+                # spelled its pin.
+                "build_id": str(build.get("build_id") or ""),
+                "label": str(build.get("label") or ""),
+            }
+        )
 
     def action_verify(self) -> None:
         build = self._selected_build()
@@ -132,44 +158,66 @@ class BuildManagerScreen(ModalScreen):
         self.query_one("#build-manager-list", Static).update(self._render_list())
         self.query_one("#build-manager-detail", Static).update(self._render_detail())
 
-    def _render_list(self) -> str:
-        lines = ["Build Manager", ""]
+    def _render_list(self) -> Text:
+        text = Text()
+        text.append("Build Manager\n", style=f"bold {CYAN}")
         if not self.builds:
-            lines.append("No builds found")
-            return "\n".join(lines)
+            text.append(
+                "\nNo builds yet — n create · a adopt an existing venv",
+                style=TEXT_FAINT,
+            )
+            return text
+        text.append("\n")
         for index, build in enumerate(self.builds):
-            marker = ">" if index == self.selected_index else " "
+            selected = index == self.selected_index
             status = str(build.get("status") or "unknown")
             active = "  ● active" if build.get("default") else ""
             in_use = "  🔒 in use" if _live_refs(build) else ""
             config_refs = _config_ref_badge(build)
-            lines.append(
-                f"{marker} {_build_status_dot(status)} {_build_label(build)}  "
-                f"{status}{active}{in_use}{config_refs}"
+            text.append(">" if selected else " ", style=CYAN if selected else TEXT_FAINT)
+            text.append(" ")
+            text.append(f"{_build_status_dot(status)} ", style=_build_status_color(status))
+            text.append(
+                _build_label(build),
+                style=f"bold {TEXT_PRIMARY}" if selected else TEXT_PRIMARY,
             )
-        return "\n".join(lines)
+            text.append(f"  {status}{active}{in_use}{config_refs}\n", style=TEXT_FAINT)
+        text.append(
+            "\n⏎ sets the default build — used by configs without a pinned build.\n"
+            "Pinned configs and live runs are unaffected.",
+            style=TEXT_FAINT,
+        )
+        return text
 
-    def _render_detail(self) -> str:
+    def _render_detail(self) -> Text:
         build = self._selected_build()
         if build is None:
-            return "No build selected"
+            return Text("No build selected", style=TEXT_FAINT)
         install = _dict_or_empty(build.get("install"))
         resolved = _dict_or_empty(build.get("resolved"))
         paths = _dict_or_empty(build.get("paths"))
-        lines = [
-            "Detail",
-            "",
-            f"label: {_build_label(build)}",
-            f"build_id: {build.get('build_id') or '-'}",
-            f"status: {build.get('status') or 'unknown'}",
-            f"source: {_build_source_detail(install)}",
-            f"in_use: {_in_use_detail(build)}",
-            f"used_by_configs: {_config_ref_detail(build)}",
-            f"vllm: {resolved.get('vllm') or '-'}",
-            f"cuda: {resolved.get('cuda') or '-'}",
-            f"executable: {paths.get('executable') or '-'}",
+        text = Text()
+        text.append(f"{_build_label(build)}\n", style=f"bold {TEXT_PRIMARY}")
+        text.append("\n")
+        rows = [
+            ("build_id", str(build.get("build_id") or "-")),
+            ("status", str(build.get("status") or "unknown")),
+            ("source", _build_source_detail(install)),
+            ("in_use", _in_use_detail(build)),
+            ("used_by_configs", _config_ref_detail(build)),
+            *(
+                [("default_for", "all unpinned configs")]
+                if build.get("default")
+                else []
+            ),
+            ("vllm", str(resolved.get("vllm") or "-")),
+            ("cuda", str(resolved.get("cuda") or "-")),
+            ("executable", str(paths.get("executable") or "-")),
         ]
-        return "\n".join(lines)
+        for key, value in rows:
+            text.append(f"{key}: ", style=TEXT_FAINT)
+            text.append(f"{value}\n", style=TEXT_PRIMARY)
+        return text
 
     def _selected_build(self) -> dict[str, Any] | None:
         if not self.builds:
@@ -181,6 +229,16 @@ class BuildManagerScreen(ModalScreen):
             if build.get("default"):
                 return index
         return 0
+
+    def _focus_index(self, focus_build: str | None) -> int:
+        if focus_build:
+            for index, build in enumerate(self.builds):
+                if focus_build in {
+                    str(build.get("build_id") or ""),
+                    str(build.get("label") or ""),
+                }:
+                    return index
+        return self._active_index()
 
 
 def _build_reference(build: dict[str, Any]) -> str:
@@ -299,6 +357,19 @@ def _build_status_dot(status: str) -> str:
     if normalized in {"drift", "partial"}:
         return "▲"
     return "▣"
+
+
+def _build_status_color(status: str) -> str:
+    normalized = status.lower()
+    if normalized in {"ready", "ok"}:
+        return GREEN
+    if normalized in {"creating", "installing", "verifying"}:
+        return CYAN
+    if normalized in {"broken", "missing", "failed"}:
+        return RED
+    if normalized in {"drift", "partial"}:
+        return AMBER
+    return TEXT_FAINT
 
 
 def _dict_or_empty(value: object) -> dict[str, Any]:

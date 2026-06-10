@@ -275,6 +275,94 @@ def inspect_build(reference: str, root: str | Path | None = None) -> dict[str, A
     }
 
 
+_VENV_DISCOVERY_ROOTS = (
+    "~/venvs",
+    "~/.venvs",
+    "~/.virtualenvs",
+    "~/miniconda3/envs",
+    "~/anaconda3/envs",
+)
+
+
+def discover_venvs(roots: list[str | Path] | None = None) -> list[dict[str, Any]]:
+    """Scan common roots for python venvs, annotated via inspect_venv (J35)."""
+    candidates = [
+        Path(root).expanduser()
+        for root in (roots if roots is not None else _VENV_DISCOVERY_ROOTS)
+    ]
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for root in candidates:
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if not child.is_dir() or not (child / "bin" / "python").exists():
+                continue
+            key = str(child)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(inspect_venv(child))
+    return results
+
+
+def inspect_venv(venv_path: str | Path) -> dict[str, Any]:
+    """Fast, filesystem-only probe of a venv for Adopt Build's live validation.
+
+    Mirrors what adoption will enforce (``bin/python`` + ``bin/vllm`` present)
+    and reports the vllm/torch/python versions read from ``site-packages``
+    dist-info and ``pyvenv.cfg`` — no subprocess, no imports, safe to run per
+    keystroke.
+    """
+    path = Path(venv_path).expanduser()
+    base: dict[str, Any] = {"ok": False, "venv_path": str(path)}
+    if not path.is_dir():
+        return {**base, "reason": "path does not exist on the target"}
+    if not (path / "bin" / "python").exists():
+        return {**base, "reason": "bin/python not found — not a virtualenv"}
+    if not (path / "bin" / "vllm").exists():
+        return {**base, "reason": "bin/vllm not found in the venv"}
+    versions = _venv_package_versions(path, ("vllm", "torch"))
+    if "vllm" not in versions:
+        return {**base, "reason": "vllm is not installed in this venv"}
+    return {
+        "ok": True,
+        "venv_path": str(path),
+        "vllm_version": versions.get("vllm"),
+        "torch_version": versions.get("torch"),
+        "python_version": _venv_python_version(path),
+    }
+
+
+def _venv_python_version(path: Path) -> str | None:
+    cfg = path / "pyvenv.cfg"
+    if not cfg.exists():
+        return None
+    try:
+        lines = cfg.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key.strip() in {"version", "version_info"} and value.strip():
+            return value.strip()
+    return None
+
+
+def _venv_package_versions(path: Path, names: tuple[str, ...]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for site in sorted(path.glob("lib/python*/site-packages")):
+        for name in names:
+            if name in found:
+                continue
+            for dist in sorted(site.glob(f"{name}-*.dist-info")):
+                version = dist.name[len(name) + 1 : -len(".dist-info")]
+                if version:
+                    found[name] = version
+                    break
+    return found
+
+
 def adopt_build(params: dict[str, Any], root: str | Path | None = None) -> dict[str, Any]:
     builds_root = Path(root).expanduser() if root is not None else default_builds_root()
     with _registry_lock(builds_root):

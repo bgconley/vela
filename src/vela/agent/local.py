@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import fcntl
 import hmac
@@ -39,7 +40,9 @@ from vela.engine.build_registry import (
     build_reference_aliases,
     check_build_launch_integrity,
     default_builds_root,
+    discover_venvs,
     inspect_build,
+    inspect_venv,
     list_builds,
     mint_build_id,
     record_build_ref,
@@ -115,6 +118,7 @@ AGENT_CAPABILITIES = [
     "ping",
     "list_configs",
     "update_config_flags",
+    "set_config_build",
     "compose_config",
     "suggest_deployment_defaults",
     "allocate_port",
@@ -156,6 +160,8 @@ AGENT_CAPABILITIES = [
     "docker_runtime_sidecar_identity",
     "list_builds",
     "adopt_build",
+    "inspect_venv",
+    "discover_venvs",
     "inspect_build",
     "select_build",
     "verify_build",
@@ -171,6 +177,7 @@ AGENT_CAPABILITIES = [
     "remove_model",
     "create_build",
     "download_model",
+    "install_uv",
     "cancel_job",
     "sample_gpus",
     "subscribe",
@@ -182,6 +189,9 @@ JobRunner = Callable[
     [dict[str, Any], JobProgressEmitter, asyncio.Event],
     Awaitable[dict[str, Any]],
 ]
+# Patchable for tests; the real install is pip-into-the-agent-env (J37).
+_INSTALL_UV_ARGV = [sys.executable, "-m", "pip", "install", "--upgrade", "uv"]
+
 JOB_SECRET_ENV_MARKERS = (
     "TOKEN",
     "KEY",
@@ -384,6 +394,7 @@ class LocalAgent:
         self._subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
         self._all_subscribers: list[asyncio.Queue[dict[str, Any]]] = []
         self._gpu_stream_tasks: dict[str, asyncio.Task[None]] = {}
+        self._post_ready_probes: dict[str, asyncio.Task[None]] = {}
         self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._controller_version: str | None = None
 
@@ -399,6 +410,8 @@ class LocalAgent:
             return self._list_configs(payload)
         if method == "update_config_flags":
             return self._update_config_flags(payload)
+        if method == "set_config_build":
+            return self._set_config_build(payload)
         if method == "compose_config":
             return self._compose_config(payload)
         if method == "suggest_deployment_defaults":
@@ -469,6 +482,10 @@ class LocalAgent:
             return asyncio.to_thread(self._list_builds, payload)
         if method == "adopt_build":
             return asyncio.to_thread(self._adopt_build, payload)
+        if method == "inspect_venv":
+            return asyncio.to_thread(self._inspect_venv, payload)
+        if method == "discover_venvs":
+            return asyncio.to_thread(self._discover_venvs, payload)
         if method == "inspect_build":
             return asyncio.to_thread(self._inspect_build, payload)
         if method == "select_build":
@@ -497,6 +514,8 @@ class LocalAgent:
             return asyncio.to_thread(self._remove_model, payload)
         if method == "create_build":
             return self._create_build(payload)
+        if method == "install_uv":
+            return self._install_uv(payload)
         if method == "download_model":
             return self._download_model(payload)
         if method == "cancel_job":
@@ -620,6 +639,54 @@ class LocalAgent:
             "invalid": [_invalid_config_payload(item) for item in registry.invalid],
         }
 
+    def _set_config_build(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Pin (or unpin, build=None) a build on an existing config (J31)."""
+        name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise TargetCallError("invalid-params", "set_config_build requires config name")
+        build = params.get("build")
+        if build is not None and (not isinstance(build, str) or not build.strip()):
+            raise TargetCallError(
+                "invalid-params", "set_config_build build must be a string or null"
+            )
+        registry = load_registry(_configs_dir(params))
+        self._remember_registry_runs_dirs(registry)
+        item = _valid_config_item_by_name(registry, name)
+        try:
+            raw = yaml.safe_load(item.path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"unable to read config {name}: {exc}",
+                {"name": name, "path": str(item.path)},
+            ) from exc
+        if not isinstance(raw, dict):
+            raise TargetCallError(
+                "invalid-config",
+                f"config root must be a mapping: {name}",
+                {"name": name, "path": str(item.path)},
+            )
+        updated = dict(raw)
+        command = dict(updated.get("command") or {})
+        if build is None:
+            command.pop("build", None)
+        else:
+            command["build"] = build.strip()
+        if command:
+            updated["command"] = command
+        else:
+            updated.pop("command", None)
+        try:
+            ModelConfig.model_validate(updated)
+        except Exception as exc:
+            raise TargetCallError(
+                "invalid-config",
+                f"config would become invalid: {exc}",
+                {"name": name},
+            ) from exc
+        _write_private_text_atomic(item.path, yaml.safe_dump(updated, sort_keys=False))
+        return {"name": name, "build": build.strip() if isinstance(build, str) else None}
+
     def _update_config_flags(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -706,11 +773,49 @@ class LocalAgent:
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
+        warnings = list(result.warnings)
+        advisory = self._world_size_advisory(result.config)
+        if advisory is not None:
+            warnings.append(advisory)
         return {
             "config": result.config.model_dump(mode="json"),
-            "warnings": list(result.warnings),
+            "warnings": warnings,
             "derived": list(result.derived),
         }
+
+    def _world_size_advisory(self, cfg: ModelConfig) -> str | None:
+        """Compose-time TP×PP vs visible-GPU advisory (J29) — never raises.
+
+        Sampling is bounded to 0.5s in a worker thread: compose_config is a
+        synchronous handler, and the nvidia-smi fallback could otherwise
+        block the in-process agent's event loop for seconds. A slow sampler
+        just skips the advisory (preflight still catches the mismatch).
+        """
+        try:
+            tp = int(cfg.engine.tensor_parallel_size or 1)
+            pp = int(getattr(cfg.engine, "pipeline_parallel_size", None) or 1)
+            world = tp * pp
+            if world <= 1:
+                return None
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                sample = executor.submit(self.sample_gpus).result(timeout=0.5)
+            except concurrent.futures.TimeoutError:
+                return None
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
+            if getattr(sample, "unavailable", False):
+                return None
+            count = len(sample.samples)
+            if count and world > count:
+                plural = "" if count == 1 else "s"
+                return (
+                    f"tensor_parallel_size×pipeline_parallel_size={world} "
+                    f"exceeds {count} visible GPU{plural} on this target"
+                )
+        except Exception:
+            return None
+        return None
 
     def _suggest_deployment_defaults(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -1467,10 +1572,29 @@ class LocalAgent:
             {probe_task, completed_task}, return_when=asyncio.FIRST_COMPLETED
         )
         if completed_task in done:
-            probe_task.cancel()
+            # FR-18: do NOT cancel the probe at READY — probe_loop keeps
+            # publishing post-READY health events (DEGRADED / recovery) and
+            # exits on its own once the run's process is gone.
+            self._track_post_ready_probe(run_id, probe_task)
         else:
             completed_task.cancel()
         return {"run_id": run_id, **last_event}
+
+    def _track_post_ready_probe(self, run_id: str, task: asyncio.Task[None]) -> None:
+        previous = self._post_ready_probes.pop(run_id, None)
+        if previous is not None and previous is not task and not previous.done():
+            previous.cancel()
+        if task.done():
+            return
+        self._post_ready_probes[run_id] = task
+        task.add_done_callback(lambda done_task: self._reap_post_ready_probe(run_id, done_task))
+
+    def _reap_post_ready_probe(self, run_id: str, task: asyncio.Task[None]) -> None:
+        if self._post_ready_probes.get(run_id) is task:
+            self._post_ready_probes.pop(run_id, None)
+        if not task.cancelled():
+            # Surface nothing: a failed health probe must never crash the agent.
+            task.exception()
 
     async def _health(self, params: dict[str, Any]) -> dict[str, Any]:
         run_id = _run_id_param(params)
@@ -1880,6 +2004,21 @@ class LocalAgent:
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
 
+    def _discover_venvs(self, params: dict[str, Any]) -> dict[str, Any]:
+        roots = params.get("roots")
+        root_list = (
+            [str(item) for item in roots if isinstance(item, str)]
+            if isinstance(roots, list)
+            else None
+        )
+        return {"venvs": discover_venvs(root_list)}
+
+    def _inspect_venv(self, params: dict[str, Any]) -> dict[str, Any]:
+        venv_path = params.get("venv_path")
+        if not isinstance(venv_path, str) or not venv_path.strip():
+            return {"ok": False, "reason": "venv_path required"}
+        return inspect_venv(venv_path.strip())
+
     def _inspect_build(self, params: dict[str, Any]) -> dict[str, Any]:
         reference = params.get("build")
         if not isinstance(reference, str) or not reference.strip():
@@ -1972,11 +2111,23 @@ class LocalAgent:
 
     def _list_models(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = params or {}
-        return list_models(
+        result = list_models(
             self._models_registry_path,
             cached_only=_param_bool(params.get("cached_only")),
             pinned_only=_param_bool(params.get("pinned_only")),
         )
+        configs_dir = params.get("configs_dir")
+        if configs_dir:
+            try:
+                registry = load_registry(Path(str(configs_dir)))
+            except Exception:
+                return result
+            models = result.get("models")
+            if isinstance(models, list):
+                for entry in models:
+                    if isinstance(entry, dict):
+                        entry["config_refs"] = _configs_referencing_model(registry, entry)
+        return result
 
     def _pin_model(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -2098,6 +2249,58 @@ class LocalAgent:
 
     async def _create_build(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("create_build", params, self._build_job_runner)
+
+    async def _install_uv(self, params: dict[str, Any]) -> dict[str, Any]:
+        return await self._start_job("install_uv", params, self._install_uv_job_runner)
+
+    async def _install_uv_job_runner(
+        self,
+        params: dict[str, Any],
+        emit: JobProgressEmitter,
+        cancel_event: asyncio.Event,
+    ) -> dict[str, Any]:
+        emit(
+            {
+                "kind": "committed",
+                "text": "Installing uv: " + " ".join(_INSTALL_UV_ARGV),
+                "level": "INFO",
+            }
+        )
+        process = await asyncio.create_subprocess_exec(
+            *_INSTALL_UV_ARGV,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        assert process.stdout is not None
+        try:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", "replace").rstrip()
+                if text:
+                    emit({"kind": "committed", "text": text, "level": "INFO"})
+                if cancel_event.is_set():
+                    break
+            if cancel_event.is_set():
+                await _terminate_build_subprocess(process)
+                return {
+                    "ok": False,
+                    "detail": "uv install cancelled",
+                    "error_kind": "cancelled",
+                }
+            returncode = await process.wait()
+        except asyncio.CancelledError:
+            # The job task itself was cancelled — never orphan pip.
+            await _terminate_build_subprocess(process)
+            raise
+        if returncode == 0:
+            return {"ok": True, "detail": "uv installed"}
+        return {
+            "ok": False,
+            "detail": f"uv install failed (exit {returncode})",
+            "error_kind": "install-failed",
+        }
 
     async def _download_model(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self._start_job("download_model", params, self._model_job_runner)
@@ -4457,6 +4660,23 @@ def _config_pins_hf_model_revision(cfg: ModelConfig, entry: dict[str, Any]) -> b
     return cfg.revision in pinned_revisions
 
 
+def _configs_referencing_model(
+    registry: ConfigRegistry, entry: dict[str, Any]
+) -> list[str]:
+    aliases = {
+        str(entry.get("entry_id") or ""),
+        str(entry.get("repo_id") or ""),
+        str(entry.get("display_name") or ""),
+    } - {""}
+    refs = [
+        item.config.name
+        for item in registry.valid
+        if (item.config.model_ref and str(item.config.model_ref) in aliases)
+        or str(item.config.model) in aliases
+    ]
+    return sorted(refs)
+
+
 def _configs_pinning_build(registry: ConfigRegistry, aliases: set[str]) -> list[str]:
     pinned = [
         item.config.name
@@ -4712,7 +4932,8 @@ def _validate_model_handoff_prelaunch(cfg: ModelConfig, handoff: ModelHandoff) -
             "hf-auth-required",
             (
                 f"model {handoff.display_name} requires HF_TOKEN; "
-                "accept the model license and set HF_TOKEN"
+                "accept the model license and set HF_TOKEN "
+                "(agent env or config env: block)"
             ),
             {
                 "model_ref": handoff.entry_id,

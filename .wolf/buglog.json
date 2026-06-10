@@ -1425,7 +1425,7 @@
       "timestamp": "2026-06-02T18:20:29Z",
       "error_message": "Canonical Tab focus binding was not exposed in the TUI",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical §8.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
+      "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical \u00a78.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
       "fix": "Bound Tab to Textual's built-in focus_next action, added a Focus next widget system command, and documented Tab focus in the footer and Help modal.",
       "tags": [
         "tui",
@@ -1468,7 +1468,7 @@
       "timestamp": "2026-06-02T18:41:41Z",
       "error_message": "Responsive narrow layout hid the sidebar without a canonical overlay",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by §8.6's sidebar-overlay behavior.",
+      "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by \u00a78.6's sidebar-overlay behavior.",
       "fix": "Added a Textual-native `#sidebar-overlay` in the main column, rendered it as Rich Text with selected config, phase/status, and URL context, and toggled it on whenever the full sidebar is hidden while preserving GPU visibility rules and log visibility.",
       "tags": [
         "tui",
@@ -1490,7 +1490,7 @@
       "timestamp": "2026-06-02T18:48:05Z",
       "error_message": "ErrorBanner omitted the canonical jump-to-lines affordance",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the §8.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
+      "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the \u00a78.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
       "fix": "Added an error jump target derived from `PhaseFSM.error_excerpt`, routed named errors through a shared banner helper, appended a visible `Jump to error log line` palette hint, and added a dynamic palette command that applies log search/highlight for the target excerpt.",
       "tags": [
         "tui",
@@ -1512,7 +1512,7 @@
       "timestamp": "2026-06-02T18:55:16Z",
       "error_message": "TUI Kill bypassed the canonical confirmation modal",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical §8.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
+      "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical \u00a78.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
       "fix": "Generalized ConfirmScreen with configurable title, label, and app confirm action; action_kill now opens a Kill/Cancel modal for attached and reattached runs, and confirm_kill_running is the only path that sends SIGKILL or process.kill().",
       "tags": [
         "tui",
@@ -1621,7 +1621,7 @@
       "timestamp": "2026-06-02T19:36:58Z",
       "error_message": "Wrap toggle changed state without a toast",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical §8.6 state-change notification used by neighboring controls.",
+      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical \u00a78.6 state-change notification used by neighboring controls.",
       "fix": "Added a focused smoke regression for `w` wrap toggles and emitted `Wrap enabled`/`Wrap disabled` notifications after refreshing the visible chrome.",
       "tags": [
         "tui",
@@ -1792,7 +1792,7 @@
       "timestamp": "2026-06-02T20:20:58Z",
       "error_message": "Canonical message taxonomy was missing Textual message types",
       "file": "src/vllm_loader/messages.py",
-      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving §6.3/P4 message wiring incomplete.",
+      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving \u00a76.3/P4 message wiring incomplete.",
       "fix": "Added a Textual `LoaderMessage` base, converted canonical event dataclasses to `Message` subclasses, added the missing message types, and changed transient log-record conversion to emit `ProgressUpdated`.",
       "tags": [
         "messages",
@@ -2183,7 +2183,7 @@
     {
       "id": "bug-111",
       "timestamp": "2026-06-02T21:47:37Z",
-      "error_message": "§13 recorded phase fixtures were still missing OOM and port-in-use cases",
+      "error_message": "\u00a713 recorded phase fixtures were still missing OOM and port-in-use cases",
       "file": "tests/test_phases.py",
       "root_cause": "The phase suite had synthetic classifier strings for OOM and port-in-use but lacked recorded-style fixture files for those categories, leaving the canonical fixture matrix incomplete.",
       "fix": "Added fixture-backed OOM and port-in-use tests plus representative vLLM log snippets under `tests/fixtures/vllm_logs/`.",
@@ -2459,7 +2459,7 @@
       "error_message": "Significant refactor of ",
       "file": "vllm-agent-architecture-spec-v1.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 7→21 lines (5 removed) | Also: Event    (A→C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
+      "fix": "Rewrote 7\u219221 lines (5 removed) | Also: Event    (A\u2192C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
       "tags": [
         "auto-detected",
         "refactor",
@@ -2474,7 +2474,7 @@
       "timestamp": "2026-06-05T03:56:15.821Z",
       "error_message": "Missing await",
       "file": "vllm-full-repo-review-findings-v2.md",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -2491,7 +2491,7 @@
       "error_message": "Significant refactor of ",
       "file": "vllm-full-repo-review-findings-v2.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 5→6 lines (5 removed)",
+      "fix": "Rewrote 5\u21926 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -2507,7 +2507,7 @@
       "error_message": "Significant refactor of ",
       "file": "vela-session-context-2026-06-06.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 9→49 lines (5 removed)",
+      "fix": "Rewrote 9\u219249 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3360,7 +3360,7 @@
       "timestamp": "2026-06-08T07:52:44.574Z",
       "error_message": "Missing await",
       "file": "vela-tui-figma-redesign-handoff.md",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3370,6 +3370,582 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-08T07:52:44.574Z"
+    },
+    {
+      "id": "bug-176",
+      "timestamp": "2026-06-08T14:03:57.093Z",
+      "error_message": "Incorrect value in code",
+      "file": "vela-tui-overhaul-implementation-plan-v1.md",
+      "root_cause": "Had `ScreenFrame`",
+      "fix": "Changed to `KeyHintBar`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T14:03:57.093Z"
+    },
+    {
+      "id": "bug-177",
+      "timestamp": "2026-06-08T14:23:52.603Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/vela/tui/screens/create_build.py",
+      "root_cause": "Had \"pip requirement - e.g. vllm==0.11.2 or vllm.\"",
+      "fix": "Changed to \"pip requirement \u00b7 e.g. vllm==0.11.2 or vllm.\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-08T14:23:54.931Z"
+    },
+    {
+      "id": "bug-178",
+      "timestamp": "2026-06-08T14:36:18.775Z",
+      "error_message": "Incorrect value in code",
+      "file": "vela-tui-overhaul-implementation-plan-v1.md",
+      "root_cause": "Had `52:2`",
+      "fix": "Changed to \"advanced\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-08T14:36:18.775Z"
+    },
+    {
+      "id": "bug-179",
+      "timestamp": "2026-06-09T03:51:14.016Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T03:51:14.016Z"
+    },
+    {
+      "id": "bug-180",
+      "timestamp": "2026-06-09T05:40:43.824Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T05:40:43.824Z"
+    },
+    {
+      "id": "bug-181",
+      "timestamp": "2026-06-09T05:42:15.175Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 7\u21929 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T05:42:15.175Z"
+    },
+    {
+      "id": "bug-182",
+      "timestamp": "2026-06-09T06:15:04.166Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/flag_manager.py",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 5\u219211 lines (3 removed) | Also: def _render_list(self) -> str:; lines = [ | Also: def _render_detail(self) -> str:; lines = [\"Editor + live preview\", \"\", \"Resolved co",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-09T06:16:39.389Z"
+    },
+    {
+      "id": "bug-183",
+      "timestamp": "2026-06-09T06:31:43.144Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_widgets.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T06:31:43.144Z"
+    },
+    {
+      "id": "bug-184",
+      "timestamp": "2026-06-09T06:34:32Z",
+      "error_message": "Textual layout error: 'NoneType' object has no attribute 'get_height' when mounting StepIndicator",
+      "file": "src/vela/tui/widgets/step_indicator.py",
+      "root_cause": "StepIndicator subclassed Static but left its renderable unset in __init__, deferring self.update() to on_mount. During the initial layout pass the renderable was None, so Textual's height calculation crashed before on_mount ran.",
+      "fix": "Build the Rich Text content in __init__ and pass it to super().__init__(content); set_current() re-renders via self.update(). A Static subclass must set its initial renderable in __init__, not defer it to on_mount.",
+      "tags": [
+        "tui",
+        "textual",
+        "static",
+        "widget",
+        "layout"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T06:34:32Z"
+    },
+    {
+      "id": "bug-185",
+      "timestamp": "2026-06-09T06:38:26.004Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 14\u219218 lines (2 removed) | Also: (\"Pin HF repo\", \"pin_hf\"),; (\"Adopt local path\", \"adopt_local\"), | Also: self.query_one(\"#new-deployment-actions\", Static).; def _actions_text(self) -> str: | Also: yield Static(; \"F Flags   Ctrl+S Save   S Save & Smoke   Esc Canc",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 4,
+      "last_seen": "2026-06-09T06:40:23.050Z"
+    },
+    {
+      "id": "bug-186",
+      "timestamp": "2026-06-09T07:54:08.623Z",
+      "error_message": "Wrong reference: level_for_line should be display_level_for_line",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "Used \"level_for_line\" instead of \"display_level_for_line\"",
+      "fix": "Changed level_for_line \u2192 display_level_for_line",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-09T07:54:24.193Z"
+    },
+    {
+      "id": "bug-187",
+      "timestamp": "2026-06-09T08:12:12.600Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/model_manager.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 9\u219221 lines (2 removed) | Also: with Vertical(id=\"model-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Model Manager\", \"\"]",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-09T08:13:34.284Z"
+    },
+    {
+      "id": "bug-188",
+      "timestamp": "2026-06-09T08:15:56.482Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/build_manager.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 8\u219219 lines (2 removed) | Also: with Vertical(id=\"build-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Build Manager\", \"\"]",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-06-09T08:16:49.968Z"
+    },
+    {
+      "id": "bug-189",
+      "timestamp": "2026-06-09T08:28:04.713Z",
+      "error_message": "Incorrect value in code",
+      "file": "vela-tui-session-context-2026-06-09.md",
+      "root_cause": "Had `Field`",
+      "fix": "Changed to `claude-ui-implementation`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T08:28:04.713Z"
+    },
+    {
+      "id": "bug-190",
+      "timestamp": "2026-06-09T08:28:25.283Z",
+      "error_message": "Significant refactor of ",
+      "file": "vela-tui-session-context-2026-06-09.md",
+      "root_cause": "6 lines replaced/restructured",
+      "fix": "Rewrote 6\u21927 lines (6 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T08:28:25.283Z"
+    },
+    {
+      "id": "bug-203",
+      "timestamp": "2026-06-09T17:45:00-04:00",
+      "error_message": "14 launch/attach-flow tests fail (test_cli_run.py x3 + test_tui_smoke.py x11): phase READY not reached / health expected=False not observed",
+      "file": "tests/test_tui_smoke.py, tests/test_cli_run.py (no code fix - environmental)",
+      "root_cause": "Stale shared local state, NOT a code regression (same tests fail at pre-overhaul commit origin/claude-ui-implementation in a clean worktree). ~/.local/state/vela/runs accumulated 9,676 leaked run records from past suites; leaked fake_vllm_child.py + supervisor processes since Jun 7; stale vela agent (pid 19907, started 2026-06-07) on ~/.local/state/vela/agent.sock. Active-run/sidecar discovery over the default runs dir degrades as records accumulate, blowing the tests' 5s deadlines (same family as bug-019/bug-090 intermittents). Suite was green 04:26 same day; failures appeared as state grew.",
+      "fix": "Pending user action (permission denied for autonomous cleanup): kill leaked vela/fake_vllm_child/supervisor processes, archive ~/.local/state/vela/runs, remove stale agent.json/agent.sock, rerun. Durable fix candidate: isolate tests from the user state dir (point default_run_artifacts_dir/agent socket at tmp_path via env/monkeypatch) so suites cannot pollute or be poisoned by shared state.",
+      "tags": [
+        "tests",
+        "environment",
+        "state-isolation",
+        "agent",
+        "runs-dir",
+        "flaky"
+      ],
+      "related_bugs": [
+        "bug-019",
+        "bug-090",
+        "bug-009",
+        "bug-110",
+        "bug-157"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T17:45:00-04:00"
+    },
+    {
+      "id": "bug-192",
+      "timestamp": "2026-06-09T22:35:49.202Z",
+      "error_message": "Missing await",
+      "file": "tests/test_create_build_screen.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:35:49.202Z"
+    },
+    {
+      "id": "bug-193",
+      "timestamp": "2026-06-09T22:40:47.614Z",
+      "error_message": "Wrong reference: PresetChips should be KeyHintBar",
+      "file": "tests/test_download_model_screen.py",
+      "root_cause": "Used \"PresetChips\" instead of \"KeyHintBar\"",
+      "fix": "Changed PresetChips \u2192 KeyHintBar",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:40:47.614Z"
+    },
+    {
+      "id": "bug-194",
+      "timestamp": "2026-06-09T22:40:58.072Z",
+      "error_message": "Missing await",
+      "file": "tests/test_download_model_screen.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:40:58.072Z"
+    },
+    {
+      "id": "bug-195",
+      "timestamp": "2026-06-09T22:42:25.774Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/screens/download_model.py",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 11\u219214 lines (3 removed) | Also: (\"o\", \"Override revision\"),; (\"a\", \"Advanced patterns\"),",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-09T22:42:33.329Z"
+    },
+    {
+      "id": "bug-196",
+      "timestamp": "2026-06-09T22:44:04.740Z",
+      "error_message": "Missing await",
+      "file": "tests/test_target_manager_screen.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:44:04.740Z"
+    },
+    {
+      "id": "bug-197",
+      "timestamp": "2026-06-09T22:48:36.213Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_adopt_build_screen.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 8\u219275 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:48:36.213Z"
+    },
+    {
+      "id": "bug-198",
+      "timestamp": "2026-06-09T22:49:08.329Z",
+      "error_message": "Wrong return value",
+      "file": "src/vela/engine/build_registry.py",
+      "root_cause": "Was returning: _adopt_build_locked(params, builds_root)",
+      "fix": "Now returns: {**base, \"reason\": \"path does not exist on the tar",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:49:08.329Z"
+    },
+    {
+      "id": "bug-199",
+      "timestamp": "2026-06-09T22:49:35.472Z",
+      "error_message": "Function not marked async",
+      "file": "src/vela/tui/screens/adopt_build.py",
+      "root_cause": "Function uses await but wasn't declared async",
+      "fix": "Added async modifier | Also: [(\"\u23ce\", \"Adopt\"), (\"Esc\", \"Cancel\")],; def on_input_changed(self, event: Input.Changed) -> None:",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-09T22:49:48.324Z"
+    },
+    {
+      "id": "bug-200",
+      "timestamp": "2026-06-09T22:50:44.829Z",
+      "error_message": "Missing await",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:50:44.829Z"
+    },
+    {
+      "id": "bug-201",
+      "timestamp": "2026-06-09T22:54:04.694Z",
+      "error_message": "Wrong return value",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "Was returning: f\"M {marker}{label} {self._model_status_dot(metada",
+      "fix": "Now returns: f\"{marker}{label} {self._model_status_dot(metadata",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T22:54:04.694Z"
+    },
+    {
+      "id": "bug-202",
+      "timestamp": "2026-06-09T23:13:25.960Z",
+      "error_message": "Wrong return value",
+      "file": "src/vela/config/schema.py",
+      "root_cause": "Was returning: Path(os.path.expanduser(\"~/.local/state/vela/runs\"",
+      "fix": "Now returns: root / \"vela\" / \"runs\"",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-09T23:14:34.874Z"
+    },
+    {
+      "id": "bug-204",
+      "timestamp": "2026-06-09T19:30:00-04:00",
+      "error_message": "Tests silently validated STALE code: FR-18 agent fix had no effect until the local agent daemon restarted",
+      "file": "tests/conftest.py, src/vela/config/schema.py",
+      "root_cause": "VelaApp local target uses LocalTransportKind.SOCKET -> UnixSocketTargetClient on the REAL ~/.local/state/vela/agent.sock. The first test run spawns a persistent `vela agent run` daemon; every later test (and every later test RUN) reuses it, so src changes to agent code are invisible until the daemon dies. Also the daemon + tests share the real runs dir (bug-185 accumulation).",
+      "fix": "Session-scoped autouse fixture isolated_vela_state: XDG_STATE_HOME/XDG_RUNTIME_DIR/XDG_DATA_HOME -> per-session mkdtemp under /tmp (macOS ~104-char sun_path limit forbids deep pytest tmp paths), fresh daemon per session runs current code, teardown runs `vela agent stop` + rmtree. Plus default_run_artifacts_dir now honors XDG_STATE_HOME (was hardcoded to ~/.local/state).",
+      "tags": [
+        "tests",
+        "daemon",
+        "stale-code",
+        "state-isolation",
+        "agent",
+        "xdg"
+      ],
+      "related_bugs": [
+        "bug-203"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T19:30:00-04:00"
+    },
+    {
+      "id": "bug-205",
+      "timestamp": "2026-06-09T19:30:00-04:00",
+      "error_message": "FR-18 gap: server going unhealthy after READY never flipped the TUI to DEGRADED (and recovery never returned to READY)",
+      "file": "src/vela/agent/local.py, src/vela/tui/app.py",
+      "root_cause": "Two independent breaks: (1) agent _probe_until_ready cancelled probe_loop the moment readiness fired, so nothing probed post-READY; (2) app.on_phase_changed dropped ALL phase events post-READY except ERROR/STOPPED (monotonic-loading guard), so even a published DEGRADED phase event was discarded.",
+      "fix": "Agent: keep probe_task alive post-READY (tracked in _post_ready_probes, reaped via done-callback; probe_loop self-terminates when the run dies). App: phase guard now lets READY<->DEGRADED through while still dropping stale loading phases. End-to-end pinned by test_post_ready_health_failure_degrades_then_recovers using new fake-child /admin/health-off|on endpoints.",
+      "tags": [
+        "fr-18",
+        "health",
+        "degraded",
+        "probe",
+        "fsm",
+        "spec-gap"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T19:30:00-04:00"
+    },
+    {
+      "id": "bug-206",
+      "timestamp": "2026-06-09T19:30:00-04:00",
+      "error_message": "Review findings batch: fabricated Adopt Build validation, dead advertised keys (o/a/space/'view all'), decorative PresetChips, env-wall resolved command, hidden-field payload leak",
+      "file": "adopt_build.py, download_model.py, target_manager.py, preset_chips.py, tags.py, create_build.py, command_builder.py",
+      "root_cause": "Presentation refactor shipped affordances without behavior: hardcoded green ValidationCard asserted a validation that never ran; footer hints advertised unbound keys; chips had no interaction; render_preview space-joined env vars; _collect_build_params ignored progressive-disclosure visibility.",
+      "fix": "Adopt Build probes the venv live (inspect_venv); chips interactive + Ctrl+R raw toggle; 'v view all' real capability expander; one-env-per-line preview; payload filtered by the active method's _VISIBLE set; all dead hints removed. Each fix red->green.",
+      "tags": [
+        "ux",
+        "dead-affordance",
+        "validation",
+        "payload-hygiene",
+        "env-wall"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-09T19:30:00-04:00"
+    },
+    {
+      "id": "bug-207",
+      "timestamp": "2026-06-10T01:30:00-04:00",
+      "error_message": "Intermittent NoMatches '#pin-model-repo-id' on PinModelScreen in wizard handoff smoke tests (different victim each batch run)",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Tests waited on `app.screen.id == 'pin-model'` then immediately query_one a child input. The rebuilt (heavier) PinModelScreen registers as app.screen before its children finish mounting, so the wait passed during the mount gap under load.",
+      "fix": "Strengthened all 5 pin-model wait conditions to `app.screen.id == 'pin-model' and bool(app.screen.query(Input))`. Pattern: NEVER wait on screen.id alone before querying children \u2014 include a child-mounted check.",
+      "tags": [
+        "tests",
+        "flaky",
+        "textual",
+        "mount-race",
+        "pin-model"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T01:30:00-04:00"
+    },
+    {
+      "id": "bug-208",
+      "timestamp": "2026-06-10T04:30:00-04:00",
+      "error_message": "Manager reopened after verify/repair vanished instantly (screen_stack back to _default within one tick)",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "Pushing a screen while another modal's dismissal is still being processed gets the NEW screen popped by that dismissal: the dismiss callback runs our worker inline (fast in-process awaits resolve without yielding), the push lands mid-dismissal, and the dismissal's pop removes the new top-of-stack.",
+      "fix": "_reopen_manager_later(): defer the reopen via set_timer(0.05) and re-check screen_stack==1 at settled time. Applied to build verify/repair/failed-select and model verify reopen paths.",
+      "tags": [
+        "textual",
+        "screen-stack",
+        "dismissal-race",
+        "managers"
+      ],
+      "related_bugs": [
+        "bug-207"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T04:30:00-04:00"
+    },
+    {
+      "id": "bug-208",
+      "timestamp": "2026-06-10T07:43:14.925Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 5\u21926 lines (2 removed) | Also: lambda: app.screen.id == \"new-deployment\",; \"new deployment screen did not open\",",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-10T07:43:19.256Z"
+    },
+    {
+      "id": "bug-209",
+      "timestamp": "2026-06-10T07:45:00-04:00",
+      "error_message": "NoMatches: No nodes match '#label' on SelectCurrent(classes='-has-value') \u2014 test_new_deployment_create_build_handoff_pins_created_build + test_new_deployment_build_pin_and_smoke_acceptance_flow failed ONLY on the slower GPU host (blackbird rounds 1+2); pass on the Mac",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Both tests waited on app.screen.id alone ('new-deployment' / 'create-build') then immediately assigned Select.value. On the slower GPU box the Select's internal SelectCurrent #label child had not composed yet, so the value-watch update raised NoMatches. Same mount-race family as bug-207; the wizard/create-build screens got heavier this session, newly exposing it under GPU-host load.",
+      "fix": "Strengthened all 4 screen-open gates in the 2 tests to also require bool(app.screen.query('#<first-assigned-select> SelectCurrent #label')) before any Select.value assignment (wizard: #new-deployment-runtime; create-build: #create-build-method).",
+      "tags": [
+        "tests",
+        "flaky",
+        "textual",
+        "mount-race",
+        "select",
+        "gpu-host",
+        "remote-validation"
+      ],
+      "related_bugs": [
+        "bug-207"
+      ],
+      "occurrences": 2,
+      "last_seen": "2026-06-10T07:45:00-04:00"
     }
   ]
 }

@@ -1470,3 +1470,74 @@ def test_agent_lists_composer_presets_for_wizard() -> None:
 
     names = {item["name"] for item in result["presets"]}
     assert {"balanced", "qwen3-text", "low-memory"} <= names
+
+
+def test_compose_overrides_served_name_runs_dir_and_container_name(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    # J28: the auto-derived identity fields are operator-overridable.
+    agent = LocalAgent()
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen3-32b",
+            "target": "local",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model": "Qwen/Qwen3-32B",
+            "preset": "balanced",
+            "overrides": {
+                "served_model_name": "qwen-prod",
+                "container_name": "vela-qwen-prod",
+                "launch": {"runs_dir": str(tmp_path / "runs")},
+            },
+        },
+    )
+    config = result["config"]
+    assert config["served_model_name"] == "qwen-prod"
+    assert config["command"]["docker"]["container_name"] == "vela-qwen-prod"
+    assert config["launch"]["runs_dir"] == str(tmp_path / "runs")
+
+
+def test_compose_warns_when_world_size_exceeds_visible_gpus(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # J29: the TP-vs-GPU mismatch is an early compose-time advisory, not just
+    # a save-time preflight failure.
+    from vela.monitoring.gpu import GpuPollResult, GpuSample
+
+    agent = LocalAgent()
+    monkeypatch.setattr(
+        agent,
+        "sample_gpus",
+        lambda: GpuPollResult(
+            [
+                GpuSample(
+                    visible_index=0,
+                    uuid="GPU-a",
+                    name="Blackwell sm_120",
+                    memory_used_mb=0,
+                    memory_total_mb=96000,
+                    utilization_percent=0,
+                    temperature_c=40,
+                    power_w=80,
+                )
+            ]
+        ),
+    )
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen3",
+            "target": "local",
+            "runtime": "process",
+            "model": "Qwen/Qwen3-32B",
+            "preset": "balanced",
+            "overrides": {"engine": {"tensor_parallel_size": 4}},
+        },
+    )
+    warnings = [str(w) for w in result.get("warnings", [])]
+    assert any("exceeds 1 visible GPU" in w for w in warnings)

@@ -70,6 +70,18 @@ class HelpScreen(ModalScreen):
         text.append("Ctrl+P palette has every action\n", style=PURPLE)
         text.append("Screens:         ", style=MUTED)
         text.append("c Config picker   ? or F1 Help\n\n", style=TEXT)
+        text.append("Markers:         ", style=MUTED)
+        text.append(
+            "📌 pinned   ● ready/cached   ○ remote/inactive   ▲ partial/drift   "
+            "✕ broken   🔒 gated / in use   ⇩ used by configs\n",
+            style=TEXT,
+        )
+        text.append("Journey:         ", style=MUTED)
+        text.append(
+            "target × build × model@revision × config → run. A config launches its "
+            "pinned build, else the default build (⏎ in Builds sets it).\n\n",
+            style=TEXT,
+        )
         text.append("Debug: ", style=MUTED)
         text.append(
             "--debug writes structured JSONL self log and enables Textual devtools.\n",

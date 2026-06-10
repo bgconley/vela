@@ -7865,7 +7865,8 @@ async def test_agent_preflight_reports_gated_model_missing_hf_token(
             "kind": ErrorKind.HF_AUTH.value,
             "detail": (
                 "model llama-gated requires HF_TOKEN; "
-                "accept the model license and set HF_TOKEN"
+                "accept the model license and set HF_TOKEN "
+                "(agent env or config env: block)"
             ),
         }
     ]
@@ -11325,3 +11326,80 @@ async def test_target_client_probe_until_ready_emits_serialized_health_events(
     assert ready_event["reachable_url"] == "http://127.0.0.1:8128"
     json.dumps(health_event)
     json.dumps(ready_event)
+
+
+@pytest.mark.asyncio
+async def test_list_models_annotates_config_refs(config_dir: Path) -> None:
+    # J17: with configs_dir, each model entry names the configs referencing it.
+    write_yaml(
+        config_dir / "llama-cfg.yaml",
+        """
+        name: llama-cfg
+        model: org/llama
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    await client.call("pin_model", {"repo_id": "org/llama"})
+    result = await client.call("list_models", {"configs_dir": str(config_dir)})
+    entries = [
+        entry
+        for entry in result["models"]
+        if entry.get("repo_id") == "org/llama"
+    ]
+    assert entries
+    assert entries[0]["config_refs"] == ["llama-cfg"]
+
+
+@pytest.mark.asyncio
+async def test_set_config_build_pins_and_unpins(config_dir: Path) -> None:
+    # J31: pin/unpin a build on an existing config without a new deployment.
+    import yaml
+
+    write_yaml(
+        config_dir / "alpha.yaml",
+        """
+        name: alpha
+        model: org/alpha
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    result = await client.call(
+        "set_config_build",
+        {"name": "alpha", "configs_dir": str(config_dir), "build": "nightly-cu130"},
+    )
+    assert result["build"] == "nightly-cu130"
+    raw = yaml.safe_load((config_dir / "alpha.yaml").read_text())
+    assert raw["command"]["build"] == "nightly-cu130"
+    result = await client.call(
+        "set_config_build",
+        {"name": "alpha", "configs_dir": str(config_dir), "build": None},
+    )
+    assert result["build"] is None
+    raw = yaml.safe_load((config_dir / "alpha.yaml").read_text())
+    assert "build" not in (raw.get("command") or {})
+
+
+@pytest.mark.asyncio
+async def test_install_uv_job_streams_and_completes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # J37: install_uv is a streamed job; argv is patchable for tests.
+    monkeypatch.setattr(
+        local_agent_module,
+        "_INSTALL_UV_ARGV",
+        [sys.executable, "-c", "print('installing uv'); print('done')"],
+    )
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    result = await client.call("install_uv", {"job_id": "uv-job-1"})
+    assert result["kind"] == "install_uv"
+    events = client.subscribe(["uv-job-1"], resume_from="start")
+    done = None
+    async for event in events:
+        if event.get("event") == "job_done":
+            done = event
+            break
+    await events.aclose()
+    assert done is not None and done["ok"] is True

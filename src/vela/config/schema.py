@@ -213,7 +213,10 @@ class ModelConfig(BaseModel):
 
 
 def default_run_artifacts_dir() -> Path:
-    return Path(os.path.expanduser("~/.local/state/vela/runs"))
+    state_home = os.environ.get("XDG_STATE_HOME")
+    if state_home:
+        return Path(state_home).expanduser() / "vela" / "runs"
+    return Path(os.path.expanduser("~/.local/state")) / "vela" / "runs"
 
 
 def model_basename(model: str) -> str:
