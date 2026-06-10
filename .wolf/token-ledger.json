@@ -2,14 +2,14 @@
   "version": 1,
   "created_at": "2026-06-02T04:55:09.315Z",
   "lifetime": {
-    "total_tokens_estimated": 18290989,
-    "total_reads": 7983,
-    "total_writes": 2533,
+    "total_tokens_estimated": 18866749,
+    "total_reads": 8003,
+    "total_writes": 2553,
     "total_sessions": 11,
-    "anatomy_hits": 3408,
-    "anatomy_misses": 4502,
-    "repeated_reads_blocked": 39394,
-    "estimated_savings_vs_bare_cli": 138893059
+    "anatomy_hits": 3416,
+    "anatomy_misses": 4514,
+    "repeated_reads_blocked": 39407,
+    "estimated_savings_vs_bare_cli": 140026786
   },
   "sessions": [
     {
@@ -62602,6 +62602,294 @@
         "writes_count": 4,
         "repeated_reads_blocked": 2,
         "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T07:56:24.747Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 5379,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 96,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 143474,
+        "output_tokens_estimated": 407,
+        "reads_count": 5,
+        "writes_count": 5,
+        "repeated_reads_blocked": 3,
+        "anatomy_lookups": 2
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T08:00:40.835Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 5379,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 96,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 143474,
+        "output_tokens_estimated": 407,
+        "reads_count": 5,
+        "writes_count": 5,
+        "repeated_reads_blocked": 3,
+        "anatomy_lookups": 2
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T08:01:05.679Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 5379,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 96,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 143474,
+        "output_tokens_estimated": 407,
+        "reads_count": 5,
+        "writes_count": 5,
+        "repeated_reads_blocked": 3,
+        "anatomy_lookups": 2
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T08:07:07.252Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 5615,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-tui-journey-friction-punchlist-v1.md",
+          "tokens_estimated": 96,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 143710,
+        "output_tokens_estimated": 407,
+        "reads_count": 5,
+        "writes_count": 5,
+        "repeated_reads_blocked": 4,
+        "anatomy_lookups": 2
       }
     }
   ],
