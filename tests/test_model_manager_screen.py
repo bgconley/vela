@@ -77,3 +77,82 @@ async def test_model_manager_preserves_list_and_detail_contract() -> None:
         assert "revision: main → abc123" in detail
         assert "auth: gated, requires HF_TOKEN" in detail
         assert "files: 7 safetensors" in detail
+
+
+@pytest.mark.asyncio
+async def test_model_manager_empty_state_names_first_action() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = ModelManagerScreen({"models": []})
+        await app.push_screen(screen)
+        await pilot.pause()
+        content = str(screen.query_one("#model-manager-list", Static).content)
+        assert "press p" in content
+
+
+@pytest.mark.asyncio
+async def test_model_manager_auth_row_names_where_to_set_hf_token() -> None:
+    # J18: every HF_TOKEN mention says WHERE the token lives.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = ModelManagerScreen(
+            {
+                "models": [
+                    {
+                        "entry_id": "gated-pin",
+                        "display_name": "gated-pin",
+                        "repo_id": "org/gated",
+                        "cache_state": "remote_only",
+                        "gated": True,
+                    }
+                ]
+            }
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        detail = str(screen.query_one("#model-manager-detail", Static).content)
+        assert "gated, requires HF_TOKEN" in detail
+        assert "agent env or config env" in detail
+
+
+@pytest.mark.asyncio
+async def test_model_manager_shows_used_by_configs() -> None:
+    # J17: pin-impact data — which configs reference this model.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = ModelManagerScreen(
+            {
+                "models": [
+                    {
+                        "entry_id": "llama-pin",
+                        "display_name": "llama-pin",
+                        "repo_id": "org/llama",
+                        "cache_state": "cached",
+                        "config_refs": ["alpha", "beta"],
+                    }
+                ]
+            }
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        detail = str(screen.query_one("#model-manager-detail", Static).content)
+        assert "used_by: 2 (alpha, beta)" in detail
+
+
+@pytest.mark.asyncio
+async def test_model_manager_focus_model_selects_named_entry() -> None:
+    # J16 support: the manager can open focused on a freshly pinned model.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = ModelManagerScreen(
+            {
+                "models": [
+                    {"entry_id": "first", "display_name": "first"},
+                    {"entry_id": "second-pin", "display_name": "second-pin"},
+                ]
+            },
+            focus_model="second-pin",
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.selected_index == 1

@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from conftest import write_yaml
 from fakes.fake_docker import write_fake_docker_runtime
@@ -5011,7 +5012,7 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
         app.screen.query_one("#new-deployment-model-mode", Select).value = "pin_hf"
 
         await _wait_for_condition(
-            lambda: app.screen.id == "pin-model",
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
             "pin-HF handoff did not open the pin model flow",
         )
         assert (
@@ -5408,7 +5409,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
         app.screen.query_one("#new-deployment-model-mode", Select).value = "pin_hf"
 
         await _wait_for_condition(
-            lambda: app.screen.id == "pin-model",
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
             "acceptance flow did not open pin-model",
         )
         await pilot.press("enter")
@@ -5546,7 +5547,7 @@ async def test_new_deployment_adopt_local_model_path_handoff_pins_model_ref(
         app.screen.query_one("#new-deployment-model-mode", Select).value = "adopt_local"
 
         await _wait_for_condition(
-            lambda: app.screen.id == "pin-model",
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
             "adopt-local handoff did not open the pin model flow",
         )
         assert (
@@ -6463,7 +6464,7 @@ async def test_new_deployment_save_and_smoke_surfaces_named_failure(
         )
 
     assert "HF_AUTH" in app.error_text
-    assert "Set HF_TOKEN" in app.error_text
+    assert "set HF_TOKEN in the target agent" in app.error_text
     assert "HF token missing for gated model" in app.error_text
     assert "Smoke did not reach READY" not in app.error_text
     assert "stop -t 90 container-123" in docker_log.read_text(encoding="utf-8")
@@ -7896,11 +7897,11 @@ async def test_header_uses_agent_preview_metadata_for_build_model_scope(
         await pilot.pause()
 
         segment = _static_text(app, "#active-model")
-        assert "▣ 📌nightly-cu130 ●" in segment
-        assert "M 📌llama-pin ● abc123" in segment
+        assert "build: 📌nightly-cu130 ●" in segment
+        assert "model: 📌llama-pin ● abc123" in segment
         assert "Target: blackbird" in app.config_summary
-        assert "Build: ▣ 📌nightly-cu130 ●" in app.config_summary
-        assert "Model state: M 📌llama-pin ● abc123" in app.config_summary
+        assert "Build: 📌nightly-cu130 ●" in app.config_summary
+        assert "Model state: 📌llama-pin ● abc123" in app.config_summary
 
 
 @pytest.mark.asyncio
@@ -8004,7 +8005,7 @@ async def test_build_manager_selects_build_through_target_client(
     async with app.run_test(size=(144, 45)) as pilot:
         await _wait_for_target_connection_state(app, "connected")
         await pilot.pause()
-        assert "▣ stable-cu124 ●" in _static_text(app, "#active-model")
+        assert "build: stable-cu124 ●" in _static_text(app, "#active-model")
 
         await pilot.press("b")
         await _wait_for_condition(
@@ -8019,7 +8020,7 @@ async def test_build_manager_selects_build_through_target_client(
         await pilot.press("enter")
         await _wait_for_condition(
             lambda: target_client.select_calls == ["nightly-cu130"]
-            and "▣ nightly-cu130 ●" in _static_text(app, "#active-model"),
+            and "build: nightly-cu130 ●" in _static_text(app, "#active-model"),
             "build selection did not refresh header",
         )
 
@@ -9360,7 +9361,7 @@ async def test_model_manager_enter_selects_model_for_active_config(
         )
         assert target_client.preview_calls[-1]["model_ref"] == "02REMOTE"
         assert target_client.preview_calls[-1]["revision"] == "main"
-        assert "M qwen-remote ○ main" in _static_text(app, "#active-model")
+        assert "model: qwen-remote ○ main" in _static_text(app, "#active-model")
 
 
 @pytest.mark.asyncio
@@ -10038,7 +10039,7 @@ async def test_model_manager_pins_model_metadata_through_target_client(
         )
         await pilot.press("p")
         await _wait_for_condition(
-            lambda: app.screen.id == "pin-model",
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
             "pin model screen did not open",
         )
         assert not app.screen.query("#pin-model-entry-id")
@@ -10169,7 +10170,7 @@ async def test_model_manager_pins_url_model_metadata_through_target_client(
         )
         await pilot.press("p")
         await _wait_for_condition(
-            lambda: app.screen.id == "pin-model",
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
             "pin model screen did not open",
         )
 
@@ -13382,3 +13383,1427 @@ def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+@pytest.mark.asyncio
+async def test_sidebar_config_summary_never_wraps_names_mid_word(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "long-name.yaml",
+        """
+        name: qwen36-27b-bf16-blackwell-canary-extra-long
+        model: org/model
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        summary = app._render_config_summary()
+        # Screenshot-#1 fix: long config names truncate with an ellipsis
+        # instead of wrapping mid-word in the sidebar.
+        assert summary.no_wrap is True
+        assert summary.overflow == "ellipsis"
+
+
+@pytest.mark.asyncio
+async def test_post_ready_health_failure_degrades_then_recovers(config_dir: Path) -> None:
+    # FR-18: health polling must continue after READY — a live server that goes
+    # unhealthy flips to DEGRADED, and a later 200 recovers to READY.
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    write_yaml(
+        config_dir / "degrade.yaml",
+        f"""
+        name: degrade
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_phase(app, Phase.READY)
+            async with httpx.AsyncClient(timeout=1.0) as client:
+                await client.get(f"http://127.0.0.1:{port}/admin/health-off")
+            await _wait_for_phase(app, Phase.DEGRADED)
+            async with httpx.AsyncClient(timeout=1.0) as client:
+                await client.get(f"http://127.0.0.1:{port}/admin/health-on")
+            await _wait_for_phase(app, Phase.READY)
+            await pilot.press("s")
+            await _wait_for_port_down(port)
+    finally:
+        await _cleanup_port(port)
+
+
+class _JourneyComposerClient:
+    """Minimal composer-RPC fake for the journey-friction wizard tests."""
+
+    connected = False
+
+    def __init__(self, *, fail_validation: bool = False) -> None:
+        self.fail_validation = fail_validation
+        self.calls: list[tuple[str, dict | None]] = []
+        self.saved_config: dict | None = None
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def disconnect(self) -> None:
+        self.connected = False
+
+    async def call(self, method: str, params):
+        self.calls.append((method, params))
+        if method == "list_configs":
+            return {"valid": [], "invalid": []}
+        if method == "list_presets":
+            return {
+                "presets": [
+                    {
+                        "name": "balanced",
+                        "description": "Balanced",
+                        "engine": {},
+                        "extra_args": [],
+                        "applies_to": ["all"],
+                    }
+                ]
+            }
+        if method == "compose_config":
+            return {
+                "config": {
+                    "name": params["name"],
+                    "target": "local",
+                    "model": params.get("model", "Qwen/Qwen3-32B"),
+                    "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+                },
+                "warnings": [],
+                "derived": [],
+            }
+        if method == "validate_config":
+            if self.fail_validation:
+                return {
+                    "ok": False,
+                    "errors": ["server.port: port 18001 is already taken"],
+                    "warnings": [],
+                }
+            return {"ok": True, "errors": [], "warnings": []}
+        if method == "preview":
+            return {"preview": "cwd=/agent\nvllm serve Qwen/Qwen3-32B", "warnings": []}
+        if method == "preflight":
+            return {"ok": True, "failures": []}
+        if method == "save_config":
+            self.saved_config = dict(params["config"])
+            return {
+                "path": "/agent/configs/qwen3.yaml",
+                "name": params["config"]["name"],
+                "config": self.saved_config,
+            }
+        if method == "discover_runs":
+            return {"runs": []}
+        if method in {"gpu", "sample_gpus"}:
+            return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+        raise AssertionError(f"unexpected target client call: {method}")
+
+    def subscribe(self, *_args, **_kwargs):
+        raise AssertionError("journey wizard tests should not subscribe")
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_draft_survives_validation_failure(config_dir: Path) -> None:
+    # J1: a server-side validation failure must NOT discard the wizard draft —
+    # the wizard reopens with every typed value intact and the error inside it.
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=_JourneyComposerClient(fail_validation=True),
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        assert app.screen.id == "new-deployment"
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-port", Input).value = "18001"
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-name", Input).value == "qwen3",
+            "wizard did not reopen with the draft after validation failure",
+        )
+        assert app.screen.query_one("#new-deployment-model", Input).value == "Qwen/Qwen3-32B"
+        assert app.screen.query_one("#new-deployment-port", Input).value == "18001"
+        error_text = str(
+            app.screen.query_one("#new-deployment-error", Static).content
+        )
+        assert "already taken" in error_text
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_review_back_returns_to_wizard_with_draft(
+    config_dir: Path,
+) -> None:
+    # J2: Back from the Review screen reopens the wizard with the draft intact.
+    app = VelaApp(configs_dir=config_dir, target_client=_JourneyComposerClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "review screen did not open",
+        )
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-name", Input).value == "qwen3",
+            "back did not reopen the wizard with the draft",
+        )
+        assert app.screen.query_one("#new-deployment-model", Input).value == "Qwen/Qwen3-32B"
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_enter_advances_steps_without_submitting(
+    config_dir: Path,
+) -> None:
+    # J3: Enter in a wizard input advances one step; the whole wizard only
+    # submits from the Review step (Ctrl+S still works from anywhere).
+    app = VelaApp(configs_dir=config_dir, target_client=_JourneyComposerClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        screen = app.screen
+        assert screen.id == "new-deployment"
+        name_input = screen.query_one("#new-deployment-name", Input)
+        name_input.value = "qwen3"
+        screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        name_input.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # Still the wizard, advanced one step — NOT submitted.
+        assert app.screen is screen
+        assert screen.step_index == 1
+        # March to the Review step; Enter there submits.
+        for _ in range(3):
+            await pilot.press("ctrl+n")
+        assert screen.step_index == 4
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "enter on the review step did not submit",
+        )
+
+
+@pytest.mark.asyncio
+async def test_golden_path_journey_survives_failure_and_back(config_dir: Path) -> None:
+    # J4: the Phase-A regression net. Cold start -> n -> Enter-walk the steps ->
+    # server-side validation failure (draft survives, error in-wizard) ->
+    # resubmit -> Review -> Back (draft survives) -> Review -> Save.
+    client = _JourneyComposerClient(fail_validation=True)
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        screen = app.screen
+        assert screen.id == "new-deployment"
+        name_input = screen.query_one("#new-deployment-name", Input)
+        name_input.value = "qwen3"
+        screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        name_input.focus()
+        await pilot.pause()
+        # Enter walks Target -> Runtime -> Model -> Customize -> Review.
+        for expected_step in (1, 2, 3, 4):
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen is screen, "enter must not leave the wizard mid-walk"
+            assert screen.step_index == expected_step
+        # Enter on the Review step submits; validation fails server-side.
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen is not screen
+            and app.screen.query_one("#new-deployment-name", Input).value == "qwen3",
+            "draft did not survive the validation failure",
+        )
+        assert "already taken" in str(
+            app.screen.query_one("#new-deployment-error", Static).content
+        )
+        # Fix the server-side condition and resubmit.
+        client.fail_validation = False
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "review did not open after resubmit",
+        )
+        # Back keeps the draft.
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and app.screen.query_one("#new-deployment-name", Input).value == "qwen3",
+            "back did not restore the wizard draft",
+        )
+        # Forward again and save.
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "review did not reopen",
+        )
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.current_config is not None and app.current_config.name == "qwen3",
+            "save did not select the new config",
+        )
+        assert client.saved_config is not None
+
+
+@pytest.mark.asyncio
+async def test_footer_advertises_new_deployment_and_configs(config_dir: Path) -> None:
+    # J11: the flagship flow's key must be visible in the persistent footer —
+    # and early enough to survive right-side truncation at narrow widths.
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        footer = app._render_footer_bindings()
+        assert "n New" in footer
+        assert "c Configs" in footer
+        assert footer.index("n New") < footer.index("t Targets")
+
+
+@pytest.mark.asyncio
+async def test_empty_dashboard_points_to_first_actions(config_dir: Path) -> None:
+    # J12+J13: a fresh install must not be a dead end — the empty Configs
+    # panel names the first action and the log pane carries a quick start.
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "press n" in app.config_summary
+        assert any("Quick start" in line for line in app.log_lines)
+        assert any("n  create a deployment" in line for line in app.log_lines)
+
+
+@pytest.mark.asyncio
+async def test_quick_start_absent_once_configs_exist(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "existing.yaml",
+        """
+        name: existing
+        model: org/model
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not any("Quick start" in line for line in app.log_lines)
+        assert "press n" not in app.config_summary
+
+
+@pytest.mark.asyncio
+async def test_config_picker_empty_state_names_first_action(config_dir: Path) -> None:
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        assert app.screen.id == "config-picker"
+        assert "press n" in app.screen.summary
+
+
+@pytest.mark.asyncio
+async def test_help_screen_explains_glyphs_and_journey(config_dir: Path) -> None:
+    # J14: the marker glyphs and the journey spine are defined in Help.
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("question_mark")
+        await pilot.pause()
+        help_text = str(app.screen.query_one("#help-text", Static).content)
+        assert "📌" in help_text and "pinned" in help_text
+        assert "🔒" in help_text
+        assert "target × build × model@revision × config" in help_text
+
+
+class _BridgeJobEvents:
+    def __init__(self, done_payload: dict[str, object]) -> None:
+        self.closed = False
+        self._events: list[dict[str, object]] = []
+        self._done_payload = done_payload
+
+    def arm(self, job_id: str) -> None:
+        self._events = [
+            {
+                "event": "job_progress",
+                "job_id": job_id,
+                "kind": "committed",
+                "text": "working",
+                "level": "INFO",
+            },
+            {"event": "job_done", "job_id": job_id, **self._done_payload},
+        ]
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._events:
+            raise StopAsyncIteration
+        return self._events.pop(0)
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_create_build_success_bridges_back_to_build_manager(
+    config_dir: Path,
+) -> None:
+    # J5+J10: announce the job start, then land the user back in the Build
+    # Manager focused on the new build with the next step named.
+    class BridgeBuildClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.events = _BridgeJobEvents(
+                {"ok": True, "detail": "build ready", "label": "nvfp4", "build_id": "01NEW"}
+            )
+            self.created = False
+            self.list_builds_calls = 0
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_builds":
+                self.list_builds_calls += 1
+                builds = [
+                    {"build_id": "01STABLE", "label": "stable-cu124", "status": "ready",
+                     "default": True}
+                ]
+                if self.created:
+                    builds.append(
+                        {"build_id": "01NEW", "label": "nvfp4", "status": "ready"}
+                    )
+                return {"builds": builds, "skipped": []}
+            if method == "check_build_prerequisites":
+                return {"ok": True, "method": params["method"], "uv_available": True}
+            if method == "create_build":
+                self.created = True
+                self.events.arm(str(params["job_id"]))
+                return {"job_id": params["job_id"], "kind": "create_build", "status": "running"}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            return self.events
+
+    client = BridgeBuildClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager", "build manager did not open"
+        )
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build", "create build did not open"
+        )
+        app.screen.query_one("#create-build-method", Select).value = "nightly"
+        app.screen.query_one("#create-build-label", Input).value = "nvfp4"
+        await pilot.press("enter")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager" and client.list_builds_calls >= 2,
+            "build manager did not reopen after the job",
+        )
+        assert any("Build started" in note for note in notifications)
+        ready_notes = [note for note in notifications if "Build ready: nvfp4" in note]
+        assert ready_notes and "default" in ready_notes[0]
+        # Focused on the new build.
+        assert app.screen.selected_index == 1
+
+
+@pytest.mark.asyncio
+async def test_smoke_completion_bridges_to_launch(config_dir: Path) -> None:
+    # J6: smoke pass ends with "press l to launch", not a silent STOPPED.
+    class SmokeBridgeClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.saved: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                if self.saved is None:
+                    return {"valid": [], "invalid": []}
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/qwen3.yaml",
+                            "name": "qwen3",
+                            "model": "org/model",
+                            "target": "local",
+                            "warnings": [],
+                            "config": self.saved,
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preflight":
+                return {"ok": True, "failures": []}
+            if method == "save_config":
+                self.saved = dict(params["config"])
+                return {"path": "/agent/configs/qwen3.yaml", "name": "qwen3", "config": self.saved}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "prepare_launch":
+                return {
+                    "config": self.saved,
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": "/agent",
+                        "warnings": [],
+                        "metadata": {},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            if method == "launch":
+                return {"run_id": "smoke-run-1", "launch_mode": "attached", "status": "started"}
+            if method == "probe_until_ready":
+                return {
+                    "run_id": "smoke-run-1",
+                    "ready": True,
+                    "detail": "ready",
+                    "models": ["org/model"],
+                    "reachable_url": "http://127.0.0.1:8000",
+                    "phase": "READY",
+                }
+            if method == "stop":
+                return {"run_id": "smoke-run-1", "signaled": True}
+            if method == "wait":
+                return {"run_id": "smoke-run-1", "returncode": 0, "intentional": True}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    app = VelaApp(configs_dir=config_dir, target_client=SmokeBridgeClient())
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        config = {
+            "name": "qwen3",
+            "target": "local",
+            "model": "org/model",
+            "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+        }
+        await app._save_reviewed_new_deployment(config, smoke=True)
+        await pilot.pause()
+        assert any("Saved deployment: qwen3" in note for note in notifications)
+        bridge = [note for note in notifications if "press l to launch" in note]
+        assert bridge and "qwen3" in bridge[0]
+
+
+@pytest.mark.asyncio
+async def test_smoke_failure_bridges_to_flags_and_retry(config_dir: Path) -> None:
+    class SmokeFailClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.saved: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                if self.saved is None:
+                    return {"valid": [], "invalid": []}
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/qwen3.yaml",
+                            "name": "qwen3",
+                            "model": "org/model",
+                            "target": "local",
+                            "warnings": [],
+                            "config": self.saved,
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preflight":
+                return {"ok": True, "failures": []}
+            if method == "save_config":
+                self.saved = dict(params["config"])
+                return {"path": "/agent/configs/qwen3.yaml", "name": "qwen3", "config": self.saved}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "prepare_launch":
+                return {
+                    "config": self.saved,
+                    "build": {
+                        "argv": ["/bin/echo", "ready"],
+                        "env": {},
+                        "cwd": "/agent",
+                        "warnings": [],
+                        "metadata": {},
+                        "preview": "",
+                    },
+                    "preflight": None,
+                }
+            if method == "launch":
+                return {"run_id": "smoke-run-2", "launch_mode": "attached", "status": "started"}
+            if method == "probe_until_ready":
+                return {
+                    "run_id": "smoke-run-2",
+                    "ready": False,
+                    "detail": "readiness timeout after 1s; still loading",
+                    "models": [],
+                    "phase": "STARTING",
+                }
+            if method == "stop":
+                return {"run_id": "smoke-run-2", "signaled": True}
+            if method == "wait":
+                return {"run_id": "smoke-run-2", "returncode": 0, "intentional": True}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    app = VelaApp(configs_dir=config_dir, target_client=SmokeFailClient())
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        config = {
+            "name": "qwen3",
+            "target": "local",
+            "model": "org/model",
+            "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+        }
+        await app._save_reviewed_new_deployment(config, smoke=True)
+        await pilot.pause()
+        bridge = [note for note in notifications if "F adjust flags" in note]
+        assert bridge and "saved" in bridge[0]
+
+
+@pytest.mark.asyncio
+async def test_download_success_bridges_back_to_model_manager(config_dir: Path) -> None:
+    # J9: a finished download lands a toast and the refreshed Model Manager.
+    class DownloadBridgeClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.events = _BridgeJobEvents({"ok": True, "detail": "model cached"})
+            self.downloaded = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_models":
+                cache_state = "cached" if self.downloaded else "remote_only"
+                return {
+                    "models": [
+                        {
+                            "entry_id": "01MODEL",
+                            "display_name": "llama-pin",
+                            "source": "hf_repo",
+                            "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                            "model_ref": "meta-llama/Llama-3.1-8B-Instruct",
+                            "revision": "main",
+                            "cache_state": cache_state,
+                            "gated": False,
+                            "size_bytes": 0,
+                            "files": {},
+                        }
+                    ],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method == "download_model":
+                self.downloaded = True
+                self.events.arm(str(params["job_id"]))
+                return {"job_id": params["job_id"], "kind": "download_model", "status": "running"}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            return self.events
+
+    client = DownloadBridgeClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        app._handle_download_model_submission(
+            {"model_ref": "meta-llama/Llama-3.1-8B-Instruct"}
+        )
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not reopen after the download",
+        )
+        bridge = [note for note in notifications if "Downloaded" in note]
+        assert bridge
+        assert "meta-llama/Llama-3.1-8B-Instruct" in bridge[0]
+
+
+@pytest.mark.asyncio
+async def test_adopt_build_success_bridges_back_to_build_manager(
+    config_dir: Path,
+) -> None:
+    # J5 (adopt half): adopting lands the user back in the Build Manager
+    # focused on the adopted build, with the next step named.
+    class AdoptBridgeClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.adopted = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "adopt_build":
+                self.adopted = True
+                return {
+                    "build_id": "01ADOPT",
+                    "label": "vllm-nightly",
+                    "status": "adopted",
+                    "manifest": {},
+                }
+            if method == "list_builds":
+                builds = [
+                    {"build_id": "01STABLE", "label": "stable-cu124", "status": "ready",
+                     "default": True}
+                ]
+                if self.adopted:
+                    builds.append(
+                        {"build_id": "01ADOPT", "label": "vllm-nightly", "status": "adopted"}
+                    )
+                return {"builds": builds, "skipped": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    app = VelaApp(configs_dir=config_dir, target_client=AdoptBridgeClient())
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        app._handle_adopt_build_submission(
+            {"venv_path": "/home/user/venvs/vllm-nightly", "label": "vllm-nightly"}
+        )
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not reopen after adopt",
+        )
+        bridge = [note for note in notifications if "Adopted build: vllm-nightly" in note]
+        assert bridge and "default" in bridge[0]
+        assert app.screen.selected_index == 1
+
+
+def test_hf_auth_guidance_names_token_location() -> None:
+    # J18: the HF_AUTH error guidance points at where the token lives.
+    from vela.tui.app import ERROR_GUIDANCE
+
+    guidance = ERROR_GUIDANCE[ErrorKind.HF_AUTH]
+    assert "HF_TOKEN" in guidance
+    assert "agent" in guidance and "env" in guidance
+
+
+@pytest.mark.asyncio
+async def test_pin_success_bridges_back_to_model_manager(config_dir: Path) -> None:
+    # J16: pinning lands the user in the Model Manager focused on the new
+    # entry with the download hint.
+    class PinBridgeClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.pinned = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "pin_model":
+                self.pinned = True
+                return {
+                    "entry": {"entry_id": "qwen-pin", "display_name": "qwen-pin"},
+                    "warnings": [],
+                }
+            if method == "list_models":
+                models = [
+                    {"entry_id": "old-pin", "display_name": "old-pin",
+                     "cache_state": "cached"}
+                ]
+                if self.pinned:
+                    models.append(
+                        {"entry_id": "qwen-pin", "display_name": "qwen-pin",
+                         "cache_state": "remote_only"}
+                    )
+                return {"models": models, "default_cache": "hf", "skipped": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    app = VelaApp(configs_dir=config_dir, target_client=PinBridgeClient())
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        app._handle_pin_model_submission({"repo_id": "Qwen/Qwen3-32B"})
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not reopen after pin",
+        )
+        bridge = [note for note in notifications if "Pinned model: qwen-pin" in note]
+        assert bridge and "downloads it" in bridge[0]
+        assert app.screen.selected_index == 1
+
+
+@pytest.mark.asyncio
+async def test_model_remove_confirm_states_reclaim_and_irreversibility(
+    config_dir: Path,
+) -> None:
+    # J17: the remove confirm names the reclaimed cache and irreversibility.
+    class RemoveConfirmClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_models":
+                return {
+                    "models": [
+                        {
+                            "entry_id": "llama-pin",
+                            "display_name": "llama-pin",
+                            "repo_id": "org/llama",
+                            "cache_state": "cached",
+                            "unique_size_bytes": 2_100_000_000,
+                            "nominal_size_bytes": 16_100_000_000,
+                        }
+                    ],
+                    "default_cache": "hf",
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    app = VelaApp(configs_dir=config_dir, target_client=RemoveConfirmClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager", "model manager did not open"
+        )
+        await pilot.press("x")
+        await _wait_for_condition(
+            lambda: app.screen.id == "confirm", "remove confirm did not open"
+        )
+        message = str(app.screen.query_one("#confirm-message", Static).content)
+        assert "cannot be undone" in message
+        assert "2.1 GB" in message
+
+
+@pytest.mark.asyncio
+async def test_pin_download_now_strips_flag_and_kicks_download(config_dir: Path) -> None:
+    # J15: download_now never reaches the pin RPC; it kicks the existing
+    # download job after a successful pin, with an honest bridge message.
+    class PinDownloadClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.pin_params: dict | None = None
+            self.download_params: dict | None = None
+            self.events = _BridgeJobEvents({"ok": True, "detail": "model cached"})
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "pin_model":
+                self.pin_params = dict(params)
+                return {
+                    "entry": {"entry_id": "qwen-pin", "display_name": "qwen-pin"},
+                    "warnings": [],
+                }
+            if method == "download_model":
+                self.download_params = dict(params)
+                self.events.arm(str(params["job_id"]))
+                return {"job_id": params["job_id"], "kind": "download_model", "status": "running"}
+            if method == "list_models":
+                return {
+                    "models": [
+                        {"entry_id": "qwen-pin", "display_name": "qwen-pin",
+                         "cache_state": "remote_only"}
+                    ],
+                    "default_cache": "hf",
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            return self.events
+
+    client = PinDownloadClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        app._handle_pin_model_submission(
+            {"repo_id": "Qwen/Qwen3-32B", "download_now": True}
+        )
+        await _wait_for_condition(
+            lambda: client.download_params is not None,
+            "download job was not kicked after pin",
+        )
+        assert client.pin_params is not None
+        assert "download_now" not in client.pin_params
+        assert client.download_params["model_ref"] == "qwen-pin"
+        bridge = [note for note in notifications if "Pinned & downloading" in note]
+        assert bridge and "qwen-pin" in bridge[0]
+
+
+@pytest.mark.asyncio
+async def test_palette_clone_deployment_prefills_wizard(config_dir: Path) -> None:
+    # J26: the "new variant in 30 seconds" flow — clone an existing config
+    # into a prefilled wizard with a suggested name.
+    class CloneComposerClient(_JourneyComposerClient):
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "alpha.yaml"),
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "target": "local",
+                            "warnings": [],
+                            "config": {
+                                "name": "alpha",
+                                "model": "org/alpha",
+                                "server": {"host": "127.0.0.1", "port": 8101},
+                            },
+                        }
+                    ],
+                    "invalid": [],
+                }
+            return await super().call(method, params)
+
+    app = VelaApp(configs_dir=config_dir, target_client=CloneComposerClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        commands = list(app.get_system_commands(app.screen))
+        clone = next(
+            command for command in commands if command.title == "Clone deployment: alpha"
+        )
+        clone.callback()
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query(Input))
+            and app.screen.query_one("#new-deployment-name", Input).value == "alpha-2",
+            "clone did not open the wizard prefilled",
+        )
+        assert app.screen.query_one("#new-deployment-model", Input).value == "org/alpha"
+        # Port intentionally blank — auto-allocation avoids cloning a collision.
+        assert app.screen.query_one("#new-deployment-port", Input).value == ""
+
+
+@pytest.mark.asyncio
+async def test_preflight_banner_lists_all_failures(config_dir: Path) -> None:
+    # J29: the operator sees the whole checklist, not just the first failure.
+    write_yaml(
+        config_dir / "alpha.yaml",
+        """
+        name: alpha
+        model: org/alpha
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        ok = app._handle_preflight_result(
+            {
+                "ok": False,
+                "failures": [
+                    {"kind": "PORT_IN_USE", "detail": "port 8101 is already bound"},
+                    {"kind": "MODEL_NOT_FOUND", "detail": "model weights missing"},
+                ],
+            }
+        )
+        assert ok is False
+        assert "port 8101 is already bound" in app.error_text
+        assert "model weights missing" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_remove_build_refusal_names_blocking_configs(config_dir: Path) -> None:
+    # J34: the refusal tells the user WHICH configs pin the build.
+    class RefusingClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "remove_build":
+                raise TargetCallError(
+                    "resource-in-use",
+                    "build is pinned by one or more configs",
+                    {"build": "b1", "configs": ["alpha", "beta"]},
+                )
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    app = VelaApp(configs_dir=config_dir, target_client=RefusingClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._remove_build("b1", "stable-cu124")
+        assert "pinned by: alpha, beta" in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_config_picker_offers_push_affordance(config_dir: Path) -> None:
+    # J36: the picker routes "push this config" into the target manager flow.
+    write_yaml(
+        config_dir / "alpha.yaml",
+        """
+        name: alpha
+        model: org/alpha
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+    notifications: list[str] = []
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        await pilot.press("c")
+        await _wait_for_condition(
+            lambda: app.screen.id == "config-picker", "picker did not open"
+        )
+        await pilot.press("ctrl+t")
+        await _wait_for_condition(
+            lambda: app.screen.id == "target-manager",
+            "push affordance did not open the target manager",
+        )
+        assert app.current_config is not None and app.current_config.name == "alpha"
+        assert any("p pushes" in note for note in notifications)
+
+
+@pytest.mark.asyncio
+async def test_verify_build_reopens_manager_focused(config_dir: Path) -> None:
+    # J30: maintenance actions land the user back in the refreshed manager.
+    class VerifyClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.list_builds_calls = 0
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_builds":
+                self.list_builds_calls += 1
+                return {
+                    "builds": [
+                        {"build_id": "01STABLE", "label": "stable-cu124",
+                         "status": "ready", "default": True},
+                        {"build_id": "01NIGHT", "label": "nightly-cu130",
+                         "status": "ready"},
+                    ],
+                    "skipped": [],
+                }
+            if method == "verify_build":
+                return {"label": "nightly-cu130", "status": "ready", "ok": True}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    client = VerifyClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager", "manager did not open"
+        )
+        await pilot.press("down")
+        await pilot.press("v")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager" and client.list_builds_calls >= 2,
+            "manager did not reopen after verify",
+        )
+        # Reopened focused on the verified build.
+        assert app.screen.selected_index == 1
+
+
+@pytest.mark.asyncio
+async def test_verify_model_reopens_manager_focused(config_dir: Path) -> None:
+    class ModelVerifyClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.list_models_calls = 0
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_models":
+                self.list_models_calls += 1
+                return {
+                    "models": [
+                        {"entry_id": "llama-pin", "display_name": "llama-pin",
+                         "model_ref": "llama-pin", "cache_state": "cached"},
+                    ],
+                    "default_cache": "hf",
+                    "skipped": [],
+                }
+            if method == "verify_model":
+                return {"cache_state": "verified", "ok": True}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    client = ModelVerifyClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager", "model manager did not open"
+        )
+        await pilot.press("v")
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager" and client.list_models_calls >= 2,
+            "model manager did not reopen after verify",
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_manager_pins_build_to_current_config(config_dir: Path) -> None:
+    # J31: P pins the highlighted build to the selected config (toggle).
+    write_yaml(
+        config_dir / "alpha.yaml",
+        """
+        name: alpha
+        model: org/alpha
+        """,
+    )
+    class PinBuildClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.set_calls: list[dict] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_dir / "alpha.yaml"),
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "target": "local",
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/alpha", "warnings": []}
+            if method == "list_builds":
+                return {
+                    "builds": [
+                        {"build_id": "01NIGHT", "label": "nightly-cu130",
+                         "status": "ready", "default": True}
+                    ],
+                    "skipped": [],
+                }
+            if method == "set_config_build":
+                self.set_calls.append(dict(params))
+                return {"name": params["name"], "build": params["build"]}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            async def _empty():
+                while False:
+                    yield {}
+
+            return _empty()
+
+    client = PinBuildClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    notifications: list[str] = []
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        app.select_config("alpha")
+        await pilot.pause()
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager", "manager did not open"
+        )
+        await pilot.press("P")
+        await _wait_for_condition(
+            lambda: bool(client.set_calls), "pin was not requested"
+        )
+        assert client.set_calls[0]["name"] == "alpha"
+        assert client.set_calls[0]["build"] == "nightly-cu130"
+        assert any("Pinned build nightly-cu130 to alpha" in note for note in notifications)
+        # The manager reopens refreshed.
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager", "manager did not reopen after pin"
+        )
+
+
+@pytest.mark.asyncio
+async def test_install_uv_from_create_build_unlocks_nightly(config_dir: Path) -> None:
+    # J37: the uv-block state offers a one-key install that reopens the form
+    # with uv available and the typed values preserved.
+    class UvClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.events = _BridgeJobEvents({"ok": True, "detail": "uv installed"})
+            self.installed = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "check_build_prerequisites":
+                return {
+                    "ok": True,
+                    "method": params["method"],
+                    "uv_available": self.installed,
+                }
+            if method == "install_uv":
+                self.installed = True
+                self.events.arm(str(params["job_id"]))
+                return {"job_id": params["job_id"], "kind": "install_uv", "status": "running"}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            return self.events
+
+    client = UvClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    notifications: list[str] = []
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
+        await pilot.press("b")
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager", "manager did not open"
+        )
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build" and bool(app.screen.query(Input)),
+            "create build did not open",
+        )
+        assert "uv not found" in str(
+            app.screen.query_one("#create-build-uv-note", Static).content
+        )
+        app.screen.query_one("#create-build-label", Input).value = "nightly-cu130"
+        await pilot.press("ctrl+g")
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build"
+            and bool(app.screen.query(Input))
+            and "uv available" in str(
+                app.screen.query_one("#create-build-uv-note", Static).content
+            ),
+            "form did not reopen with uv available",
+        )
+        # Typed values survive the install round-trip.
+        assert app.screen.query_one("#create-build-label", Input).value == "nightly-cu130"
+        assert any("uv installed" in note for note in notifications)

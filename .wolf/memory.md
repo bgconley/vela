@@ -700,3 +700,110 @@
 | 04:28 | Edited vela-tui-session-context-2026-06-09.md | modified kit() | ~328 |
 | 04:28 | Edited vela-tui-session-context-2026-06-09.md | 6→7 lines | ~309 |
 | 04:28 | SESSION END — Vela TUI overhaul COMPLETE: all 6 phases done + committed (0ea1518 P1-3, 19baa94 P4, f993be5 P5, 2935f2c P6) on claude-ui-implementation (NOT pushed). Every flagged screen + dashboard refactored to Figma; shared widget kit (Field/KeyHintBar/ContextCard/PresetChips/ValidationCard/MasterDetail/StepIndicator + tags helpers) + token theme in place; full suite 998 green; ruff clean; every screen rendered+eyeballed. Context doc §0/§9 updated to DONE. Optional remaining = tracker #7 (small-modals CSS consistency + Download advanced toggle, non-flagged). Meets §15 definition of done. | vela-tui-session-context-2026-06-09.md, .wolf/memory.md | DONE | ~6000 |
+| 04:29 | Session end: 69 writes across 29 files (vela-tui-session-context-2026-06-09.md, probe_static_content.py, test_tui_widgets.py, tags.py, masterdetail.py) | 23 reads | ~100329 tok |
+
+## Session: 2026-06-09 17:06
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-09 17:09
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 14:30 | Code-review of unpushed TUI refactor commits (0ea1518..bd72b3f) for correctness | src/vela/tui/* | clean except create_build disclosure-leak (minor) + over-promising footer hints (download/adopt); log classification & secret masking verified sound; 11 pre-existing smoke failures (subprocess launch, not regressions) | ~38k |
+| 17:20 | DoD verification: ruff clean ✓; re-rendered all 9 overhauled screens (CB/DM/AB/target/flag/wizard/review/model/build/dashboard) + eyeballed ✓ | render scripts in jobs tmp | verified | ~30000 |
+| 17:40 | FULL suite NOT green locally: 14 launch/attach tests fail (984/998). Proven environmental NOT regression: same tests fail at origin/claude-ui-implementation in clean worktree /tmp/lab-tui-base. Cause: ~9676 leaked run records in ~/.local/state/vela/runs + leaked fake_vllm_child/supervisor procs (Jun 7) + stale agent pid 19907 on default socket. Cleanup blocked by permissions — needs user. Logged bug-185. | buglog.json | logged | ~20000 |
+| 17:50 | Diff review (5 commits) via agent: NO blockers. F1 minor: hidden fields leak into create-build payload (inert downstream); F2 minor: download_model footer advertises dead o/a keys; F3 minor: PresetChips decorative only; F4 major-UX: adopt_build ValidationCard hardcoded green "Validated" (documented deferral but misleading). Masking/log-classification/contracts clean. | — | reviewed | ~125000 |
+| 17:45 | Compliance review of TUI overhaul vs handoff/plan/contracts (review agent): theme+widgets+8 screens verified, all §8 contracts hold; gaps noted (dead o/a footer keys in download_model, env-not-per-line resolved cmd, header glyphs unchanged); 15 fake-child launch tests fail locally on BOTH branch and main (env timing, not regression) | src/vela/tui/*, tests/* | review only, no code changes | ~60000 |
+| 18:25 | Loader-spec compliance review (agent): yes-with-gaps. 1 MAJOR: FR-18 post-READY liveness polling not wired in production (probe_until_ready cancels at READY; verified at agent/local.py:1442-1473 + app.py callers 3019/3953/4472) — components support it (probe_loop/FSM/TUI handler) but no caller keeps probing. Minors: ProcessExited lacks signaled field; fixed-interval probe (no backoff); §10 structure deviations; nvidia-ml-py optional extra; toasts-vs-chrome ambiguity. | — | reviewed | ~219000 |
+| 18:25 | Figma/contract review (agent): PASS, ZERO contract violations (§8 verified line-by-line). Gaps: header de-crowding NOT delivered (glyphs ▣/M remain app.py:4185-4233 — session-context "chrome already v1-styled" claim inaccurate; glyphs only render when connected/config-loaded which is how eyeball missed it); one-env-per-line resolved cmd silently missed (command_builder.py:197-204 space-joins); dead keys o/a (download_model), dead "view all" (target_manager); plan §10 checklist stale Phases 3-6. | — | reviewed | ~191000 |
+| 18:35 | Edited tests/test_create_build_screen.py | 6→6 lines | ~52 |
+| 18:35 | Edited tests/test_create_build_screen.py | modified test_create_build_hidden_fields_do_not_leak_into_params() | ~426 |
+| 18:36 | Edited src/vela/tui/screens/create_build.py | modified _collect_build_params() | ~367 |
+| 18:36 | Edited tests/test_command_builder.py | 6→7 lines | ~50 |
+| 18:36 | Edited tests/test_command_builder.py | modified test_render_preview_puts_each_env_var_on_its_own_line() | ~288 |
+| 18:37 | Edited src/vela/engine/command_builder.py | modified render_preview() | ~118 |
+| 18:40 | Edited tests/test_download_model_screen.py | 2→2 lines | ~37 |
+| 18:40 | Edited tests/test_download_model_screen.py | modified test_download_model_preset_selection_fills_pattern_inputs() | ~862 |
+| 18:41 | Edited tests/test_tui_widgets.py | modified test_preset_chips_renders_chip_per_option_and_marks_selected() | ~604 |
+| 18:42 | Created src/vela/tui/widgets/preset_chips.py | — | ~996 |
+| 18:42 | Edited src/vela/tui/screens/download_model.py | modified __init__() | ~298 |
+| 18:42 | Edited src/vela/tui/screens/download_model.py | 11→14 lines | ~178 |
+| 18:42 | Edited src/vela/tui/screens/download_model.py | modified on_mount() | ~558 |
+| 18:44 | Edited tests/test_target_manager_screen.py | modified test_target_manager_view_all_expands_and_collapses_capabilities() | ~338 |
+| 18:44 | Edited src/vela/tui/widgets/tags.py | 4→4 lines | ~49 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | 4→5 lines | ~52 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | 2→3 lines | ~38 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | modified action_remove() | ~104 |
+| 18:44 | Edited src/vela/tui/screens/target_manager.py | expanded (+7 lines) | ~194 |
+| 18:48 | Created tests/test_build_registry.py | — | ~791 |
+| 18:48 | Edited tests/test_adopt_build_screen.py | modified test_adopt_build_validation_starts_neutral_without_fabrication() | ~871 |
+| 18:48 | Edited tests/test_adopt_build_screen.py | 6→6 lines | ~62 |
+| 18:49 | Edited src/vela/engine/build_registry.py | modified inspect_venv() | ~696 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | added 1 import(s) | ~79 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | modified __init__() | ~237 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | modified Vertical() | ~40 |
+| 18:49 | Edited src/vela/tui/screens/adopt_build.py | modified on_mount() | ~936 |
+| 18:50 | Edited src/vela/agent/local.py | 4→5 lines | ~32 |
+| 18:50 | Edited src/vela/agent/local.py | 3→4 lines | ~23 |
+| 18:50 | Edited src/vela/agent/local.py | 4→6 lines | ~88 |
+| 18:50 | Edited src/vela/agent/local.py | modified _adopt_build() | ~160 |
+| 18:50 | Edited src/vela/tui/app.py | 5→5 lines | ~65 |
+| 18:50 | Edited src/vela/tui/app.py | 9→9 lines | ~96 |
+| 18:50 | Edited src/vela/tui/app.py | modified _probe_adopt_venv() | ~179 |
+| 18:54 | Edited src/vela/tui/app.py | modified _render_active_model() | ~257 |
+| 18:54 | Edited src/vela/tui/app.py | 3→3 lines | ~48 |
+| 18:54 | Edited src/vela/tui/app.py | modified _composition_detail_rows() | ~112 |
+| 18:58 | Edited src/vela/fake_child.py | modified do_GET() | ~249 |
+| 18:59 | Edited src/vela/agent/local.py | 3→4 lines | ~78 |
+| 19:00 | Edited src/vela/agent/local.py | modified _track_post_ready_probe() | ~397 |
+| 19:04 | Edited src/vela/tui/app.py | modified on_phase_changed() | ~124 |
+| 19:12 | Created tests/test_state_isolation.py | — | ~444 |
+| 19:13 | Edited src/vela/config/schema.py | modified default_run_artifacts_dir() | ~65 |
+| 19:14 | Edited tests/conftest.py | modified isolated_vela_state() | ~626 |
+| 19:14 | Edited src/vela/config/schema.py | modified default_run_artifacts_dir() | ~70 |
+| 19:35 | FUNCTIONAL PASS COMPLETE (user: "resolve all identified issues, make everything functional and real"): (1) create_build payload filtered by _VISIBLE; (2) render_preview one-env-per-line; (3) download_model PresetChips interactive + Ctrl+R raw toggle + dead o/a hints removed; (4) target_manager v view-all real; (5) adopt_build REAL venv validation (inspect_venv engine fn + agent method + probe kwarg, neutral until probed); (6) header de-crowding (build:/model: labeled segments, sidebar ellipsis no-wrap); (7) FR-18 wired end-to-end (agent keeps probe_loop post-READY + on_phase_changed allows READY<->DEGRADED; new e2e smoke test w/ fake-child /admin/health-off); (8) test/state isolation (session XDG temp dir + fresh daemon + teardown stop; default_run_artifacts_dir honors XDG_STATE_HOME); (9) ProcessExited.signaled. All strict red->green. | 14 src + 9 test files | FULL SUITE 1023 passed, ruff clean, screens re-rendered+eyeballed | ~200000 |
+| 19:36 | CRITICAL DISCOVERY (bug-204): tests talk to a PERSISTENT local agent daemon on the real socket; daemon spawned by the first run keeps serving OLD code after src changes (FR-18 fix invisible until daemon restart). Found via HANDLE-print instrumentation showing agent.handle never called in-process. Fixed by session state isolation. Also corrected plan §10 checklist (was stale, Phases 3-6 unticked) + session-context "chrome already v1-styled" false claim. | conftest.py, plan, session-context | verified | ~40000 |
+| 19:22 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 63 reads | ~283851 tok |
+| 19:32 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 71 reads | ~313184 tok |
+| 19:39 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~349169 tok |
+| 19:40 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~349169 tok |
+| 20:05 | UX journey audit (3 agents + cold-start probe): builds journey, models+wizard journey, scoped-intent baseline (onboarding/composer/user-stories specs). VERDICT: forms exemplary, journey spine weak. Top: wizard draft destroyed on validation-fail/Review-Esc + Enter-anywhere-submits (new_deployment.py:327-329,406-410; app.py:2700-2728); post-action dead ends (build done→no next step, select semantics unexplained, smoke→STOPPED no bridge); cold start dead end (n missing from footer app.py:4358-4363, "No configs found" no CTA); PinModelScreen weakest form (9 fields, zero helpers); HF_TOKEN named 4 places located 0; recipe never defined; clone missing in TUI (US E1.4). Findings reported to user, NO fixes applied. | findings only | reported | ~470000 |
+| 19:41 | Session end: 45 writes across 21 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~349169 tok |
+| 20:54 | Created vela-tui-journey-friction-punchlist-v1.md | — | ~5737 |
+| 20:20 | Created vela-tui-journey-friction-punchlist-v1.md: 37 items (J1-J37) in 7 phases (A never-lose-work, B next-step bridges, C first-contact/empty-states, D pin-model rebuild+model data, E jargon-at-point-of-use, F wizard structure/clone/derived-editable, G build-surface power) + 11 Figma mocks (new page "Journey v2 — Friction Pass"; M-B1/M-M1/M-M2 net-new since Build/Model/Pin never had mocks) + sequencing (~13.5 dev days) + DoD incl. golden-path Pilot test + zero UI-silent info sources. | vela-tui-journey-friction-punchlist-v1.md, anatomy.md | created | ~8000 |
+| 20:55 | Session end: 46 writes across 22 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 78 reads | ~355316 tok |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | modified __init__() | ~383 |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | modified on_mount() | ~124 |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | modified action_next_step() | ~248 |
+| 21:34 | Edited src/vela/tui/screens/new_deployment.py | 6→7 lines | ~65 |
+| 21:35 | Edited src/vela/tui/screens/new_deployment.py | modified action_back() | ~134 |
+| 21:36 | Edited src/vela/tui/app.py | modified _open_new_deployment() | ~45 |
+| 21:36 | Edited src/vela/tui/app.py | modified _push_new_deployment_screen() | ~544 |
+| 21:36 | Edited src/vela/tui/app.py | modified _new_deployment_target_rows() | ~130 |
+| 21:36 | Edited src/vela/tui/app.py | modified _review_new_deployment() | ~775 |
+| 21:37 | Edited src/vela/tui/app.py | modified _download_new_deployment_model() | ~283 |
+| 21:37 | Edited src/vela/tui/app.py | modified _handle_new_deployment_review() | ~194 |
+| 21:40 | Edited src/vela/tui/screens/new_deployment.py | modified action_next_step() | ~250 |
+| 21:42 | Edited src/vela/tui/app.py | modified _render_footer_bindings() | ~134 |
+| 21:46 | Edited src/vela/tui/app.py | modified start() | ~204 |
+| 22:10 | PHASES A-C of journey punchlist DELIVERED (J1-J14, strict red->green): A) wizard last_draft stash at submit (payload contract intact) + _review_new_deployment fail() reopens wizard w/ initial=draft+error_message; Review B Back action; Enter advances steps (submit only from Review step; _focus_step_entry chains Inputs / clears focus for screen-level Enter); golden-path test. C) n New + c Configs in footer (front-loaded); empty-state CTAs (dashboard/model/build/picker); first-run Quick start block in log pane; Help markers legend + journey-spine sentence. B) build/adopt completion bridges (toast + reopen Build Manager focus_build=new); smoke pass/fail bridges (press l / F adjust flags); download bridge (toast + reopen Model Manager); select toast names default-for-unpinned semantics; build manager helper line + default_for row; "Build started" announcement. Smoke suite 210 green; ruff clean; dashboards/build-manager/help rendered+eyeballed. | new_deployment.py, app.py, build_manager.py, model_manager.py, config_picker.py, help.py + 4 test files | verified | ~180000 |
+| 22:06 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:08 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:10 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:15 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 82 reads | ~358829 tok |
+| 22:45 | PHASE D progress: J16 (pin bridge: toast + Model Manager reopen focus_model), J17 (agent config_refs annotation via configs_dir + used_by row + remove-confirm reclaim/irreversibility; dedup sizes were already plumbed), J18 (canonical HF_TOKEN location string across model_manager/download_model/new_deployment/app HF_AUTH guidance/agent preflight; 2 pins updated deliberately) — all red->green, smoke 214 green, ruff clean. J15: built M-M1 Pin Model mock in Figma on NEW page "Journey v2 — Friction Pass" (66:2): window 67:2 + disclosure-states annotation card 67:63, Vela Terminal tokens reused. AWAITING user fidelity approval before rebuilding pin_model.py. | model_manager.py, download_model.py, new_deployment.py, app.py, agent/local.py + tests + Figma 66:2/67:2/67:63 | verified | ~120000 |
+| 23:03 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 83 reads | ~358829 tok |
+| 23:45 | Session end: 60 writes across 23 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 85 reads | ~358829 tok |
+| 00:54 | Created tests/test_pin_model_screen.py | — | ~2011 |
+| 00:55 | Created src/vela/tui/screens/pin_model.py | — | ~4855 |
+| 00:56 | Edited src/vela/tui/screens/pin_model.py | 3→3 lines | ~37 |
+| 00:56 | Edited src/vela/tui/screens/pin_model.py | modified Vertical() | ~68 |
+| 00:56 | Edited tests/test_pin_model_screen.py | 8→9 lines | ~128 |
+| 23:30 | J15 DELIVERED (M-M1 approved w/ Advanced section): pin_model.py rebuilt — Source select disclosure (hf/local/url), Field helpers, Ctrl+R Advanced (quant/tokenizer/notes/detection-override checkboxes/Download-now), canonical gated note, live WILL PIN preview, KeyHintBar, token CSS (legacy ACCENT/SURFACE_ALT gone). All 11 #pin-model-* controls mounted (display-toggled); payload exact + optional download_now (app strips before pin RPC, kicks _download_model job, bridge "Pinned & downloading"); hidden-source fields filtered; human per-source validation messages; target_label kwarg at both push sites. 9 new screen tests + download_now wiring smoke test, red->green; all pin/model smoke green; rendered both states + eyeballed vs Figma 70:2/70:64. | pin_model.py, app.py, test_pin_model_screen.py, test_tui_smoke.py | verified | ~90000 |
+| 01:03 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 87 reads | ~365928 tok |
+| 03:00 | PHASES E+F DELIVERED (J19-J29, user-directed, strict red->green): E) recipe note+loud application summary; flag-source legend; recipe-protection alternative action; preset descriptions (wizard+flag mgr); image/port helpers; suggested: label; Tab Edit-value hint. F) runtime+model step disclosure (nd-group-* wrappers, ids preserved); bare-model tradeoff helper; recipe model -> flips mode to bare; name suggested from model-slug+target (live placeholder ghost, blank uses it); Customize Ctrl+R advanced group (served_model_name/runs_dir/container_name -> composer overrides extended for scalars); palette "Clone deployment: <name>" -> prefilled wizard (port blank=auto); preflight banner lists ALL failures; compose-time TPxPP vs visible-GPU advisory (agent _world_size_advisory). GOTCHAS fixed: focus-anchor (step containers can_focus, set_focus before display flips — Textual async refocus steals Enter into Selects); nd-group/column height:auto (1fr children inflate rows, clip siblings); pin-model mount race (bug-207: never wait on screen.id alone). FULL SUITE 1074 passed; ruff clean; 5 wizard/flag renders eyeballed. | new_deployment.py, flag_manager.py, app.py, composer.py, agent/local.py + 4 test files | verified | ~250000 |
+| 01:50 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 92 reads | ~365928 tok |
+| 02:44 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 97 reads | ~620488 tok |
+| 06:30 | PHASE G DELIVERED (J30-J37): wheel-trap helper + pip channel drop + git Ref field; remove-refusals name blocking configs (_blocker_suffix); picker Ctrl+T push affordance; managers settle-then-reopen-focused after verify/repair/failed-select (bug-208: push-during-dismissal gets popped — set_timer defer); P pin/unpin build on current config (agent set_config_build, alias-aware toggle, atomic 0600 write); Ctrl+G install-uv job (cancellation-safe subprocess via _terminate_build_subprocess) reopening form w/ values; venv discovery (engine discover_venvs + agent + Adopt Select picker). REVIEW: 2 agents over full working tree — acceptance: ALL 37 punchlist items delivered, zero contract drift, DoD met; bugs: 3 majors fixed (uv subprocess leak, non-atomic config write, compose blocking event loop -> to_thread) + 2 minors (pin-toggle aliases, url download_now). run_remote_tests.sh gains VELA_REMOTE_BRANCH (conditional injection, default byte-identical; workflow pins updated + new test). FULL SUITE pending final run. | many | verified | ~300000 |

@@ -1,10 +1,57 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
+
+_VELA_STATE_ENV_KEYS = ("XDG_STATE_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_vela_state() -> Iterator[Path]:
+    """Point ALL vela state at a per-session temp dir (the durable bug-185 fix).
+
+    Without this, suites read/write the user's real ``~/.local/state/vela``:
+    run records accumulate across runs until launch tests blow their 5s
+    deadlines, and a long-lived agent daemon on the shared socket keeps serving
+    OLD code to every test after a source change. A fresh state dir per session
+    means a fresh daemon (running this checkout's code), and the teardown stops
+    it so nothing leaks.
+
+    Uses ``tempfile.mkdtemp`` (short ``/tmp`` path), not pytest's tmp factory:
+    macOS caps Unix socket paths at ~104 chars and the factory paths are too
+    deep for ``agent.sock``.
+    """
+    state_root = Path(tempfile.mkdtemp(prefix="vela-test-state-"))
+    previous = {key: os.environ.get(key) for key in _VELA_STATE_ENV_KEYS}
+    os.environ["XDG_STATE_HOME"] = str(state_root / "state")
+    os.environ["XDG_RUNTIME_DIR"] = str(state_root / "runtime")
+    os.environ["XDG_DATA_HOME"] = str(state_root / "data")
+    (state_root / "runtime").mkdir(parents=True, exist_ok=True)
+    try:
+        yield state_root
+    finally:
+        # Stop the daemon (if any test spawned one) while the env still points
+        # at the session socket, then restore the caller's environment.
+        subprocess.run(
+            [sys.executable, "-m", "vela.cli", "agent", "stop"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(state_root, ignore_errors=True)
 
 
 @pytest.fixture

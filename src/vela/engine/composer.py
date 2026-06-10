@@ -625,6 +625,20 @@ def _merge_overrides(payload: dict[str, Any], overrides: dict[str, Any]) -> None
         current = dict(payload.get(section) or {})
         current.update(section_overrides)
         payload[section] = current
+    served = overrides.get("served_model_name")
+    if served is not None:
+        if not isinstance(served, str) or not served.strip():
+            raise ValueError("overrides.served_model_name must be a non-empty string")
+        payload["served_model_name"] = served.strip()
+    container = overrides.get("container_name")
+    if container is not None:
+        if not isinstance(container, str) or not container.strip():
+            raise ValueError("overrides.container_name must be a non-empty string")
+        command = payload.get("command")
+        if isinstance(command, dict) and command.get("runtime") == "docker":
+            docker = dict(command.get("docker") or {})
+            docker["container_name"] = container.strip()
+            command["docker"] = docker
 
 
 def _merge_extra_args(payload: dict[str, Any], overrides: dict[str, Any]) -> None:

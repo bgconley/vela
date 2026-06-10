@@ -143,24 +143,37 @@ From handoff Appendix B.3 — these are real UX bugs the mocks imply:
 - [x] Adopt Build (`52:2`) · ValidationCard widget (red→green) + copy checkbox + WILL-DO preview · payload preserved · 195 smoke green
 
 ### Phase 3 — Master-detail
-- [ ] `MasterDetail` + `ContextCard` + `ResolvedCommandPanel` widgets
-- [ ] Target Manager (`44:2`)
-- [ ] Flag Manager (`55:2`) + recipe-safety cues
-- [ ] model_manager / build_manager consistency pass
+- [x] `MasterDetail` + `ContextCard` widgets (`ResolvedCommandPanel` realized as styled-`Text` render helpers — smoke pins the panes as Statics)
+- [x] Target Manager (`44:2`) — capability collapse + grouped sections
+- [x] Flag Manager (`55:2`) + recipe-safety cues
+- [x] model_manager / build_manager consistency pass (commit `2935f2c`)
 
 ### Phase 4 — Wizard
-- [ ] `StepIndicator` widget
-- [ ] New Deployment (`56:2`–`58:68`)
+- [x] `StepIndicator` widget (red→green; bug-184)
+- [x] New Deployment (`56:2`–`58:68`) — Selects kept (no RadioSet) to protect the 24-test contract (commit `19baa94`)
 
 ### Phase 5 — Dashboard
-- [ ] `PhaseStepper` widget
-- [ ] `app.py` header/rail/GPU/security/log-classification → `60:2`
+- [ ] `PhaseStepper` widget — NOT BUILT (descoped; existing `_render_phase_timeline` retained)
+- [x] log-level classification → `60:2` (commit `f993be5`; BENIGN dim level for NCCL shutdown noise)
+- [x] header de-crowding — delivered 2026-06-09 evening pass: `▣`/`M` glyph segments replaced with labeled `build:`/`model:` segments; sidebar config names ellipsize instead of wrapping mid-word
+- [ ] GPU card / compact security notice rework — NOT BUILT (descoped; existing panels retained)
 
 ### Phase 6 — Polish
-- [ ] Small modals adopt shared widgets
-- [ ] Behavior-fix audit (focus, ghost-placeholder, summaries, log classes)
-- [ ] Component-kit parity; full suite green; refresh `anatomy.md`
+- [ ] Small modals adopt shared widgets — still pending (tracker #7, optional)
+- [x] Behavior-fix audit (focus, ghost-placeholder, summaries, log classes)
+- [x] Component-kit parity; full suite green; refresh `anatomy.md` (commit `2935f2c`)
+
+### Post-review functional pass (2026-06-09 evening)
+Follow-up from the definition-of-done review — "make everything advertised real":
+- [x] Create Build: hidden-field values no longer leak into the dismiss payload
+- [x] Resolved-command preview renders one env var per line (env-wall fix, `command_builder.render_preview`)
+- [x] Download Model: PresetChips are interactive (click/`select()`), presets fill the raw inputs, highlight derives from the values; raw fields collapse behind a real `Ctrl+R` toggle (bare-letter keys can't fire while an Input has focus — documented deviation from the mock's `a`); dead `o` hint removed
+- [x] Target Manager: `v` binding expands/collapses the full capability list ("v view all" is now real)
+- [x] Adopt Build: validation card starts neutral and renders REAL probe results (new `inspect_venv` engine fn + agent method, wired via an optional `probe` kwarg); detected vllm version auto-fills; dead `space` hint removed
+- [x] FR-18: post-READY health polling wired end-to-end (agent keeps `probe_loop` alive after READY; `on_phase_changed` lets READY↔DEGRADED flow) — new end-to-end smoke test with a health-toggling fake child
+- [x] `ProcessExited.signaled` field added (spec §6.3)
+- [x] Test/state isolation: suites now run against a per-session temp XDG state dir with a fresh agent daemon, stopped at session end (durable bug-185 fix; also fixes "tests silently validate a stale daemon's old code")
 
 ---
 
-*Plan v1. Execution begins at Phase 1 (foundation → Create Build vertical slice → user fidelity gate).*
+*Plan v1. Phases 1–6 executed (commits `0ea1518`, `19baa94`, `f993be5`, `2935f2c`); Phase 5 partially descoped as noted. Post-review functional pass applied 2026-06-09 evening.*

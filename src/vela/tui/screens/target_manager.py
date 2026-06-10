@@ -82,6 +82,7 @@ class TargetManagerScreen(ModalScreen):
         ("p", "push_config", "Push config"),
         ("R", "reconnect", "Reconnect"),
         ("x", "remove", "Remove"),
+        ("v", "view_capabilities", "View all capabilities"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -107,6 +108,7 @@ class TargetManagerScreen(ModalScreen):
         self.active_runs = [dict(run) for run in active_runs or []]
         self.gpu_summary = gpu_summary
         self.selected_index = self._active_index()
+        self._show_all_capabilities = False
 
     def compose(self) -> ComposeResult:
         yield MasterDetail(
@@ -174,6 +176,10 @@ class TargetManagerScreen(ModalScreen):
             return
         self.dismiss(TargetManagerRequest("remove", target.name))
 
+    def action_view_capabilities(self) -> None:
+        self._show_all_capabilities = not self._show_all_capabilities
+        self._refresh()
+
     def _refresh(self) -> None:
         self.query_one("#target-manager-list", Static).update(self._render_list())
         self.query_one("#target-manager-detail", Static).update(self._render_detail())
@@ -236,12 +242,19 @@ class TargetManagerScreen(ModalScreen):
         self._section(text, "PATHS")
         self._kv(text, "workdir", _path_or_dash(target.workdir))
         self._kv(text, "venv", _path_or_dash(target.venv))
-        # CAPABILITIES (collapse the wall once it grows past the limit).
+        # CAPABILITIES (collapse the wall once it grows past the limit; the
+        # `v` binding toggles the full list).
         if active:
             capabilities = _agent_capabilities(self.agent_info.get("capabilities"))
             if capabilities:
                 self._section(text, "CAPABILITIES")
-                self._kv(text, "capabilities", summarize_capabilities(capabilities, limit=8))
+                if self._show_all_capabilities:
+                    value = ", ".join(capabilities)
+                    if len(capabilities) > 8:
+                        value += "  · v collapse"
+                    self._kv(text, "capabilities", value)
+                else:
+                    self._kv(text, "capabilities", summarize_capabilities(capabilities, limit=8))
         # RUNTIME.
         if active:
             self._section(text, "RUNTIME")

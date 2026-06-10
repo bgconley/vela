@@ -55,11 +55,13 @@ class ModelManagerScreen(ModalScreen):
         ("escape", "cancel", "Close"),
     ]
 
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(
+        self, payload: dict[str, Any], *, focus_model: str | None = None
+    ) -> None:
         super().__init__(id="model-manager")
         models = payload.get("models", [])
         self.models = [dict(item) for item in models if isinstance(item, dict)]
-        self.selected_index = 0
+        self.selected_index = self._focus_index(focus_model)
 
     def compose(self) -> ComposeResult:
         yield MasterDetail(
@@ -149,7 +151,10 @@ class ModelManagerScreen(ModalScreen):
         text = Text()
         text.append("Model Manager\n", style=f"bold {CYAN}")
         if not self.models:
-            text.append("\nNo models found", style=TEXT_FAINT)
+            text.append(
+                "\nNo models yet — press p to pin one (HF repo id, local path, or URL)",
+                style=TEXT_FAINT,
+            )
             return text
         text.append("\n")
         for index, model in enumerate(self.models):
@@ -188,6 +193,9 @@ class ModelManagerScreen(ModalScreen):
         auth = _auth_detail(model)
         if auth:
             rows.append(("auth", auth))
+        config_refs = model.get("config_refs")
+        if isinstance(config_refs, list):
+            rows.append(("used_by", _config_refs_label(config_refs)))
         rows.append(("files", _files_label(files)))
         if _is_url_model(model):
             rows.append(("download", "launch-time-only"))
@@ -201,6 +209,16 @@ class ModelManagerScreen(ModalScreen):
         if not self.models:
             return None
         return self.models[self.selected_index]
+
+    def _focus_index(self, focus_model: str | None) -> int:
+        if focus_model:
+            for index, model in enumerate(self.models):
+                if focus_model in {
+                    str(model.get("entry_id") or ""),
+                    str(model.get("display_name") or ""),
+                }:
+                    return index
+        return 0
 
 
 def _model_label(model: dict[str, Any]) -> str:
@@ -330,13 +348,25 @@ def _size_label(model: dict[str, Any]) -> str:
     return _gb_label(size)
 
 
+_HF_TOKEN_WHERE = "(agent env or config env: block)"
+
+
+def _config_refs_label(refs: list[object]) -> str:
+    names = [str(item) for item in refs if str(item)]
+    if not names:
+        return "0 configs"
+    visible = names[:3]
+    suffix = f", +{len(names) - len(visible)}" if len(names) > len(visible) else ""
+    return f"{len(names)} ({', '.join(visible)}{suffix})"
+
+
 def _auth_detail(model: dict[str, Any]) -> str:
     gated = bool(model.get("gated"))
     token_required = bool(model.get("token_required")) or gated
     if gated and token_required:
-        return "gated, requires HF_TOKEN"
+        return f"gated, requires HF_TOKEN {_HF_TOKEN_WHERE}"
     if token_required:
-        return "requires HF_TOKEN"
+        return f"requires HF_TOKEN {_HF_TOKEN_WHERE}"
     return ""
 
 

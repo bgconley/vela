@@ -81,7 +81,7 @@ def test_backend_evidence_reads_stopped_smoke_run_artifact() -> None:
 def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
-    pull_command = 'git -C "$remote_path" pull --ff-only origin main'
+    pull_command = 'git -C "$remote_path" pull --ff-only origin "$remote_branch"'
     install_command = '"$venv_python" -m pip install -e ".[dev]"'
     assert pull_command in script
     assert script.index(pull_command) < script.index(install_command)
@@ -1309,3 +1309,13 @@ def test_rsync_to_gpu_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:
     args = capture.read_text(encoding="utf-8").splitlines()
     rsh_index = args.index("--rsh")
     assert args[rsh_index + 1] == "ssh -i /tmp/gpu-key -o BatchMode=yes"
+
+
+def test_remote_validation_supports_branch_override() -> None:
+    # VELA_REMOTE_BRANCH reaches the remote script (default main stays
+    # byte-identical: no env injection when unset).
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+    assert 'remote_branch="${VELA_REMOTE_BRANCH:-main}"' in script
+    assert 'git -C "$remote_path" fetch origin "$remote_branch"' in script
+    assert 'git -C "$remote_path" checkout "$remote_branch"' in script
+    assert 'if [[ "$remote_branch_local" != "main" ]]; then' in script

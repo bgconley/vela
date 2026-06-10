@@ -8,14 +8,28 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STOP = threading.Event()
+# Test hook: /admin/health-off makes /health return 503 while the process stays
+# alive — the only way to exercise READY -> DEGRADED -> recovery end-to-end.
+HEALTHY = threading.Event()
+HEALTHY.set()
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/health":
+            self.send_response(200 if HEALTHY.is_set() else 503)
+            self.end_headers()
+            self.wfile.write(b"OK" if HEALTHY.is_set() else b"unhealthy")
+            return
+        if self.path == "/admin/health-off":
+            HEALTHY.clear()
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b"OK")
+            return
+        if self.path == "/admin/health-on":
+            HEALTHY.set()
+            self.send_response(200)
+            self.end_headers()
             return
         if self.path == "/v1/models":
             self.send_response(200)

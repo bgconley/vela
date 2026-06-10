@@ -118,6 +118,58 @@ async def test_preset_chips_renders_chip_per_option_and_marks_selected() -> None
         assert len(pc.query(".preset-chip.selected")) == 1
 
 
+class _PresetChipsSelectHarness(App):
+    def __init__(self) -> None:
+        super().__init__()
+        self.selections: list[tuple[int, str]] = []
+
+    def compose(self) -> ComposeResult:
+        yield PresetChips(
+            ["safetensors only", "everything", "no pickle"], selected=0, id="pc"
+        )
+
+    def on_preset_chips_selected(self, event: PresetChips.Selected) -> None:
+        self.selections.append((event.index, event.option))
+
+
+@pytest.mark.asyncio
+async def test_preset_chips_select_moves_highlight_and_posts_message() -> None:
+    app = _PresetChipsSelectHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pc = app.query_one("#pc", PresetChips)
+        pc.select(2)
+        await pilot.pause()
+        assert pc.selected == 2
+        assert len(pc.query(".preset-chip.selected")) == 1
+        assert app.selections == [(2, "no pickle")]
+
+
+@pytest.mark.asyncio
+async def test_preset_chips_highlight_is_silent_and_clearable() -> None:
+    app = _PresetChipsSelectHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pc = app.query_one("#pc", PresetChips)
+        pc.highlight(None)
+        await pilot.pause()
+        assert pc.selected is None
+        assert len(pc.query(".preset-chip.selected")) == 0
+        assert app.selections == []  # highlight() never posts a message
+
+
+@pytest.mark.asyncio
+async def test_preset_chips_click_selects_chip() -> None:
+    app = _PresetChipsSelectHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#pc .chip-1")
+        await pilot.pause()
+        pc = app.query_one("#pc", PresetChips)
+        assert pc.selected == 1
+        assert app.selections == [(1, "everything")]
+
+
 class _ValidationOkHarness(App):
     def compose(self) -> ComposeResult:
         yield ValidationCard(

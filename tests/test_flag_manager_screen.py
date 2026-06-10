@@ -15,6 +15,7 @@ from textual.widgets import Static
 
 from vela.config.schema import EngineConfig, ModelConfig
 from vela.tui.screens.flag_manager import FlagManagerScreen
+from vela.tui.widgets import KeyHintBar
 
 _FLAG_MAP = {
     "tensor_parallel_size": "--tensor-parallel-size",
@@ -134,3 +135,77 @@ async def test_flag_manager_save_payload_contract_preserved() -> None:
             "--legacy-flag",
             "value",
         ]
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_legend_explains_sources() -> None:
+    # J20: the modeled/passthrough/unknown taxonomy is defined in-UI.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        content = str(screen.query_one("#flag-manager-list", Static).content)
+        assert "modeled = typed flags this build understands" in content
+        assert "passthrough = raw args forwarded as-is" in content
+        assert "unknown = not recognized by this build" in content
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_protection_note_offers_alternative() -> None:
+    # J20: recipe protection names the safe alternative action.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.selected_index = next(
+            index
+            for index, row in enumerate(screen.modeled)
+            if row.get("field") == "kv_cache_dtype"
+        )
+        screen._refresh()
+        detail = str(screen.query_one("#flag-manager-detail", Static).content)
+        assert "Recipe-protected" in detail
+        assert "switch recipe or preset" in detail
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_footer_advertises_tab_edit() -> None:
+    # J23: how to reach the value editor is stated.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        hints = screen.query_one("#flag-manager-footer", KeyHintBar)._hints
+        assert ("Tab", "Edit value") in hints
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_preset_description_rendered() -> None:
+    # J21: preset descriptions surface next to the preset select.
+    app = _Host()
+    async with app.run_test() as pilot:
+        config = ModelConfig(
+            name="flags",
+            model="org/model",
+            engine=EngineConfig(tensor_parallel_size=2, kv_cache_dtype="fp8"),
+        )
+        screen = FlagManagerScreen(
+            config,
+            preview=_PREVIEW,
+            metadata={"flag_map": _FLAG_MAP},
+            presets=[
+                {
+                    "name": "balanced",
+                    "description": "Steady defaults for general serving",
+                    "engine": {},
+                }
+            ],
+            selected_preset="balanced",
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        help_text = str(screen.query_one("#flag-manager-preset-help", Static).content)
+        assert "Steady defaults" in help_text

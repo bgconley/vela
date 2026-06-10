@@ -161,6 +161,10 @@ class FlagManagerScreen(ModalScreen):
                     value=self.show_changed_only,
                     id="flag-manager-changed-only",
                 )
+            yield Static(
+                self._preset_description(),
+                id="flag-manager-preset-help",
+            )
             with Horizontal():
                 yield Static(self._render_list(), id="flag-manager-list")
                 with Vertical(id="flag-manager-editor"):
@@ -178,6 +182,7 @@ class FlagManagerScreen(ModalScreen):
             yield KeyHintBar(
                 [
                     ("↑↓", "Select"),
+                    ("Tab", "Edit value"),
                     ("d", "Default"),
                     ("p", "Preset"),
                     ("x", "Changed-only"),
@@ -189,6 +194,12 @@ class FlagManagerScreen(ModalScreen):
 
     def on_mount(self) -> None:
         self.call_later(lambda: self.set_focus(None))
+
+    def _preset_description(self) -> str:
+        for preset in self.presets:
+            if str(preset.get("name") or "") == (self.selected_preset or ""):
+                return str(preset.get("description") or "")
+        return ""
 
     def action_previous(self) -> None:
         if self.modeled:
@@ -475,6 +486,11 @@ class FlagManagerScreen(ModalScreen):
             f"unknown {len(self.unknown)}\n",
             style=TEXT_SECONDARY,
         )
+        text.append(
+            "modeled = typed flags this build understands · passthrough = raw args "
+            "forwarded as-is · unknown = not recognized by this build\n",
+            style=TEXT_FAINT,
+        )
         text.append("\n")
         text.append("MODELED\n", style=f"bold {TEXT_SECONDARY}")
         if self.modeled:
@@ -561,7 +577,8 @@ class FlagManagerScreen(ModalScreen):
             text.append(
                 "Recipe-protected — the local Blackwell sm_120 recipe is the "
                 "authority for this flag; changing it may diverge from the "
-                "validated stack.\n",
+                "validated stack. To change precision safely, switch recipe "
+                "or preset instead.\n",
                 style=AMBER,
             )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.widgets import Input
+from textual.widgets import Input, Select
 
 from vela.tui.screens.create_build import CreateBuildScreen
 from vela.tui.widgets import Field
@@ -64,6 +64,36 @@ async def test_create_build_shows_will_run_preview() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_build_hidden_fields_do_not_leak_into_params() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = CreateBuildScreen(
+            target_label="gpu-node", uv_available=True, initial={"method": "pip"}
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#create-build-label", Input).value = "my-build"
+        screen.query_one("#create-build-spec", Input).value = "vllm==0.11.2"
+        screen.query_one("#create-build-env", Input).value = "FOO=bar"
+        # Switch to a method that hides spec — its stale value must not leak.
+        screen.query_one("#create-build-method", Select).value = "nightly"
+        await pilot.pause()
+        params = screen._collect_build_params()
+        assert params["method"] == "nightly"
+        assert "spec" not in params
+        assert params["env"] == ["FOO=bar"]  # env IS relevant to nightly
+        # Switch to a method that hides env too.
+        screen.query_one("#create-build-method", Select).value = "wheel"
+        await pilot.pause()
+        screen.query_one("#create-build-path", Input).value = "/tmp/vllm.whl"
+        params = screen._collect_build_params()
+        assert params["method"] == "wheel"
+        assert "env" not in params
+        assert "spec" not in params
+        assert params["path"] == "/tmp/vllm.whl"
+
+
+@pytest.mark.asyncio
 async def test_create_build_collect_params_contract_preserved() -> None:
     app = _Host()
     async with app.run_test() as pilot:
@@ -82,3 +112,46 @@ async def test_create_build_collect_params_contract_preserved() -> None:
             "channel": "cu130",
             "python": "3.12",
         }
+
+
+@pytest.mark.asyncio
+async def test_wheel_helper_routes_venvs_to_adopt_and_pip_hides_channel() -> None:
+    # J32: the wheel helper must not invite venv paths (the agent requires a
+    # .whl file); pip ignores channel so the field is not shown for it.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = CreateBuildScreen(
+            target_label="gpu-node", uv_available=True, initial={"method": "pip"}
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.query_one("#cb-channel", Field).display is False
+        helper_texts = [
+            str(static.content)
+            for static in screen.query_one("#cb-path", Field).query("Static")
+        ]
+        assert any("Adopt" in text for text in helper_texts)
+        assert not any("or venv" in text for text in helper_texts)
+
+
+@pytest.mark.asyncio
+async def test_git_method_offers_optional_ref() -> None:
+    # J33: the agent supports a git ref; the form can finally express it.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = CreateBuildScreen(
+            target_label="gpu-node", uv_available=True, initial={"method": "git"}
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.query_one("#cb-ref", Field).display is True
+        screen.query_one("#create-build-label", Input).value = "git-build"
+        screen.query_one("#create-build-url", Input).value = "https://github.com/org/vllm.git"
+        screen.query_one("#create-build-ref", Input).value = "v0.11.2"
+        params = screen._collect_build_params()
+        assert params["ref"] == "v0.11.2"
+        # ref is git-only: switching method drops it.
+        screen.query_one("#create-build-method", Select).value = "nightly"
+        await pilot.pause()
+        assert screen.query_one("#cb-ref", Field).display is False
+        assert "ref" not in screen._collect_build_params()

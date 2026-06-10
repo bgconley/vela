@@ -28,9 +28,11 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
     # widget ids and the dismiss payload contract are preserved.
     _VISIBLE = {
         "nightly": {"label", "channel", "python", "env"},
-        "pip": {"label", "spec", "channel", "python", "env"},
+        # pip installs from PyPI/spec — the CUDA channel field is ignored by
+        # the agent for this method, so it is not shown (J32).
+        "pip": {"label", "spec", "python", "env"},
         "commit": {"label", "commit", "channel", "python"},
-        "git": {"label", "url", "python", "env"},
+        "git": {"label", "url", "ref", "python", "env"},
         "wheel": {"label", "path", "python"},
     }
 
@@ -64,7 +66,12 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
     #create-build-footer {{ margin-top: 1; }}
     """
 
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        # ctrl+g, not ctrl+u: Inputs consume ctrl+u (delete-line), and an
+        # Input always has focus on this form.
+        ("ctrl+g", "install_uv", "Install uv"),
+    ]
 
     def __init__(
         self,
@@ -170,13 +177,27 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
                 id="cb-url",
             )
             yield Field(
+                "Ref",
+                Input(
+                    placeholder="main, v0.11.2, or a sha",
+                    value=self._initial_value("ref"),
+                    id="create-build-ref",
+                ),
+                helper="Branch, tag, or commit to build · blank = default branch tip.",
+                optional=True,
+                id="cb-ref",
+            )
+            yield Field(
                 "Wheel / venv path",
                 Input(
                     placeholder="/path/to/vllm.whl",
                     value=self._initial_value("path"),
                     id="create-build-path",
                 ),
-                helper="Absolute path on the target to a prebuilt wheel or venv.",
+                helper=(
+                    "Absolute path on the target to a .whl file — to register "
+                    "a venv, use Adopt (a)."
+                ),
                 id="cb-path",
             )
             yield Field(
@@ -194,10 +215,11 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
                 yield Static("▸ WILL RUN", id="create-build-preview-title")
                 yield Static("", id="create-build-preview-cmd")
             yield Static(self.error_message, id="create-build-error")
-            yield KeyHintBar(
-                [("⏎", "Create"), ("Tab", "Next"), ("⇧Tab", "Prev"), ("Esc", "Cancel")],
-                id="create-build-footer",
-            )
+            hints = [("⏎", "Create"), ("Tab", "Next"), ("⇧Tab", "Prev")]
+            if self.uv_available is False:
+                hints.append(("Ctrl+G", "Install uv"))
+            hints.append(("Esc", "Cancel"))
+            yield KeyHintBar(hints, id="create-build-footer")
 
     def on_mount(self) -> None:
         self.query_one("#create-build-label", Input).focus()
@@ -242,10 +264,23 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
+    def action_install_uv(self) -> None:
+        if self.uv_available is not False:
+            return
+        try:
+            form_values = self._collect_build_params()
+        except ValueError:
+            form_values = {
+                "method": str(
+                    self.query_one("#create-build-method", Select).value or "nightly"
+                )
+            }
+        self.dismiss({"action": "install_uv", "params": form_values})
+
     def _apply_disclosure(self) -> None:
         method = str(self.query_one("#create-build-method", Select).value or "").strip()
         visible = self._VISIBLE.get(method, {"label", "channel", "python", "env"})
-        for key in ("label", "spec", "channel", "python", "commit", "url", "path", "env"):
+        for key in ("label", "spec", "channel", "python", "commit", "url", "ref", "path", "env"):
             self.query_one(f"#cb-{key}", Field).display = key in visible
 
     def _render_preview(self) -> None:
@@ -296,6 +331,9 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
     def _collect_build_params(self) -> dict[str, Any]:
         method = self.query_one("#create-build-method", Select).value
         params: dict[str, Any] = {"method": str(method or "").strip()}
+        # Only the fields relevant to the active method (the visible ones) may
+        # contribute — stale values typed under a previous method must not leak.
+        visible = self._VISIBLE.get(params["method"], {"label", "channel", "python", "env"})
         fields = {
             "label": self._field_value("#create-build-label"),
             "spec": self._field_value("#create-build-spec"),
@@ -303,11 +341,12 @@ class CreateBuildScreen(ModalScreen[dict[str, Any] | None]):
             "python": self._field_value("#create-build-python"),
             "commit": self._field_value("#create-build-commit"),
             "url": self._field_value("#create-build-url"),
+            "ref": self._field_value("#create-build-ref"),
             "path": self._field_value("#create-build-path"),
         }
-        params.update({key: value for key, value in fields.items() if value})
+        params.update({key: value for key, value in fields.items() if value and key in visible})
         env = self._field_value("#create-build-env")
-        if env:
+        if env and "env" in visible:
             params["env"] = [token for token in env.split() if token]
         if not params["method"]:
             raise ValueError("Choose a build method")

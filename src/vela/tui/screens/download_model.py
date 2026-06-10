@@ -54,11 +54,32 @@ class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
     #download-model-footer {{ margin-top: 1; }}
     """
 
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        # Ctrl+R (not a bare letter): printable keys are consumed by whichever
+        # Input has focus, so a bare `a`/`r` hotkey could never fire on a form.
+        ("ctrl+r", "toggle_raw", "Raw patterns"),
+    ]
+
+    # (chip label, allow patterns, ignore patterns)
+    _PRESETS: list[tuple[str, str, str]] = [
+        ("safetensors only", "*.safetensors *.json", "*.bin *.pth"),
+        ("everything", "", ""),
+        ("no pickle", "", "*.bin *.pt *.pth *.pickle"),
+    ]
 
     def __init__(self, model: dict[str, Any]) -> None:
         super().__init__(id="download-model")
         self.model = dict(model)
+        # Raw pattern fields start collapsed behind the chips only when the
+        # model's patterns match a preset; unrecognized patterns stay visible.
+        self._raw_visible = (
+            self._match_preset(
+                self._patterns_value("allow_patterns"),
+                self._patterns_value("ignore_patterns"),
+            )
+            is None
+        )
 
     def compose(self) -> ComposeResult:
         with Vertical(id="download-model-panel"):
@@ -78,13 +99,16 @@ class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
             )
             yield Static("Files", classes="dm-section-label")
             yield PresetChips(
-                ["safetensors only", "everything", "no pickle"],
-                selected=0,
+                [name for name, _, _ in self._PRESETS],
+                selected=self._match_preset(
+                    self._patterns_value("allow_patterns"),
+                    self._patterns_value("ignore_patterns"),
+                ),
                 id="download-model-presets",
             )
             yield Static(
                 "safetensors only = *.safetensors *.json (skips .bin / .pth). "
-                "Raw patterns below for fine control.",
+                "Ctrl+R shows raw patterns for fine control.",
                 id="download-model-files-help",
             )
             yield Field(
@@ -119,19 +143,50 @@ class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
             yield KeyHintBar(
                 [
                     ("⏎", "Download"),
-                    ("o", "Override revision"),
-                    ("a", "Advanced patterns"),
+                    ("Ctrl+R", "Raw patterns"),
                     ("Esc", "Cancel"),
                 ],
                 id="download-model-footer",
             )
 
     def on_mount(self) -> None:
+        self._apply_raw_visibility()
         self.query_one("#download-model-revision", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
         self.action_submit()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id in {"download-model-allow", "download-model-ignore"}:
+            self.query_one("#download-model-presets", PresetChips).highlight(
+                self._match_preset(
+                    self._field_value("#download-model-allow"),
+                    self._field_value("#download-model-ignore"),
+                )
+            )
+
+    def on_preset_chips_selected(self, event: PresetChips.Selected) -> None:
+        _, allow, ignore = self._PRESETS[event.index]
+        self.query_one("#download-model-allow", Input).value = allow
+        self.query_one("#download-model-ignore", Input).value = ignore
+
+    def action_toggle_raw(self) -> None:
+        self._raw_visible = not self._raw_visible
+        self._apply_raw_visibility()
+
+    def _apply_raw_visibility(self) -> None:
+        self.query_one("#dm-allow").display = self._raw_visible
+        self.query_one("#dm-ignore").display = self._raw_visible
+
+    @classmethod
+    def _match_preset(cls, allow: str, ignore: str) -> int | None:
+        for index, (_, preset_allow, preset_ignore) in enumerate(cls._PRESETS):
+            if _patterns_from_input(allow) == _patterns_from_input(
+                preset_allow
+            ) and _patterns_from_input(ignore) == _patterns_from_input(preset_ignore):
+                return index
+        return None
 
     def action_submit(self) -> None:
         try:
@@ -151,7 +206,9 @@ class DownloadModelScreen(ModalScreen[dict[str, Any] | None]):
             rows.append(("pinned", f"{sha}  ✓ immutable"))
         rows.append(("cache", str(self.model.get("cache_state") or "unknown")))
         if self.model.get("gated") or self.model.get("token_required"):
-            rows.append(("access", "needs HF_TOKEN on the target"))
+            rows.append(
+                ("access", "needs HF_TOKEN on the target (agent env or config env: block)")
+            )
         else:
             rows.append(("access", "public · no token required"))
         return rows

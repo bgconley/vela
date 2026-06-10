@@ -49,17 +49,20 @@ class BuildManagerScreen(ModalScreen):
         ("n", "new", "New"),
         ("a", "adopt", "Adopt"),
         ("v", "verify", "Verify"),
+        ("P", "pin_config", "Pin to config"),
         ("r", "repair", "Repair"),
         ("F", "flags", "Flags"),
         ("x", "remove", "Remove"),
         ("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(
+        self, payload: dict[str, Any], *, focus_build: str | None = None
+    ) -> None:
         super().__init__(id="build-manager")
         builds = payload.get("builds", [])
         self.builds = [dict(item) for item in builds if isinstance(item, dict)]
-        self.selected_index = self._active_index()
+        self.selected_index = self._focus_index(focus_build)
 
     def compose(self) -> ComposeResult:
         yield MasterDetail(
@@ -72,6 +75,7 @@ class BuildManagerScreen(ModalScreen):
                     ("a", "Adopt"),
                     ("v", "Verify"),
                     ("r", "Repair"),
+                    ("P", "Pin to config"),
                     ("F", "Flags"),
                     ("x", "Remove"),
                     ("Esc", "Close"),
@@ -106,6 +110,22 @@ class BuildManagerScreen(ModalScreen):
 
     def action_adopt(self) -> None:
         self.dismiss({"action": "adopt_build"})
+
+    def action_pin_config(self) -> None:
+        build = self._selected_build()
+        if build is None:
+            self.dismiss(None)
+            return
+        self.dismiss(
+            {
+                "action": "pin_config_build",
+                "build": _build_reference(build),
+                # Both identifiers so the toggle matches however the config
+                # spelled its pin.
+                "build_id": str(build.get("build_id") or ""),
+                "label": str(build.get("label") or ""),
+            }
+        )
 
     def action_verify(self) -> None:
         build = self._selected_build()
@@ -142,7 +162,10 @@ class BuildManagerScreen(ModalScreen):
         text = Text()
         text.append("Build Manager\n", style=f"bold {CYAN}")
         if not self.builds:
-            text.append("\nNo builds found", style=TEXT_FAINT)
+            text.append(
+                "\nNo builds yet — n create · a adopt an existing venv",
+                style=TEXT_FAINT,
+            )
             return text
         text.append("\n")
         for index, build in enumerate(self.builds):
@@ -159,6 +182,11 @@ class BuildManagerScreen(ModalScreen):
                 style=f"bold {TEXT_PRIMARY}" if selected else TEXT_PRIMARY,
             )
             text.append(f"  {status}{active}{in_use}{config_refs}\n", style=TEXT_FAINT)
+        text.append(
+            "\n⏎ sets the default build — used by configs without a pinned build.\n"
+            "Pinned configs and live runs are unaffected.",
+            style=TEXT_FAINT,
+        )
         return text
 
     def _render_detail(self) -> Text:
@@ -177,6 +205,11 @@ class BuildManagerScreen(ModalScreen):
             ("source", _build_source_detail(install)),
             ("in_use", _in_use_detail(build)),
             ("used_by_configs", _config_ref_detail(build)),
+            *(
+                [("default_for", "all unpinned configs")]
+                if build.get("default")
+                else []
+            ),
             ("vllm", str(resolved.get("vllm") or "-")),
             ("cuda", str(resolved.get("cuda") or "-")),
             ("executable", str(paths.get("executable") or "-")),
@@ -196,6 +229,16 @@ class BuildManagerScreen(ModalScreen):
             if build.get("default"):
                 return index
         return 0
+
+    def _focus_index(self, focus_build: str | None) -> int:
+        if focus_build:
+            for index, build in enumerate(self.builds):
+                if focus_build in {
+                    str(build.get("build_id") or ""),
+                    str(build.get("label") or ""),
+                }:
+                    return index
+        return self._active_index()
 
 
 def _build_reference(build: dict[str, Any]) -> str:

@@ -226,3 +226,33 @@
 - [2026-06-09] Don't reintroduce `_parse_build_params` / `_parse_adopt_build_params` — guard tests in `tests/test_tui_screen_parsers.py` assert they don't exist.
 - [2026-06-09] Don't break a screen's dismiss-payload shape or queried `id=`s when restyling — the 195-test smoke suite sets inputs by id and asserts payloads.
 - [2026-06-09] The harness `TaskCreate`/`TaskList` tracker is EPHEMERAL — a `/clear` wipes it and reassigns IDs (it's session/conversation state, not on-disk). Durable task state lives in `vela-tui-session-context-2026-06-09.md` §9. On EVERY session restore, after reading §9, immediately reconstruct the live tracker from it (don't wait to be asked). Never treat the empty task list after a restore as "tasks were lost" — the content is in §9.
+
+## Session 2026-06-09 (evening) learnings — DoD verification review
+
+- **Key Learning:** Launch/attach tests and the local agent share the REAL `~/.local/state/vela` state dir (runs dir + agent.sock) — suites leak run records (9,676 found) and fake_vllm_child/supervisor processes, and accumulated state degrades active-run discovery past the tests' 5s deadlines. The suite can be green in the morning and fail in the afternoon with zero code change (bug-185; same family as bug-019/090).
+- **Key Learning (spec gap):** `probe_until_ready` cancels `probe_loop` at the first ready event (`agent/local.py:1442-1473`), and the TUI only ever calls `probe_until_ready` — so FR-18 post-READY DEGRADED/recovery detection is NOT wired in production even though probe_loop/FSM/TUI-handler all support it (unit+smoke tested via posted messages only).
+
+## Do-Not-Repeat additions (2026-06-09 evening)
+
+- **(2026-06-09)** When launch/attach tests fail, do NOT assume a code regression: first check for leaked vela processes (`ps aux | grep -E "vela|fake_vllm"`) and `~/.local/state/vela/runs` bloat, then prove regression-vs-environment by running the same tests at the base commit in a clean worktree (`git worktree add /tmp/lab-tui-base <ref>` + `PYTHONPATH=/tmp/lab-tui-base/src`).
+- **(2026-06-09)** "Rendered + eyeballed" misses state-dependent chrome: the dashboard header's `▣`/`M` build/model glyph segments only render when a target is connected AND a config is loaded — an idle render looks clean. Render the connected+config state too before claiming chrome is clean. (This is how "dashboard chrome already v1-styled" got recorded while glyphs remained at app.py:4185-4233.)
+- **(2026-06-09)** Don't ship footer key hints without a matching binding/action: `o`/`a` advertised in download_model and "⤢ view all" in target_manager are dead affordances flagged in review. If a feature is deferred, drop its hint until wired.
+
+## Session 2026-06-09 (functional pass) learnings
+
+- **Key Learning (CRITICAL):** The TUI's local target uses `LocalTransportKind.SOCKET` → a PERSISTENT `vela agent run` daemon on `default_agent_socket_path()`. The daemon is spawned once and reused across test runs — so after editing agent-side code, tests keep validating the OLD daemon's code until the daemon restarts. The conftest `isolated_vela_state` fixture now gives each pytest session a fresh XDG temp state dir (fresh daemon, current code) and stops it at teardown. If debugging the agent OUTSIDE pytest, restart the daemon first: `python -m vela.cli agent stop`.
+- **Key Learning:** macOS caps Unix socket paths (~104 chars) — never put `agent.sock` under pytest's deep tmp_path factory dirs; use `tempfile.mkdtemp` under /tmp.
+- **Key Learning:** `on_phase_changed` has a post-READY monotonicity guard; any new post-READY phase (like DEGRADED) must be explicitly allowed through or the agent's phase events are silently dropped.
+- **Do-Not-Repeat (2026-06-09):** When an agent-side change has no effect in TUI tests, FIRST check which process actually serves the RPC (`ps aux | grep "vela.cli agent"`) before debugging the code path — instrumenting `LocalAgent.handle` with a print that never fires is the 30-second diagnostic.
+
+## Session 2026-06-09 (journey phases A-C) learnings
+
+- **Key Learning (Textual):** an Enter-driven wizard walk needs focus-follow: when a step container's display flips off, focus jumps to the next focusable widget — often a Select, which consumes Enter (opens its overlay) and silently eats the screen-level "enter" binding. Fix pattern: after step advance, focus the step's first Input, else `set_focus(None)` so the screen binding fires (new_deployment._focus_step_entry).
+- **Key Learning (contract-safe draft restore):** to preserve a pinned dismiss-payload shape while still recovering UI state after dismissal, stash state on the screen object at submit (`self.last_draft = self._draft_state()`) and have the app keep the screen reference in the push_screen callback closure — plain attributes stay readable after unmount; widget queries do not.
+- **Convention:** completion bridges only auto-reopen a manager when `len(self.screen_stack) == 1` (user is on the dashboard) — never push a modal over whatever the user navigated to during a long job.
+
+## Session 2026-06-10 (phases E+F) learnings
+
+- **Key Learning (Textual layout):** plain `Vertical` containers nested in screens default to `height: 1fr` — wrapper groups added for disclosure CLIP their children or inflate to fill the step, pushing siblings out of view. ALWAYS add `height: auto` CSS for new wrapper containers (and `1fr`-width columns) inside form screens.
+- **Key Learning (Textual focus):** hiding the focused widget triggers an ASYNC focus-restoration that grabs the next focusable (often a Select that swallows Enter) AFTER your own focus code ran. Fix: `set_focus(None)` BEFORE flipping displays AND give step containers `can_focus=True` to act as inert focus anchors.
+- **Do-Not-Repeat (2026-06-10):** never wait on `app.screen.id == "<screen>"` alone before querying children — heavier screens register before children mount (bug-207). Include a child/value check in the wait condition.

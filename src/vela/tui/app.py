@@ -200,6 +200,15 @@ def _config_registry_from_agent_payload(payload: dict[str, Any]) -> ConfigRegist
     )
 
 
+def _blocker_suffix(exc: TargetCallError) -> str:
+    """Names the configs blocking a removal, when the agent reports them (J34)."""
+    details = getattr(exc, "details", None)
+    blockers = details.get("configs") if isinstance(details, dict) else None
+    if isinstance(blockers, list) and blockers:
+        return f" (pinned by: {', '.join(str(item) for item in blockers)})"
+    return ""
+
+
 def _command_build_result_from_agent_payload(payload: dict[str, Any]) -> CommandBuildResult:
     return CommandBuildResult(
         argv=list(payload["argv"]),
@@ -416,7 +425,10 @@ ERROR_GUIDANCE = {
     ErrorKind.GPU_NOT_AVAILABLE: "Check --gpus, the NVIDIA runtime, driver, and target GPU.",
     ErrorKind.MODEL_NOT_FOUND: "Check the model path/name and Hugging Face access.",
     ErrorKind.TP_MISMATCH: "Check tensor_parallel_size, pipeline_parallel_size, and visible GPUs.",
-    ErrorKind.HF_AUTH: "Set HF_TOKEN and accept the model license if it is gated.",
+    ErrorKind.HF_AUTH: (
+        "Accept the model license on huggingface.co, then set HF_TOKEN in the "
+        "target agent's environment or the config's env: block."
+    ),
     ErrorKind.API_KEY_AUTH: "Check server.api_key/VLLM_API_KEY for the running server.",
     ErrorKind.DISK_FULL: "Free disk space on the target or move runs/cache paths.",
     ErrorKind.COMMAND_NOT_FOUND: "install vLLM or set command.entrypoint: module.",
@@ -827,6 +839,18 @@ class VelaApp(App):
             exit_on_error=False,
         )
         self._write_log("INFO Vela ready")
+        if not self.registry.valid and not self.registry.invalid:
+            # First-run quick start (J13): an empty install must not be a
+            # dead end. Gone as soon as any config exists.
+            self._write_log("INFO Quick start:")
+            self._write_log(
+                "INFO   t  add or bootstrap a target (local works out of the box)"
+            )
+            self._write_log(
+                "INFO   n  create a deployment — pin a model & build inside the wizard"
+            )
+            self._write_log("INFO   ⏎  review · S saves & smoke-tests it")
+            self._write_log("INFO   l  launch the saved config")
         self._debug_event(
             "app.mounted",
             configs_dir=str(self.configs_dir) if self.configs_dir is not None else None,
@@ -957,6 +981,13 @@ class VelaApp(App):
                 f"Select and launch {name}",
                 lambda selected=name: self._load_config_from_palette(selected),
             )
+        for item in self.registry.valid:
+            name = item.config.name
+            yield SystemCommand(
+                f"Clone deployment: {name}",
+                f"Open the wizard prefilled from {name}",
+                lambda selected=name: self._clone_deployment_from_palette(selected),
+            )
         for run in self.detached_run_summaries:
             run_id = run["run_id"]
             config_name = run["config_name"]
@@ -977,6 +1008,32 @@ class VelaApp(App):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen(id="help"))
+
+    def _reopen_manager_later(self, opener_factory) -> None:
+        """Reopen a manager AFTER the dismissing modal fully settles.
+
+        Pushing a screen while another screen's dismissal is still being
+        processed gets the new screen popped by that dismissal — defer past
+        it with a short timer, then re-check the stack (J30).
+        """
+
+        def _push() -> None:
+            if len(self.screen_stack) != 1:
+                return
+            self.run_worker(
+                opener_factory(),
+                name="manager-reopen",
+                group="manager-reopen",
+                exclusive=True,
+                exit_on_error=False,
+            )
+
+        self.set_timer(0.05, _push)
+
+    def push_config_affordance(self) -> None:
+        """Picker Ctrl+U: route into the target manager's push flow (J36)."""
+        self.notify("Pick a target — p pushes the selected config to it")
+        self.action_targets()
 
     def action_targets(self) -> None:
         try:
@@ -1255,7 +1312,7 @@ class VelaApp(App):
             exit_on_error=False,
         )
 
-    async def _open_build_manager(self) -> None:
+    async def _open_build_manager(self, *, focus_build: str | None = None) -> None:
         try:
             result = await self._target_call(
                 "list_builds",
@@ -1265,7 +1322,7 @@ class VelaApp(App):
             self._set_error_text(f"Unable to list builds: {exc}", style=f"bold {BAD}")
             return
         self.push_screen(
-            BuildManagerScreen(result),
+            BuildManagerScreen(result, focus_build=focus_build),
             callback=self._handle_build_manager_selection,
         )
 
@@ -1345,9 +1402,31 @@ class VelaApp(App):
                 )
             elif action == "adopt_build":
                 self.push_screen(
-                    AdoptBuildScreen(),
+                    AdoptBuildScreen(
+                    probe=self._probe_adopt_venv,
+                    discover=self._discover_adopt_venvs,
+                ),
                     callback=self._handle_adopt_build_submission,
                 )
+            elif action == "pin_config_build":
+                build = _optional_str(selection.get("build"))
+                aliases = {
+                    alias
+                    for alias in (
+                        build,
+                        _optional_str(selection.get("build_id")),
+                        _optional_str(selection.get("label")),
+                    )
+                    if alias
+                }
+                if build is not None:
+                    self.run_worker(
+                        self._pin_build_to_current_config(build, aliases=aliases),
+                        name="build-pin-config",
+                        group="build-manager",
+                        exclusive=True,
+                        exit_on_error=False,
+                    )
             elif action == "verify_build":
                 build = _optional_str(selection.get("build"))
                 if build is not None:
@@ -1389,12 +1468,56 @@ class VelaApp(App):
             result = await self._target_call("select_build", {"build": build})
         except TargetCallError as exc:
             self._set_error_text(f"Unable to select build: {exc}", style=f"bold {BAD}")
+            self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
             return
         label = _optional_str(result.get("label")) or build
-        self.notify(f"Selected build: {label}")
+        self.notify(f"Selected build: {label} — now the default for unpinned configs")
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+
+    async def _pin_build_to_current_config(
+        self, build: str, *, aliases: set[str] | None = None
+    ) -> None:
+        """Toggle a build pin on the selected config (J31)."""
+        cfg = self.current_config
+        if cfg is None:
+            self.notify("Select a config first — l loads, c picks one", severity="warning")
+            self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
+            return
+        currently_pinned = str(cfg.command.build) if cfg.command.build is not None else None
+        known = aliases or {build}
+        new_build: str | None = None if currently_pinned in known else build
+        try:
+            await self._target_call(
+                "set_config_build",
+                {
+                    "name": cfg.name,
+                    "configs_dir": str(self.configs_dir),
+                    "build": new_build,
+                },
+            )
+        except TargetCallError as exc:
+            self._set_error_text(
+                f"Unable to update build pin: {exc}", style=f"bold {BAD}"
+            )
+            self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
+            return
+        if new_build is None:
+            self.notify(
+                f"Unpinned build from {cfg.name} — it now uses the default build"
+            )
+        else:
+            self.notify(f"Pinned build {new_build} to {cfg.name}")
+        self.registry = await self._load_registry_from_agent()
+        try:
+            self.current_config = self.registry.by_name(cfg.name)
+        except KeyError:
+            pass
+        if self.current_config is not None:
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
+        self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
 
     async def _verify_build(self, build: str) -> None:
         try:
@@ -1408,6 +1531,7 @@ class VelaApp(App):
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+        self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
 
     async def _repair_build(self, build: str) -> None:
         try:
@@ -1422,6 +1546,7 @@ class VelaApp(App):
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+        self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
 
     def _confirm_remove_build(self, selection: dict[str, Any]) -> None:
         build = _optional_str(selection.get("build"))
@@ -1469,7 +1594,10 @@ class VelaApp(App):
                 {"build": build, "configs_dir": str(self.configs_dir)},
             )
         except TargetCallError as exc:
-            self._set_error_text(f"Unable to remove build: {exc}", style=f"bold {BAD}")
+            self._set_error_text(
+                f"Unable to remove build: {exc}{_blocker_suffix(exc)}",
+                style=f"bold {BAD}",
+            )
             return
         removed_label = _optional_str(result.get("label")) or label
         self.notify(f"Removed build: {removed_label}")
@@ -1480,12 +1608,56 @@ class VelaApp(App):
     def _handle_create_build_submission(self, params: dict[str, Any] | None) -> None:
         if not params:
             return
+        if params.get("action") == "install_uv":
+            form_values = params.get("params")
+            self.run_worker(
+                self._install_uv_then_reopen(
+                    dict(form_values) if isinstance(form_values, dict) else {}
+                ),
+                name="uv-install",
+                group="build-manager",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
         self.run_worker(
             self._create_build(params, reopen_form_on_uv_failure=True),
             name="build-create",
             group="build-manager",
             exclusive=True,
             exit_on_error=False,
+        )
+
+    async def _install_uv_then_reopen(self, form_values: dict[str, Any]) -> None:
+        """One-key uv install from the uv-block state (J37, OB R3a)."""
+        self.notify("Installing uv — output streams below · s cancels")
+        result = await self._run_target_job(
+            "install_uv",
+            {"job_id": uuid.uuid4().hex},
+            error_action="install uv",
+            incomplete_label="uv install",
+        )
+        if result is not None and result.get("ok") is True:
+            self.notify("uv installed — nightly & commit builds unlocked")
+            uv_available: bool | None = True
+            try:
+                probe = await self._target_call(
+                    "check_build_prerequisites", {"method": "pip"}
+                )
+                uv_value = probe.get("uv_available")
+                if isinstance(uv_value, bool):
+                    uv_available = uv_value
+            except TargetCallError:
+                pass
+            self.call_later(
+                self._push_create_build_form, dict(form_values), "", uv_available
+            )
+            return
+        self.call_later(
+            self._push_create_build_form,
+            dict(form_values),
+            "uv install did not complete — details in the log.",
+            False,
         )
 
     async def _open_create_build_form(self) -> None:
@@ -1527,12 +1699,23 @@ class VelaApp(App):
             return
         job_params = dict(params)
         job_params["job_id"] = uuid.uuid4().hex
-        await self._run_target_job(
+        self.notify("Build started — install log streams below · s cancels")
+        result = await self._run_target_job(
             "create_build",
             job_params,
             error_action="create build",
             incomplete_label="Build creation",
         )
+        if result is not None and result.get("ok") is True:
+            label = _optional_str(result.get("label")) or "build"
+            self.notify(
+                f"Build ready: {label} — ⏎ in Builds makes it the default, "
+                "or pin it in a deployment"
+            )
+            if len(self.screen_stack) == 1:
+                await self._open_build_manager(
+                    focus_build=_optional_str(result.get("build_id")) or label
+                )
 
     def _reopen_create_build_form(
         self,
@@ -1591,6 +1774,27 @@ class VelaApp(App):
         lines.append(remediation.fix)
         return "\n".join(lines)
 
+    async def _discover_adopt_venvs(self) -> list[dict[str, Any]]:
+        """Candidate venvs for Adopt's picker (J35); never raises into the UI."""
+        try:
+            result = await self._target_call("discover_venvs", {})
+        except Exception:
+            return []
+        venvs = result.get("venvs")
+        if not isinstance(venvs, list):
+            return []
+        return [dict(item) for item in venvs if isinstance(item, dict)]
+
+    async def _probe_adopt_venv(self, venv_path: str) -> dict[str, Any]:
+        """Live venv validation for AdoptBuildScreen; never raises into the UI."""
+        try:
+            result = await self._target_call("inspect_venv", {"venv_path": venv_path})
+        except Exception as exc:
+            return {"ok": False, "reason": f"validation unavailable: {exc}"}
+        if not isinstance(result, dict):
+            return {"ok": False, "reason": "validation unavailable"}
+        return result
+
     def _handle_adopt_build_submission(self, params: dict[str, Any] | None) -> None:
         if not params:
             return
@@ -1611,10 +1815,15 @@ class VelaApp(App):
         label = _optional_str(result.get("label")) or _optional_str(params.get("label"))
         build_id = _optional_str(result.get("build_id")) or _optional_str(params.get("build_id"))
         rendered = label or build_id or "build"
-        self.notify(f"Adopted build: {rendered}")
+        self.notify(
+            f"Adopted build: {rendered} — ⏎ in Builds makes it the default, "
+            "or pin it in a deployment"
+        )
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+        if len(self.screen_stack) == 1:
+            await self._open_build_manager(focus_build=build_id or label)
 
     async def _open_new_deployment_create_build_form(
         self,
@@ -1661,6 +1870,18 @@ class VelaApp(App):
         params: dict[str, Any] | None,
         draft: dict[str, Any],
     ) -> None:
+        if params and params.get("action") == "install_uv":
+            form_values = params.get("params")
+            self.run_worker(
+                self._install_uv_then_reopen(
+                    dict(form_values) if isinstance(form_values, dict) else {}
+                ),
+                name="uv-install",
+                group="build-manager",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
         if not params:
             self.run_worker(
                 self._open_new_deployment(initial=draft),
@@ -1794,6 +2015,8 @@ class VelaApp(App):
         params: dict[str, Any],
         draft: dict[str, Any],
     ) -> None:
+        params = dict(params)
+        download_now = bool(params.pop("download_now", False))
         try:
             result = await self._target_call("pin_model", params)
         except TargetCallError as exc:
@@ -1808,7 +2031,17 @@ class VelaApp(App):
             or _optional_str(params.get("local_path"))
             or "model"
         )
-        self.notify(f"Pinned model: {rendered}")
+        if download_now:
+            self.notify(f"Pinned & downloading: {rendered} — progress streams below")
+            self.run_worker(
+                self._download_model({"model_ref": model_ref or rendered}),
+                name="model-download",
+                group="model-download",
+                exclusive=True,
+                exit_on_error=False,
+            )
+        else:
+            self.notify(f"Pinned model: {rendered}")
         await self._resume_new_deployment_with_model(
             draft,
             entry,
@@ -1854,14 +2087,23 @@ class VelaApp(App):
             exit_on_error=False,
         )
 
-    async def _open_model_manager(self) -> None:
+    async def _open_model_manager(self, *, focus_model: str | None = None) -> None:
         try:
-            result = await self._target_call("list_models", {})
+            result = await self._target_call(
+                "list_models", {"configs_dir": str(self.configs_dir)}
+            )
         except TargetCallError as exc:
             self._set_error_text(f"Unable to list models: {exc}", style=f"bold {BAD}")
             return
+        models = result.get("models")
+        # Kept for the remove-confirm's reclaim estimate (J17).
+        self._model_manager_models = (
+            [dict(item) for item in models if isinstance(item, dict)]
+            if isinstance(models, list)
+            else []
+        )
         self.push_screen(
-            ModelManagerScreen(result),
+            ModelManagerScreen(result, focus_model=focus_model),
             callback=self._handle_model_manager_selection,
         )
 
@@ -1875,7 +2117,7 @@ class VelaApp(App):
         if action == "pin_model":
             initial = selection.get("initial") if isinstance(selection.get("initial"), dict) else {}
             self.push_screen(
-                PinModelScreen(initial=initial),
+                PinModelScreen(initial=initial, target_label=self.target_name),
                 callback=self._handle_pin_model_submission,
             )
             return
@@ -1963,12 +2205,17 @@ class VelaApp(App):
 
     async def _download_model(self, params: dict[str, Any]) -> None:
         params = {"job_id": uuid.uuid4().hex, **dict(params)}
-        await self._run_target_job(
+        result = await self._run_target_job(
             "download_model",
             params,
             error_action="download model",
             incomplete_label="Model download",
         )
+        if result is not None and result.get("ok") is True:
+            model_ref = _optional_str(params.get("model_ref")) or "model"
+            self.notify(f"Downloaded {model_ref} — cached on {self.target_name}")
+            if len(self.screen_stack) == 1:
+                await self._open_model_manager()
 
     async def _refresh_models(self) -> None:
         try:
@@ -2004,6 +2251,10 @@ class VelaApp(App):
         )
 
     async def _pin_model(self, params: dict[str, Any]) -> None:
+        params = dict(params)
+        # The screen-level flag never reaches the pin RPC; it kicks the
+        # existing download job after a successful pin (J15).
+        download_now = bool(params.pop("download_now", False))
         try:
             result = await self._target_call("pin_model", params)
         except TargetCallError as exc:
@@ -2013,11 +2264,25 @@ class VelaApp(App):
         label = _optional_str(entry.get("display_name"))
         entry_id = _optional_str(entry.get("entry_id"))
         rendered = label or entry_id or _optional_str(params.get("entry_id")) or "model"
-        self.notify(f"Pinned model: {rendered}")
+        if download_now:
+            self.notify(f"Pinned & downloading: {rendered} — progress streams below")
+        else:
+            self.notify(f"Pinned model: {rendered} — d in Models downloads it now")
         self._record_warnings(_warning_texts(result.get("warnings")))
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+        if download_now:
+            self.run_worker(
+                self._download_model({"model_ref": entry_id or rendered}),
+                name="model-download",
+                group="model-download",
+                exclusive=True,
+                exit_on_error=False,
+            )
+            return
+        if len(self.screen_stack) == 1:
+            await self._open_model_manager(focus_model=entry_id or rendered)
 
     async def _verify_model(self, model_ref: str) -> None:
         try:
@@ -2032,6 +2297,7 @@ class VelaApp(App):
         if self.current_config is not None:
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+        self._reopen_manager_later(lambda: self._open_model_manager(focus_model=model_ref))
 
     def _confirm_remove_model(self, selection: dict[str, Any]) -> None:
         model_ref = _optional_str(selection.get("model_ref"))
@@ -2041,7 +2307,9 @@ class VelaApp(App):
         target_label = self._target_label()
         message = (
             f"Remove model {label} on {target_label}?"
-            f"\n\nThis removes target-local model metadata on {target_label}."
+            f"\n\nThis deletes the registry entry and any cached weights on "
+            f"{target_label} — it cannot be undone."
+            f"\n{self._model_remove_reclaim_line(model_ref)}"
         )
         self._pending_model_remove = {"model_ref": model_ref, "label": label}
         self.push_screen(
@@ -2052,6 +2320,26 @@ class VelaApp(App):
                 confirm_action="confirm_remove_model",
             )
         )
+
+    def _model_remove_reclaim_line(self, model_ref: str) -> str:
+        for model in getattr(self, "_model_manager_models", []):
+            if model_ref in {
+                str(model.get("entry_id") or ""),
+                str(model.get("model_ref") or ""),
+                str(model.get("display_name") or ""),
+            }:
+                unique = model.get("unique_size_bytes") or model.get("size_bytes") or 0
+                try:
+                    unique = int(unique)
+                except (TypeError, ValueError):
+                    unique = 0
+                if unique > 0:
+                    return (
+                        f"Frees up to {unique / 1_000_000_000:.1f} GB of cache "
+                        "(unique, dedup-aware)."
+                    )
+                break
+        return "No cached weights to reclaim."
 
     def confirm_remove_model(self) -> None:
         if self.screen.id == "confirm":
@@ -2075,7 +2363,10 @@ class VelaApp(App):
                 {"model_ref": model_ref, "configs_dir": str(self.configs_dir)},
             )
         except TargetCallError as exc:
-            self._set_error_text(f"Unable to remove model: {exc}", style=f"bold {BAD}")
+            self._set_error_text(
+                f"Unable to remove model: {exc}{_blocker_suffix(exc)}",
+                style=f"bold {BAD}",
+            )
             return
         entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
         removed_label = _optional_str(entry.get("display_name")) or label
@@ -2440,10 +2731,51 @@ class VelaApp(App):
             exit_on_error=False,
         )
 
+    def _clone_deployment_from_palette(self, name: str) -> None:
+        self.run_worker(
+            self._clone_deployment(name),
+            name="new-deployment-clone",
+            group="new-deployment",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _clone_deployment(self, name: str) -> None:
+        try:
+            cfg = self.registry.by_name(name)
+        except KeyError:
+            self._set_error_text(f"Unable to clone: config not found: {name}")
+            return
+        draft: dict[str, Any] = {
+            "name": f"{cfg.name}-2",
+            "model": cfg.model,
+            "host": cfg.server.host,
+            "exposure": cfg.server.exposure.value,
+            # Port deliberately blank: auto-allocation avoids cloning a
+            # collision (J26).
+        }
+        runtime = cfg.command.runtime.value
+        if runtime in {"process", "docker"}:
+            draft["runtime"] = runtime
+        if cfg.command.docker is not None and cfg.command.docker.image:
+            draft["image"] = str(cfg.command.docker.image)
+        if cfg.command.build is not None:
+            draft["runtime"] = "build"
+            draft["build"] = str(cfg.command.build)
+        if cfg.model_ref:
+            draft["model_ref"] = str(cfg.model_ref)
+            draft["model_mode"] = "existing"
+        else:
+            draft["model_mode"] = "bare"
+        if cfg.revision:
+            draft["model_revision"] = str(cfg.revision)
+        await self._open_new_deployment(initial=draft)
+
     async def _open_new_deployment(
         self,
         *,
         initial: dict[str, Any] | None = None,
+        error_message: str = "",
     ) -> None:
         try:
             presets_result = await self._target_call("list_presets", {})
@@ -2488,6 +2820,7 @@ class VelaApp(App):
             builds if isinstance(builds, list) else [],
             initial,
             target_rows,
+            error_message,
         )
 
     def _push_new_deployment_screen(
@@ -2498,29 +2831,38 @@ class VelaApp(App):
         builds: list[dict[str, Any]],
         initial: dict[str, Any] | None,
         target_rows: list[dict[str, str]],
+        error_message: str = "",
     ) -> None:
-        self.push_screen(
-            NewDeploymentScreen(
-                target_label=self.target_name,
-                presets=presets,
-                recipes=recipes,
-                models=models,
-                builds=builds,
-                initial=initial,
-                targets=target_rows,
-                connection_state=self.target_connection_state,
-                agent_info=self._target_agent_info,
-                target_state_resolver=self._refresh_new_deployment_target_rows,
-                suggestion_resolver=(
-                    self._suggest_new_deployment_defaults
-                    if self._target_declares_capability("suggest_deployment_defaults")
-                    else None
-                ),
+        screen = NewDeploymentScreen(
+            target_label=self.target_name,
+            presets=presets,
+            recipes=recipes,
+            models=models,
+            builds=builds,
+            initial=initial,
+            targets=target_rows,
+            connection_state=self.target_connection_state,
+            agent_info=self._target_agent_info,
+            error_message=error_message,
+            target_state_resolver=self._refresh_new_deployment_target_rows,
+            suggestion_resolver=(
+                self._suggest_new_deployment_defaults
+                if self._target_declares_capability("suggest_deployment_defaults")
+                else None
             ),
-            callback=self._handle_new_deployment_selection,
+        )
+        self.push_screen(
+            screen,
+            # The screen stashes its draft at submit; keeping the reference
+            # lets a failed server-side review restore the wizard (J1).
+            callback=lambda selection: self._handle_new_deployment_selection(
+                selection, draft_source=screen
+            ),
         )
 
-    def _handle_new_deployment_selection(self, selection: object) -> None:
+    def _handle_new_deployment_selection(
+        self, selection: object, draft_source: NewDeploymentScreen | None = None
+    ) -> None:
         if not isinstance(selection, dict):
             return
         action = _optional_str(selection.get("action"))
@@ -2548,7 +2890,10 @@ class VelaApp(App):
             return
         if action == "adopt_build":
             self.push_screen(
-                AdoptBuildScreen(),
+                AdoptBuildScreen(
+                    probe=self._probe_adopt_venv,
+                    discover=self._discover_adopt_venvs,
+                ),
                 callback=lambda params: self._handle_new_deployment_adopt_build_submission(
                     params,
                     draft_payload,
@@ -2558,15 +2903,19 @@ class VelaApp(App):
         if action == "pin_model":
             initial = selection.get("initial") if isinstance(selection.get("initial"), dict) else {}
             self.push_screen(
-                PinModelScreen(initial=initial),
+                PinModelScreen(initial=initial, target_label=self.target_name),
                 callback=lambda params: self._handle_new_deployment_pin_model_submission(
                     params,
                     draft_payload,
                 ),
             )
             return
+        draft = getattr(draft_source, "last_draft", None)
         self.run_worker(
-            self._review_new_deployment(selection),
+            self._review_new_deployment(
+                selection,
+                draft=dict(draft) if isinstance(draft, dict) else None,
+            ),
             name="new-deployment-review",
             group="new-deployment",
             exclusive=True,
@@ -2687,24 +3036,34 @@ class VelaApp(App):
         params.update(self._agent_params(configs_dir=self.configs_dir))
         return await self._target_call("suggest_deployment_defaults", params)
 
-    async def _review_new_deployment(self, spec: dict[str, Any]) -> None:
+    async def _review_new_deployment(
+        self, spec: dict[str, Any], *, draft: dict[str, Any] | None = None
+    ) -> None:
         params = dict(spec)
         download_now = bool(params.pop("download_now", False))
         params.update(self._agent_params(configs_dir=self.configs_dir))
+
+        async def fail(message: str) -> None:
+            # Never discard the operator's typed draft on a server-side
+            # failure: reopen the wizard with the error inside it (J1).
+            if draft is not None:
+                await self._open_new_deployment(initial=draft, error_message=message)
+            else:
+                self._set_error_text(message, style=f"bold {BAD}")
+
         try:
             if download_now:
-                if not await self._download_new_deployment_model(params):
+                download_error = await self._download_new_deployment_model(params)
+                if download_error is not None:
+                    await fail(download_error)
                     return
-            draft = await self._target_call("compose_config", params)
-            config = draft.get("config")
+            composed = await self._target_call("compose_config", params)
+            config = composed.get("config")
             if not isinstance(config, dict):
                 raise TargetCallError("compose-invalid", "composer returned no config")
             validation = await self._target_call("validate_config", {"config": config})
             if validation.get("ok") is not True:
-                self._set_error_text(
-                    _format_validation_errors(validation),
-                    style=f"bold {BAD}",
-                )
+                await fail(_format_validation_errors(validation))
                 return
             preview = await self._target_call(
                 "preview",
@@ -2714,15 +3073,15 @@ class VelaApp(App):
                 },
             )
         except TargetCallError as exc:
-            self._set_error_text(f"Unable to review deployment: {exc}", style=f"bold {BAD}")
+            await fail(f"Unable to review deployment: {exc}")
             return
         warnings = [
             *_warning_texts(params.get("warnings")),
-            *_warning_texts(draft.get("warnings")),
+            *_warning_texts(composed.get("warnings")),
             *_warning_texts(validation.get("warnings")),
             *_warning_texts(preview.get("warnings")),
         ]
-        derived = draft.get("derived")
+        derived = composed.get("derived")
         metadata = _preview_metadata(preview)
         selected_preset = _optional_str(params.get("preset"))
         if selected_preset is not None:
@@ -2735,17 +3094,19 @@ class VelaApp(App):
                 warnings=warnings,
                 metadata=metadata,
             ),
-            callback=self._handle_new_deployment_review,
+            callback=lambda selection: self._handle_new_deployment_review(
+                selection, draft=draft
+            ),
         )
 
-    async def _download_new_deployment_model(self, params: dict[str, Any]) -> bool:
+    async def _download_new_deployment_model(self, params: dict[str, Any]) -> str | None:
+        """Returns an error message on failure, None on success."""
         model_ref = _optional_str(params.get("model_ref"))
         if model_ref is None:
-            self._set_error_text(
-                "Download now requires a pinned model. Pin the HF repo or choose an existing pin.",
-                style=f"bold {BAD}",
+            return (
+                "Download now requires a pinned model. "
+                "Pin the HF repo or choose an existing pin."
             )
-            return False
         job_params: dict[str, Any] = {"job_id": uuid.uuid4().hex, "model_ref": model_ref}
         revision = _optional_str(params.get("revision"))
         if revision is not None:
@@ -2756,10 +3117,24 @@ class VelaApp(App):
             error_action="download model",
             incomplete_label="Model download",
         )
-        return result is not None and result.get("ok") is True
+        if result is not None and result.get("ok") is True:
+            return None
+        return "Model download did not complete — details in the dashboard log."
 
-    def _handle_new_deployment_review(self, selection: object) -> None:
+    def _handle_new_deployment_review(
+        self, selection: object, draft: dict[str, Any] | None = None
+    ) -> None:
         if not isinstance(selection, dict):
+            return
+        if selection.get("action") == "back":
+            # Back to the wizard with everything the operator typed (J2).
+            self.run_worker(
+                self._open_new_deployment(initial=draft),
+                name="new-deployment-back",
+                group="new-deployment",
+                exclusive=True,
+                exit_on_error=False,
+            )
             return
         config = selection.get("config")
         if not isinstance(config, dict):
@@ -3015,6 +3390,7 @@ class VelaApp(App):
         run_id = str(launch["run_id"])
         self.current_run_id = run_id
         wait_needed = True
+        smoke_passed = False
         try:
             probe = await self._target_call("probe_until_ready", {"run_id": run_id})
             error_kind = None
@@ -3032,9 +3408,15 @@ class VelaApp(App):
             if not ready:
                 if error_kind is None:
                     self._set_error_text(f"Smoke did not reach READY: {detail}")
+                self.notify(
+                    f"Smoke failed — config '{cfg.name}' is saved · "
+                    "F adjust flags · l retry",
+                    severity="warning",
+                )
                 return
             suffix = f" ({', '.join(self.served_models)})" if self.served_models else ""
             self.notify(f"Smoke READY: {self.ready_url or self._server_url(cfg)}{suffix}")
+            smoke_passed = True
         except TargetCallError as exc:
             self._handle_launch_agent_error(exc)
             return
@@ -3059,6 +3441,13 @@ class VelaApp(App):
                 if wait_needed:
                     self.current_run_id = None
                     self._set_phase(Phase.STOPPED)
+                if smoke_passed:
+                    # The auto-stop is intentional — say so and name the next
+                    # step, or STOPPED reads like a failure (J6).
+                    self.notify(
+                        f"Smoke passed — '{cfg.name}' saved & selected · "
+                        "press l to launch"
+                    )
 
     def action_search(self) -> None:
         self.push_screen(
@@ -3285,9 +3674,13 @@ class VelaApp(App):
         self._update_progress(message.text)
 
     def on_phase_changed(self, message: PhaseChanged) -> None:
+        # Post-READY, ignore stale loading-phase events — but READY<->DEGRADED
+        # must flow both ways so post-READY health polling works (FR-18).
         if self.phase in {Phase.READY, Phase.DEGRADED} and message.phase not in {
             Phase.ERROR,
             Phase.STOPPED,
+            Phase.DEGRADED,
+            Phase.READY,
         }:
             return
         self.fsm.phase = message.phase
@@ -3569,7 +3962,9 @@ class VelaApp(App):
             first_error, *remaining_errors = item.errors or ["invalid config"]
             lines.append(f"⚠ {item.path.name}: {first_error}")
             lines.extend(f"  {error}" for error in remaining_errors)
-        return "\n".join(lines) if lines else "No configs found"
+        return "\n".join(lines) if lines else (
+            "No configs yet — press n to create your first deployment · ? help"
+        )
 
     def _render_config_summary(self) -> Text:
         text = Text()
@@ -3615,8 +4010,15 @@ class VelaApp(App):
                     text.append("\n")
                 text.append("\n")
         if not text.plain:
-            text.append("No configs found", style=MUTED)
+            text.append(
+                "No configs yet — press n to create your first deployment · ? help",
+                style=MUTED,
+            )
         text.rstrip()
+        # Long config names truncate with an ellipsis instead of wrapping
+        # mid-word in the narrow sidebar (screenshot-#1 fix).
+        text.no_wrap = True
+        text.overflow = "ellipsis"
         return text
 
     def _composition_detail_rows(self) -> list[tuple[str, str]]:
@@ -4182,8 +4584,11 @@ class VelaApp(App):
         if self.current_config is None:
             return "no config selected"
         if self.target_connection_state != "connected":
-            return "▣ —  M —"
-        return f"{self._render_active_build_segment()}  {self._render_active_model_segment()}"
+            return "build: — · model: —"
+        return (
+            f"build: {self._render_active_build_segment()}"
+            f" · model: {self._render_active_model_segment()}"
+        )
 
     def _render_active_build_segment(self) -> str:
         assert self.current_config is not None
@@ -4192,10 +4597,10 @@ class VelaApp(App):
             _optional_str(metadata.get("build_label"))
             or _optional_str(self.current_config.command.build)
             or _optional_str(metadata.get("vllm_version"))
-            or "PATH"
+            or "unmanaged"
         )
         marker = "📌" if self.current_config.command.build is not None else ""
-        return f"▣ {marker}{label} {self._build_status_dot(metadata)}"
+        return f"{marker}{label} {self._build_status_dot(metadata)}"
 
     @staticmethod
     def _build_status_dot(metadata: dict[str, Any]) -> str:
@@ -4230,7 +4635,7 @@ class VelaApp(App):
         )
         marker = "📌" if pinned else ""
         suffix = f" {revision}" if revision else ""
-        return f"M {marker}{label} {self._model_status_dot(metadata)}{suffix}"
+        return f"{marker}{label} {self._model_status_dot(metadata)}{suffix}"
 
     @staticmethod
     def _model_status_dot(metadata: dict[str, Any]) -> str:
@@ -4335,8 +4740,10 @@ class VelaApp(App):
 
     @staticmethod
     def _render_footer_bindings() -> str:
+        # `n New` sits up front so it survives right-side truncation at
+        # narrow widths — it is the front door for new users (J11).
         return (
-            "l Load   s Stop   K Kill   r Restart   t Targets   "
+            "l Load   n New   s Stop   K Kill   r Restart   c Configs   t Targets   "
             "b Builds   m Models   F Flags   R Reconnect   / Search   f Filter   "
             "p Pause   w Wrap   g/G Top/Bottom   Tab Focus   ? Help   ^P Palette   q Quit"
         )
@@ -4567,15 +4974,20 @@ class VelaApp(App):
         if bool(result.get("ok")):
             return True
         failures = result.get("failures")
-        failure = failures[0] if isinstance(failures, list) and failures else {}
-        kind = _error_kind_from_agent_payload(
-            failure.get("kind") if isinstance(failure, dict) else None
-        )
-        detail = (
-            str(failure.get("detail") or "Launch preflight failed")
-            if isinstance(failure, dict)
-            else "Launch preflight failed"
-        )
+        failure_list = [
+            item
+            for item in (failures if isinstance(failures, list) else [])
+            if isinstance(item, dict)
+        ]
+        failure = failure_list[0] if failure_list else {}
+        kind = _error_kind_from_agent_payload(failure.get("kind"))
+        # The whole checklist, not just the first failure (J29).
+        lines = [
+            f"✗ {str(item.get('kind') or 'CHECK')}: "
+            f"{str(item.get('detail') or 'failed')}"
+            for item in failure_list
+        ]
+        detail = "\n".join(lines) if lines else "Launch preflight failed"
         self.fsm.health_error(kind, detail)
         self._set_error_banner(kind)
         self._set_phase(self.fsm.phase)

@@ -119,6 +119,31 @@ async def test_target_manager_collapses_large_capability_walls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_target_manager_view_all_expands_and_collapses_capabilities() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        caps = [f"rpc_method_{n:02d}" for n in range(40)]
+        screen = _make_screen(capabilities=caps)
+        await app.push_screen(screen)
+        await pilot.pause()
+        detail = str(screen.query_one("#target-manager-detail", Static).content)
+        # The affordance names a key that actually works.
+        assert "v view all" in detail
+        assert any(key == "v" for key, *_ in TargetManagerScreen.BINDINGS)
+        screen.action_view_capabilities()
+        await pilot.pause()
+        detail = str(screen.query_one("#target-manager-detail", Static).content)
+        assert "rpc_method_00" in detail
+        assert "rpc_method_39" in detail
+        assert "v collapse" in detail
+        screen.action_view_capabilities()
+        await pilot.pause()
+        detail = str(screen.query_one("#target-manager-detail", Static).content)
+        assert "rpc_method_00" not in detail
+        assert "v view all" in detail
+
+
+@pytest.mark.asyncio
 async def test_target_manager_list_row_format_preserved() -> None:
     app = _Host()
     async with app.run_test() as pilot:

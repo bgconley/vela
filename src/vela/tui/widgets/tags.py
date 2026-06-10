@@ -51,7 +51,7 @@ def summarize_capabilities(caps: Iterable[str], *, limit: int = 8) -> str:
     items = sorted({str(cap) for cap in caps if str(cap)})
     if len(items) <= limit:
         return ", ".join(items)
-    return f"{len(items)} supported ✓ · ⤢ view all"
+    return f"{len(items)} supported ✓ · v view all"
 
 
 def is_recipe_flag(field: str) -> bool:
