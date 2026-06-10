@@ -2,14 +2,14 @@
   "version": 1,
   "created_at": "2026-06-02T04:55:09.315Z",
   "lifetime": {
-    "total_tokens_estimated": 17598959,
-    "total_reads": 7968,
-    "total_writes": 2513,
+    "total_tokens_estimated": 18290989,
+    "total_reads": 7983,
+    "total_writes": 2533,
     "total_sessions": 11,
-    "anatomy_hits": 3403,
-    "anatomy_misses": 4492,
-    "repeated_reads_blocked": 39384,
-    "estimated_savings_vs_bare_cli": 137511109
+    "anatomy_hits": 3408,
+    "anatomy_misses": 4502,
+    "repeated_reads_blocked": 39394,
+    "estimated_savings_vs_bare_cli": 138893059
   },
   "sessions": [
     {
@@ -62324,6 +62324,281 @@
         "input_tokens_estimated": 138095,
         "output_tokens_estimated": 311,
         "reads_count": 2,
+        "writes_count": 4,
+        "repeated_reads_blocked": 2,
+        "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T07:48:24.569Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 138095,
+        "output_tokens_estimated": 311,
+        "reads_count": 3,
+        "writes_count": 4,
+        "repeated_reads_blocked": 2,
+        "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T07:48:44.843Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 138095,
+        "output_tokens_estimated": 311,
+        "reads_count": 3,
+        "writes_count": 4,
+        "repeated_reads_blocked": 2,
+        "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T07:51:25.017Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 138095,
+        "output_tokens_estimated": 311,
+        "reads_count": 3,
+        "writes_count": 4,
+        "repeated_reads_blocked": 2,
+        "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T07:51:47.743Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 138095,
+        "output_tokens_estimated": 311,
+        "reads_count": 3,
+        "writes_count": 4,
+        "repeated_reads_blocked": 2,
+        "anatomy_lookups": 1
+      }
+    },
+    {
+      "id": "session-2026-06-10-0335",
+      "started": "2026-06-10T07:35:42.741Z",
+      "ended": "2026-06-10T07:53:32.829Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/vela-session-context-2026-06-10-gpu-validation.md",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 138095,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/67445301-5dc4-4d3f-bb24-e01de65a99b5/tasks/b3z3l7jtt.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 98,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 58,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 99,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 56,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 138095,
+        "output_tokens_estimated": 311,
+        "reads_count": 3,
         "writes_count": 4,
         "repeated_reads_blocked": 2,
         "anatomy_lookups": 1

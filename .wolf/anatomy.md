@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-10T07:43:20.587Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-10T07:55:02.502Z
 > Files: 230 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
@@ -30,7 +30,7 @@
 - `vela-onboarding-ux-spec-v1.md` — Vela — Seamless Remote Onboarding & Self-Healing Targets — Design Spec (v1) (~3042 tok)
 - `vela-session-context-2026-06-06.md` — Vela — Session Context & Handoff (2026‑06‑04 → 2026‑06‑06) — COMPREHENSIVE (~10608 tok)
 - `vela-tui-figma-redesign-handoff.md` — Vela TUI → Figma Workflow-Screen Redesign — COMPREHENSIVE SESSION HANDOFF (~13665 tok)
-- `vela-tui-journey-friction-punchlist-v1.md` — Vela TUI — Journey Friction Punchlist & Implementation Plan (v1) (~5379 tok)
+- `vela-tui-journey-friction-punchlist-v1.md` — Vela TUI — Journey Friction Punchlist & Implementation Plan (v1) (~5615 tok)
 - `vela-tui-journey-friction-punchlist-v1.md` — Journey-friction punchlist + plan (J1-J37, phases A-G, Figma mock plan M-D1/W1-5/B1-2/M1-2/F1) from the 2026-06-09 UX audit; novice-frictionless + power-user-preserving (~3300 tok)
 - `vela-tui-overhaul-implementation-plan-v1.md` — Vela TUI Overhaul — Implementation Plan (v1) (~3664 tok)
 - `vela-tui-session-context-2026-06-09.md` — Vela TUI — Figma Redesign → Textual Implementation: COMPREHENSIVE SESSION CONTEXT (~9893 tok)

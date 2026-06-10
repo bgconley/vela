@@ -824,3 +824,10 @@
 | 03:43 | Edited tests/test_tui_smoke.py | 2→3 lines | ~56 |
 | 07:46 | Fixed GPU-box Select mount-race in 2 wizard smoke tests (4 gates strengthened w/ SelectCurrent #label check; bug-209) | tests/test_tui_smoke.py | ruff clean, 2 tests green local, full suite running | ~9k |
 | 03:46 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 2 reads | ~138406 tok |
+| 03:48 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:48 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:51 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:51 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:53 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 3 reads | ~138406 tok |
+| 03:55 | Edited vela-tui-journey-friction-punchlist-v1.md | inline fix | ~90 |
+| 08:00 | Blackbird round 3 GREEN end-to-end: 1087/1087 pytest, DAEMON_RESTART_LIVE_RUN_OK, DISCONNECT_RECONNECT_RESUME_OK, live smoke READY (qwen36-27b-bf16-rp6000, run 6223ea08) -> auto-stop, BACKEND_EVIDENCE_OK | artifacts/remote-validation/2026-06-10T07-47-58Z-* | bug-209 fix verified on GPU host; punchlist remote leg closed | ~4k |
