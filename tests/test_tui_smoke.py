@@ -4715,15 +4715,17 @@ async def test_new_deployment_create_build_handoff_pins_created_build(
     async with app.run_test(size=(144, 45)) as pilot:
         await pilot.press("n")
         await _wait_for_condition(
-            lambda: app.screen.id == "new-deployment",
-            "new deployment screen did not open",
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query("#new-deployment-runtime SelectCurrent #label")),
+            "new deployment screen did not open with composed selects",
         )
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-created"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
         app.screen.query_one("#new-deployment-runtime", Select).value = "create_build"
 
         await _wait_for_condition(
-            lambda: app.screen.id == "create-build",
+            lambda: app.screen.id == "create-build"
+            and bool(app.screen.query("#create-build-method SelectCurrent #label")),
             "create build handoff did not open the build flow",
         )
         app.screen.query_one("#create-build-method", Select).value = "nightly"
@@ -5419,8 +5421,9 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
     async with app.run_test(size=(144, 48)) as pilot:
         await pilot.press("n")
         await _wait_for_condition(
-            lambda: app.screen.id == "new-deployment",
-            "new deployment screen did not open",
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query("#new-deployment-runtime SelectCurrent #label")),
+            "new deployment screen did not open with composed selects",
         )
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-acceptance"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
@@ -5429,7 +5432,8 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
         app.screen.query_one("#new-deployment-runtime", Select).value = "create_build"
 
         await _wait_for_condition(
-            lambda: app.screen.id == "create-build",
+            lambda: app.screen.id == "create-build"
+            and bool(app.screen.query("#create-build-method SelectCurrent #label")),
             "acceptance flow did not open create-build",
         )
         app.screen.query_one("#create-build-method", Select).value = "nightly"

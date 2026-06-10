@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-10T04:56:51.333Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-10T07:43:20.587Z
 > Files: 230 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../.claude/jobs/1ec9bb76/tmp/
@@ -293,7 +293,7 @@
 - `test_targets.py` — Tests: missing_targets_file_still_yields_implicit_local_target, targets_registry_loads_ssh_targets_with_local_first, targets_registry_loads_json_ta... (~1557 tok)
 - `test_transport_factory.py` — Tests: subscription_event_matcher_accepts_job_ids, subscription_event_matcher_broadcasts_agent_errors, target_client_factory_builds_implicit_local_... (~4644 tok)
 - `test_tui_screen_parsers.py` — Tests: structured_tui_forms_do_not_export_legacy_free_form_parsers (~106 tok)
-- `test_tui_smoke.py` — Tests: tui_import_defaults_to_truecolor_for_figma_palette, tui_import_honors_no_color_opt_out, wire_job_events_map_to_existing_tui_messages, wire_a... (~138095 tok)
+- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~154532 tok)
 - `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~3090 tok)
 
 ## tests/fakes/

@@ -3908,6 +3908,44 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-10T04:30:00-04:00"
+    },
+    {
+      "id": "bug-208",
+      "timestamp": "2026-06-10T07:43:14.925Z",
+      "error_message": "Significant refactor of ",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 5\u21926 lines (2 removed) | Also: lambda: app.screen.id == \"new-deployment\",; \"new deployment screen did not open\",",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-06-10T07:43:19.256Z"
+    },
+    {
+      "id": "bug-209",
+      "timestamp": "2026-06-10T07:45:00-04:00",
+      "error_message": "NoMatches: No nodes match '#label' on SelectCurrent(classes='-has-value') \u2014 test_new_deployment_create_build_handoff_pins_created_build + test_new_deployment_build_pin_and_smoke_acceptance_flow failed ONLY on the slower GPU host (blackbird rounds 1+2); pass on the Mac",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Both tests waited on app.screen.id alone ('new-deployment' / 'create-build') then immediately assigned Select.value. On the slower GPU box the Select's internal SelectCurrent #label child had not composed yet, so the value-watch update raised NoMatches. Same mount-race family as bug-207; the wizard/create-build screens got heavier this session, newly exposing it under GPU-host load.",
+      "fix": "Strengthened all 4 screen-open gates in the 2 tests to also require bool(app.screen.query('#<first-assigned-select> SelectCurrent #label')) before any Select.value assignment (wizard: #new-deployment-runtime; create-build: #create-build-method).",
+      "tags": [
+        "tests",
+        "flaky",
+        "textual",
+        "mount-race",
+        "select",
+        "gpu-host",
+        "remote-validation"
+      ],
+      "related_bugs": [
+        "bug-207"
+      ],
+      "occurrences": 2,
+      "last_seen": "2026-06-10T07:45:00-04:00"
     }
   ]
 }

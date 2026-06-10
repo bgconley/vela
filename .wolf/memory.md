@@ -807,3 +807,20 @@
 | 01:50 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 92 reads | ~365928 tok |
 | 02:44 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 97 reads | ~620488 tok |
 | 06:30 | PHASE G DELIVERED (J30-J37): wheel-trap helper + pip channel drop + git Ref field; remove-refusals name blocking configs (_blocker_suffix); picker Ctrl+T push affordance; managers settle-then-reopen-focused after verify/repair/failed-select (bug-208: push-during-dismissal gets popped — set_timer defer); P pin/unpin build on current config (agent set_config_build, alias-aware toggle, atomic 0600 write); Ctrl+G install-uv job (cancellation-safe subprocess via _terminate_build_subprocess) reopening form w/ values; venv discovery (engine discover_venvs + agent + Adopt Select picker). REVIEW: 2 agents over full working tree — acceptance: ALL 37 punchlist items delivered, zero contract drift, DoD met; bugs: 3 majors fixed (uv subprocess leak, non-atomic config write, compose blocking event loop -> to_thread) + 2 minors (pin-toggle aliases, url download_now). run_remote_tests.sh gains VELA_REMOTE_BRANCH (conditional injection, default byte-identical; workflow pins updated + new test). FULL SUITE pending final run. | many | verified | ~300000 |
+| 03:16 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 03:17 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 03:26 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 03:27 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+| 07:45 | GPU validation rounds 1-2 on blackbird (10.25.0.51, repo ~/repos/vela, venv ~/venvs/vela, provisioned local blackbird target): round1 4F (2 hermeticity banner tests fixed in 604520d + XDG_CONFIG_HOME isolation), round2 2F/1085P — wizard handoff tests NoMatches SelectCurrent#label = Select-internals mount race on slower box (bug-207 family; Textual 8.2.7 both sides). Smoke phase NOT yet run. Handoff doc vela-session-context-2026-06-10-gpu-validation.md committed+pushed with exact invocation + fix + checklist. | handoff doc | committed | ~30000 |
+| 03:33 | Session end: 65 writes across 25 files (test_create_build_screen.py, create_build.py, test_command_builder.py, command_builder.py, test_download_model_screen.py) | 98 reads | ~634535 tok |
+
+## Session: 2026-06-10 03:35
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 03:43 | Edited tests/test_tui_smoke.py | 5→6 lines | ~98 |
+| 03:43 | Edited tests/test_tui_smoke.py | 2→3 lines | ~58 |
+| 03:43 | Edited tests/test_tui_smoke.py | 5→6 lines | ~99 |
+| 03:43 | Edited tests/test_tui_smoke.py | 2→3 lines | ~56 |
+| 07:46 | Fixed GPU-box Select mount-race in 2 wizard smoke tests (4 gates strengthened w/ SelectCurrent #label check; bug-209) | tests/test_tui_smoke.py | ruff clean, 2 tests green local, full suite running | ~9k |
+| 03:46 | Session end: 4 writes across 1 files (test_tui_smoke.py) | 2 reads | ~138406 tok |
