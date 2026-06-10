@@ -4139,6 +4139,25 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-10T16:30:00-04:00"
+    },
+    {
+      "id": "bug-211",
+      "timestamp": "2026-06-10T16:55:00-04:00",
+      "error_message": "CI test job failed: test_manual_remote_validation_workflow_executes_script_and_uploads_artifact asserted 'tiny-random-llama-detached-blackbird' in remote-validation.yml after the scrub removed personal defaults",
+      "file": "tests/test_remote_workflow.py",
+      "root_cause": "The workflow file is pinned by a static content-assertion test; the scrub commit changed the file without updating the pin (same family as the VELA_REMOTE_BRANCH script-pin break, bug-201/202 era). Caught by the new CI on PR #1 \u2014 first save by the shakedown.",
+      "fix": "Updated the pin to the new contract: no 'bgconley'/'/home/bgconley' literals, vars.VELA_REMOTE_* wiring present, unconfigured-host guard message present.",
+      "tags": [
+        "tests",
+        "ci",
+        "workflow-pin",
+        "scrub"
+      ],
+      "related_bugs": [
+        "bug-209"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T16:55:00-04:00"
     }
   ]
 }
