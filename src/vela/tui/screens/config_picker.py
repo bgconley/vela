@@ -6,21 +6,21 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from vela.config.loader import ConfigRegistry, ValidConfig
-from vela.tui.theme import ACCENT, SURFACE_ALT
+from vela.tui.theme import BG_BASE, BG_PANEL, BORDER_STRONG
 
 
 class ConfigPickerScreen(ModalScreen):
     CSS = f"""
     ConfigPickerScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #config-picker-panel {{
         width: 72;
         max-height: 32;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 

@@ -8,11 +8,13 @@ from textual.widgets import Static
 
 from vela.tui.theme import (
     ACCENT,
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
     GOOD,
     MUTED,
     PURPLE,
     PURPLE_SURFACE,
-    SURFACE_ALT,
     TEXT,
     WARN,
 )
@@ -22,13 +24,13 @@ class HelpScreen(ModalScreen):
     CSS = f"""
     HelpScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #help-panel {{
         width: 82;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
