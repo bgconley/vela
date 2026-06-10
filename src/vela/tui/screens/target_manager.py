@@ -142,7 +142,7 @@ class TargetManagerScreen(ModalScreen):
         self.dismiss(None)
 
     def action_reconnect(self) -> None:
-        self.app.action_reconnect()
+        self.app.action_reconnect()  # type: ignore[attr-defined]
         self._refresh()
 
     def action_new(self) -> None:

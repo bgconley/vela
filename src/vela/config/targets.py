@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -215,6 +216,6 @@ def _parse_target(name: str, data: dict[str, Any]) -> TargetConfig:
         raise ValueError(f"target {name}: {exc}") from exc
 
 
-def _format_validation_error(error: dict[str, Any]) -> str:
+def _format_validation_error(error: Mapping[str, Any]) -> str:
     loc = ".".join(str(part) for part in error["loc"]) or "<root>"
     return f"{loc}: {error['msg']}"

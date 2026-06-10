@@ -347,9 +347,7 @@ def _is_concatenated_safe_value_option(option: str) -> bool:
 
 
 def _is_safe_ssh_flag(option: str) -> bool:
-    return option in _SAFE_SSH_FLAGS or (
-        len(option) > 1 and option[1:] and set(option[1:]) == {"v"}
-    )
+    return option in _SAFE_SSH_FLAGS or (len(option) > 1 and set(option[1:]) == {"v"})
 
 
 def _remote_agent_command(target: TargetConfig, agent_command: Sequence[str]) -> str:

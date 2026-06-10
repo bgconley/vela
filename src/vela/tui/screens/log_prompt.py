@@ -46,7 +46,7 @@ class LogPromptScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="log-prompt-panel"):
-            yield Static(self.title, id="log-prompt-title")
+            yield Static(self.title or "", id="log-prompt-title")
             yield Input(
                 value=self.initial,
                 placeholder=self.placeholder,

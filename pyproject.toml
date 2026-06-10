@@ -47,6 +47,30 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 asyncio_default_test_loop_scope = "function"
 
+[tool.mypy]
+python_version = "3.10"
+files = ["src/vela"]
+ignore_missing_imports = true
+
+# Incremental adoption: the modules below predate type checking and are the
+# burn-down list (143 historical errors). Everything else — and every new
+# module — is checked by default.
+[[tool.mypy.overrides]]
+module = [
+  "vela.agent.local",
+  "vela.cli",
+  "vela.engine.build_registry",
+  "vela.engine.model_registry",
+  "vela.engine.process_manager",
+  "vela.engine.supervisor",
+  "vela.tui.app",
+  "vela.tui.screens.config_picker",
+  "vela.tui.screens.flag_manager",
+  "vela.tui.screens.model_manager",
+  "vela.tui.screens.new_deployment",
+]
+ignore_errors = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
