@@ -11,12 +11,21 @@ the files and GPUs.
 
 ## Quickstart
 
-Install in editable mode and open the TUI:
+Install as a tool (Python 3.10+) and open the TUI:
+
+```bash
+uv tool install git+https://github.com/bgconley/vela
+# or: pipx install git+https://github.com/bgconley/vela
+vela
+```
+
+For development, install editable with dev extras instead:
 
 ```bash
 pip install -e ".[dev]"
-vela
 ```
+
+Shell completion is built in: `vela --install-completion`.
 
 The explicit TUI alias is equivalent:
 
@@ -47,36 +56,36 @@ Example target:
 
 ```yaml
 targets:
-  blackbird:
+  gpu-node:
     transport: ssh
-    host: bgconley@10.25.0.51
-    workdir: /home/bgconley/repos/lab-tui
-    venv: /home/bgconley/venvs/lab-tui
+    host: user@gpu-host
+    workdir: /home/user/repos/vela
+    venv: /home/user/venvs/vela
     local_transport: socket
 ```
 
 Register and test a target from the CLI:
 
 ```bash
-vela targets add blackbird \
-  --host bgconley@10.25.0.51 \
-  --workdir /home/bgconley/repos/lab-tui \
-  --venv /home/bgconley/venvs/lab-tui
-vela targets test blackbird
+vela targets add gpu-node \
+  --host user@gpu-host \
+  --workdir /home/user/repos/vela \
+  --venv /home/user/venvs/vela
+vela targets test gpu-node
 ```
 
-For Mac to P620 controller to Blackbird agent validation, use SSH agent
-forwarding and the nested target:
+For workstation-to-controller-to-agent validation across two hosts, use SSH
+agent forwarding and the nested target:
 
 ```bash
-VELA_SSH_OPTS="-A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 -o BatchMode=yes" \
-VELA_REMOTE_VENV=/tank/venvs/lab-tui \
-VELA_REMOTE_TARGET=blackbird \
+VELA_SSH_OPTS="-A -i ~/.ssh/id_ed25519 -o BatchMode=yes" \
+VELA_REMOTE_VENV=/home/user/venvs/vela \
+VELA_REMOTE_TARGET=gpu-node \
 VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
 VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
-VELA_REMOTE_REAL_RESUME_CONFIG=tiny-random-llama-detached-blackbird \
-  scripts/run_remote_tests.sh bgconley@10.25.0.50 /home/bgconley/repos/lab-tui \
-  qwen36-27b-fp8-kvfp8-rp6000-blackbird
+VELA_REMOTE_REAL_RESUME_CONFIG=tiny-llama-detached \
+  scripts/run_remote_tests.sh user@controller-host /home/user/repos/vela \
+  my-real-config
 ```
 
 See [docs/gpu-workflow.md](docs/gpu-workflow.md) for the repeatable GPU
@@ -96,7 +105,7 @@ Common YAML fields:
 
 ```yaml
 name: qwen-example
-target: blackbird              # optional home target label
+target: gpu-node               # optional home target label
 model: Qwen/Qwen3.6-27B-FP8
 model_ref: pinned-qwen        # optional registry entry id/display name
 revision: main               # optional model revision or commit
@@ -146,13 +155,13 @@ Headless CI and operator scripts can use the same composer surface:
 
 ```bash
 vela deploy create qwen36-bf16 \
-  --target blackbird \
+  --target gpu-node \
   --model Qwen/Qwen3.6-27B \
   --runtime docker \
   --port auto \
   --json
 
-vela deploy export qwen36-bf16 --target blackbird --output /tmp/qwen36-bf16.sh
+vela deploy export qwen36-bf16 --target gpu-node --output /tmp/qwen36-bf16.sh
 ```
 
 ## Build Methods
@@ -162,9 +171,9 @@ created, verified, selected, repaired, removed, or adopted from an external
 venv:
 
 ```bash
-vela build add --target blackbird --method pip --spec 'vllm==0.11.2' --label vllm-0-11-2
-vela build verify vllm-0-11-2 --target blackbird
-vela build select vllm-0-11-2 --target blackbird
+vela build add --target gpu-node --method pip --spec 'vllm==0.11.2' --label vllm-0-11-2
+vela build verify vllm-0-11-2 --target gpu-node
+vela build select vllm-0-11-2 --target gpu-node
 ```
 
 Build methods: `pip`, `nightly`, `commit`, `git`, `wheel`, and `adopt`.
@@ -182,11 +191,11 @@ state.
 
 ```bash
 vela model pin tiny-llama \
-  --target blackbird \
+  --target gpu-node \
   --repo-id hf-internal-testing/tiny-random-LlamaForCausalLM \
   --revision main
-vela model download tiny-llama --target blackbird
-vela model verify tiny-llama --target blackbird
+vela model download tiny-llama --target gpu-node
+vela model verify tiny-llama --target gpu-node
 ```
 
 Keep `HF_TOKEN` on the target host for gated repos. Tokens are scrubbed before
@@ -209,9 +218,15 @@ Details are in [docs/agent-rpc.md](docs/agent-rpc.md).
 
 ## Tested Matrix
 
-The preferred architecture smoke is P620-01 controller (`10.25.0.50`) to
-Blackbird agent (`10.25.0.51`) with the Qwen3.6 27B native Docker stacks. The
-latest native-Docker artifacts are:
+The reference lab surface is a Linux controller driving an RTX PRO 6000
+Blackwell (sm_120) agent with the Qwen3.6 27B native Docker stacks. Dated
+validation records live under `artifacts/remote-validation/`; the most recent
+full-green run (entire 1087-test suite on the GPU host, daemon-restart and
+reconnect-resume probes, live `smoke-tui` of the BF16 stack to READY) is:
+
+- `artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md`
+
+Earlier native-Docker artifacts:
 
 - `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md`
   for `qwen36-27b-fp8-kvfp8-rp6000-blackbird` on `:18003`.
@@ -239,7 +254,11 @@ by a firewall or reverse proxy.
 
 For stricter shared-host policy, set `VELA_AGENT_TOKEN` in both the
 target agent environment and the controller environment. The token is checked
-during the first agent handshake and is optional for the default single-user
-P620/Blackbird topology. Generate a strong token with
+during the first agent handshake and is optional for a single-user
+controller/agent topology. Generate a strong token with
 `vela agent gen-token`; configured tokens must be a single non-whitespace
 value with at least 128 bits of entropy.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Vela is a phase-aware terminal TUI for launching vLLM servers from named configs."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 authors = [{ name = "Vela contributors" }]
 dependencies = [
   "huggingface-hub>=0.27",
@@ -16,7 +17,7 @@ dependencies = [
   "pydantic>=2.8",
   "PyYAML>=6.0",
   "rich>=13.7",
-  "textual>=0.86",
+  "textual>=8.2,<9",
   "tqdm>=4.66",
   "typer>=0.12",
 ]
@@ -28,6 +29,10 @@ dev = [
   "pytest-asyncio>=0.24",
   "ruff>=0.6",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bgconley/vela"
+Changelog = "https://github.com/bgconley/vela/blob/main/CHANGELOG.md"
 
 [project.scripts]
 vela = "vela.cli:main"
