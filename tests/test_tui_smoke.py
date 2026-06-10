@@ -1229,7 +1229,26 @@ async def test_tui_surfaces_target_version_mismatch_on_mount(
 
 def test_target_connection_banner_renders_agent_not_installed_remediation(
     config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    blackbird = TargetConfig(
+        name="blackbird", transport=TransportKind.SSH, host="user@gpu-host"
+    )
+
+    class _Registry:
+        targets = [TargetConfig(name="local"), blackbird]
+
+        def get(self, name):
+            if name == "blackbird":
+                return blackbird
+            return TargetConfig(name="local")
+
+        def by_name(self, name):
+            return self.get(name)
+
+    monkeypatch.setattr(
+        tui_app_module, "load_targets_file", lambda: _Registry(), raising=False
+    )
     app = VelaApp(configs_dir=config_dir, target_name="blackbird")
 
     banner = app._render_target_connection_banner(
@@ -1244,7 +1263,26 @@ def test_target_connection_banner_renders_agent_not_installed_remediation(
 
 def test_target_connection_banner_renders_ssh_auth_remediation(
     config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    blackbird = TargetConfig(
+        name="blackbird", transport=TransportKind.SSH, host="user@gpu-host"
+    )
+
+    class _Registry:
+        targets = [TargetConfig(name="local"), blackbird]
+
+        def get(self, name):
+            if name == "blackbird":
+                return blackbird
+            return TargetConfig(name="local")
+
+        def by_name(self, name):
+            return self.get(name)
+
+    monkeypatch.setattr(
+        tui_app_module, "load_targets_file", lambda: _Registry(), raising=False
+    )
     app = VelaApp(configs_dir=config_dir, target_name="blackbird")
 
     banner = app._render_target_connection_banner(

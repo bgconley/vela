@@ -11,7 +11,12 @@ from textwrap import dedent
 
 import pytest
 
-_VELA_STATE_ENV_KEYS = ("XDG_STATE_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME")
+_VELA_STATE_ENV_KEYS = (
+    "XDG_STATE_HOME",
+    "XDG_RUNTIME_DIR",
+    "XDG_DATA_HOME",
+    "XDG_CONFIG_HOME",
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -34,6 +39,9 @@ def isolated_vela_state() -> Iterator[Path]:
     os.environ["XDG_STATE_HOME"] = str(state_root / "state")
     os.environ["XDG_RUNTIME_DIR"] = str(state_root / "runtime")
     os.environ["XDG_DATA_HOME"] = str(state_root / "data")
+    # Config too: tests must not see the developer machine's targets.yaml
+    # (the remote-validation run exposed 4 tests that silently depended on it).
+    os.environ["XDG_CONFIG_HOME"] = str(state_root / "config")
     (state_root / "runtime").mkdir(parents=True, exist_ok=True)
     try:
         yield state_root
