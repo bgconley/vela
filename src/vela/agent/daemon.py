@@ -19,6 +19,7 @@ import psutil
 from vela import __version__
 from vela.agent.local import PROTOCOL_VERSION, LocalAgent
 from vela.agent.socket import serve_unix_socket_agent
+from vela.engine.run_pruning import prune_run_records
 from vela.engine.sidecar import procfs_starttime_from_pid
 
 
@@ -204,6 +205,22 @@ async def start_agent_daemon(
     )
 
 
+AUTO_PRUNE_KEEP_RECENT = 50
+AUTO_PRUNE_OLDER_THAN_SECONDS = 14 * 86_400.0
+
+
+def auto_prune_run_records(agent: LocalAgent) -> None:
+    """Best-effort retention pass over the agent's known runs dirs."""
+    try:
+        prune_run_records(
+            agent.known_runs_dirs,
+            keep_recent=AUTO_PRUNE_KEEP_RECENT,
+            older_than_seconds=AUTO_PRUNE_OLDER_THAN_SECONDS,
+        )
+    except Exception:
+        pass
+
+
 async def run_agent_daemon(
     agent: LocalAgent | None = None,
     *,
@@ -211,6 +228,7 @@ async def run_agent_daemon(
     idle_timeout_seconds: float | None = None,
 ) -> None:
     resolved_agent = agent or LocalAgent()
+    await asyncio.to_thread(auto_prune_run_records, resolved_agent)
     daemon = await start_agent_daemon(resolved_agent, socket_path=socket_path)
     stop_requested = asyncio.Event()
     loop = asyncio.get_running_loop()
