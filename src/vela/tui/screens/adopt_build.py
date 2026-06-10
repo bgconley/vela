@@ -150,8 +150,11 @@ class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):
             )
 
     async def _load_discovered(self) -> None:
+        discover = self._discover
+        if discover is None:
+            return
         try:
-            entries = await self._discover()
+            entries = await discover()
         except Exception:
             return
         options: list[tuple[str, str]] = []

@@ -4044,10 +4044,6 @@ class VelaApp(App):
                 f"  {invalid_count} invalid",
                 style=f"bold {WARN} on {WARN_SURFACE}",
             )
-        if self.current_config is None:
-            return text
-        text.append("\nSelected: ", style=MUTED)
-        text.append(self.current_config.name, style=f"bold {TEXT}")
         return text
 
     @staticmethod

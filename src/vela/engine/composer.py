@@ -1167,7 +1167,7 @@ def _optional_int(value: object) -> int | None:
     if value is None:
         return None
     try:
-        return int(value)
+        return int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError) as exc:
         raise ValueError(f"expected integer value: {value!r}") from exc
 
@@ -1176,7 +1176,7 @@ def _optional_int_or_none(value: object) -> int | None:
     if value is None:
         return None
     try:
-        return int(value)
+        return int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return None
 

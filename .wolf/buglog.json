@@ -3946,6 +3946,218 @@
       ],
       "occurrences": 2,
       "last_seen": "2026-06-10T07:45:00-04:00"
+    },
+    {
+      "id": "bug-210",
+      "timestamp": "2026-06-10T08:14:21.072Z",
+      "error_message": "Incorrect value in code",
+      "file": "pyproject.toml",
+      "root_cause": "Had \"textual>=0.86\"",
+      "fix": "Changed to \"textual>=8.2,<9\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "toml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T08:14:21.072Z"
+    },
+    {
+      "id": "bug-211",
+      "timestamp": "2026-06-10T08:14:45.282Z",
+      "error_message": "Wrong reference: blackbird should be gpu",
+      "file": "README.md",
+      "root_cause": "Used \"blackbird\" instead of \"gpu\"",
+      "fix": "Changed blackbird \u2192 gpu",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T08:14:45.282Z"
+    },
+    {
+      "id": "bug-212",
+      "timestamp": "2026-06-10T08:15:02.947Z",
+      "error_message": "Significant refactor of ",
+      "file": "README.md",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 10\u219216 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T08:15:02.947Z"
+    },
+    {
+      "id": "bug-213",
+      "timestamp": "2026-06-10T20:09:49.455Z",
+      "error_message": "Incorrect value in code",
+      "file": "src/vela/tui/screens/log_prompt.py",
+      "root_cause": "Had \"log-prompt-title\"",
+      "fix": "Changed to \", id=\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:09:49.455Z"
+    },
+    {
+      "id": "bug-214",
+      "timestamp": "2026-06-10T20:09:52.303Z",
+      "error_message": "Wrong reference: dict should be Mapping",
+      "file": "src/vela/config/targets.py",
+      "root_cause": "Used \"dict\" instead of \"Mapping\"",
+      "fix": "Changed dict \u2192 Mapping",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:09:52.303Z"
+    },
+    {
+      "id": "bug-215",
+      "timestamp": "2026-06-10T20:09:56.166Z",
+      "error_message": "Wrong return value",
+      "file": "src/vela/transport/factory.py",
+      "root_cause": "Was returning: option in _SAFE_SSH_FLAGS or (",
+      "fix": "Now returns: option in _SAFE_SSH_FLAGS or (len(option) > 1 and ",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:09:56.166Z"
+    },
+    {
+      "id": "bug-216",
+      "timestamp": "2026-06-10T20:10:44.279Z",
+      "error_message": "Significant refactor of ",
+      "file": ".github/workflows/ci.yml",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 4\u21926 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "yml"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:10:44.279Z"
+    },
+    {
+      "id": "bug-217",
+      "timestamp": "2026-06-10T20:14:19.081Z",
+      "error_message": "Wrong return value",
+      "file": "scripts/readme_screenshots.py",
+      "root_cause": "Was returning: {\"targets\": []}",
+      "fix": "Now returns: {",
+      "tags": [
+        "auto-detected",
+        "return-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:14:19.081Z"
+    },
+    {
+      "id": "bug-218",
+      "timestamp": "2026-06-10T20:16:36.577Z",
+      "error_message": "Missing await",
+      "file": "scripts/readme_screenshots.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:16:36.577Z"
+    },
+    {
+      "id": "bug-219",
+      "timestamp": "2026-06-10T20:21:30.053Z",
+      "error_message": "Missing await",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:21:30.053Z"
+    },
+    {
+      "id": "bug-220",
+      "timestamp": "2026-06-10T20:21:52.844Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 8\u21924 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T20:21:52.844Z"
+    },
+    {
+      "id": "bug-210",
+      "timestamp": "2026-06-10T16:30:00-04:00",
+      "error_message": "Dashboard Configs card showed 'Selected: <name>' twice when a config is selected",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_render_configs_title() appended a 'Selected: <name>' line to the card TITLE while _render_config_summary() (the card body) also renders one \u2014 both Statics carried the same line. Found while staging README screenshots.",
+      "fix": "Removed the title appendix; the body remains the single carrier. Red-green: test_configs_title_does_not_duplicate_selected_line.",
+      "tags": [
+        "tui",
+        "dashboard",
+        "cosmetic",
+        "duplication"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T16:30:00-04:00"
+    },
+    {
+      "id": "bug-211",
+      "timestamp": "2026-06-10T16:55:00-04:00",
+      "error_message": "CI test job failed: test_manual_remote_validation_workflow_executes_script_and_uploads_artifact asserted 'tiny-random-llama-detached-blackbird' in remote-validation.yml after the scrub removed personal defaults",
+      "file": "tests/test_remote_workflow.py",
+      "root_cause": "The workflow file is pinned by a static content-assertion test; the scrub commit changed the file without updating the pin (same family as the VELA_REMOTE_BRANCH script-pin break, bug-201/202 era). Caught by the new CI on PR #1 \u2014 first save by the shakedown.",
+      "fix": "Updated the pin to the new contract: no 'bgconley'/'/home/bgconley' literals, vars.VELA_REMOTE_* wiring present, unconfigured-host guard message present.",
+      "tags": [
+        "tests",
+        "ci",
+        "workflow-pin",
+        "scrub"
+      ],
+      "related_bugs": [
+        "bug-209"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-10T16:55:00-04:00"
     }
   ]
 }

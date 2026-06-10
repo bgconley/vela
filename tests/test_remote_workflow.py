@@ -1195,7 +1195,12 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert "remote_target" in text
     assert "real_resume_config" in text
     assert "gated_model_repo" in text
-    assert "tiny-random-llama-detached-blackbird" in text
+    # Personal defaults are scrubbed: values live in repo variables, not the file.
+    assert "bgconley" not in text
+    assert "/home/bgconley" not in text
+    assert "vars.VELA_REMOTE_HOST" in text
+    assert "vars.VELA_REMOTE_REAL_RESUME_CONFIG" in text
+    assert "Validation host/path not configured" in text
     assert "VELA_REMOTE_REAL_RESUME_CONFIG" in text
     assert "VELA_REMOTE_GATED_MODEL_REPO" in text
     assert "VELA_REMOTE_TARGET" in text

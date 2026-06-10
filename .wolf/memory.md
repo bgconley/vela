@@ -835,3 +835,54 @@
 | 04:00 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~143881 tok |
 | 04:01 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~143881 tok |
 | 04:07 | Session end: 5 writes across 2 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md) | 5 reads | ~144117 tok |
+| 04:14 | Created LICENSE | — | ~286 |
+| 04:14 | Created CHANGELOG.md | — | ~486 |
+| 04:14 | Edited pyproject.toml | 3→4 lines | ~32 |
+| 04:14 | Edited pyproject.toml | 3→3 lines | ~14 |
+| 04:14 | Edited pyproject.toml | 2→6 lines | ~46 |
+| 04:14 | Edited README.md | expanded (+9 lines) | ~104 |
+| 04:14 | Edited README.md | 33→33 lines | ~238 |
+| 04:14 | Edited README.md | inline fix | ~5 |
+| 04:14 | Edited README.md | 2→2 lines | ~21 |
+| 04:15 | Edited README.md | expanded (+6 lines) | ~225 |
+| 04:15 | Edited README.md | 4→8 lines | ~75 |
+| 04:16 | Created .github/workflows/ci.yml | — | ~240 |
+| 04:19 | Edited .github/workflows/remote-validation.yml | 24→24 lines | ~298 |
+| 04:20 | Edited .github/workflows/remote-validation.yml | 3→3 lines | ~83 |
+| 04:20 | Edited .github/workflows/remote-validation.yml | 2→2 lines | ~52 |
+| 04:20 | Edited .github/workflows/remote-validation.yml | inline fix | ~35 |
+| 04:20 | Edited .github/workflows/remote-validation.yml | 3→7 lines | ~108 |
+| 04:24 | Created tests/test_run_pruning.py | — | ~2224 |
+| 04:26 | Created src/vela/engine/run_pruning.py | — | ~1220 |
+| 04:26 | Edited src/vela/agent/daemon.py | added 1 import(s) | ~48 |
+| 04:27 | Edited src/vela/agent/daemon.py | modified auto_prune_run_records() | ~227 |
+| 04:27 | Edited src/vela/agent/local.py | modified known_runs_dirs() | ~81 |
+| 04:27 | Edited src/vela/cli.py | 8→10 lines | ~141 |
+| 04:27 | Edited src/vela/cli.py | modified _format_agent_status() | ~619 |
+| 16:09 | Edited src/vela/tui/screens/log_prompt.py | "log-prompt-title" → ", id=" | ~19 |
+| 16:09 | Edited src/vela/config/targets.py | added 1 import(s) | ~30 |
+| 16:09 | Edited src/vela/config/targets.py | inline fix | ~18 |
+| 16:09 | Edited src/vela/tui/screens/target_manager.py | modified action_reconnect() | ~37 |
+| 16:09 | Edited src/vela/transport/factory.py | modified _is_safe_ssh_flag() | ~38 |
+| 16:10 | Edited src/vela/engine/preflight.py | modified _format_bytes() | ~98 |
+| 16:10 | Edited src/vela/tui/screens/adopt_build.py | _discover() → discover() | ~64 |
+| 16:10 | Edited src/vela/engine/composer.py | modified _optional_int() | ~78 |
+| 16:10 | Edited src/vela/engine/composer.py | modified _optional_int_or_none() | ~63 |
+| 16:10 | Edited pyproject.toml | expanded (+24 lines) | ~189 |
+| 16:10 | Edited .github/workflows/ci.yml | 4→6 lines | ~65 |
+| 16:13 | Created scripts/readme_screenshots.py | — | ~1849 |
+| 16:14 | Edited scripts/readme_screenshots.py | expanded (+15 lines) | ~238 |
+| 16:16 | Edited scripts/readme_screenshots.py | modified __init__() | ~369 |
+| 16:16 | Edited scripts/readme_screenshots.py | select_config() → sleep() | ~66 |
+| 16:21 | Edited tests/test_tui_smoke.py | modified test_configs_title_does_not_duplicate_selected_line() | ~223 |
+| 16:21 | Edited src/vela/tui/app.py | modified _config_meta() | ~25 |
+| 16:23 | Edited README.md | expanded (+14 lines) | ~166 |
+| 16:25 | Edited src/vela/tui/screens/log_prompt.py | modified LogPromptScreen() | ~105 |
+| 16:25 | Edited src/vela/tui/screens/confirm.py | modified ConfirmScreen() | ~94 |
+| 16:25 | Edited src/vela/tui/screens/help.py | 10→12 lines | ~46 |
+| 16:25 | Edited src/vela/tui/screens/help.py | 11→11 lines | ~64 |
+| 16:25 | Edited src/vela/tui/screens/config_picker.py | modified ConfigPickerScreen() | ~109 |
+| 16:25 | Edited src/vela/tui/screens/target_edit.py | modified TargetEditScreen() | ~68 |
+| 16:26 | Edited src/vela/tui/screens/target_edit.py | 2→2 lines | ~20 |
+| 16:29 | Edited tests/test_remote_workflow.py | 3→8 lines | ~116 |
+| 16:58 | First-class pass: merged branch to main (2036c63), PR #1 first-class-pass = LICENSE+CHANGELOG+textual pin+README scrub/screenshots+CI(ruff/mypy/pytest)+runs prune+auto-prune+mypy 63/74+modal token pass+bug-210/211 fixes | many | gates running; cron SSH fix needs user on P620 | ~95k |

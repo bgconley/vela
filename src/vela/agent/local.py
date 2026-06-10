@@ -624,6 +624,10 @@ class LocalAgent:
                 {"protocol_version": value},
             ) from exc
 
+    @property
+    def known_runs_dirs(self) -> tuple[Path, ...]:
+        return tuple(sorted(self._known_runs_dirs))
+
     def _remember_registry_runs_dirs(self, registry: ConfigRegistry) -> None:
         for item in registry.valid:
             self._remember_run_config(item.config)

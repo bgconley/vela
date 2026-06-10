@@ -5,20 +5,20 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
-from vela.tui.theme import ACCENT, SURFACE_ALT, TEXT
+from vela.tui.theme import BG_BASE, BG_PANEL, BORDER_STRONG, TEXT
 
 
 class LogPromptScreen(ModalScreen[str | None]):
     CSS = f"""
     LogPromptScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #log-prompt-panel {{
         width: 72;
-        border: solid {ACCENT};
-        background: {SURFACE_ALT};
+        border: round {BORDER_STRONG};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 
@@ -46,7 +46,7 @@ class LogPromptScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="log-prompt-panel"):
-            yield Static(self.title, id="log-prompt-title")
+            yield Static(self.title or "", id="log-prompt-title")
             yield Input(
                 value=self.initial,
                 placeholder=self.placeholder,

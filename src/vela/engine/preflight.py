@@ -219,12 +219,13 @@ def _docker_volume_source(volume: str) -> str | None:
 def _format_bytes(value: int) -> str:
     units = ("B", "KiB", "MiB", "GiB", "TiB")
     amount = float(value)
-    for unit in units:
-        if amount < 1024 or unit == units[-1]:
+    for unit in units[:-1]:
+        if amount < 1024:
             if unit == "B":
                 return f"{int(amount)} {unit}"
             return f"{amount:.1f} {unit}"
         amount /= 1024
+    return f"{amount:.1f} {units[-1]}"
 
 
 def _docker_ports_include_host_port(ports_output: str, port: int) -> bool:

@@ -6,20 +6,20 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from vela.tui.theme import ACCENT, BAD, GOOD, MUTED, SURFACE_ALT, TEXT, WARN
+from vela.tui.theme import ACCENT, BAD, BG_BASE, BG_PANEL, GOOD, MUTED, TEXT, WARN
 
 
 class ConfirmScreen(ModalScreen):
     CSS = f"""
     ConfirmScreen {{
         align: center middle;
-        background: #091015;
+        background: {BG_BASE};
     }}
 
     #confirm-panel {{
         width: 68;
-        border: solid {WARN};
-        background: {SURFACE_ALT};
+        border: round {WARN};
+        background: {BG_PANEL};
         padding: 1 2;
     }}
 

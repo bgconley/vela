@@ -51,12 +51,14 @@ build_app = typer.Typer(help="Manage target-local vLLM builds.")
 config_app = typer.Typer(help="Move and lint target-local deployment configs.")
 deploy_app = typer.Typer(help="Create and manage target-local deployments.")
 model_app = typer.Typer(help="Manage target-local model metadata.")
+runs_app = typer.Typer(help="Inspect and maintain run records on this host.")
 targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
 app.add_typer(build_app, name="build")
 app.add_typer(config_app, name="config")
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(model_app, name="model")
+app.add_typer(runs_app, name="runs")
 app.add_typer(targets_app, name="targets")
 
 BUILD_INSPECT_FIELDS = (
@@ -3451,6 +3453,59 @@ def _format_agent_status(status: dict[str, Any]) -> str:
     if status["status"] == "running":
         return f"running pid={status.get('pid')} socket={status.get('socket_path')}"
     return f"{status['status']} socket={status.get('socket_path')}"
+
+
+@runs_app.command("prune")
+def runs_prune(
+    runs_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--runs-dir",
+            help="Runs directory to prune (repeatable). Defaults to this host's runs dir.",
+        ),
+    ] = None,
+    keep: Annotated[
+        int,
+        typer.Option(
+            "--keep",
+            min=0,
+            help="Keep this many newest eligible run records per directory.",
+        ),
+    ] = 20,
+    older_than_days: Annotated[
+        float,
+        typer.Option(
+            "--older-than-days",
+            min=0.0,
+            help="Only prune run records whose newest file is older than this many days.",
+        ),
+    ] = 7.0,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Report what would be pruned without deleting."),
+    ] = False,
+) -> None:
+    """Delete terminal/stale run records; live verified runs are never touched."""
+    from vela.config.schema import default_run_artifacts_dir
+    from vela.engine.run_pruning import prune_run_records
+
+    dirs = [Path(item) for item in runs_dir] if runs_dir else [default_run_artifacts_dir()]
+    result = prune_run_records(
+        dirs,
+        keep_recent=keep,
+        older_than_seconds=older_than_days * 86_400.0,
+        dry_run=dry_run,
+    )
+    verb = "Would prune" if dry_run else "Pruned"
+    mib = result.reclaimed_bytes / (1024 * 1024)
+    typer.echo(
+        f"{verb} {len(result.pruned_run_ids)} run record(s) "
+        f"({result.pruned_files} file(s), {mib:.1f} MiB) across {len(dirs)} dir(s)."
+    )
+    if result.skipped_active:
+        typer.echo(f"Skipped {result.skipped_active} live run(s).")
+    if result.kept_recent:
+        typer.echo(f"Kept {result.kept_recent} recent eligible record(s).")
 
 
 def main() -> None:
