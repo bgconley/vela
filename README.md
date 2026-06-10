@@ -9,6 +9,20 @@ workstation while a target agent owns process lifecycle, sidecars, GPU sampling,
 health checks, build installs, and model downloads on the host that actually has
 the files and GPUs.
 
+![Vela dashboard](docs/img/dashboard.png)
+
+<details>
+<summary>More screenshots: New Deployment wizard, Build Manager</summary>
+
+![New Deployment wizard](docs/img/new-deployment.png)
+
+![Build Manager](docs/img/build-manager.png)
+
+</details>
+
+(Regenerate with `python3 scripts/readme_screenshots.py docs/img` — rendered
+headlessly with placeholder-only state.)
+
 ## Quickstart
 
 Install as a tool (Python 3.10+) and open the TUI:

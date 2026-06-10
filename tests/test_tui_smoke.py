@@ -10613,6 +10613,24 @@ async def test_sidebar_and_banner_use_semantic_color_roles(config_dir: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_configs_title_does_not_duplicate_selected_line(config_dir: Path) -> None:
+    write_yaml(config_dir / "solo.yaml", "name: solo\nmodel: org/solo-model")
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.select_config("solo")
+        await pilot.pause()
+
+        title = app.query_one("#configs-title", Static).content
+        body = app.query_one("#configs", Static).content
+        assert isinstance(title, Text)
+        assert isinstance(body, Text)
+        assert "Selected: solo" in body.plain
+        assert "Selected:" not in title.plain
+
+
+@pytest.mark.asyncio
 async def test_figma_dashboard_pills_and_selection_use_surface_styles(
     config_dir: Path,
 ) -> None:
