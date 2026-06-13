@@ -3,15 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
+import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
 
+import psutil
 import pytest
 from conftest import scaled_timeout
 
 from vela.agent.local import LocalAgent
+from vela.engine.sidecar import procfs_starttime_from_pid
 from vela.transport.subprocess import SubprocessTargetClient
 
 
@@ -101,6 +105,60 @@ def _agent_restart_json_command(socket_path: Path) -> list[str]:
         str(socket_path),
         "--json",
     ]
+
+
+def test_agent_stop_escalates_when_daemon_ignores_sigterm() -> None:
+    from vela.agent.daemon import agent_identity_path, stop_agent_daemon
+
+    socket_path = _short_socket_path()
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    sock = socket.socket(socket.AF_UNIX)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import signal, sys, time\n"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "print('ready', flush=True)\n"
+                "time.sleep(60)\n"
+            ),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert process.stdout is not None
+        assert process.stdout.readline() == b"ready\n"
+        sock.bind(str(socket_path))
+        identity_path = agent_identity_path(socket_path)
+        identity_path.write_text(
+            json.dumps(
+                {
+                    "pid": process.pid,
+                    "create_time": psutil.Process(process.pid).create_time(),
+                    "procfs_starttime": procfs_starttime_from_pid(process.pid),
+                    "socket_path": str(socket_path),
+                    "version": "test",
+                    "protocol_versions": [1],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = stop_agent_daemon(socket_path, timeout=0.1)
+
+        assert result["status"] == "stopped"
+        assert result["signal"] == "SIGKILL"
+        assert process.wait(timeout=scaled_timeout(2)) != 0
+    finally:
+        sock.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=scaled_timeout(2))
+        socket_path.unlink(missing_ok=True)
+        agent_identity_path(socket_path).unlink(missing_ok=True)
 
 
 def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:

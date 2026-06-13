@@ -146,6 +146,19 @@ def stop_agent_daemon(
         if not identity_path.exists() or not _identity_matches_live_process(status):
             return {**status, "status": "stopped"}
         time.sleep(0.05)
+    if not _identity_matches_live_process(status):
+        return {**status, "status": "stopped"}
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return {**status, "status": "stopped"}
+    kill_deadline = time.monotonic() + max(0.5, min(timeout, 2.0))
+    while time.monotonic() < kill_deadline:
+        if not identity_path.exists() or not _identity_matches_live_process(status):
+            identity_path.unlink(missing_ok=True)
+            Path(str(status["socket_path"])).unlink(missing_ok=True)
+            return {**status, "status": "stopped", "signal": "SIGKILL"}
+        time.sleep(0.05)
     return {**status, "status": "stopping"}
 
 
