@@ -4329,6 +4329,24 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-13T07:30:00.567Z"
+    },
+    {
+      "id": "bug-232",
+      "timestamp": "2026-06-13T08:28:06.521Z",
+      "error_message": "Flag Manager was cramped: the flag list was boxed into a width:46 x height:24 column beside the editor, so you scrolled a tiny pane and long passthrough / resolved-command lines truncated horizontally. User-reported.",
+      "file": "src/vela/tui/screens/flag_manager.py",
+      "root_cause": "Small fixed modal (width 104) with a side-by-side master-detail (list 46 wide / 24 tall + 1fr editor), so the flag list and the editor each got a cramped half and long lines were cut.",
+      "fix": "REBUILT 2026-06-13: relayout to a content-hugging near-full-screen modal (width 96%, height auto/max-height 96%, overflow-y auto safety) with the full-width flag list in a VerticalScroll (#flag-manager-list-scroll, max-height 28, can_focus=False so Tab still reaches the value input) stacked ABOVE a full-width editor (value + raw-args inputs + detail). Preserved every id, list/detail substring, and the save_flags payload. Tests: 10 flag_manager + 195-test smoke green; new test_flag_manager_uses_full_width_scrollable_flag_list.",
+      "tags": [
+        "tui",
+        "flag-manager",
+        "ux",
+        "layout",
+        "textual"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T08:28:06.521Z"
     }
   ]
 }

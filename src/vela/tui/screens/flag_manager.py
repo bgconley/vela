@@ -7,7 +7,7 @@ from typing import Any
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, Select, Static
 
@@ -57,18 +57,25 @@ class FlagManagerScreen(ModalScreen):
     }}
 
     #flag-manager-panel {{
-        width: 104;
-        max-height: 90%;
+        width: 96%;
+        height: auto;
+        max-height: 96%;
         overflow-y: auto;
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #flag-manager-list {{
-        width: 46;
+    #flag-manager-list-scroll {{
+        width: 1fr;
         height: auto;
-        max-height: 24;
+        max-height: 28;
+        margin-bottom: 1;
+    }}
+
+    #flag-manager-list {{
+        width: 1fr;
+        height: auto;
         color: {TEXT_PRIMARY};
     }}
 
@@ -95,6 +102,7 @@ class FlagManagerScreen(ModalScreen):
 
     #flag-manager-editor {{
         width: 1fr;
+        height: auto;
     }}
 
     #flag-manager-value {{
@@ -165,20 +173,20 @@ class FlagManagerScreen(ModalScreen):
                 self._preset_description(),
                 id="flag-manager-preset-help",
             )
-            with Horizontal():
+            with VerticalScroll(id="flag-manager-list-scroll"):
                 yield Static(self._render_list(), id="flag-manager-list")
-                with Vertical(id="flag-manager-editor"):
-                    yield Input(
-                        value=self._selected_value(),
-                        placeholder="Flag value",
-                        id="flag-manager-value",
-                    )
-                    yield Input(
-                        value=_quote_extra_args(self.extra_args),
-                        placeholder="Raw passthrough args",
-                        id="flag-manager-extra-args",
-                    )
-                    yield Static(self._render_detail(), id="flag-manager-detail")
+            with Vertical(id="flag-manager-editor"):
+                yield Input(
+                    value=self._selected_value(),
+                    placeholder="Flag value",
+                    id="flag-manager-value",
+                )
+                yield Input(
+                    value=_quote_extra_args(self.extra_args),
+                    placeholder="Raw passthrough args",
+                    id="flag-manager-extra-args",
+                )
+                yield Static(self._render_detail(), id="flag-manager-detail")
             yield KeyHintBar(
                 [
                     ("↑↓", "Select"),
@@ -193,6 +201,12 @@ class FlagManagerScreen(ModalScreen):
             )
 
     def on_mount(self) -> None:
+        # Keep the scroll region out of the Tab order so Tab still reaches the
+        # value input (the footer advertises "Tab Edit value").
+        try:
+            self.query_one("#flag-manager-list-scroll").can_focus = False
+        except Exception:
+            pass
         self.call_later(lambda: self.set_focus(None))
 
     def _preset_description(self) -> str:

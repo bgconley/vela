@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-13T07:42:01.521Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-13T08:34:27.774Z
 > Files: 238 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -233,7 +233,7 @@
 - `confirm.py` — ConfirmScreen: compose, action_confirm, action_stop, action_kill + 1 more (~713 tok)
 - `create_build.py` — CreateBuildScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~4442 tok)
 - `download_model.py` — DownloadModelScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~2885 tok)
-- `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7598 tok)
+- `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7721 tok)
 - `help.py` — HelpScreen: compose, action_close (~1086 tok)
 - `log_prompt.py` — LogPromptScreen: compose, on_mount, on_input_submitted, action_cancel (~455 tok)
 - `model_manager.py` — ModelManagerScreen: compose, on_mount, action_previous, action_next + 7 more (~3657 tok)
@@ -275,7 +275,7 @@
 - `test_docs.py` — Tests: readme_covers_new_contributor_v1_paths, user_docs_cover_schema_artifacts_and_rpc, build_model_docs_cover_operational_cli_surfaces, v15_docs_... (~1380 tok)
 - `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~1779 tok)
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
-- `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2173 tok)
+- `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2417 tok)
 - `test_gpu.py` — Tests: nvml_unavailable_path_returns_unavailable, nvidia_smi_fallback_parsing, nvml_sampling_includes_mig_instance_identity, cuda_visible_devices_n... (~879 tok)
 - `test_health.py` — test_health_called_without_auth_and_models_with_bearer_when_key_configured, handler, test_models_401 (~2795 tok)
 - `test_job_phases.py` — Tests: build_phase_enum_matches_spec_values, download_phase_enum_matches_spec_values, build_install_phase_rules_are_enum_backed_wire_values (~275 tok)

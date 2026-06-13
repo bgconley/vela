@@ -209,3 +209,22 @@ async def test_flag_manager_preset_description_rendered() -> None:
         await pilot.pause()
         help_text = str(screen.query_one("#flag-manager-preset-help", Static).content)
         assert "Steady defaults" in help_text
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_uses_full_width_scrollable_flag_list() -> None:
+    # Rebuilt layout (fits-everything): the flag list is a tall, full-width
+    # scroll region stacked ABOVE the editor, not a cramped ~46-col side column.
+    from textual.containers import VerticalScroll
+
+    app = _Host()
+    async with app.run_test(size=(120, 40)) as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#flag-manager-list-scroll", VerticalScroll)
+        flag_list = screen.query_one("#flag-manager-list", Static)
+        editor = screen.query_one("#flag-manager-editor")
+        # full width (was capped at ~46) and stacked above the editor (was beside it)
+        assert flag_list.region.width > 80
+        assert flag_list.region.y < editor.region.y
