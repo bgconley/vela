@@ -29,6 +29,8 @@ class HelpScreen(ModalScreen):
 
     #help-panel {{
         width: 82;
+        height: auto;
+        max-height: 90%;
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;

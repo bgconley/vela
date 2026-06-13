@@ -18,6 +18,8 @@ class ConfirmScreen(ModalScreen):
 
     #confirm-panel {{
         width: 68;
+        height: auto;
+        max-height: 80%;
         border: round {WARN};
         background: {BG_PANEL};
         padding: 1 2;

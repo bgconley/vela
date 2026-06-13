@@ -47,6 +47,15 @@ The explicit TUI alias is equivalent:
 vela tui
 ```
 
+Typical first use is TUI-first:
+
+1. Open `vela` on the controller host.
+2. Press `t` to open Target Manager and add or test a GPU target.
+3. Press `n` to compose a deployment from the New Deployment wizard, or select
+   an existing YAML config from the sidebar.
+4. Launch from the TUI, watch phase/readiness/logs, then stop or reattach from
+   the same screen.
+
 Useful no-GPU checks:
 
 ```bash
@@ -88,8 +97,10 @@ vela targets add gpu-node \
 vela targets test gpu-node
 ```
 
-For workstation-to-controller-to-agent validation across two hosts, use SSH
-agent forwarding and the nested target:
+For workstation-to-controller-to-agent validation across two hosts, prefer a key
+available on the controller or `ProxyJump`. In a private lab, the outer
+workstation-to-controller hop can use forwarding, but Vela blocks agent
+forwarding on the controller-to-agent target transport.
 
 ```bash
 VELA_SSH_OPTS="-A -i ~/.ssh/id_ed25519 -o BatchMode=yes" \
@@ -232,7 +243,8 @@ Details are in [docs/agent-rpc.md](docs/agent-rpc.md).
 
 ## Tested Matrix
 
-The reference lab surface is a Linux controller driving an RTX PRO 6000
+The matrix below is the maintainer's lab reference surface, not a required
+topology. The reference lab surface is a Linux controller driving an RTX PRO 6000
 Blackwell (sm_120) agent with the Qwen3.6 27B native Docker stacks. Dated
 validation records live under `artifacts/remote-validation/`; the most recent
 full-green run (entire 1087-test suite on the GPU host, daemon-restart and

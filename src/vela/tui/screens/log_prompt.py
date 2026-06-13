@@ -17,6 +17,8 @@ class LogPromptScreen(ModalScreen[str | None]):
 
     #log-prompt-panel {{
         width: 72;
+        height: auto;
+        max-height: 80%;
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;

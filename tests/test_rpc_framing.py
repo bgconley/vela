@@ -991,6 +991,7 @@ async def test_stdio_agent_rejects_non_object_params() -> None:
         ("cancelled", -32015),
         ("profile-error", -32016),
         ("agent-auth-required", -32017),
+        ("job-expired", -32023),
     ],
 )
 def test_named_target_errors_have_specific_json_rpc_codes(

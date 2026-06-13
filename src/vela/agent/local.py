@@ -113,6 +113,12 @@ from vela.monitoring.gpu import sample_gpus as default_gpu_sampler
 from vela.monitoring.health import HealthEvent, check_once, probe_host_for, probe_loop
 
 PROTOCOL_VERSION = 1
+JOB_RETENTION_LIMIT_ENV = "VELA_AGENT_JOB_RETENTION_LIMIT"
+JOB_RETENTION_SECONDS_ENV = "VELA_AGENT_JOB_RETENTION_SECONDS"
+DEFAULT_JOB_RETENTION_LIMIT = 50
+DEFAULT_JOB_RETENTION_SECONDS = 3600.0
+MAX_EXPIRED_JOB_TOMBSTONES = 1000
+
 AGENT_CAPABILITIES = [
     "handshake",
     "ping",
@@ -354,6 +360,7 @@ class LocalJob:
     cancel_event: asyncio.Event
     status: str = "running"
     result: dict[str, Any] = field(default_factory=dict)
+    completed_mono: float | None = None
 
 
 @dataclass(frozen=True)
@@ -385,6 +392,18 @@ class LocalAgent:
         self._build_job_runner = build_job_runner or self._default_build_job_runner
         self._model_job_runner = model_job_runner or self._default_model_job_runner
         self._jobs: dict[str, LocalJob] = {}
+        self._expired_jobs: dict[str, dict[str, Any]] = {}
+        self._expired_job_order: list[str] = []
+        self._job_retention_limit = _env_int(
+            JOB_RETENTION_LIMIT_ENV,
+            DEFAULT_JOB_RETENTION_LIMIT,
+            minimum=0,
+        )
+        self._job_retention_seconds = _env_float(
+            JOB_RETENTION_SECONDS_ENV,
+            DEFAULT_JOB_RETENTION_SECONDS,
+            minimum=0.0,
+        )
         self._detached_runs: dict[str, LocalDetachedRun] = {}
         self._detached_sidecar_paths: dict[str, Path] = {}
         self._known_runs_dirs: set[Path] = {default_run_artifacts_dir()}
@@ -2332,6 +2351,10 @@ class LocalAgent:
         runner: JobRunner,
     ) -> dict[str, Any]:
         job_id = _job_id_param(params)
+        self._prune_terminal_jobs()
+        expired = self._expired_jobs.get(job_id)
+        if expired is not None:
+            return self._expired_job_payload(job_id, kind, params, expired)
         existing = self._jobs.get(job_id)
         if existing is not None:
             return _job_payload(existing)
@@ -2383,7 +2406,105 @@ class LocalAgent:
                 job.status = "succeeded" if bool(result.get("ok")) else "failed"
         safe_result = _scrub_job_payload(dict(result), secrets=job_secrets)
         job.result = safe_result
+        job.completed_mono = time.monotonic()
         self._publish_event(AgentEvent("job_done", job_id, safe_result))
+        self._prune_terminal_jobs()
+
+    def _prune_terminal_jobs(self) -> None:
+        terminal_jobs = [
+            (job.completed_mono or 0.0, job_id, job)
+            for job_id, job in self._jobs.items()
+            if job.task.done()
+        ]
+        if not terminal_jobs:
+            return
+        keep_by_count = {
+            job_id
+            for _completed, job_id, _job in sorted(terminal_jobs, reverse=True)[
+                : self._job_retention_limit
+            ]
+        }
+        now = time.monotonic()
+        for completed_mono, job_id, job in terminal_jobs:
+            keep_by_age = (
+                self._job_retention_seconds > 0
+                and now - completed_mono <= self._job_retention_seconds
+            )
+            if job_id in keep_by_count or keep_by_age:
+                continue
+            self._jobs.pop(job_id, None)
+            self._event_buffers.pop(job_id, None)
+            self._event_sequences.pop(job_id, None)
+            self._remember_expired_job(job_id, job)
+
+    def _remember_expired_job(self, job_id: str, job: LocalJob) -> None:
+        if job_id not in self._expired_jobs:
+            self._expired_job_order.append(job_id)
+        self._expired_jobs[job_id] = {
+            "kind": job.kind,
+            "status": job.status,
+            "result": dict(job.result),
+            "expired_mono": time.monotonic(),
+        }
+        while len(self._expired_job_order) > MAX_EXPIRED_JOB_TOMBSTONES:
+            oldest = self._expired_job_order.pop(0)
+            self._expired_jobs.pop(oldest, None)
+
+    def _expired_job_payload(
+        self,
+        job_id: str,
+        kind: str,
+        params: dict[str, Any],
+        expired: dict[str, Any],
+    ) -> dict[str, Any]:
+        expired_kind = str(expired.get("kind") or kind)
+        expired_status = str(expired.get("status") or "expired")
+        expired_result = _dict_or_empty(expired.get("result"))
+        if expired_kind == "create_build":
+            build_id = _optional_param_str(expired_result.get("build_id")) or _optional_param_str(
+                params.get("build_id")
+            )
+            if build_id is not None:
+                try:
+                    inspected = inspect_build(build_id, self._builds_root)
+                except BuildRegistryError as exc:
+                    raise self._job_expired_error(
+                        job_id,
+                        expired_kind,
+                        expired_status,
+                    ) from exc
+                manifest = _dict_or_empty(inspected.get("manifest"))
+                build_status = str(manifest.get("status") or expired_status)
+                return {
+                    "job_id": job_id,
+                    "kind": expired_kind,
+                    "status": expired_status,
+                    "result": {
+                        "ok": build_status in {"ready", "adopted"},
+                        "detail": "job result pruned; build record retained",
+                        "build_id": build_id,
+                        "status": build_status,
+                        "manifest": manifest,
+                        "pruned": True,
+                    },
+                }
+        raise self._job_expired_error(job_id, expired_kind, expired_status)
+
+    def _job_expired_error(
+        self,
+        job_id: str,
+        kind: str,
+        status: str,
+    ) -> TargetCallError:
+        return TargetCallError(
+            "job-expired",
+            f"job result expired: {job_id}",
+            {
+                "job_id": job_id,
+                "kind": kind,
+                "status": status,
+            },
+        )
 
     async def _run_pip_build_job(
         self,
@@ -4998,6 +5119,28 @@ def _optional_int(value: object) -> int | None:
         return int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(minimum, parsed)
+
+
+def _env_float(name: str, default: float, *, minimum: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError:
+        return default
+    return max(minimum, parsed)
 
 
 def _param_bool(value: object) -> bool:

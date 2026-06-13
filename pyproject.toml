@@ -27,6 +27,7 @@ gpu = ["nvidia-ml-py>=12.535"]
 dev = [
   "pytest>=8.2",
   "pytest-asyncio>=0.24",
+  "pytest-timeout>=2.3",
   "ruff>=0.6",
 ]
 
@@ -46,6 +47,8 @@ pythonpath = [".", "tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 asyncio_default_test_loop_scope = "function"
+timeout = 300
+timeout_method = "thread"
 
 [tool.mypy]
 python_version = "3.10"
@@ -53,8 +56,8 @@ files = ["src/vela"]
 ignore_missing_imports = true
 
 # Incremental adoption: the modules below predate type checking and are the
-# burn-down list (143 historical errors). Everything else — and every new
-# module — is checked by default.
+# bounded burn-down list documented in docs/mypy-debt.md. Everything else —
+# and every new module — is checked by default.
 [[tool.mypy.overrides]]
 module = [
   "vela.agent.local",

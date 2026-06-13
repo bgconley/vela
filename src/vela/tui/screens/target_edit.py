@@ -22,6 +22,8 @@ class TargetEditScreen(ModalScreen[TargetConfig | None]):
 
     #target-edit-panel {{
         width: 96;
+        height: auto;
+        max-height: 80%;
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;

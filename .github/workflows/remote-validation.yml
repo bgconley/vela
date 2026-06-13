@@ -119,6 +119,9 @@ jobs:
           {
             echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
             echo "SSH_AGENT_PID=$SSH_AGENT_PID"
+            # Lab-only outer-hop forwarding: docs/gpu-workflow.md records why
+            # this can be acceptable for the runner-to-controller shell. Vela's
+            # controller-to-agent SSH transport still hard-blocks forwarding.
             echo "VELA_SSH_OPTS=-A -i $key_path ${{ github.event.inputs.ssh_opts || vars.VELA_REMOTE_SSH_OPTS || '-o BatchMode=yes -o StrictHostKeyChecking=accept-new' }}"
           } >> "$GITHUB_ENV"
 
@@ -128,6 +131,7 @@ jobs:
           echo "VELA_SSH_OPTS=${{ github.event.inputs.ssh_opts || vars.VELA_REMOTE_SSH_OPTS || '-o BatchMode=yes -o StrictHostKeyChecking=accept-new' }}" >> "$GITHUB_ENV"
 
       - name: Run remote validation
+        id: remote_validation
         run: |
           if [[ -z "$REMOTE_VALIDATION_HOST" || -z "$REMOTE_VALIDATION_PATH" ]]; then
             echo "::error::Validation host/path not configured — set repo variables VELA_REMOTE_HOST and VELA_REMOTE_PATH (or pass dispatch inputs)."
@@ -143,10 +147,27 @@ jobs:
           fi
           bash scripts/run_remote_tests.sh "${args[@]}"
 
+      - name: Write validation failure artifact
+        id: validation_failure_artifact
+        if: failure() && steps.remote_validation.outputs.artifact_path == ''
+        run: |
+          mkdir -p artifacts/remote-validation
+          artifact_path="artifacts/remote-validation/remote-validation-failure-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.md"
+          {
+            echo "# Vela Remote Validation Failure"
+            echo
+            echo "- Workflow run: \`${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Reason: validation exited before writing a run artifact"
+          } > "$artifact_path"
+          echo "artifact_path=$artifact_path" >> "$GITHUB_OUTPUT"
+
       - name: Upload validation artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: remote-validation-artifacts
-          path: artifacts/remote-validation/*.md
+          path: |
+            ${{ steps.remote_validation.outputs.artifact_path }}
+            ${{ steps.validation_failure_artifact.outputs.artifact_path }}
           if-no-files-found: error

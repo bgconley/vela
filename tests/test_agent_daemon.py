@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from conftest import scaled_timeout
 
 from vela.agent.local import LocalAgent
 from vela.transport.subprocess import SubprocessTargetClient
@@ -359,7 +360,7 @@ async def test_agent_stop_terminates_foreground_socket_daemon() -> None:
         assert stopped["status"] == "stopped"
         assert stopped["pid"] == process.pid
         assert stopped["socket_path"] == str(socket_path)
-        await asyncio.wait_for(process.wait(), timeout=2)
+        await asyncio.wait_for(process.wait(), timeout=scaled_timeout(2))
         assert not socket_path.exists()
         assert not identity_path.exists()
     finally:
@@ -414,7 +415,7 @@ async def test_agent_run_foreground_command_exits_after_idle_timeout() -> None:
     try:
         await _wait_for_identity_file(identity_path, process)
 
-        await asyncio.wait_for(process.wait(), timeout=2)
+        await asyncio.wait_for(process.wait(), timeout=scaled_timeout(2))
 
         assert process.returncode == 0
         assert not socket_path.exists()
@@ -431,9 +432,9 @@ async def _wait_for_identity_file(
     identity_path: Path,
     process: asyncio.subprocess.Process,
     *,
-    timeout: float = 2.0,
+    timeout: float = 10.0,
 ) -> None:
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + scaled_timeout(timeout)
     while time.monotonic() < deadline:
         if identity_path.exists():
             return
@@ -454,7 +455,7 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         return
     process.terminate()
     try:
-        await asyncio.wait_for(process.wait(), timeout=2)
+        await asyncio.wait_for(process.wait(), timeout=scaled_timeout(2))
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()

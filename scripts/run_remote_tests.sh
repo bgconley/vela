@@ -820,6 +820,9 @@ if [[ "$artifact_enabled" == "1" ]]; then
   } >>"$artifact_tmp"
   mv "$artifact_tmp" "$artifact_path"
   echo "remote validation artifact: $artifact_path" >&2
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "artifact_path=$artifact_path" >>"$GITHUB_OUTPUT"
+  fi
   exit "$status"
 fi
 

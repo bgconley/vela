@@ -91,6 +91,7 @@ MODEL_ENTRY_FIELDS = (
     "cache_state",
     "gated",
     "token_required",
+    "fingerprint",
     "integrity",
     "allow_patterns",
     "ignore_patterns",
@@ -1310,7 +1311,7 @@ def _local_path_entry_from_params(
         "cache_state": "cached",
         "gated": False,
         "token_required": False,
-        "integrity": _local_model_integrity_payload(local_path),
+        "fingerprint": _local_model_fingerprint_payload(local_path),
         "created_at": _optional_str(params.get("created_at")) or now,
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
@@ -1380,40 +1381,42 @@ def _verify_local_model_entry(entry: dict[str, Any], *, deep: bool = False) -> d
     local_path = Path(str(entry.get("local_path") or "")).expanduser()
     status = _local_model_status(local_path)
     entry["cache_state"] = status["cache_state"]
+    baseline_established = False
     if status["ok"]:
-        current_integrity = _local_model_integrity_payload(local_path)
-        previous_integrity = entry.get("integrity")
-        expected_files_sha256 = (
-            previous_integrity.get("files_sha256")
-            if isinstance(previous_integrity, dict)
-            else None
-        )
-        current_files_sha256 = current_integrity["files_sha256"]
-        if expected_files_sha256 and expected_files_sha256 != current_files_sha256:
-            entry["cache_state"] = "partial"
-            payload = {
-                "entry_id": entry_id,
-                "ok": False,
-                "reason": "integrity-mismatch",
-                "cache_state": "partial",
-                "detail": "local model integrity mismatch",
-                "integrity": {
-                    "expected_files_sha256": expected_files_sha256,
-                    "current_files_sha256": current_files_sha256,
-                    "expected_file_count": _safe_int(previous_integrity.get("file_count"))
-                    if isinstance(previous_integrity, dict)
-                    else 0,
-                    "current_file_count": _safe_int(current_integrity.get("file_count")),
-                },
-                "entry": _model_payload(entry),
-            }
-            if deep:
-                payload["deep"] = True
-            return payload
-        if deep:
-            current_integrity["deep"] = True
         entry["files"] = _local_model_files_payload(local_path)
-        entry["integrity"] = current_integrity
+        entry["fingerprint"] = _local_model_fingerprint_payload(local_path)
+        if deep:
+            current_integrity = _local_model_integrity_payload(local_path)
+            previous_integrity = entry.get("integrity")
+            expected_files_sha256 = (
+                previous_integrity.get("files_sha256")
+                if isinstance(previous_integrity, dict)
+                else None
+            )
+            current_files_sha256 = current_integrity["files_sha256"]
+            if expected_files_sha256 and expected_files_sha256 != current_files_sha256:
+                entry["cache_state"] = "partial"
+                payload = {
+                    "entry_id": entry_id,
+                    "ok": False,
+                    "reason": "integrity-mismatch",
+                    "cache_state": "partial",
+                    "detail": "local model integrity mismatch",
+                    "deep": True,
+                    "integrity": {
+                        "expected_files_sha256": expected_files_sha256,
+                        "current_files_sha256": current_files_sha256,
+                        "expected_file_count": _safe_int(previous_integrity.get("file_count"))
+                        if isinstance(previous_integrity, dict)
+                        else 0,
+                        "current_file_count": _safe_int(current_integrity.get("file_count")),
+                    },
+                    "entry": _model_payload(entry),
+                }
+                return payload
+            baseline_established = not expected_files_sha256
+            current_integrity["deep"] = True
+            entry["integrity"] = current_integrity
     payload = {
         "entry_id": entry_id,
         "ok": bool(status["ok"]),
@@ -1425,6 +1428,8 @@ def _verify_local_model_entry(entry: dict[str, Any], *, deep: bool = False) -> d
         payload["deep"] = True
         if payload["ok"]:
             payload["detail"] = "local model deep verified"
+            if baseline_established:
+                payload["baseline_established"] = True
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
@@ -1677,6 +1682,31 @@ def _local_model_files_payload(path: Path) -> dict[str, Any]:
     }
 
 
+def _local_model_fingerprint_payload(path: Path) -> dict[str, Any]:
+    files = _local_model_integrity_files(path)
+    digest = sha256()
+    total_bytes = 0
+    max_mtime_ns = 0
+    for file in files:
+        relative = file.relative_to(path).as_posix()
+        stat = file.stat()
+        total_bytes += stat.st_size
+        max_mtime_ns = max(max_mtime_ns, int(stat.st_mtime_ns))
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(stat.st_size).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(str(int(stat.st_mtime_ns)).encode("ascii"))
+        digest.update(b"\0")
+    return {
+        "strategy": "local_file_stat",
+        "files_fingerprint": f"sha256:{digest.hexdigest()}",
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "max_mtime_ns": max_mtime_ns,
+    }
+
+
 def _local_model_integrity_payload(path: Path) -> dict[str, Any]:
     files = _local_model_integrity_files(path)
     digest = sha256()
@@ -1855,7 +1885,7 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
         value = entry.get(field)
         if field == "files":
             payload[field] = dict(value) if isinstance(value, dict) else {}
-        elif field == "integrity":
+        elif field in {"fingerprint", "integrity"}:
             if isinstance(value, dict) and value:
                 payload[field] = dict(value)
         elif field == "aliases":

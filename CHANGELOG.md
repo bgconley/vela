@@ -31,6 +31,8 @@ First tagged release.
 - Remote validation lane: `scripts/run_remote_tests.sh` + scheduled GitHub
   Actions workflow producing dated artifacts (latest green: full suite +
   live Qwen3.6-27B smoke on an RTX PRO 6000 Blackwell).
+- Mypy remains incremental for v0.1.0; the accepted legacy debt is tracked in
+  `docs/mypy-debt.md` and CI prevents the ignored-module list from growing.
 - Test suite: 1087 hermetic tests (isolated XDG state, per-session agent
   daemon), golden-path journey coverage, ruff-clean.
 

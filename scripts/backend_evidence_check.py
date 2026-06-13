@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -107,6 +108,16 @@ def validate_backend_evidence(
         ):
             raise BackendEvidenceError(
                 f"unregistered backend evidence rule for Blackbird config: {config_name}"
+            )
+        if _looks_like_unproven_blackbird_bf16_config(config_name, config):
+            return _unproven_recipe_result(
+                config_name,
+                "unproven-bf16-recipe-image",
+            )
+        if _looks_like_unproven_blackbird_fp8_config(config_name, config):
+            return _unproven_recipe_result(
+                config_name,
+                "unproven-fp8-recipe-anchors",
             )
         return {
             "checked": False,
@@ -222,6 +233,61 @@ def _looks_like_blackbird_bf16_config(config: dict[str, Any]) -> bool:
         and docker.get("image") == BLACKBIRD_QWEN36_IMAGE
         and str(engine.get("kv_cache_dtype") or "").lower() == "bfloat16"
     )
+
+
+def _looks_like_unproven_blackbird_bf16_config(
+    config_name: str,
+    config: dict[str, Any],
+) -> bool:
+    command = _dict(config.get("command"))
+    docker = _dict(command.get("docker"))
+    engine = _dict(config.get("engine"))
+    return (
+        _names_blackbird(config_name, config)
+        and command.get("runtime") == "docker"
+        and str(engine.get("kv_cache_dtype") or "").lower() == "bfloat16"
+        and docker.get("image") != BLACKBIRD_QWEN36_IMAGE
+    )
+
+
+def _looks_like_unproven_blackbird_fp8_config(
+    config_name: str,
+    config: dict[str, Any],
+) -> bool:
+    command = _dict(config.get("command"))
+    docker = _dict(command.get("docker"))
+    engine = _dict(config.get("engine"))
+    docker_env = _dict(docker.get("env"))
+    return (
+        _names_blackbird(config_name, config)
+        and command.get("runtime") == "docker"
+        and str(engine.get("kv_cache_dtype") or "").lower() == "fp8"
+        and docker.get("image") != BLACKBIRD_QWEN36_IMAGE
+        and str(docker_env.get("FLASHINFER_CUDA_ARCH_LIST") or "") != "12.0f"
+    )
+
+
+def _unproven_recipe_result(config_name: str, reason: str) -> dict[str, Any]:
+    if _env_truthy("BACKEND_EVIDENCE_ALLOW_UNPROVEN"):
+        return {
+            "checked": False,
+            "config_name": config_name,
+            "reason": reason,
+        }
+    raise BackendEvidenceError(reason)
+
+
+def _names_blackbird(config_name: str, config: dict[str, Any]) -> bool:
+    names = [
+        config_name,
+        str(config.get("name") or ""),
+        str(config.get("target") or ""),
+    ]
+    return any("blackbird" in name.lower() for name in names)
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _argv_has_value(argv: list[str], option: str, expected: str) -> bool:

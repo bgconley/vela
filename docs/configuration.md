@@ -12,14 +12,14 @@ Targets live on the controller in `~/.config/vela/targets.yaml`.
 
 ```yaml
 targets:
-  blackbird:
+  gpu-node:
     transport: ssh
-    host: bgconley@10.25.0.51
-    ssh_key: /home/bgconley/.ssh/vela_ed25519
-    workdir: /home/bgconley/repos/lab-tui
-    venv: /home/bgconley/venvs/lab-tui
+    host: user@gpu-host
+    ssh_key: ~/.ssh/vela_ed25519
+    workdir: /path/to/vela
+    venv: /path/to/venv
     agent_command:
-      - /home/bgconley/venvs/lab-tui/bin/vela
+      - /path/to/venv/bin/vela
       - agent
       - connect
     local_transport: socket
@@ -210,9 +210,9 @@ command:
     ipc_host: true
     shm_size: 32g
     pull: never
-    hf_cache: /home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache
+    hf_cache: /path/to/models/qwen36-dual-fp8-vlm/hf-cache
     volumes:
-      - /home/bgconley/models/qwen36-27b-fp8-rp6000/flashinfer-cache:/root/.cache/flashinfer
+      - /path/to/models/qwen36-27b-fp8-rp6000/flashinfer-cache:/root/.cache/flashinfer
     env:
       FLASHINFER_CUDA_ARCH_LIST: 12.0f
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True

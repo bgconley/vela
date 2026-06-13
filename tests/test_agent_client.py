@@ -6097,9 +6097,9 @@ async def test_agent_adopts_local_model_path_for_launch_handoff(
         "count": 3,
         "weights_format": "safetensors",
     }
-    assert adopted["entry"]["integrity"]["strategy"] == "local_files_sha256"
-    assert adopted["entry"]["integrity"]["files_sha256"].startswith("sha256:")
-    assert adopted["entry"]["integrity"]["file_count"] == 3
+    assert "integrity" not in adopted["entry"]
+    assert adopted["entry"]["fingerprint"]["strategy"] == "local_file_stat"
+    assert adopted["entry"]["fingerprint"]["file_count"] == 3
     assert prepared["build"]["argv"][:3] == ["vllm", "serve", str(model_dir)]
     assert "--revision" not in prepared["build"]["argv"]
     assert prepared["build"]["metadata"]["model_source"] == "local_path"
@@ -6165,13 +6165,53 @@ async def test_agent_verifies_adopted_local_model(tmp_path: Path) -> None:
     assert verified["cache_state"] == "cached"
     assert verified["detail"] == "local model verified"
     assert verified["entry"]["cache_state"] == "cached"
-    assert verified["entry"]["integrity"]["strategy"] == "local_files_sha256"
-    assert verified["entry"]["integrity"]["files_sha256"].startswith("sha256:")
-    assert verified["entry"]["integrity"]["file_count"] == 3
-    assert verified["entry"]["integrity"]["total_bytes"] == (
+    assert "integrity" not in verified["entry"]
+    assert verified["entry"]["fingerprint"]["strategy"] == "local_file_stat"
+    assert verified["entry"]["fingerprint"]["file_count"] == 3
+    assert verified["entry"]["fingerprint"]["total_bytes"] == (
         len(b"{}") + len(b"weights") + len(b"{}")
     )
     json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_adopt_shallow_verify_and_refresh_do_not_hash_local_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    model_dir = tmp_path / "models" / "local-llama"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_text("weights", encoding="utf-8")
+    (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+
+    def fail_hash(*_args, **_kwargs) -> str:
+        raise AssertionError("shallow local model operations must not hash model blobs")
+
+    monkeypatch.setattr(model_registry_module, "_stream_file_sha256_uri", fail_hash)
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        adopted = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01LOCAL",
+                "source": "local_path",
+                "local_path": str(model_dir),
+            },
+        )
+        verified = await client.call("verify_model", {"model_ref": "01LOCAL"})
+        refreshed = await client.call("refresh_models")
+    finally:
+        await client.disconnect()
+
+    assert adopted["entry"]["fingerprint"]["strategy"] == "local_file_stat"
+    assert "integrity" not in adopted["entry"]
+    assert verified["ok"] is True
+    assert "integrity" not in verified["entry"]
+    assert refreshed["models"][0]["fingerprint"]["strategy"] == "local_file_stat"
+    assert "integrity" not in refreshed["models"][0]
 
 
 @pytest.mark.asyncio
@@ -6206,6 +6246,7 @@ async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
     assert verified["deep"] is True
     assert verified["cache_state"] == "cached"
     assert verified["detail"] == "local model deep verified"
+    assert verified["baseline_established"] is True
     integrity = verified["entry"]["integrity"]
     assert integrity["strategy"] == "local_files_sha256"
     assert integrity["deep"] is True
@@ -6843,7 +6884,7 @@ async def test_agent_verify_marks_local_model_partial_after_drift(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_agent_verify_marks_local_model_partial_after_integrity_drift(
+async def test_agent_deep_verify_marks_local_model_partial_after_integrity_drift(
     tmp_path: Path,
 ) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
@@ -6865,16 +6906,23 @@ async def test_agent_verify_marks_local_model_partial_after_integrity_drift(
                 "local_path": str(model_dir),
             },
         )
-        expected_sha = adopted["entry"]["integrity"]["files_sha256"]
+        baseline = await client.call(
+            "verify_model", {"model_ref": "01LOCAL", "deep": "true"}
+        )
+        expected_sha = baseline["entry"]["integrity"]["files_sha256"]
         weights_path.write_text("changed-weights", encoding="utf-8")
-        verified = await client.call("verify_model", {"model_ref": "01LOCAL"})
+        verified = await client.call(
+            "verify_model", {"model_ref": "01LOCAL", "deep": "true"}
+        )
         listed = await client.call("list_models")
     finally:
         await client.disconnect()
 
     entry_id = _assert_minted_model_entry(adopted["entry"], ignored="01LOCAL")
+    assert baseline["baseline_established"] is True
     assert verified["entry_id"] == entry_id
     assert verified["ok"] is False
+    assert verified["deep"] is True
     assert verified["cache_state"] == "partial"
     assert verified["reason"] == "integrity-mismatch"
     assert verified["integrity"]["expected_files_sha256"] == expected_sha
@@ -10164,6 +10212,174 @@ async def test_agent_download_model_job_streams_by_job_id() -> None:
     assert done["detail"] == "model cached"
     json.dumps(progress)
     json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_reuses_retained_terminal_job_without_rerunning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VELA_AGENT_JOB_RETENTION_LIMIT", "10")
+    monkeypatch.setenv("VELA_AGENT_JOB_RETENTION_SECONDS", "3600")
+    calls: list[str] = []
+
+    async def model_job_runner(params, emit, _cancel_event) -> dict[str, object]:
+        calls.append(str(params["job_id"]))
+        emit({"kind": "committed", "text": "Resolving model", "level": "INFO"})
+        return {"ok": True, "detail": "model cached"}
+
+    client = InProcessTargetClient(LocalAgent(model_job_runner=model_job_runner))
+    await client.connect()
+    events = client.subscribe(["job-model-retained"], resume_from="live")
+    try:
+        started = await client.call(
+            "download_model",
+            {"job_id": "job-model-retained", "model_ref": "01MODEL"},
+        )
+        done = await _next_event(events, event_name="job_done")
+        replay = await client.call(
+            "download_model",
+            {"job_id": "job-model-retained", "model_ref": "01MODEL"},
+        )
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert started["status"] == "running"
+    assert done["ok"] is True
+    assert replay == {
+        "job_id": "job-model-retained",
+        "kind": "download_model",
+        "status": "succeeded",
+        "result": {"ok": True, "detail": "model cached"},
+    }
+    assert calls == ["job-model-retained"]
+
+
+@pytest.mark.asyncio
+async def test_agent_prunes_terminal_job_state_and_event_buffers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VELA_AGENT_JOB_RETENTION_LIMIT", "1")
+    monkeypatch.setenv("VELA_AGENT_JOB_RETENTION_SECONDS", "0")
+    calls: list[str] = []
+
+    async def model_job_runner(params, emit, _cancel_event) -> dict[str, object]:
+        job_id = str(params["job_id"])
+        calls.append(job_id)
+        emit({"kind": "committed", "text": f"Resolving {job_id}", "level": "INFO"})
+        return {"ok": True, "detail": f"{job_id} cached"}
+
+    agent = LocalAgent(model_job_runner=model_job_runner)
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    first_events = client.subscribe(["job-model-old"], resume_from="live")
+    second_events = client.subscribe(["job-model-new"], resume_from="live")
+    try:
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-old", "model_ref": "01MODEL"},
+        )
+        await _next_event(first_events, event_name="job_done")
+        await client.call(
+            "download_model",
+            {"job_id": "job-model-new", "model_ref": "01MODEL"},
+        )
+        await _next_event(second_events, event_name="job_done")
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "download_model",
+                {"job_id": "job-model-old", "model_ref": "01MODEL"},
+            )
+    finally:
+        await first_events.aclose()
+        await second_events.aclose()
+        await client.disconnect()
+
+    assert exc_info.value.code == "job-expired"
+    assert calls == ["job-model-old", "job-model-new"]
+    assert "job-model-old" not in agent._jobs
+    assert "job-model-old" not in agent._event_buffers
+    assert "job-model-old" not in agent._event_sequences
+    assert "job-model-new" in agent._jobs
+    assert "job-model-new" in agent._event_buffers
+    assert "job-model-new" in agent._event_sequences
+
+
+@pytest.mark.asyncio
+async def test_agent_pruned_build_job_replays_disk_record_without_rerunning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VELA_AGENT_JOB_RETENTION_LIMIT", "1")
+    monkeypatch.setenv("VELA_AGENT_JOB_RETENTION_SECONDS", "0")
+    builds_root = tmp_path / "builds"
+    calls: list[str] = []
+
+    async def build_job_runner(params, emit, _cancel_event) -> dict[str, object]:
+        job_id = str(params["job_id"])
+        build_id = str(params["build_id"])
+        calls.append(job_id)
+        emit({"kind": "committed", "text": f"Creating {build_id}", "level": "INFO"})
+        build_dir = builds_root / build_id
+        build_dir.mkdir(parents=True)
+        (build_dir / "build.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "build_id": build_id,
+                    "label": build_id.lower(),
+                    "status": "ready",
+                    "install": {"method": "test"},
+                    "resolved": {"vllm": "0.11.2"},
+                    "paths": {
+                        "root": str(build_dir),
+                        "venv": "venv",
+                        "executable": "bin/vllm",
+                        "python": "bin/python",
+                        "activate": "activate",
+                        "run_script": "run.sh",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "ok": True,
+            "detail": "build ready",
+            "build_id": build_id,
+            "status": "ready",
+        }
+
+    agent = LocalAgent(builds_root=builds_root, build_job_runner=build_job_runner)
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    old_events = client.subscribe(["job-build-old"], resume_from="live")
+    new_events = client.subscribe(["job-build-new"], resume_from="live")
+    try:
+        await client.call(
+            "create_build",
+            {"job_id": "job-build-old", "build_id": "01PRUNED", "method": "pip"},
+        )
+        await _next_event(old_events, event_name="job_done")
+        await client.call(
+            "create_build",
+            {"job_id": "job-build-new", "build_id": "01KEPT", "method": "pip"},
+        )
+        await _next_event(new_events, event_name="job_done")
+        replay = await client.call(
+            "create_build",
+            {"job_id": "job-build-old", "build_id": "01PRUNED", "method": "pip"},
+        )
+    finally:
+        await old_events.aclose()
+        await new_events.aclose()
+        await client.disconnect()
+
+    assert calls == ["job-build-old", "job-build-new"]
+    assert replay["status"] == "succeeded"
+    assert replay["result"]["pruned"] is True
+    assert replay["result"]["build_id"] == "01PRUNED"
+    assert replay["result"]["manifest"]["build_id"] == "01PRUNED"
 
 
 @pytest.mark.asyncio

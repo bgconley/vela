@@ -109,6 +109,26 @@ def test_remote_validation_workflow_mints_unique_build_and_model_labels() -> Non
     assert "github.run_attempt" in workflow
 
 
+def test_remote_validation_script_exports_fresh_artifact_path() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    assert 'remote validation artifact: $artifact_path' in script
+    assert "GITHUB_OUTPUT" in script
+    assert 'artifact_path=$artifact_path' in script
+
+
+def test_remote_validation_workflow_uploads_only_fresh_artifact() -> None:
+    workflow = Path(".github/workflows/remote-validation.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "id: remote_validation" in workflow
+    assert "id: validation_failure_artifact" in workflow
+    assert "steps.remote_validation.outputs.artifact_path" in workflow
+    assert "steps.validation_failure_artifact.outputs.artifact_path" in workflow
+    assert "path: artifacts/remote-validation/*.md" not in workflow
+
+
 def test_remote_validation_restarts_daemon_after_install() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
@@ -168,6 +188,8 @@ def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     assert "VELA_REMOTE_MODEL_REPO" in docs
     assert "VELA_REMOTE_GATED_MODEL_REPO" in docs
     assert "GATED_MODEL_AUTH_OK" in docs
+    assert "unproven-bf16-recipe-image" in docs
+    assert "BACKEND_EVIDENCE_ALLOW_UNPROVEN=1" in docs
     assert "textual serve" in docs
     assert "network/auth" in docs
     assert "controls model launches" in docs
@@ -177,7 +199,8 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 
     assert "P620-01 controller to Blackbird agent" in docs
-    assert "ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519" in docs
+    assert 'ssh -A -i "$VELA_LAB_SSH_KEY"' in docs
+    assert "/Users/brennanconley/vibecode/infx/ubuntu24_ed25519" not in docs
     assert "vela targets test blackbird" in docs
     assert (
         "vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird"
@@ -861,6 +884,63 @@ def test_backend_evidence_does_not_silently_skip_unregistered_bf16_config() -> N
             "qwen36-27b-bf16-rp6000-renamed",
             config,
             "INFO BF16 recipe reached READY",
+        )
+
+
+def test_backend_evidence_rejects_unproven_bf16_recipe_image() -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_bf16_config_payload()
+    config["name"] = "qwen36-27b-bf16-rp6000-blackbird-canary"
+    config["command"]["docker"]["image"] = "vllm/vllm-openai:latest"
+
+    with pytest.raises(
+        module.BackendEvidenceError,
+        match="unproven-bf16-recipe-image",
+    ):
+        module.validate_backend_evidence(
+            "qwen36-27b-bf16-rp6000-blackbird-canary",
+            config,
+            "INFO BF16 recipe reached READY",
+        )
+
+
+def test_backend_evidence_allows_unproven_bf16_recipe_image_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_bf16_config_payload()
+    config["name"] = "qwen36-27b-bf16-rp6000-blackbird-canary"
+    config["command"]["docker"]["image"] = "vllm/vllm-openai:latest"
+    monkeypatch.setenv("BACKEND_EVIDENCE_ALLOW_UNPROVEN", "1")
+
+    result = module.validate_backend_evidence(
+        "qwen36-27b-bf16-rp6000-blackbird-canary",
+        config,
+        "INFO BF16 recipe reached READY",
+    )
+
+    assert result == {
+        "checked": False,
+        "config_name": "qwen36-27b-bf16-rp6000-blackbird-canary",
+        "reason": "unproven-bf16-recipe-image",
+    }
+
+
+def test_backend_evidence_rejects_unproven_fp8_recipe_without_anchors() -> None:
+    module = _load_backend_evidence_check()
+    config = _blackbird_fp8_config_payload()
+    config["name"] = "qwen36-27b-fp8-kvfp8-rp6000-blackbird-canary"
+    config["command"]["docker"]["image"] = "vllm/vllm-openai:latest"
+    config["command"]["docker"]["env"].pop("FLASHINFER_CUDA_ARCH_LIST", None)
+
+    with pytest.raises(
+        module.BackendEvidenceError,
+        match="unproven-fp8-recipe-anchors",
+    ):
+        module.validate_backend_evidence(
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird-canary",
+            config,
+            _valid_backend_log_text(),
         )
 
 

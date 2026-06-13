@@ -19,6 +19,15 @@ _VELA_STATE_ENV_KEYS = (
 )
 
 
+def scaled_timeout(seconds: float) -> float:
+    raw_scale = os.environ.get("VELA_TEST_TIMEOUT_SCALE", "1")
+    try:
+        scale = float(raw_scale)
+    except ValueError:
+        scale = 1.0
+    return seconds * max(scale, 1.0)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def isolated_vela_state() -> Iterator[Path]:
     """Point ALL vela state at a per-session temp dir (the durable bug-185 fix).

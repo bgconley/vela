@@ -64,12 +64,12 @@ command:
     restart: "no"
     stop_grace_seconds: 90
     pull: never
-    hf_cache: /home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache
+    hf_cache: /path/to/models/qwen36-dual-fp8-vlm/hf-cache
     volumes:
-      - /home/bgconley/models/qwen36-27b-fp8-rp6000/vllm-cache:/root/.cache/vllm
-      - /home/bgconley/models/qwen36-27b-fp8-rp6000/triton-cache:/root/.cache/triton
-      - /home/bgconley/models/qwen36-27b-fp8-rp6000/torch-compile-cache:/root/.cache/torch
-      - /home/bgconley/models/qwen36-27b-fp8-rp6000/flashinfer-cache:/root/.cache/flashinfer
+      - /path/to/models/qwen36-27b-fp8-rp6000/vllm-cache:/root/.cache/vllm
+      - /path/to/models/qwen36-27b-fp8-rp6000/triton-cache:/root/.cache/triton
+      - /path/to/models/qwen36-27b-fp8-rp6000/torch-compile-cache:/root/.cache/torch
+      - /path/to/models/qwen36-27b-fp8-rp6000/flashinfer-cache:/root/.cache/flashinfer
     env:
       FLASHINFER_CUDA_ARCH_LIST: 12.0f
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -158,7 +158,7 @@ vela deploy create qwen36-fp8 \
 
 ## Real-Hardware Proof
 
-Current P620-to-Blackbird native-Docker validations:
+Current maintainer-lab P620-to-Blackbird native-Docker validations:
 
 - `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md`
 - `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-bf16-9b107b4.md`

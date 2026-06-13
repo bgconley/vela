@@ -35,6 +35,7 @@ ERROR_CODE_BY_NAME = {
     "daemon-unreachable": -32020,
     "compose-invalid": -32021,
     "config-exists": -32022,
+    "job-expired": -32023,
 }
 
 ERROR_NAME_BY_CODE = {

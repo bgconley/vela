@@ -1,4 +1,8 @@
-# Mac to GPU Workflow
+# Maintainer Lab GPU Workflow
+
+This is the maintainer lab runbook. The generic install and target setup path is
+in the README and configuration docs; this file records the concrete P620 and
+Blackbird validation topology used for release evidence.
 
 This project is expected to be authored on a Mac and exercised for real vLLM
 runtime behavior on GPU boxes. Local Mac validation should stay no-GPU and
@@ -22,7 +26,8 @@ the GPU host. Do not put `HF_TOKEN` or API keys in example configs.
 If the GPU host needs a specific SSH key or options, set them for validation:
 
 ```bash
-export VELA_SSH_OPTS="-i /path/to/gpu_key"
+export VELA_LAB_SSH_KEY=/path/to/gpu_key
+export VELA_SSH_OPTS="-i $VELA_LAB_SSH_KEY"
 ```
 
 When the same environment variable is referenced by a target registry
@@ -171,7 +176,11 @@ log scraping. `smoke-tui` must emit a tab-separated
 real-model resume helper must emit `REAL_MODEL_DAEMON_RESTART_OK` with a
 whitespace-delimited `run_id=<run_id>` token after the daemon-restart reattach
 passes. `scripts/run_remote_tests.sh` fails closed if either marker is absent
-before invoking `scripts/backend_evidence_check.py`.
+before invoking `scripts/backend_evidence_check.py`. Registered Blackbird
+recipes use pinned backend-evidence rules. Recipe-shaped FP8/BF16 configs that
+miss those anchors fail closed with `unproven-fp8-recipe-anchors` or
+`unproven-bf16-recipe-image`; set `BACKEND_EVIDENCE_ALLOW_UNPROVEN=1` only for
+an explicit experiment where a skipped evidence gate is acceptable.
 
 ```bash
 VELA_REMOTE_TARGET=blackbird \
@@ -202,7 +211,7 @@ VELA_REMOTE_TARGET=blackbird \
 ```
 
 ```bash
-ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
+ssh -A -i "$VELA_LAB_SSH_KEY" \
   -o BatchMode=yes bgconley@10.25.0.50 \
   'cd /home/bgconley/repos/lab-tui &&
    /tank/venvs/lab-tui/bin/vela targets test blackbird'
@@ -211,7 +220,7 @@ ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
 Then run the real TUI smoke from P620 through the `blackbird` target:
 
 ```bash
-ssh -A -i /Users/brennanconley/vibecode/infx/ubuntu24_ed25519 \
+ssh -A -i "$VELA_LAB_SSH_KEY" \
   -o BatchMode=yes bgconley@10.25.0.50 \
   'cd /home/bgconley/repos/lab-tui &&
    timeout 2700 /tank/venvs/lab-tui/bin/vela smoke-tui \

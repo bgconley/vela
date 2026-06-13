@@ -730,6 +730,7 @@ class VelaApp(App):
         self._pending_build_remove: dict[str, str] | None = None
         self._pending_model_remove: dict[str, str] | None = None
         self._pending_target_remove: dict[str, str] | None = None
+        self._pending_config_push: dict[str, str] | None = None
         self._active_job_id: str | None = None
         self._active_job_label: str = ""
         self._log_flush_scheduled = False
@@ -1183,6 +1184,21 @@ class VelaApp(App):
         except OSError as exc:
             self._set_error_text(f"Unable to read local config: {exc}", style=f"bold {BAD}")
             return
+        await self._push_config_yaml_to_target(
+            target_name,
+            self.current_config.name,
+            yaml_text,
+            overwrite=False,
+        )
+
+    async def _push_config_yaml_to_target(
+        self,
+        target_name: str,
+        config_name: str,
+        yaml_text: str,
+        *,
+        overwrite: bool,
+    ) -> None:
         try:
             target = load_targets_file().by_name(target_name)
             target_client = target_client_for_config(target)
@@ -1194,11 +1210,19 @@ class VelaApp(App):
             return
         try:
             await target_client.connect()
-            result = await target_client.call(
-                "push_config",
-                {"name": self.current_config.name, "yaml": yaml_text},
-            )
+            params: dict[str, object] = {"name": config_name, "yaml": yaml_text}
+            if overwrite:
+                params["overwrite"] = True
+            result = await target_client.call("push_config", params)
         except TargetCallError as exc:
+            if exc.code == "config-exists" and not overwrite:
+                self._confirm_push_config_overwrite(
+                    target_name,
+                    config_name,
+                    yaml_text,
+                    str(exc.details.get("path") or ""),
+                )
+                return
             self._set_error_text(
                 f"Unable to push config to {target_name}: {exc}",
                 style=f"bold {BAD}",
@@ -1216,10 +1240,37 @@ class VelaApp(App):
                 with contextlib.suppress(Exception):
                     await disconnect()
         path = result.get("path", "")
-        self.notify(f"Pushed {self.current_config.name} to {target_name}")
+        verb = "Updated" if overwrite else "Pushed"
+        self.notify(f"{verb} {config_name} on {target_name}")
         self._write_log(
-            f"INFO pushed config {self.current_config.name} to {target_name}: {path}",
+            f"INFO {verb.lower()} config {config_name} on {target_name}: {path}",
             "INFO",
+        )
+
+    def _confirm_push_config_overwrite(
+        self,
+        target_name: str,
+        config_name: str,
+        yaml_text: str,
+        remote_path: str,
+    ) -> None:
+        self._pending_config_push = {
+            "target": target_name,
+            "name": config_name,
+            "yaml": yaml_text,
+            "path": remote_path,
+        }
+        path_text = f"\n\nExisting path: {remote_path}" if remote_path else ""
+        self.push_screen(
+            ConfirmScreen(
+                (
+                    f"Overwrite config {config_name} on {target_name}?"
+                    f"{path_text}\n\nThe remote config will be replaced."
+                ),
+                title="Overwrite target config",
+                confirm_label="Overwrite",
+                confirm_action="confirm_push_config_overwrite",
+            )
         )
 
     def _selected_valid_config_item(self) -> ValidConfig | None:
@@ -1229,6 +1280,26 @@ class VelaApp(App):
             if item.config.name == self.current_config.name:
                 return item
         return None
+
+    def confirm_push_config_overwrite(self) -> None:
+        if self.screen.id == "confirm":
+            self.pop_screen()
+        pending = self._pending_config_push
+        self._pending_config_push = None
+        if pending is None:
+            return
+        self.run_worker(
+            self._push_config_yaml_to_target(
+                pending["target"],
+                pending["name"],
+                pending["yaml"],
+                overwrite=True,
+            ),
+            name="target-config-push-overwrite",
+            group="target-config-push",
+            exclusive=True,
+            exit_on_error=False,
+        )
 
     def confirm_remove_target(self) -> None:
         if self.screen.id == "confirm":

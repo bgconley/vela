@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from conftest import write_yaml
+from conftest import scaled_timeout, write_yaml
 from fakes.fake_docker import write_fake_docker_runtime
 from rich.text import Text
 from textual.screen import ModalScreen
@@ -1178,6 +1178,249 @@ async def test_target_manager_pushes_selected_local_config_to_remote(
         assert params["name"] == "alpha"
         assert params["yaml"] == "name: alpha\nmodel: org/alpha\n"
         assert "overwrite" not in params
+        assert remote_client.connected is False
+
+
+@pytest.mark.asyncio
+async def test_target_manager_push_config_conflict_can_be_cancelled(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class LocalTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_path),
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": f"vllm serve {params['name']}", "warnings": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected local client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("push conflict test should not subscribe")
+
+    class RemoteTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            remote_calls.append((method, dict(params or {})))
+            if method == "push_config":
+                raise TargetCallError(
+                    "config-exists",
+                    "config already exists",
+                    {
+                        "name": params["name"],
+                        "path": "/home/user/.config/vela/configs/alpha.yaml",
+                    },
+                )
+            raise AssertionError(f"unexpected remote client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("push config should not subscribe")
+
+    remote_calls: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(tui_app_module, "load_targets_file", lambda: FakeTargetsRegistry())
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target: RemoteTargetClient() if target.name == "blackbird" else LocalTargetClient(),
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=LocalTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_condition(
+            lambda: app.current_config is not None
+            and app.current_config.name == "alpha",
+            "local config was not selected",
+        )
+        await app._push_selected_config_to_target("blackbird")
+        await _wait_for_condition(lambda: app.screen.id == "confirm", "confirm did not open")
+        await _wait_for_condition(
+            lambda: bool(app.screen.query("#confirm-message")),
+            "confirm message did not mount",
+        )
+
+        message = str(app.screen.query_one("#confirm-message", Static).content)
+        assert "Overwrite config alpha on blackbird?" in message
+        assert "/home/user/.config/vela/configs/alpha.yaml" in message
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.screen.id != "confirm"
+        assert len(remote_calls) == 1
+        assert "overwrite" not in remote_calls[0][1]
+
+
+@pytest.mark.asyncio
+async def test_target_manager_push_config_conflict_confirm_overwrites(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class LocalTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": str(config_path),
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": f"vllm serve {params['name']}", "warnings": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected local client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("push conflict test should not subscribe")
+
+    class RemoteTargetClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            remote_calls.append((method, dict(params or {})))
+            if method == "push_config" and not params.get("overwrite"):
+                raise TargetCallError(
+                    "config-exists",
+                    "config already exists",
+                    {
+                        "name": params["name"],
+                        "path": "/home/user/.config/vela/configs/alpha.yaml",
+                    },
+                )
+            if method == "push_config":
+                return {
+                    "name": params["name"],
+                    "path": "/home/user/.config/vela/configs/alpha.yaml",
+                    "warnings": [],
+                }
+            raise AssertionError(f"unexpected remote client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("push config should not subscribe")
+
+    remote_calls: list[tuple[str, dict[str, object]]] = []
+    remote_client = RemoteTargetClient()
+    monkeypatch.setattr(tui_app_module, "load_targets_file", lambda: FakeTargetsRegistry())
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target: remote_client if target.name == "blackbird" else LocalTargetClient(),
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=LocalTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_condition(
+            lambda: app.current_config is not None
+            and app.current_config.name == "alpha",
+            "local config was not selected",
+        )
+        await app._push_selected_config_to_target("blackbird")
+        await _wait_for_condition(lambda: app.screen.id == "confirm", "confirm did not open")
+        await _wait_for_condition(
+            lambda: bool(app.screen.query("#confirm-message")),
+            "confirm message did not mount",
+        )
+        await pilot.press("enter")
+        await _wait_for_condition(lambda: len(remote_calls) == 2, "overwrite was not called")
+
+        assert "overwrite" not in remote_calls[0][1]
+        assert remote_calls[1][1]["overwrite"] is True
+        assert remote_calls[1][1]["name"] == "alpha"
+        assert remote_calls[1][1]["yaml"] == "name: alpha\nmodel: org/alpha\n"
         assert remote_client.connected is False
 
 
@@ -6586,13 +6829,16 @@ async def test_prompt_and_picker_screens_render_as_modal_panels(config_dir: Path
         await pilot.press("c")
         await pilot.pause()
         assert isinstance(app.screen, ModalScreen)
-        assert app.screen.query_one("#config-picker-panel").region.x > 0
+        picker_panel = app.screen.query_one("#config-picker-panel")
+        assert picker_panel.region.x > 0
 
         await pilot.press("escape")
         await pilot.press("/")
         await pilot.pause()
         assert isinstance(app.screen, ModalScreen)
-        assert app.screen.query_one("#log-prompt-panel").region.x > 0
+        prompt_panel = app.screen.query_one("#log-prompt-panel")
+        assert prompt_panel.region.x > 0
+        assert prompt_panel.region.height < app.size.height // 2
 
 
 @pytest.mark.asyncio
@@ -6653,7 +6899,9 @@ async def test_confirm_screen_is_modal_panel_with_destructive_color(
 
         assert app.screen.id == "confirm"
         assert isinstance(app.screen, ModalScreen)
-        assert app.screen.query_one("#confirm-panel").region.x > 0
+        confirm_panel = app.screen.query_one("#confirm-panel")
+        assert confirm_panel.region.x > 0
+        assert confirm_panel.region.height < app.size.height // 2
         message = app.screen.query_one("#confirm-message", Static)
         assert isinstance(message.content, Text)
         assert "Stop" in message.content.plain
@@ -13179,7 +13427,7 @@ async def test_pause_toggles_richlog_autoscroll(config_dir: Path) -> None:
 
 
 async def _wait_for_log(app: VelaApp, text: str) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if any(text in line for line in app.log_lines):
             return
@@ -13188,7 +13436,7 @@ async def _wait_for_log(app: VelaApp, text: str) -> None:
 
 
 async def _wait_for_command(app: VelaApp, title: str):
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         for command in app.get_system_commands(app.screen):
             if command.title == title:
@@ -13281,7 +13529,7 @@ async def _reattach_discovered_target_run(app: VelaApp, run_id: str) -> None:
 
 
 async def _wait_for_gpu_text(app: VelaApp, text: str) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if text in app.gpu_panel_text:
             return
@@ -13290,7 +13538,7 @@ async def _wait_for_gpu_text(app: VelaApp, text: str) -> None:
 
 
 async def _wait_for_gpu_calls(calls: list[int], count: int) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if len(calls) >= count:
             return
@@ -13301,7 +13549,7 @@ async def _wait_for_gpu_calls(calls: list[int], count: int) -> None:
 async def _wait_for_target_connection_state(
     app: VelaApp, state: str, *, timeout: float = 5.0
 ) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(timeout)
     while asyncio.get_running_loop().time() < deadline:
         if app.target_connection_state == state:
             return
@@ -13312,7 +13560,7 @@ async def _wait_for_target_connection_state(
 
 
 async def _wait_for_stopped(app: VelaApp) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if app.current_run_id is None and app.phase is Phase.STOPPED:
             return
@@ -13321,7 +13569,7 @@ async def _wait_for_stopped(app: VelaApp) -> None:
 
 
 async def _wait_for_condition(condition, message: str) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if condition():
             return
@@ -13336,7 +13584,7 @@ async def _wait_for_textual_condition(
     *,
     timeout: float = 5.0,
 ) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(timeout)
     last_error: Exception | None = None
     while asyncio.get_running_loop().time() < deadline:
         try:
@@ -13351,7 +13599,7 @@ async def _wait_for_textual_condition(
 
 
 async def _wait_for_log_count(app: VelaApp, text: str, count: int) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if sum(text in line for line in app.log_lines) >= count:
             return
@@ -13360,7 +13608,7 @@ async def _wait_for_log_count(app: VelaApp, text: str, count: int) -> None:
 
 
 async def _wait_for_phase(app: VelaApp, phase: Phase, *, pilot=None) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if app.phase is phase:
             return
@@ -13377,7 +13625,7 @@ async def _wait_for_phase(app: VelaApp, phase: Phase, *, pilot=None) -> None:
 
 
 async def _wait_for_log_text(path: Path, text: str) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         if path.exists() and text in path.read_text(encoding="utf-8"):
             return
@@ -13413,7 +13661,7 @@ async def _cleanup_port(port: int) -> None:
 
 
 async def _wait_for_port_down(port: int) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         try:
             reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -13426,7 +13674,7 @@ async def _wait_for_port_down(port: int) -> None:
 
 
 async def _wait_for_port_up(port: int) -> None:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + scaled_timeout(5)
     while asyncio.get_running_loop().time() < deadline:
         try:
             _reader, writer = await asyncio.open_connection("127.0.0.1", port)

@@ -24,6 +24,8 @@ jobs:
         run: ruff check .
       - name: Mypy (incremental adoption — see pyproject overrides)
         run: pip install -e . && mypy
+      - name: Mypy override ratchet
+        run: python scripts/check_mypy_overrides.py
 
   test:
     runs-on: ubuntu-latest
