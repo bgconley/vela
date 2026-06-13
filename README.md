@@ -246,9 +246,20 @@ Details are in [docs/agent-rpc.md](docs/agent-rpc.md).
 The matrix below is the maintainer's lab reference surface, not a required
 topology. The reference lab surface is a Linux controller driving an RTX PRO 6000
 Blackwell (sm_120) agent with the Qwen3.6 27B native Docker stacks. Dated
-validation records live under `artifacts/remote-validation/`; the most recent
-full-green run (entire 1087-test suite on the GPU host, daemon-restart and
-reconnect-resume probes, live `smoke-tui` of the BF16 stack to READY) is:
+validation records live under `artifacts/remote-validation/`.
+
+Latest validation artifacts:
+
+- Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-35-02Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
+  covers the P620 controller to Blackbird target path, entire 1118-test remote
+  suite, daemon-restart and reconnect-resume probes, managed `vllm==0.11.2`
+  build install, tiny HF model pin/download, Qwen3.6 27B FP8 `smoke-tui`,
+  backend evidence, and real-model resume/daemon restart.
+- Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-41-25Z-bgconley-10.25.0.50-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md`
+  covers the same P620-to-Blackbird target path with a targeted 151-test remote
+  slice, Qwen3.6 27B BF16 `smoke-tui`, and backend evidence.
+
+Earlier full-green BF16 artifact:
 
 - `artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md`
 
