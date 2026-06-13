@@ -541,6 +541,23 @@ def test_local_agent_handshake_requires_configured_capability_token(
     assert result["target"] == "local"
 
 
+def test_local_agent_handshake_refuses_when_token_required_but_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Shared-host policy: VELA_AGENT_REQUIRE_TOKEN makes the agent fail closed
+    # if no capability token is installed, instead of accepting any caller.
+    monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_TOKEN_FILE", raising=False)
+    monkeypatch.setenv("VELA_AGENT_REQUIRE_TOKEN", "1")
+    agent = LocalAgent(target_name="local")
+
+    with pytest.raises(TargetCallError) as refused:
+        agent.handle("handshake", {"protocol_version": 1})
+
+    assert refused.value.code == "agent-auth-required"
+    assert refused.value.details == {"reason": "capability-token-required"}
+
+
 def test_handshake_params_include_configured_agent_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

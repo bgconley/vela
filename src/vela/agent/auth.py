@@ -6,6 +6,7 @@ from pathlib import Path
 
 AGENT_TOKEN_ENV = "VELA_AGENT_TOKEN"
 AGENT_TOKEN_FILE_ENV = "VELA_AGENT_TOKEN_FILE"
+AGENT_REQUIRE_TOKEN_ENV = "VELA_AGENT_REQUIRE_TOKEN"
 MIN_AGENT_TOKEN_BYTES = 16
 DEFAULT_AGENT_TOKEN_BYTES = 32
 MIN_AGENT_TOKEN_CHARS = 22
@@ -28,6 +29,16 @@ def configured_agent_token() -> str | None:
         except OSError as exc:
             raise AgentTokenError(f"unable to read agent token file {token_path}: {exc}") from exc
     return validate_agent_token(token)
+
+
+def agent_token_required() -> bool:
+    """Whether a capability token is mandatory (``VELA_AGENT_REQUIRE_TOKEN``).
+
+    Shared-host deployments set this so the agent fails closed when no token is
+    installed, instead of accepting any same-uid (or unverifiable) caller.
+    """
+    value = os.environ.get(AGENT_REQUIRE_TOKEN_ENV)
+    return value is not None and value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def default_agent_token_file() -> Path:

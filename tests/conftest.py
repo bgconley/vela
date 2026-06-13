@@ -118,4 +118,5 @@ def valid_config_text() -> str:
 def clear_config_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("VELA_CONFIGS", raising=False)
     monkeypatch.delenv("VELA_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("VELA_AGENT_REQUIRE_TOKEN", raising=False)
     yield

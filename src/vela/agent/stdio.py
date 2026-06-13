@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any, BinaryIO
 
-from vela.agent.auth import AgentTokenError, configured_agent_token
+from vela.agent.auth import AgentTokenError, agent_token_required, configured_agent_token
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.transport.ndjson import (
     FRAME_STREAM_LIMIT,
@@ -183,7 +183,9 @@ class _ConnectionAuthState:
         if self._loaded:
             return
         try:
-            self.authenticated = configured_agent_token() is None
+            self.authenticated = (
+                configured_agent_token() is None and not agent_token_required()
+            )
         except AgentTokenError as exc:
             raise TargetCallError(
                 "agent-auth-required",

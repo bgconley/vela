@@ -183,6 +183,47 @@ def test_vllm_pass_through_defaults_are_unset() -> None:
     assert cfg.engine.load_format is None
 
 
+def test_schema_rejects_out_of_range_numeric_values() -> None:
+    # Guardrails against footgun configs that would otherwise reach vLLM.
+    from pydantic import ValidationError
+
+    base = {"name": "x", "model": "org/model"}
+    bad_cases = [
+        {"engine": {"gpu_memory_utilization": 5.0}},
+        {"engine": {"gpu_memory_utilization": 0.0}},
+        {"engine": {"tensor_parallel_size": 0}},
+        {"engine": {"pipeline_parallel_size": 0}},
+        {"engine": {"max_num_seqs": 0}},
+        {"engine": {"max_model_len": 0}},
+        {"server": {"port": 0}},
+        {"server": {"port": 70000}},
+        {"launch": {"ready_timeout_seconds": -1}},
+        {"launch": {"health": {"interval_seconds": 0}}},
+    ]
+    for overrides in bad_cases:
+        with pytest.raises(ValidationError):
+            ModelConfig.model_validate({**base, **overrides})
+
+
+def test_schema_accepts_valid_numeric_bounds() -> None:
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "x",
+            "model": "org/model",
+            "engine": {
+                "gpu_memory_utilization": 0.9,
+                "tensor_parallel_size": 2,
+                "max_num_seqs": 256,
+            },
+            "server": {"port": 18003, "host": "0.0.0.0", "exposure": "lan"},
+            "launch": {"ready_timeout_seconds": 600, "health": {"interval_seconds": 1.5}},
+        }
+    )
+    assert cfg.engine.gpu_memory_utilization == 0.9
+    assert cfg.engine.tensor_parallel_size == 2
+    assert cfg.server.port == 18003
+
+
 def test_open_string_enum_fields_are_accepted() -> None:
     cfg = ModelConfig.model_validate(
         {

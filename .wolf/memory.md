@@ -930,3 +930,29 @@
 | 02:55 | Session end: 26 writes across 11 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 61 reads | ~586431 tok |
 | 03:40 | LIVE RUN SUCCESS on hardened branch (committed 897816b, pushed; deployed to oxcart + blackbird). Drove via SSH from Mac: preflight (targets test) → tiny detached smoke READY+autostop → Qwen3.6-27B-FP8 smoke READY http://10.25.0.51:18003 + autostop; both left 0 containers, GPU back to 2MiB/96GB | oxcart(.50)+blackbird(.51) | end-to-end pass, no orphans; blackbird+oxcart left on harden/blackbird-live-run branch | ~60k |
 | 03:06 | Session end: 26 writes across 11 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 61 reads | ~586431 tok |
+| 03:17 | Session end: 26 writes across 11 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 61 reads | ~586431 tok |
+| 03:25 | Edited tests/conftest.py | modified clear_config_env() | ~75 |
+| 03:26 | Edited tests/test_cli_run.py | modified _free_port() | ~289 |
+| 03:26 | Edited tests/test_agent_socket.py | modified test_same_user_peer_check_fails_closed_without_creds_or_token() | ~353 |
+| 03:26 | Edited tests/test_agent_client.py | modified test_local_agent_handshake_refuses_when_token_required_but_unset() | ~266 |
+| 03:27 | Edited tests/test_config_loader.py | modified test_schema_rejects_out_of_range_numeric_values() | ~468 |
+| 03:27 | Edited src/vela/config/schema.py | 13→13 lines | ~182 |
+| 03:28 | Edited src/vela/config/schema.py | 3→3 lines | ~34 |
+| 03:28 | Edited src/vela/config/schema.py | 2→2 lines | ~23 |
+| 03:28 | Edited src/vela/config/schema.py | 2→2 lines | ~29 |
+| 03:28 | Edited src/vela/cli.py | 2→5 lines | ~54 |
+| 03:28 | Edited src/vela/cli.py | 2→5 lines | ~58 |
+| 03:28 | Edited src/vela/cli.py | 6→9 lines | ~83 |
+| 03:29 | Edited src/vela/agent/auth.py | 3→4 lines | ~47 |
+| 03:29 | Edited src/vela/agent/auth.py | modified agent_token_required() | ~143 |
+| 03:29 | Edited src/vela/agent/local.py | 6→7 lines | ~46 |
+| 03:29 | Edited src/vela/agent/local.py | modified agent_token_required() | ~134 |
+| 03:30 | Edited src/vela/agent/stdio.py | inline fix | ~26 |
+| 03:30 | Edited src/vela/agent/stdio.py | 3→5 lines | ~52 |
+| 03:30 | Edited src/vela/agent/socket.py | added 1 import(s) | ~49 |
+| 03:30 | Edited src/vela/agent/socket.py | modified verify_same_user_peer() | ~270 |
+| 03:36 | Edited src/vela/config/schema.py | 2→2 lines | ~29 |
+| 03:36 | Edited tests/test_health.py | 0 → 0.01 | ~8 |
+| 03:36 | Edited tests/test_config_loader.py | 2→2 lines | ~31 |
+| 03:42 | Edited docs/agent-rpc.md | 4→8 lines | ~158 |
+| 04:10 | Pilot follow-ups (red-green): CLI list tracebacks (try/except->_echo_target_error_or_exit), agent-token policy (VELA_AGENT_REQUIRE_TOKEN + fail-closed peer check), schema numeric bounds (Field gt/ge/le) | cli.py, auth/local/stdio/socket.py, schema.py + 4 test files + agent-rpc.md | +8 tests red→green; relaxed ready_timeout to ge=0 + fixed 5 health tests (interval 0→0.01); ruff/mypy/overrides OK; full suite 1132 passed; logged bug-229/230/231 | ~85k |

@@ -4273,6 +4273,62 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-13T03:10:00-04:00"
+    },
+    {
+      "id": "bug-229",
+      "timestamp": "2026-06-13T07:27:59.764Z",
+      "error_message": "Config schema accepted footgun out-of-range numeric values (gpu_memory_utilization>1, port=0, tensor_parallel_size=0, negative ready_timeout_seconds, interval_seconds=0) straight through to vLLM launch. Found in the production-pilot review.",
+      "file": "src/vela/config/schema.py",
+      "root_cause": "EngineConfig/ServerConfig/HealthConfig/LaunchConfig declared numeric fields as bare int|None / float|None with no pydantic Field bounds, so dangerous values validated and reached the command builder/vLLM (gpu_memory_utilization 5.0 -> OOM; port 0 -> random ephemeral port breaking the health URL; tensor_parallel_size 0 silently coerced to 1 in preflight but shipped as --tensor-parallel-size 0).",
+      "fix": "FIXED 2026-06-13 (red-green): added Field bounds - gpu_memory_utilization gt=0 le=1; tensor/pipeline_parallel_size, max_model_len, block_size, max_num_seqs ge=1; swap_space ge=0; port ge=1 le=65535; health.interval_seconds gt=0; ready_timeout_seconds ge=0 (rejects negatives, allows the degenerate 0 the probe-loop tests use). Tests: test_schema_rejects_out_of_range_numeric_values + test_schema_accepts_valid_numeric_bounds. Updated 5 test_health probe tests interval_seconds 0->0.01 (sleep mocked, behaviour unchanged).",
+      "tags": [
+        "schema",
+        "config",
+        "validation",
+        "pydantic",
+        "guardrails",
+        "pilot"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T07:27:59.764Z"
+    },
+    {
+      "id": "bug-230",
+      "timestamp": "2026-06-13T07:28:20.058Z",
+      "error_message": "vela list / build list / model list dumped a raw Python traceback when the target was unreachable, instead of the actionable remediation every other command shows.",
+      "file": "src/vela/cli.py",
+      "root_cause": "The three list commands called _agent_call(...) with no try/except (unlike all mutating commands); TargetCallError (a RuntimeError) propagated through Typer to a stack trace + exit 1. These are the README's headline first-run no-GPU checks, so a new operator's first failure (unreachable agent) was a traceback.",
+      "fix": "FIXED 2026-06-13 (red-green): wrapped each _agent_call in try/except TargetCallError -> _echo_target_error_or_exit(exc, target_name=target) (exit 2 + remediation). Test: test_list_commands_surface_remediation_not_traceback_on_unreachable_target (parametrized).",
+      "tags": [
+        "cli",
+        "ux",
+        "error-handling",
+        "traceback",
+        "pilot"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T07:28:20.058Z"
+    },
+    {
+      "id": "bug-231",
+      "timestamp": "2026-06-13T07:30:00.567Z",
+      "error_message": "Agent ran fully open when no capability token was configured (auth none): any same-uid - or unverifiable - caller had full destructive authority, and the Unix-socket peer check failed OPEN when peer creds could not be read. No way for shared-host deployments to mandate a token.",
+      "file": "src/vela/agent/stdio.py",
+      "root_cause": "No token -> _ConnectionAuthState defaulted authenticated=True and _require_capability_token returned (accept any); verify_same_user_peer returned (allow) when peer uid was indeterminate. Fine for a solo local agent, unsafe for a shared service account.",
+      "fix": "FIXED 2026-06-13 (red-green): (1) socket.verify_same_user_peer fails closed when peer creds are unavailable AND no token is configured (token, if present, is the fallback). (2) New VELA_AGENT_REQUIRE_TOKEN (auth.agent_token_required): when set, the agent refuses to authenticate without a configured token (_require_capability_token raises agent-auth-required; _ConnectionAuthState stays unauthenticated). Solo/local/SSH flows unchanged. Tests: test_same_user_peer_check_fails_closed_without_creds_or_token, ..._allows_unverifiable_peer_when_token_configured, test_local_agent_handshake_refuses_when_token_required_but_unset.",
+      "tags": [
+        "security",
+        "auth",
+        "agent-token",
+        "shared-host",
+        "fail-closed",
+        "pilot"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T07:30:00.567Z"
     }
   ]
 }

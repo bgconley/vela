@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-13T06:42:01.126Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-13T07:42:01.521Z
 > Files: 238 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -124,7 +124,7 @@
 
 ## docs/
 
-- `agent-rpc.md` — Agent RPC (~999 tok)
+- `agent-rpc.md` — Agent RPC (~1080 tok)
 - `builds-and-models.md` — Builds And Models (~1070 tok)
 - `configuration.md` — Configuration (~2824 tok)
 - `deployments.md` — Deployments (~554 tok)
@@ -157,7 +157,7 @@
 
 - `__init__.py` — Vela package. (~23 tok)
 - `__main__.py` (~29 tok)
-- `cli.py` — URL configuration (~33574 tok)
+- `cli.py` — API router (~33687 tok)
 - `fake_child.py` — Handler: do_GET, log_message, main, print_help + 1 more (~1146 tok)
 - `messages.py` — from: from_log_record (~592 tok)
 - `remediation.py` — from: remediation_for_error (~924 tok)
@@ -165,17 +165,17 @@
 ## src/vela/agent/
 
 - `__init__.py` — Agent-side execution surfaces. (~11 tok)
-- `auth.py` — AgentTokenError: configured_agent_token, default_agent_token_file, install_agent_token, generate_agent_token + 1 more (~824 tok)
+- `auth.py` — AgentTokenError: configured_agent_token, agent_token_required, default_agent_token_file, install_age (~958 tok)
 - `daemon.py` — URL configuration (~3008 tok)
-- `local.py` — URL configuration (~57219 tok)
-- `socket.py` — serve_unix_socket_agent, handle_connection, verify_same_user_peer, bridge_stdio_to_unix_socket (~1213 tok)
-- `stdio.py` — _ConnectionAuthState: serve_stdio_agent, serve_agent_stream, write_frame, load + 3 more (~3517 tok)
+- `local.py` — BuildInstallRequest: handle (~58776 tok)
+- `socket.py` — serve_unix_socket_agent, handle_connection, verify_same_user_peer, bridge_stdio_to_unix_socket (~1392 tok)
+- `stdio.py` — _ConnectionAuthState: serve_stdio_agent, serve_agent_stream, write_frame, load + 3 more (~3542 tok)
 
 ## src/vela/config/
 
 - `__init__.py` — Configuration loading and validation. (~13 tok)
 - `loader.py` — ValidConfig: by_name, discover_config_dirs, load_registry, first_existing_dir + 1 more (~1153 tok)
-- `schema.py` — URL configuration (~2159 tok)
+- `schema.py` — Pydantic: DockerConfig (~2224 tok)
 - `targets.py` — URL configuration (~2041 tok)
 
 ## src/vela/engine/
@@ -257,18 +257,18 @@
 ## tests/
 
 - `.DS_Store` (~1640 tok)
-- `conftest.py` — isolated_vela_state, config_dir, write_yaml, valid_config_text + 1 more (~1010 tok)
+- `conftest.py` — scaled_timeout, isolated_vela_state, config_dir, write_yaml (~1095 tok)
 - `test_adopt_build_screen.py` — Headless tests for the refactored AdoptBuildScreen (Mac-safe; no GPU/vLLM). (~1793 tok)
-- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~114274 tok)
+- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~114485 tok)
 - `test_agent_daemon.py` — URL configuration (~4386 tok)
-- `test_agent_socket.py` — Tests: same_user_peer_check_accepts_current_uid, same_user_peer_check_rejects_mismatched_uid (~283 tok)
+- `test_agent_socket.py` — FakeWriter: get_extra_info, test_same_user_peer_check_accepts_current_uid, test_same_user_peer_check (~600 tok)
 - `test_blackbird_config.py` — Tests: blackbird_qwen36_fp8_config_uses_native_docker_runtime, blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins, tiny_blackbird_res... (~1321 tok)
 - `test_branding.py` — URL configuration (~880 tok)
 - `test_build_manager_screen.py` — Headless tests for the refactored BuildManagerScreen (Phase 6 consistency pass). (~1261 tok)
 - `test_build_registry.py` — Engine-level tests for build_registry venv inspection (Mac-safe; no GPU/vLLM). (~1095 tok)
-- `test_cli_run.py` — Tests: debug_mode_enables_textual_debug_and_devtools, cli_root_version_option_prints_version_without_launching_tui, cli_agent_gen_token_prints_stro... (~52953 tok)
+- `test_cli_run.py` — FakeTargetsRegistry: test_debug_mode_enables_textual_debug_and_devtools, test_cli_root_version_optio (~53435 tok)
 - `test_command_builder.py` — Tests: exact_argv_env_for_serve_entrypoint, revision_pin_is_emitted_for_standalone_model_handoff, docker_error_classifier_covers_named_runtime_fail... (~5213 tok)
-- `test_config_loader.py` — Tests: valid_config_loads, invalid_yaml_or_schema_error_is_retained, duplicate_names_are_detected, duplicate_names_report_each_file_once + 11 more (~1982 tok)
+- `test_config_loader.py` — test_valid_config_loads, test_invalid_yaml_or_schema_error_is_retained, test_duplicate_names_are_det (~2413 tok)
 - `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~1812 tok)
 - `test_deployment_composer.py` — Tests: agent_composes_docker_deployment_draft_for_tui, agent_composes_generic_docker_with_fresh_container_name_from_docker_ps, agent_composer_skips... (~14207 tok)
 - `test_docker_supervisor.py` — test_docker_supervisor_writes_scrubbed_run_stderr_to_log, test_docker_supervisor_scrubs_container_lo (~2163 tok)
@@ -277,7 +277,7 @@
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
 - `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2173 tok)
 - `test_gpu.py` — Tests: nvml_unavailable_path_returns_unavailable, nvidia_smi_fallback_parsing, nvml_sampling_includes_mig_instance_identity, cuda_visible_devices_n... (~879 tok)
-- `test_health.py` — Tests: health_called_without_auth_and_models_with_bearer_when_key_configured, models_401_with_key_yields_specific_token_mismatch_hint, models_401_w... (~2791 tok)
+- `test_health.py` — test_health_called_without_auth_and_models_with_bearer_when_key_configured, handler, test_models_401 (~2795 tok)
 - `test_job_phases.py` — Tests: build_phase_enum_matches_spec_values, download_phase_enum_matches_spec_values, build_install_phase_rules_are_enum_backed_wire_values (~275 tok)
 - `test_log_sink.py` — Tests: display_level_dims_known_benign_shutdown_noise, splits_carriage_return_and_newline_and_persists_only_committed, terminal_carriage_return_emi... (~1945 tok)
 - `test_messages.py` — Tests: canonical_event_taxonomy_uses_textual_messages, message_payloads_match_engine_monitoring_contract, log_record_conversion_uses_progress_updat... (~699 tok)

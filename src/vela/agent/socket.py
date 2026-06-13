@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO
 
+from vela.agent.auth import AgentTokenError, configured_agent_token
 from vela.agent.local import LocalAgent
 from vela.agent.stdio import _stdio_streams, serve_agent_stream
 from vela.transport.ndjson import FRAME_STREAM_LIMIT
@@ -55,14 +56,27 @@ async def serve_unix_socket_agent(
 
 def verify_same_user_peer(writer: asyncio.StreamWriter) -> None:
     sock = writer.get_extra_info("socket")
-    if sock is None:
-        return
-    peer_uid = _peer_uid_from_socket(sock)
+    peer_uid = _peer_uid_from_socket(sock) if sock is not None else None
     if peer_uid is None:
+        # Can't confirm the peer is the same user. Fall back to the capability
+        # token if one is configured; otherwise fail closed rather than accept
+        # an unauthenticated local connection.
+        if not _agent_token_configured():
+            raise PermissionError(
+                "cannot verify socket peer credentials and no agent capability "
+                "token is configured"
+            )
         return
     current_uid = os.getuid()
     if peer_uid != current_uid:
         raise PermissionError(f"peer uid {peer_uid} does not match current uid {current_uid}")
+
+
+def _agent_token_configured() -> bool:
+    try:
+        return configured_agent_token() is not None
+    except AgentTokenError:
+        return False
 
 
 def _peer_uid_from_socket(sock) -> int | None:

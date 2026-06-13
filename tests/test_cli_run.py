@@ -6046,3 +6046,24 @@ def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+@pytest.mark.parametrize("argv", [["list"], ["build", "list"], ["model", "list"]])
+def test_list_commands_surface_remediation_not_traceback_on_unreachable_target(
+    argv: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # First-run UX: an unreachable target must produce an actionable remediation
+    # and a clean nonzero exit, never a raw Python traceback.
+    def _raise(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise TargetCallError(
+            "agent-unreachable",
+            "ssh: connect to host gpu-node port 22: Connection refused",
+            {},
+        )
+
+    monkeypatch.setattr(cli_module, "_agent_call", _raise)
+
+    result = CliRunner().invoke(cli_module.app, [*argv, "--target", "gpu-node"])
+
+    assert result.exit_code == 2, result.output
+    assert not isinstance(result.exception, TargetCallError), result.output

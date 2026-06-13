@@ -417,7 +417,10 @@ def build_list(
         typer.Option("--json", help="Emit machine-readable build list."),
     ] = False,
 ) -> None:
-    result = _agent_call("list_builds", target_name=target)
+    try:
+        result = _agent_call("list_builds", target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
     if json_output:
         _echo_json(result)
         return
@@ -814,7 +817,10 @@ def model_list(
         cached_only="true" if cached_only else None,
         pinned_only="true" if pinned_only else None,
     )
-    result = _agent_call("list_models", params or None, target_name=target)
+    try:
+        result = _agent_call("list_models", params or None, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
     if json_output:
         _echo_json(result)
         return
@@ -1806,11 +1812,14 @@ def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
-    result = _agent_call(
-        "list_configs",
-        _agent_params(configs_dir=configs_dir),
-        target_name=target,
-    )
+    try:
+        result = _agent_call(
+            "list_configs",
+            _agent_params(configs_dir=configs_dir),
+            target_name=target,
+        )
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
     for item in result["valid"]:
         typer.echo(f"{item['name']}\t{item['model']}")
     for item in result["invalid"]:

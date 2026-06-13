@@ -90,26 +90,26 @@ class CommandConfig(BaseModel):
 class EngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tensor_parallel_size: int | None = None
-    pipeline_parallel_size: int | None = None
-    gpu_memory_utilization: float | None = None
-    max_model_len: int | None = None
+    tensor_parallel_size: int | None = Field(default=None, ge=1)
+    pipeline_parallel_size: int | None = Field(default=None, ge=1)
+    gpu_memory_utilization: float | None = Field(default=None, gt=0, le=1)
+    max_model_len: int | None = Field(default=None, ge=1)
     dtype: DType | None = None
     quantization: str | None = None
     kv_cache_dtype: str | None = None
     load_format: str | None = None
     enforce_eager: bool | None = None
-    swap_space: int | None = None
-    block_size: int | None = None
+    swap_space: int | None = Field(default=None, ge=0)
+    block_size: int | None = Field(default=None, ge=1)
     seed: int | None = None
-    max_num_seqs: int | None = None
+    max_num_seqs: int | None = Field(default=None, ge=1)
 
 
 class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = Field(default=8000, ge=1, le=65535)
     exposure: Exposure = Exposure.LOCAL
     api_key: str | None = None
     probe_host: str | None = None
@@ -150,14 +150,14 @@ class HealthConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str = "/health"
-    interval_seconds: float = 2.0
+    interval_seconds: float = Field(default=2.0, gt=0)
 
 
 class LaunchConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: LaunchMode = LaunchMode.ATTACHED
-    ready_timeout_seconds: int = 900
+    ready_timeout_seconds: int = Field(default=900, ge=0)
     health: HealthConfig = Field(default_factory=HealthConfig)
     runs_dir: Path | None = None
 

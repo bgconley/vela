@@ -134,7 +134,11 @@ has a token, the first successful `handshake` on each socket/SSH stream must
 include the matching capability token. Other RPC methods on that stream return
 `agent-auth-required` until the handshake succeeds. Single-user lab hosts can
 leave it unset; the default Unix-socket permissions, same-user peer check, and
-SSH authentication still apply.
+SSH authentication still apply, and the peer check fails closed when peer
+credentials cannot be read and no token is configured. Hosts where multiple
+engineers share one agent account should set `VELA_AGENT_REQUIRE_TOKEN=1`, which
+makes the agent refuse to authenticate unless a token is installed (fail closed)
+instead of accepting any same-uid caller.
 
 `vela doctor --target <name>` renders target auth as `none`,
 `required+provided`, `required+missing`, `mismatch`, or `malformed-token`.

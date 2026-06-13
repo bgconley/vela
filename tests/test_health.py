@@ -151,7 +151,7 @@ async def test_probe_loop_times_out_before_ready() -> None:
         {
             "name": "x",
             "model": "org/model",
-            "launch": {"ready_timeout_seconds": 0, "health": {"interval_seconds": 0}},
+            "launch": {"ready_timeout_seconds": 0, "health": {"interval_seconds": 0.01}},
         }
     )
     events: list[HealthEvent] = []
@@ -177,7 +177,7 @@ async def test_probe_loop_timeout_distinguishes_bound_but_unhealthy() -> None:
         {
             "name": "x",
             "model": "org/model",
-            "launch": {"ready_timeout_seconds": 0, "health": {"interval_seconds": 0}},
+            "launch": {"ready_timeout_seconds": 0, "health": {"interval_seconds": 0.01}},
         }
     )
     events: list[HealthEvent] = []
@@ -210,7 +210,7 @@ async def test_probe_loop_emits_health_error_kind_before_timeout() -> None:
         {
             "name": "x",
             "model": "org/model",
-            "launch": {"ready_timeout_seconds": 999, "health": {"interval_seconds": 0}},
+            "launch": {"ready_timeout_seconds": 999, "health": {"interval_seconds": 0.01}},
         }
     )
     events: list[HealthEvent] = []
@@ -247,7 +247,7 @@ async def test_probe_loop_degrades_and_recovers_after_ready_auth_blip() -> None:
         return response
 
     cfg = ModelConfig.model_validate(
-        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0}}}
+        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0.01}}}
     )
     events: list[HealthEvent] = []
 
@@ -287,7 +287,7 @@ async def test_probe_loop_emits_degraded_and_recovery_after_ready() -> None:
         return response
 
     cfg = ModelConfig.model_validate(
-        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0}}}
+        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0.01}}}
     )
     events: list[HealthEvent] = []
 

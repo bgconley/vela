@@ -27,6 +27,7 @@ import yaml
 from vela import __version__
 from vela.agent.auth import (
     AgentTokenError,
+    agent_token_required,
     configured_agent_token,
     default_agent_token_file,
     install_agent_token,
@@ -622,6 +623,13 @@ class LocalAgent:
     def _require_capability_token(params: dict[str, Any]) -> None:
         expected = configured_agent_token()
         if expected is None:
+            if agent_token_required():
+                raise TargetCallError(
+                    "agent-auth-required",
+                    "target agent is configured to require a capability token "
+                    "but none is installed",
+                    {"reason": "capability-token-required"},
+                )
             return
         supplied = params.get("capability_token")
         if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
