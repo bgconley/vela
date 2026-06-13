@@ -414,6 +414,12 @@ OPTIONAL_MONITOR_GROUP_LABELS = {
     "gpu-initial": "gpu",
     "monitoring": "gpu",
     "health": "health",
+    # The launch ("engine") and detached log-tail ("tail") workers run with
+    # exit_on_error=False so an unexpected payload or a dropped link can never
+    # crash the TUI; register them here so on_worker_state_changed still
+    # surfaces their failure instead of swallowing it silently.
+    "engine": "launch",
+    "tail": "log stream",
 }
 
 ERROR_GUIDANCE = {
@@ -2600,7 +2606,13 @@ class VelaApp(App):
             return
         if self.current_config is None:
             self.current_config = self.registry.valid[0].config
-        self.run_worker(self._run_selected_config(), name="load", group="engine", exclusive=True)
+        self.run_worker(
+            self._run_selected_config(),
+            name="load",
+            group="engine",
+            exclusive=True,
+            exit_on_error=False,
+        )
 
     def action_stop(self) -> None:
         if self._active_job_id is not None:
@@ -4375,6 +4387,7 @@ class VelaApp(App):
             name="reattach-tail",
             group="tail",
             exclusive=True,
+            exit_on_error=False,
         )
         self.run_worker(
             self._target_probe_run_until_ready(

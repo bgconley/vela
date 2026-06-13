@@ -1139,7 +1139,7 @@ def _verified_live_build_refs(build_dir: Path) -> list[dict[str, Any]]:
         except Exception:
             live = False
         if live:
-            live_refs.append(_build_ref_payload(ref, sidecar_path))
+            live_refs.append(_build_ref_payload(ref))
         else:
             _unlink_ref(ref_path)
     return live_refs
@@ -1153,18 +1153,12 @@ def _load_build_ref(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _build_ref_payload(ref: dict[str, Any], sidecar_path: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "run_id": str(ref.get("run_id") or ""),
-        "sidecar_path": sidecar_path,
-    }
-    pid = ref.get("pid")
-    if isinstance(pid, int):
-        payload["pid"] = pid
-    process_create_time = ref.get("process_create_time")
-    if isinstance(process_create_time, int | float):
-        payload["process_create_time"] = float(process_create_time)
-    return payload
+def _build_ref_payload(ref: dict[str, Any]) -> dict[str, Any]:
+    # Controller-facing identity only. Agent-local sidecar paths, PIDs, and
+    # process timestamps must never cross the RPC boundary (see the authority
+    # boundary in docs/agent-rpc.md); build-level liveness is conveyed by the
+    # ``in_use`` flag and per-ref ``run_id``.
+    return {"run_id": str(ref.get("run_id") or "")}
 
 
 def _build_ref_filename(run_id: str) -> str:

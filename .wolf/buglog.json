@@ -4158,6 +4158,121 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-06-10T16:55:00-04:00"
+    },
+    {
+      "id": "bug-221",
+      "timestamp": "2026-06-13T01:10:00-04:00",
+      "error_message": "HelpScreen is a live trap: pressing Escape (or '?') does not close the modal. Headless run_test shows stack stays ['Screen','HelpScreen'] after Escape, and a following '/' is swallowed instead of opening LogPromptScreen. Side effect: visual_qa 'log-prompt-modal' SVG is a duplicate Help capture. Confirmed while validating an external review finding.",
+      "file": "src/vela/tui/screens/help.py",
+      "root_cause": "BINDINGS use the bare action string ('escape','pop_screen') and ('?','pop_screen'). In Textual 8.2.7 that bare action does not resolve to App.action_pop_screen from a ModalScreen binding, so the key is consumed but the screen is never dismissed. Every other modal dismisses correctly because it calls self.dismiss()/self.app.pop_screen() directly (config_picker.py, confirm.py) or via an explicit action_cancel (adopt_build.py). HelpScreen is the only modal relying on the bare 'pop_screen' action string.",
+      "fix": "FIXED 2026-06-13: added HelpScreen.action_close() -> self.dismiss() and bound escape/'?'/f1 to 'close' (help.py); regression test_help_screen_closes_and_does_not_trap_following_keys asserts Escape/?/F1 close Help and '/' then opens log-search-prompt; regenerated the 3 log-prompt-modal visual_qa SVGs (they were duplicate Help frames).",
+      "tags": [
+        "tui",
+        "modal",
+        "textual",
+        "help",
+        "pop_screen",
+        "keybinding",
+        "visual-qa"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T01:10:00-04:00"
+    },
+    {
+      "id": "bug-224",
+      "timestamp": "2026-06-13T05:11:40.594Z",
+      "error_message": "Remote real-resume validation pushed a stripped resume config via 'vela config push --overwrite' through the named target with no isolated --configs-dir, dirtying the target default config dir (~/.config/vela) with no cleanup.",
+      "file": "scripts/run_remote_tests.sh",
+      "root_cause": "target_args carried only --target; config push and real_model_resume_check.py resolved against the agent default config dir (_default_config_dir), and only the local temp file was removed, never the remote-pushed config.",
+      "fix": "FIXED 2026-06-13: push into a throwaway remote 'mktemp -d' configs dir, thread --configs-dir to both config push and real_model_resume_check.py (new --configs-dir arg -> launch params), and rm -rf the temp dir (incl. the exit-35 failure path). backend_evidence_check works off run_id so needs none. Added isolation assertions in test_remote_workflow.",
+      "tags": [
+        "remote-validation",
+        "config-isolation",
+        "cleanup",
+        "hardening"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T05:11:40.594Z"
+    },
+    {
+      "id": "bug-225",
+      "timestamp": "2026-06-13T05:14:31.904Z",
+      "error_message": "list_builds exposed agent-local sidecar_path, pid, and process_create_time in build live_refs across the RPC boundary, contradicting docs/agent-rpc.md (controller holds no PIDs/paths). Same leak rode the remove-build resource-in-use error details. Confirmed from external review.",
+      "file": "src/vela/engine/build_registry.py",
+      "root_cause": "_build_ref_payload() returned sidecar_path/pid/process_create_time; list_builds (_build_payload build_dir branch) and _remove_build_locked error details both surfaced it to the controller via the _list_builds handler, unscrubbed.",
+      "fix": "FIXED 2026-06-13: _build_ref_payload() now returns {'run_id'} only (build liveness still conveyed by in_use). Updated tests to expect the safe shape and assert sidecar_path/pid/process_create_time are absent (test_agent_client list_builds + remove-build; test_tui_smoke mock).",
+      "tags": [
+        "rpc",
+        "build-registry",
+        "security",
+        "leak",
+        "agent-boundary"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T05:14:31.904Z"
+    },
+    {
+      "id": "bug-226",
+      "timestamp": "2026-06-13T05:14:44.562Z",
+      "error_message": "docs/gpu-workflow.md labeled June 4/6 artifacts as the 'latest' P620-to-Blackbird validation records while README pointed to the newer June 13 (commit 17a7865) FP8/BF16 evidence; test_remote_workflow pinned the stale names.",
+      "file": "docs/gpu-workflow.md",
+      "root_cause": "The 'latest' list in gpu-workflow.md was not advanced when README moved to the 17a7865 validation, and no cross-doc consistency check existed.",
+      "fix": "FIXED 2026-06-13: reworded gpu-workflow.md to list the June 13 / commit 17a7865 records as latest (in sync with README) and demote June 4/6 to 'earlier reference records' (kept for the GHA build/model-ref example). Added test_gpu_workflow_latest_validation_matches_readme enforcing a same-commit policy (README latest commit + artifacts must appear in gpu-workflow.md).",
+      "tags": [
+        "docs",
+        "drift",
+        "remote-validation",
+        "consistency-test"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T05:14:44.562Z"
+    },
+    {
+      "id": "bug-227",
+      "timestamp": "2026-06-13T06:36:49.854Z",
+      "error_message": "TUI 'load' (attached launch/monitor) and 'reattach-tail' workers were spawned without exit_on_error=False and had unguarded bodies, so a malformed agent payload or a dropped SSH/socket link could raise WorkerFailed and crash the whole TUI mid-launch (orphaning a just-launched GPU run). Found in the production-pilot review.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "Both run_worker spawns omitted exit_on_error=False (unlike the gpu/health monitors and the reattach-health worker fixed in bug-084), and their groups ('engine','tail') were not in OPTIONAL_MONITOR_GROUP_LABELS, so on_worker_state_changed could not surface the failure either.",
+      "fix": "FIXED 2026-06-13 (red-green): added exit_on_error=False to the 'load' and 'reattach-tail' spawns and registered 'engine'/'tail' in OPTIONAL_MONITOR_GROUP_LABELS so failures surface as a warning instead of crashing. Tests: test_load_worker_is_non_crashing_monitor, test_reattach_tail_worker_is_non_crashing_monitor, test_load_and_tail_worker_groups_surface_failures_as_optional_monitors.",
+      "tags": [
+        "tui",
+        "textual",
+        "worker",
+        "crash-safety",
+        "exit_on_error",
+        "pilot"
+      ],
+      "related_bugs": [
+        "bug-084",
+        "bug-085"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T06:36:49.854Z"
+    },
+    {
+      "id": "bug-228",
+      "timestamp": "2026-06-13T03:10:00-04:00",
+      "error_message": "Docker supervisor left an orphaned GPU container running when the sidecar/manifest could not be written: it set manifest=None and proceeded to drain/wait an untrackable container the controller could never stop or reattach. Found in the production-pilot review.",
+      "file": "src/vela/engine/supervisor.py",
+      "root_cause": "_run_docker_supervisor caught _write_docker_run_artifacts failures (bug-043 keep-draining intent), but for the docker runtime a container with no sidecar is unmanageable, and the launcher's sidecar-timeout kill only signals the supervisor group, not the dockerd-managed container, so the container orphaned and held the GPU.",
+      "fix": "FIXED 2026-06-13 (red-green): when manifest is None (write failed or durable log unavailable), stop+rm the container via _evict_docker_containers, write a failure log line + exit-status, and return 1 instead of draining an untrackable run. Test: test_docker_supervisor_stops_container_when_run_artifacts_cannot_be_written. Process-runtime drain behaviour (bug-043) is unchanged.",
+      "tags": [
+        "supervisor",
+        "docker",
+        "orphan",
+        "gpu",
+        "sidecar",
+        "pilot"
+      ],
+      "related_bugs": [
+        "bug-043"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-06-13T03:10:00-04:00"
     }
   ]
 }

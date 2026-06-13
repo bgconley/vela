@@ -246,6 +246,24 @@ def _run_docker_supervisor(
             manifest = _write_docker_run_artifacts(payload, container_id, log_path)
         except Exception:
             manifest = None
+    if manifest is None:
+        # Without a sidecar/manifest the controller can never track, reattach,
+        # or stop this container; leaving it running would strand an orphaned
+        # GPU container. Stop+remove it and surface the failure rather than
+        # draining an untrackable run.
+        _evict_docker_containers(docker_binary, [container_id], cwd=cwd, env=env)
+        try:
+            sink.feed(
+                b"ERROR run artifacts unavailable; container stopped "
+                b"(io-error, exit 1): could not persist sidecar/manifest\n"
+            )
+        finally:
+            try:
+                sink.close()
+            finally:
+                event_spool.close()
+        _write_exit_status(payload, 1)
+        return 1
 
     logs = subprocess.Popen(
         [docker_binary, "logs", "-f", container_id],

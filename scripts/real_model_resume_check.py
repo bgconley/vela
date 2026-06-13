@@ -26,6 +26,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("config_name")
     parser.add_argument("--target", default="local")
+    parser.add_argument(
+        "--configs-dir",
+        help="Target config directory override (isolates the resume config).",
+    )
     parser.add_argument("--build")
     parser.add_argument("--model-ref")
     parser.add_argument("--revision")
@@ -70,6 +74,7 @@ def _launch_params(
     build: str | None,
     model_ref: str | None,
     revision: str | None,
+    configs_dir: str | None = None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"name": config_name}
     if build:
@@ -78,6 +83,8 @@ def _launch_params(
         params["model_ref"] = model_ref
     if revision:
         params["revision"] = revision
+    if configs_dir:
+        params["configs_dir"] = configs_dir
     return params
 
 
@@ -185,6 +192,7 @@ async def _run(
     build: str | None,
     model_ref: str | None,
     revision: str | None,
+    configs_dir: str | None = None,
 ) -> None:
     target, client = _new_client(target_name)
     run_id = f"real-resume-{uuid.uuid4().hex}"
@@ -193,6 +201,7 @@ async def _run(
         build=build,
         model_ref=model_ref,
         revision=revision,
+        configs_dir=configs_dir,
     )
     events = None
     tail_task = None
@@ -306,6 +315,7 @@ def main() -> int:
             build=args.build,
             model_ref=args.model_ref,
             revision=args.revision,
+            configs_dir=args.configs_dir,
         )
     )
     return 0

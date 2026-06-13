@@ -3575,14 +3575,14 @@ async def test_agent_lists_builds_with_verified_live_refs(
 
     [build] = result["builds"]
     assert build["in_use"] is True
-    assert build["live_refs"] == [
-        {
-            "run_id": "run-live",
-            "sidecar_path": str(sidecar_path),
-            "pid": 123,
-            "process_create_time": 1.5,
-        }
-    ]
+    # Controller-facing payload exposes run identity only; agent-local
+    # sidecar paths, PIDs, and process timestamps must not cross the wire
+    # (docs/agent-rpc.md authority boundary).
+    assert build["live_refs"] == [{"run_id": "run-live"}]
+    ref_payload = build["live_refs"][0]
+    assert "sidecar_path" not in ref_payload
+    assert "pid" not in ref_payload
+    assert "process_create_time" not in ref_payload
     json.dumps(result)
 
 
@@ -4815,14 +4815,9 @@ def test_build_remove_refuses_verified_live_ref(
     assert exc_info.value.code == "resource-in-use"
     assert exc_info.value.details["reason"] == "build-ref"
     assert exc_info.value.details["build_id"] == "01LIVEREF"
-    assert exc_info.value.details["refs"] == [
-        {
-            "run_id": "run-live",
-            "sidecar_path": str(sidecar_path),
-            "pid": 123,
-            "process_create_time": 1.0,
-        }
-    ]
+    # Error details that propagate to the controller must not leak agent-local
+    # sidecar paths/PIDs either — run identity only.
+    assert exc_info.value.details["refs"] == [{"run_id": "run-live"}]
     assert build_dir.exists()
     assert ref_path.exists()
 

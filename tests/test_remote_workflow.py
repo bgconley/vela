@@ -222,6 +222,39 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
     assert "--model-ref gha-26976430928-1-model" in docs
 
 
+def test_gpu_workflow_latest_validation_matches_readme() -> None:
+    import re
+
+    readme = Path("README.md").read_text(encoding="utf-8")
+    gpu = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
+
+    # README is the source of truth for the current validation commit.
+    assert "Latest validation artifacts:" in readme
+    latest_block = readme.split("Latest validation artifacts:", 1)[1].split("Earlier", 1)[0]
+
+    commits = re.findall(r"Commit `([0-9a-f]{7,40})`", latest_block)
+    assert commits, "README 'Latest validation artifacts' lists no commit"
+    latest_commit = commits[0]
+
+    artifacts = re.findall(
+        r"`(artifacts/remote-validation/[^`]+-remote-validation\.md)`", latest_block
+    )
+    assert artifacts, "README 'Latest validation artifacts' lists no artifact files"
+
+    # docs/gpu-workflow.md must not drift behind README: it must reference the
+    # same latest validation commit and the same latest artifact files, so it
+    # can never again label older records as "latest" (external-review finding).
+    assert latest_commit in gpu, (
+        "docs/gpu-workflow.md does not reference the latest validation commit "
+        f"{latest_commit!r} from README; update its latest-records list."
+    )
+    for artifact in artifacts:
+        assert artifact in gpu, (
+            "docs/gpu-workflow.md is missing the latest validation artifact "
+            f"{artifact!r} referenced by README."
+        )
+
+
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -395,6 +428,13 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
     assert 'resume_config_push_file="$(mktemp)"' in remote_script
     assert '("version", "transformers_version", "torch_version", "cuda_version")' in remote_script
     assert '"$venv_bin/vela" config push "$resume_config_push_file"' in remote_script
+    # Hardened isolation: the stripped resume config is pushed into a throwaway
+    # target config dir and the resume check reads from that same dir, so the
+    # target's default config area is never dirtied; the temp dir is removed.
+    assert 'resume_configs_dir="$(mktemp -d)"' in remote_script
+    assert '--configs-dir "$resume_configs_dir"' in remote_script
+    assert 'real_resume_args+=(--configs-dir "$resume_configs_dir")' in remote_script
+    assert 'rm -rf "$resume_configs_dir"' in remote_script
 
 
 def test_remote_validation_checks_backend_evidence_after_real_resume_restart(

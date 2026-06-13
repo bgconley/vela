@@ -886,3 +886,44 @@
 | 16:26 | Edited src/vela/tui/screens/target_edit.py | 2→2 lines | ~20 |
 | 16:29 | Edited tests/test_remote_workflow.py | 3→8 lines | ~116 |
 | 16:58 | First-class pass: merged branch to main (2036c63), PR #1 first-class-pass = LICENSE+CHANGELOG+textual pin+README scrub/screenshots+CI(ruff/mypy/pytest)+runs prune+auto-prune+mypy 63/74+modal token pass+bug-210/211 fixes | many | gates running; cron SSH fix needs user on P620 | ~95k |
+| 17:40 | v0.1.0 SHIPPED: PR #1 merged (9608c54), tag v0.1.0 + GitHub release published, uv tool run from tag verified (prints 0.1.0). CI green (lint 25s, test 3m42s, 1100 tests) | main | first-class pass complete; open: P620 runner SSH auth for the daily cron | ~8k |
+| 16:38 | Session end: 55 writes across 27 files (test_tui_smoke.py, vela-tui-journey-friction-punchlist-v1.md, LICENSE, CHANGELOG.md, pyproject.toml) | 32 reads | ~376232 tok |
+
+## Session: 2026-06-13 00:40
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 01:10 | Validated 4 external review findings (help-modal trap, remote resume config isolation, gpu-doc "latest" drift, list_builds sidecar leak) | help.py, run_remote_tests.sh, gpu-workflow.md, build_registry.py | All 4 confirmed VALID; #4 broader (pid+create_time also leak over RPC) | ~30k |
+| 01:10 | Proved help-modal trap via headless run_test: stack stays ['Screen','HelpScreen'] after Escape, '/' swallowed | scripts/visual_qa.py, /tmp/help_trap_check.py | log-prompt-modal SVG = dup Help capture; logged bug-221 | — |
+| 01:11 | Edited src/vela/tui/screens/help.py | modified compose() | ~175 |
+| 01:11 | Edited tests/test_tui_smoke.py | modified test_help_screen_closes_and_does_not_trap_following_keys() | ~469 |
+| 01:14 | Edited src/vela/engine/build_registry.py | modified _build_ref_payload() | ~112 |
+| 01:14 | Edited src/vela/engine/build_registry.py | 3→3 lines | ~24 |
+| 01:14 | Edited tests/test_agent_client.py | 11→11 lines | ~146 |
+| 01:14 | Edited tests/test_agent_client.py | 13→8 lines | ~124 |
+| 01:14 | Edited tests/test_tui_smoke.py | 9→4 lines | ~66 |
+| 01:16 | Edited docs/gpu-workflow.md | modified list() | ~390 |
+| 01:16 | Edited tests/test_remote_workflow.py | modified test_gpu_workflow_latest_validation_matches_readme() | ~444 |
+| 01:17 | Edited scripts/real_model_resume_check.py | 3→7 lines | ~75 |
+| 01:17 | Edited scripts/real_model_resume_check.py | modified _launch_params() | ~136 |
+| 01:17 | Edited scripts/real_model_resume_check.py | modified _run() | ~136 |
+| 01:17 | Edited scripts/real_model_resume_check.py | 10→11 lines | ~84 |
+| 01:17 | Edited scripts/run_remote_tests.sh | 2→4 lines | ~45 |
+| 01:17 | Edited scripts/run_remote_tests.sh | 5→9 lines | ~124 |
+| 01:17 | Edited scripts/run_remote_tests.sh | 9→13 lines | ~119 |
+| 01:20 | Edited tests/test_remote_workflow.py | modified test_remote_validation_checks_backend_evidence_after_real_resume_restart() | ~194 |
+| 01:35 | RESOLVED all 4 review findings (hardened) + 2 new regression tests; cleaned 4 auto-hook junk buglog entries into real bug-221/224/225/226 (FIXED), dropped junk bug-227 | help.py, build_registry.py, gpu-workflow.md, run_remote_tests.sh, real_model_resume_check.py, 3 test files | ruff OK, mypy OK (74), overrides OK, full suite 1120 passed (+2) | ~10k |
+| 01:29 | Session end: 17 writes across 8 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 14 reads | ~435657 tok |
+| 02:30 | Production-pilot readiness review: 6 parallel specialist agents (security/reliability/architecture/engine/TUI/ops) + self-verified all blockers. Corrected 2 agent errors: FR-18 IS wired (refuted cerebrum #233 + TUI agent); api_key EMPTY does NOT break smoke (probe sends Bearer EMPTY) | read-only audit of src/+docs/+scripts/ | Verdict: conditional-go; 3 must-fix (CLI list tracebacks, TUI worker crash-safety, agent-token policy) + ~12 should-fix; corrected stale FR-18 cerebrum note | ~120k |
+| 01:56 | Session end: 17 writes across 8 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 59 reads | ~577276 tok |
+| 02:05 | Session end: 17 writes across 8 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 59 reads | ~577276 tok |
+| 02:36 | Edited tests/test_docker_supervisor.py | added 3 import(s) | ~72 |
+| 02:36 | Edited tests/test_docker_supervisor.py | modified test_docker_supervisor_stops_container_when_run_artifacts_cannot_be_written() | ~605 |
+| 02:36 | Edited tests/test_tui_smoke.py | modified test_reattach_tail_worker_is_non_crashing_monitor() | ~776 |
+| 02:40 | Edited tests/test_tui_smoke.py | modified test_load_worker_is_non_crashing_monitor() | ~348 |
+| 02:40 | Edited tests/test_tui_smoke.py | added 1 import(s) | ~89 |
+| 02:41 | Edited src/vela/engine/supervisor.py | modified feed() | ~290 |
+| 02:41 | Edited src/vela/tui/app.py | expanded (+6 lines) | ~135 |
+| 02:41 | Edited src/vela/tui/app.py | expanded (+6 lines) | ~54 |
+| 02:42 | Edited src/vela/tui/app.py | 6→7 lines | ~69 |
+| 03:10 | HARDENED for blackbird live-run (red-green): docker supervisor orphan fix (stop container when no sidecar) + TUI load/reattach-tail worker crash-safety (exit_on_error=False + engine/tail in OPTIONAL_MONITOR_GROUP_LABELS) | supervisor.py, app.py, test_docker_supervisor.py, test_tui_smoke.py | 4 new tests red→green; ruff/mypy/overrides OK; full suite 1124 passed (+4); logged bug-227(repurposed)/bug-228 | ~95k |

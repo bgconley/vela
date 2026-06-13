@@ -46,12 +46,22 @@ class HelpScreen(ModalScreen):
     }}
     """
 
-    BINDINGS = [("escape", "pop_screen", "Close"), ("?", "pop_screen", "Close")]
+    BINDINGS = [
+        ("escape", "close", "Close"),
+        ("?", "close", "Close"),
+        ("f1", "close", "Close"),
+    ]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="help-panel"):
             yield Static(self._help_text(), id="help-text")
             yield Static(self._action_pills(), id="help-actions")
+
+    def action_close(self) -> None:
+        # A bare ``pop_screen`` action string does not resolve against a
+        # ModalScreen in Textual, so the modal was a live trap (bug-221).
+        # Dismiss explicitly, matching every other modal in the app.
+        self.dismiss()
 
     @staticmethod
     def _help_text() -> Text:

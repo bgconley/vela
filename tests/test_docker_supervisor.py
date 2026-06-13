@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import vela.engine.supervisor as supervisor_module
+from tests.fakes.fake_docker import write_fake_docker_runtime
 from vela.engine.supervisor import run_supervisor
 
 
@@ -155,3 +159,57 @@ def test_docker_supervisor_scrubs_container_logs_and_events(tmp_path: Path) -> N
     assert "sk-secret-container" not in events
     assert "••••" in log
     assert "Uvicorn running" in events
+
+
+def test_docker_supervisor_stops_container_when_run_artifacts_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Orphan guard: if the sidecar/manifest cannot be persisted, the controller
+    # can never track/stop the container — so the supervisor must stop+remove it
+    # rather than leave an orphaned GPU container running untracked.
+    docker = tmp_path / "docker"
+    write_fake_docker_runtime(docker)
+    cmd_log = tmp_path / "docker-cmd.log"
+    log_path = tmp_path / "run.log"
+    payload = {
+        "runtime": "docker",
+        "argv": [str(docker), "run", "-d", "image"],
+        "env": {"FAKE_DOCKER_COMMAND_LOG": str(cmd_log)},
+        "cwd": str(tmp_path),
+        "log_path": str(log_path),
+        "manifest_path": str(tmp_path / "run.manifest.json"),
+        "sidecar_path": str(tmp_path / "run.json"),
+        "exit_status_path": str(tmp_path / "run.exit-status"),
+        "event_log_path": str(tmp_path / "run.events.ndjson"),
+        "secrets": [],
+        "run_id": "run",
+        "config_name": "cfg",
+        "command_hash": "sha256:command",
+        "host": "127.0.0.1",
+        "port": 8000,
+        "exposure": "local",
+        "launch_mode": "detached",
+        "docker": {"binary": str(docker), "image": "image"},
+    }
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(supervisor_module, "_write_docker_run_artifacts", _fail)
+
+    returncode = run_supervisor(
+        payload["argv"],
+        payload["env"],
+        payload["cwd"],
+        log_path,
+        payload["secrets"],
+        payload=payload,
+    )
+
+    assert returncode == 1
+    commands = cmd_log.read_text(encoding="utf-8")
+    assert "stop container-123" in commands
+    # Must not stream/wait on the untrackable container.
+    assert "wait container-123" not in commands
+    exit_status = json.loads((tmp_path / "run.exit-status").read_text(encoding="utf-8"))
+    assert exit_status["returncode"] == 1

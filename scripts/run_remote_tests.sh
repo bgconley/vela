@@ -704,7 +704,9 @@ if [[ -n "$remote_real_resume_config" ]]; then
   echo "== Real model resume/daemon restart =="
   resume_config_file="configs/${remote_real_resume_config}.yaml"
   resume_config_runtime="$(resume_config_runtime "$resume_config_file")"
+  resume_configs_dir=""
   if [[ -n "$remote_target" && -f "$resume_config_file" ]]; then
+    resume_configs_dir="$(mktemp -d)"
     resume_config_push_file="$(mktemp)"
     "$venv_python" - "$resume_config_file" "$resume_config_push_file" <<'PY'
 import sys
@@ -725,10 +727,14 @@ if isinstance(vllm, dict):
         payload.pop("vllm", None)
 destination.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 PY
-    "$venv_bin/vela" config push "$resume_config_push_file" "${target_args[@]}" --overwrite
+    "$venv_bin/vela" config push "$resume_config_push_file" "${target_args[@]}" \
+      --configs-dir "$resume_configs_dir" --overwrite
     rm -f "$resume_config_push_file"
   fi
   real_resume_args=("$remote_real_resume_config" "${target_args[@]}" --timeout "$remote_timeout")
+  if [[ -n "$resume_configs_dir" ]]; then
+    real_resume_args+=(--configs-dir "$resume_configs_dir")
+  fi
   if [[ "$resume_config_runtime" != "docker" && -n "$remote_build_spec" ]]; then
     real_resume_args+=(--build "$remote_build_label")
   elif [[ -n "$remote_build_spec" ]]; then
@@ -756,11 +762,15 @@ PY
   rm -f "$resume_output"
   if [[ -z "$resume_run_id" ]]; then
     echo "ERROR: real model resume check did not report daemon-restart run_id"
+    [[ -n "$resume_configs_dir" ]] && rm -rf "$resume_configs_dir"
     exit 35
   fi
   "$venv_python" scripts/backend_evidence_check.py "$remote_real_resume_config" "$resume_run_id" \
     "${target_args[@]}" \
     --timeout "$remote_timeout"
+  if [[ -n "$resume_configs_dir" ]]; then
+    rm -rf "$resume_configs_dir"
+  fi
 fi
 REMOTE
 }

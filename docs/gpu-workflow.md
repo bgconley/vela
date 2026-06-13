@@ -231,7 +231,20 @@ The remote command invokes
 `vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
 from P620.
 
-The latest P620-to-Blackbird validation records are:
+The latest P620-to-Blackbird validation records are kept in sync with the
+README "Latest validation artifacts" list (the same commit appears in both):
+
+- Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-35-02Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
+  covers the P620 controller to Blackbird target path, the entire 1118-test
+  remote suite, daemon-restart and reconnect-resume probes, managed
+  `vllm==0.11.2` build install, tiny HF model pin/download, Qwen3.6 27B FP8
+  `smoke-tui`, backend evidence, and real-model resume/daemon restart.
+- Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-41-25Z-bgconley-10.25.0.50-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md`
+  covers the same P620-to-Blackbird target path with a targeted 151-test remote
+  slice, Qwen3.6 27B BF16 `smoke-tui`, and backend evidence.
+
+Earlier reference records (retained for the GitHub Actions build/model-ref
+example below and the gated-auth probe):
 
 - `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md`
   for the native `command.runtime: docker` Qwen3.6 27B FP8 smoke on Blackbird.

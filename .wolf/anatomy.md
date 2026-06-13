@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-10T20:29:54.372Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-13T06:42:01.126Z
 > Files: 238 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -129,7 +129,7 @@
 - `configuration.md` — Configuration (~2824 tok)
 - `deployments.md` — Deployments (~554 tok)
 - `docker-runtime.md` — Docker Runtime (~1627 tok)
-- `gpu-workflow.md` — Mac to GPU Workflow (~3714 tok)
+- `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4080 tok)
 
 ## docs/superpowers/plans/
 
@@ -148,9 +148,9 @@
 - `gated_model_auth_check.py` — parse_args, main (~1050 tok)
 - `laptop_sleep_reconnect_check.py` — URL configuration (~4015 tok)
 - `readme_screenshots.py` — Regenerate the README screenshots. (~2291 tok)
-- `real_model_resume_check.py` — parse_args, main (~2833 tok)
+- `real_model_resume_check.py` — parse_args, main (~2932 tok)
 - `rsync_to_gpu.sh` (~390 tok)
-- `run_remote_tests.sh` (~7740 tok)
+- `run_remote_tests.sh` (~7548 tok)
 - `smoke_fake_child.sh` (~49 tok)
 
 ## src/vela/
@@ -181,7 +181,7 @@
 ## src/vela/engine/
 
 - `__init__.py` — Engine, process, log, and vLLM-version adapter code. (~17 tok)
-- `build_registry.py` — URL configuration (~12116 tok)
+- `build_registry.py` — from: payload, default_builds_root, resolve_build_handoff, check_build_launch_integrity + 7 more (~12279 tok)
 - `command_builder.py` — CommandBuildResult: build_command, is_local_model_reference, mask_preview_value, render_preview + 1 more (~2518 tok)
 - `composer.py` — ModelContext: list_presets, list_deployment_recipes (~13177 tok)
 - `docker_runtime.py` — DockerRunCommand: build_docker_run, prepare_docker_image, pull_docker_image, inspect_docker_image + 1 more (~2504 tok)
@@ -196,7 +196,7 @@
 - `redaction.py` — scrub_text (~153 tok)
 - `run_pruning.py` — Retention for flat-file run records under runs directories. (~1220 tok)
 - `sidecar.py` — TrackedProcessMismatch: from_active_log, rotate_to, write_atomic, to_json + 12 more (~4720 tok)
-- `supervisor.py` — URL configuration (~5879 tok)
+- `supervisor.py` — _DrainOnlySink: feed, close, rotate_to, emit + 5 more (~6094 tok)
 
 ## src/vela/monitoring/
 
@@ -221,7 +221,7 @@
 ## src/vela/tui/
 
 - `__init__.py` — Textual user interface. (~9 tok)
-- `app.py` (~61736 tok)
+- `app.py` (~62527 tok)
 - `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~467 tok)
 
 ## src/vela/tui/screens/
@@ -234,7 +234,7 @@
 - `create_build.py` — CreateBuildScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~4442 tok)
 - `download_model.py` — DownloadModelScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~2885 tok)
 - `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7598 tok)
-- `help.py` — HelpScreen: compose (~980 tok)
+- `help.py` — HelpScreen: compose, action_close (~1086 tok)
 - `log_prompt.py` — LogPromptScreen: compose, on_mount, on_input_submitted, action_cancel (~455 tok)
 - `model_manager.py` — ModelManagerScreen: compose, on_mount, action_previous, action_next + 7 more (~3657 tok)
 - `new_deployment.py` — NewDeploymentScreen: compose (~16157 tok)
@@ -259,7 +259,7 @@
 - `.DS_Store` (~1640 tok)
 - `conftest.py` — isolated_vela_state, config_dir, write_yaml, valid_config_text + 1 more (~1010 tok)
 - `test_adopt_build_screen.py` — Headless tests for the refactored AdoptBuildScreen (Mac-safe; no GPU/vLLM). (~1793 tok)
-- `test_agent_client.py` — URL configuration (~111134 tok)
+- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~114274 tok)
 - `test_agent_daemon.py` — URL configuration (~4386 tok)
 - `test_agent_socket.py` — Tests: same_user_peer_check_accepts_current_uid, same_user_peer_check_rejects_mismatched_uid (~283 tok)
 - `test_blackbird_config.py` — Tests: blackbird_qwen36_fp8_config_uses_native_docker_runtime, blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins, tiny_blackbird_res... (~1321 tok)
@@ -271,7 +271,7 @@
 - `test_config_loader.py` — Tests: valid_config_loads, invalid_yaml_or_schema_error_is_retained, duplicate_names_are_detected, duplicate_names_report_each_file_once + 11 more (~1982 tok)
 - `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~1812 tok)
 - `test_deployment_composer.py` — Tests: agent_composes_docker_deployment_draft_for_tui, agent_composes_generic_docker_with_fresh_container_name_from_docker_ps, agent_composer_skips... (~14207 tok)
-- `test_docker_supervisor.py` — Tests: docker_supervisor_writes_scrubbed_run_stderr_to_log, docker_supervisor_scrubs_container_logs_and_events (~1553 tok)
+- `test_docker_supervisor.py` — test_docker_supervisor_writes_scrubbed_run_stderr_to_log, test_docker_supervisor_scrubs_container_lo (~2163 tok)
 - `test_docs.py` — Tests: readme_covers_new_contributor_v1_paths, user_docs_cover_schema_artifacts_and_rpc, build_model_docs_cover_operational_cli_surfaces, v15_docs_... (~1380 tok)
 - `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~1779 tok)
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
@@ -288,7 +288,7 @@
 - `test_pin_model_screen.py` — Headless tests for the rebuilt PinModelScreen (Mac-safe; no GPU/vLLM). (~2022 tok)
 - `test_process_manager.py` — Tests: attached_fake_child_streams_logs_progress_and_stops, spawn_env_applies_build_env_overlay, attached_reader_keeps_draining_when_log_sink_feed_... (~3614 tok)
 - `test_remediation.py` — Tests: agent_not_installed_remediation_names_bootstrap_command, agent_unreachable_remediation_names_setup_ssh_and_stderr, agent_auth_required_remed... (~722 tok)
-- `test_remote_workflow.py` — test_remote_validation_uses_textual_smoke_for_real_config, test_remote_validation_checks_backend_evi (~12969 tok)
+- `test_remote_workflow.py` — test_remote_validation_uses_textual_smoke_for_real_config, test_remote_validation_checks_backend_evi (~14538 tok)
 - `test_rpc_framing.py` — Tests: ndjson_frame_round_trips_json_object, ndjson_frame_rejects_oversized_payload, ndjson_frame_rejects_non_object_payload, protocol_stream_reade... (~10127 tok)
 - `test_run_pruning.py` — Run-record retention: prune terminal/stale run artifacts, never live runs. (~2224 tok)
 - `test_sidecar.py` — Tests: identity_verification_passes_for_matching_process_metadata, identity_accepts_executable_alias_when_command_line_matches, identity_accepts_py... (~5050 tok)
@@ -298,7 +298,7 @@
 - `test_targets.py` — Tests: missing_targets_file_still_yields_implicit_local_target, targets_registry_loads_ssh_targets_with_local_first, targets_registry_loads_json_ta... (~1557 tok)
 - `test_transport_factory.py` — Tests: subscription_event_matcher_accepts_job_ids, subscription_event_matcher_broadcasts_agent_errors, target_client_factory_builds_implicit_local_... (~4644 tok)
 - `test_tui_screen_parsers.py` — Tests: structured_tui_forms_do_not_export_legacy_free_form_parsers (~106 tok)
-- `test_tui_smoke.py` — Tests: tui_import_defaults_to_truecolor_for_figma_palette, tui_import_honors_no_color_opt_out, wire_job_events_map_to_existing_tui_messages, wire_a... (~154718 tok)
+- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~158638 tok)
 - `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~3090 tok)
 
 ## tests/fakes/

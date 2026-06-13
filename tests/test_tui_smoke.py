@@ -3974,6 +3974,47 @@ async def test_help_screen_opens(config_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_help_screen_closes_and_does_not_trap_following_keys(
+    config_dir: Path,
+) -> None:
+    # Regression for bug-221: HelpScreen bound Escape/?/F1 to a bare
+    # ``pop_screen`` action that never dismissed the modal, so the modal was a
+    # live trap and swallowed the next key (e.g. ``/`` for log search).
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        # Escape closes Help and returns to the dashboard.
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.id == "help"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.screen.id != "help"
+        assert len(app.screen_stack) == 1
+
+        # ``?`` toggles Help closed as well.
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.id == "help"
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.id != "help"
+
+        # F1 also closes Help (advertised in the Help body).
+        await pilot.press("?")
+        await pilot.pause()
+        assert app.screen.id == "help"
+        await pilot.press("f1")
+        await pilot.pause()
+        assert app.screen.id != "help"
+
+        # With Help closed, ``/`` is no longer swallowed: it opens log search.
+        await pilot.press("/")
+        await pilot.pause()
+        assert app.screen.id == "log-search-prompt"
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_screen_opens_from_tui_binding(config_dir: Path) -> None:
     class ComposerClient:
         connected = False
@@ -8463,12 +8504,7 @@ async def test_build_manager_surfaces_live_build_refs(config_dir: Path) -> None:
                             "in_use": True,
                             "config_refs": ["buildable", "canary"],
                             "config_ref_count": 2,
-                            "live_refs": [
-                                {
-                                    "run_id": "run-live",
-                                    "sidecar_path": "/agent/runs/run-live.json",
-                                }
-                            ],
+                            "live_refs": [{"run_id": "run-live"}],
                         }
                     ],
                     "skipped": [],
@@ -11958,6 +11994,87 @@ async def test_reattach_starts_tail_worker_before_health_probe(
         await app._reattach_target_detached_run("run-1")
 
         assert worker_names[:2] == ["reattach-tail", "reattach-health"]
+
+
+@pytest.mark.asyncio
+async def test_reattach_tail_worker_is_non_crashing_monitor(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: a network blip during the reattach tail RPC must not crash the
+    # whole TUI while the detached GPU server keeps running (bug-084 sibling).
+    fake_target_client = _fake_reattach_target_client(
+        _target_reattach_payload(served_model_names=["fake-model"])
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: fake_target_client(),
+    )
+    worker_calls: list[dict[str, object]] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(kwargs)
+        coro.close()
+        return SimpleNamespace()
+
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        await app._reattach_target_detached_run("run-1")
+
+        tail_worker = next(
+            call for call in worker_calls if call["name"] == "reattach-tail"
+        )
+        assert tail_worker["group"] == "tail"
+        assert tail_worker.get("exit_on_error") is False
+
+
+@pytest.mark.asyncio
+async def test_load_worker_is_non_crashing_monitor(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: a malformed launch payload or a dropped connection during the
+    # attached launch/monitor must surface an error, never crash the TUI.
+    from vela.config.loader import ConfigRegistry, ValidConfig
+    from vela.config.schema import ModelConfig
+
+    worker_calls: list[dict[str, object]] = []
+
+    def capture_worker(coro, **kwargs):
+        worker_calls.append(kwargs)
+        coro.close()
+        return SimpleNamespace()
+
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        cfg = ModelConfig(name="alpha", model="org/alpha")
+        app.registry = ConfigRegistry(
+            valid=[ValidConfig(path=config_dir / "alpha.yaml", config=cfg)]
+        )
+        app.current_config = cfg
+        app.target_connection_state = "connected"
+        monkeypatch.setattr(app, "run_worker", capture_worker)
+
+        app.action_load()
+
+        load_worker = next(
+            call for call in worker_calls if call.get("name") == "load"
+        )
+        assert load_worker["group"] == "engine"
+        assert load_worker.get("exit_on_error") is False
+
+
+def test_load_and_tail_worker_groups_surface_failures_as_optional_monitors() -> None:
+    # The load ("engine") and detached-tail ("tail") worker groups must be
+    # registered so on_worker_state_changed surfaces their errors instead of the
+    # failure being silent after exit_on_error=False.
+    assert "engine" in tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS
+    assert "tail" in tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS
 
 
 @pytest.mark.asyncio
