@@ -927,3 +927,6 @@
 | 02:41 | Edited src/vela/tui/app.py | expanded (+6 lines) | ~54 |
 | 02:42 | Edited src/vela/tui/app.py | 6→7 lines | ~69 |
 | 03:10 | HARDENED for blackbird live-run (red-green): docker supervisor orphan fix (stop container when no sidecar) + TUI load/reattach-tail worker crash-safety (exit_on_error=False + engine/tail in OPTIONAL_MONITOR_GROUP_LABELS) | supervisor.py, app.py, test_docker_supervisor.py, test_tui_smoke.py | 4 new tests red→green; ruff/mypy/overrides OK; full suite 1124 passed (+4); logged bug-227(repurposed)/bug-228 | ~95k |
+| 02:55 | Session end: 26 writes across 11 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 61 reads | ~586431 tok |
+| 03:40 | LIVE RUN SUCCESS on hardened branch (committed 897816b, pushed; deployed to oxcart + blackbird). Drove via SSH from Mac: preflight (targets test) → tiny detached smoke READY+autostop → Qwen3.6-27B-FP8 smoke READY http://10.25.0.51:18003 + autostop; both left 0 containers, GPU back to 2MiB/96GB | oxcart(.50)+blackbird(.51) | end-to-end pass, no orphans; blackbird+oxcart left on harden/blackbird-live-run branch | ~60k |
+| 03:06 | Session end: 26 writes across 11 files (help.py, test_tui_smoke.py, build_registry.py, test_agent_client.py, gpu-workflow.md) | 61 reads | ~586431 tok |
