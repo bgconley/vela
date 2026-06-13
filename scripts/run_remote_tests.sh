@@ -678,9 +678,32 @@ if [[ -n "$real_config" ]]; then
     --timeout "$remote_timeout"
 fi
 
+resume_config_runtime() {
+  local config_file="$1"
+  if [[ ! -f "$config_file" ]]; then
+    printf 'process\n'
+    return
+  fi
+  "$venv_python" - "$config_file" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+payload = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")) or {}
+runtime = "process"
+if isinstance(payload, dict):
+    command = payload.get("command")
+    if isinstance(command, dict):
+        runtime = str(command.get("runtime") or "process").lower()
+print(runtime)
+PY
+}
+
 if [[ -n "$remote_real_resume_config" ]]; then
   echo "== Real model resume/daemon restart =="
   resume_config_file="configs/${remote_real_resume_config}.yaml"
+  resume_config_runtime="$(resume_config_runtime "$resume_config_file")"
   if [[ -n "$remote_target" && -f "$resume_config_file" ]]; then
     resume_config_push_file="$(mktemp)"
     "$venv_python" - "$resume_config_file" "$resume_config_push_file" <<'PY'
@@ -706,8 +729,10 @@ PY
     rm -f "$resume_config_push_file"
   fi
   real_resume_args=("$remote_real_resume_config" "${target_args[@]}" --timeout "$remote_timeout")
-  if [[ -n "$remote_build_spec" ]]; then
+  if [[ "$resume_config_runtime" != "docker" && -n "$remote_build_spec" ]]; then
     real_resume_args+=(--build "$remote_build_label")
+  elif [[ -n "$remote_build_spec" ]]; then
+    echo "Skipping build override for docker resume config $remote_real_resume_config"
   fi
   if [[ -n "$remote_model_ref" ]]; then
     real_resume_args+=(--model-ref "$remote_model_ref")

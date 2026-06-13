@@ -511,7 +511,7 @@ def test_remote_validation_runs_real_config_before_real_resume() -> None:
     assert script.index(real_config_block) < script.index(real_resume_block)
 
 
-def test_remote_validation_passes_real_build_and_model_to_resume_check(
+def test_remote_validation_passes_real_build_and_model_to_process_resume_check(
     tmp_path: Path,
 ) -> None:
     bin_dir = tmp_path / "bin"
@@ -551,12 +551,27 @@ def test_remote_validation_passes_real_build_and_model_to_resume_check(
     assert result.returncode == 0, result.stderr
     remote_script = (tmp_path / "ssh-capture.stdin").read_text(encoding="utf-8")
     assert 'real_resume_args=("$remote_real_resume_config"' in remote_script
-    assert 'real_resume_args+=(--build "$remote_build_label")' in remote_script
+    assert 'resume_config_runtime=' in remote_script
+    assert (
+        'if [[ "$resume_config_runtime" != "docker" && -n "$remote_build_spec" ]]; then'
+        in remote_script
+    )
     assert 'real_resume_args+=(--model-ref "$remote_model_ref")' in remote_script
     assert 'real_resume_args+=(--revision "$remote_model_revision")' in remote_script
     assert (
         '"$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}"'
         in remote_script
+    )
+
+
+def test_remote_validation_skips_build_override_for_docker_resume_config() -> None:
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+
+    assert "command.runtime docker cannot be set with command.build" not in script
+    assert 'resume_config_runtime="$(resume_config_runtime "$resume_config_file")"' in script
+    assert (
+        'if [[ "$resume_config_runtime" != "docker" && -n "$remote_build_spec" ]]; then'
+        in script
     )
 
 
