@@ -1057,6 +1057,34 @@ def test_cli_build_verify_prints_agent_result(
     assert result.output == "OK\t01BUILD\tready\tbuild verified\n"
 
 
+def test_cli_build_verify_exits_nonzero_on_failed_agent_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        del method, params, target_name
+        return {
+            "build_id": "01BROKEN",
+            "ok": False,
+            "status": "broken",
+            "detail": "build verification failed: pip-freeze-probe-failed",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["build", "verify", "01BROKEN"])
+
+    assert result.exit_code == 2
+    assert (
+        result.output
+        == "FAIL\t01BROKEN\tbroken\tbuild verification failed: pip-freeze-probe-failed\n"
+    )
+
+
 def test_cli_build_run_streams_target_local_build_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

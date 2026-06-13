@@ -697,6 +697,8 @@ def build_verify(
             ]
         )
     )
+    if not result.get("ok"):
+        raise typer.Exit(2)
 
 
 @build_app.command("repair")

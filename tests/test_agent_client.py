@@ -4287,6 +4287,76 @@ async def test_agent_verifies_ready_build_from_agent_owned_registry(
 
 
 @pytest.mark.asyncio
+async def test_agent_verify_uses_uv_freeze_when_build_venv_has_no_pip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builds_root = tmp_path / "data" / "vela" / "builds"
+    build_dir = builds_root / "01UVBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.2'\n", encoding="utf-8")
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01UVBUILD",
+                "label": "uv-build",
+                "status": "ready",
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run_build_verify_command(argv: list[str]) -> dict[str, object]:
+        calls.append(argv)
+        if argv[-2:] == ["-c", "import vllm; print(vllm.__version__)"]:
+            return {"ok": True, "returncode": 0, "output": "0.11.2"}
+        if argv[-1] == "--version":
+            return {"ok": True, "returncode": 0, "output": "vLLM 0.11.2"}
+        if argv[-3:] == ["-m", "pip", "freeze"]:
+            return {
+                "ok": False,
+                "returncode": 1,
+                "output": "No module named pip",
+            }
+        if argv[:3] == ["/usr/bin/uv", "pip", "freeze"]:
+            return {"ok": True, "returncode": 0, "output": "vllm==0.11.2"}
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(
+        build_registry_module,
+        "_run_build_verify_command",
+        fake_run_build_verify_command,
+    )
+    monkeypatch.setattr(build_registry_module.shutil, "which", lambda name: "/usr/bin/uv")
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        verified = await client.call("verify_build", {"build": "uv-build"})
+    finally:
+        await client.disconnect()
+
+    assert verified["ok"] is True
+    assert verified["manifest"]["integrity"]["freeze_sha256"] == _sha256_uri(
+        b"vllm==0.11.2"
+    )
+    assert ["/usr/bin/uv", "pip", "freeze", "--python", str(python_bin)] in calls
+
+
+@pytest.mark.asyncio
 async def test_agent_verify_marks_build_broken_when_executable_missing(
     tmp_path: Path,
 ) -> None:

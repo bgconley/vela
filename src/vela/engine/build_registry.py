@@ -714,7 +714,7 @@ def _build_integrity(
     python: Path,
     verify_output: dict[str, Any],
 ) -> tuple[str | None, dict[str, Any]]:
-    freeze_probe = _run_build_verify_command([str(python), "-m", "pip", "freeze"])
+    freeze_probe = _build_freeze_probe(python)
     if not freeze_probe["ok"]:
         return "pip-freeze-probe-failed", {
             "strategy": "pip_freeze_sha256",
@@ -735,6 +735,30 @@ def _build_integrity(
         "executable_sha256": executable_sha,
         "verify_command": ["bin/vllm", "--version"],
         "verify_output": str(verify_output.get("vllm_version") or ""),
+    }
+
+
+def _build_freeze_probe(python: Path) -> dict[str, Any]:
+    pip_probe = _run_build_verify_command([str(python), "-m", "pip", "freeze"])
+    if pip_probe["ok"]:
+        return pip_probe
+    uv_path = shutil.which("uv")
+    if uv_path is None:
+        return pip_probe
+    uv_probe = _run_build_verify_command(
+        [uv_path, "pip", "freeze", "--python", str(python)]
+    )
+    if uv_probe["ok"]:
+        return uv_probe
+    return {
+        "ok": False,
+        "returncode": uv_probe["returncode"],
+        "output": "\n".join(
+            [
+                f"python -m pip freeze failed: {pip_probe['output']}",
+                f"uv pip freeze failed: {uv_probe['output']}",
+            ]
+        ),
     }
 
 
