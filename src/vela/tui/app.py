@@ -3671,7 +3671,20 @@ class VelaApp(App):
 
     def action_quit(self) -> None:
         if self._attached_run_is_alive():
-            if self._target_control_blocked("quit"):
+            # bug-234 follow-up: with the target unreachable, stop/kill/detach/
+            # target-switch are all blocked, so a banner-and-return here would
+            # leave no in-app way to quit. Offer quit-without-stopping instead.
+            if self.target_connection_state != "connected":
+                run_id = self.current_run_id
+                self.push_screen(
+                    ConfirmScreen(
+                        f"Cannot stop run {run_id} from here. "
+                        "Quit and leave it running on the target?",
+                        title="Confirm quit — target unreachable",
+                        confirm_label="Quit without stopping",
+                        confirm_action="confirm_quit_without_stop",
+                    )
+                )
                 return
             self.push_screen(
                 ConfirmScreen("Attached server is still running. Stop it before quit?")
@@ -3740,6 +3753,16 @@ class VelaApp(App):
         message = f"Unable to stop run {run_id} — target unreachable?"
         self._set_error_text(message, style=f"bold {BAD}")
         self.notify(message, severity="error")
+
+    def confirm_quit_without_stop(self) -> None:
+        # bug-234 follow-up: quit with an unreachable target leaves the run
+        # untouched (no stop RPC). Cancel local monitor workers the same way
+        # detach does so exit does not race them into crash noise.
+        if self.screen.id == "confirm":
+            self.pop_screen()
+        self.workers.cancel_group(self, "tail")
+        self.workers.cancel_group(self, "health")
+        self.exit()
 
     def confirm_kill_running(self) -> None:
         if self.screen.id == "confirm":

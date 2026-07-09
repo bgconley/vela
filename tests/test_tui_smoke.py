@@ -13651,39 +13651,102 @@ async def test_cancel_quit_confirm_cancels_quit_worker_so_no_zombie_exit(
 
 
 @pytest.mark.asyncio
-async def test_quit_while_disconnected_with_live_run_shows_disconnect_banner(
+async def test_quit_while_disconnected_with_live_run_offers_quit_without_stop(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # bug-234 bullet 5: quitting while the target is disconnected but a run is
-    # live must surface the disconnect banner (like stop/kill/restart), not push
-    # a modal that can never finish its stop.
+    # bug-234 follow-up bullet 1: with a live attached run and an unreachable
+    # target, stop/kill/detach/target-switch are all blocked too, so a plain
+    # disconnect banner would leave NO in-app way to quit. Quit must instead
+    # open a "quit without stopping" ConfirmScreen variant.
     app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
-    notifications: list[tuple[str, str | None]] = []
     exit_calls: list[bool] = []
 
     async with app.run_test() as pilot:
         await pilot.pause()
         app.current_run_id = "run-1"
         app.target_connection_state = "disconnected"
-        monkeypatch.setattr(
-            app,
-            "notify",
-            lambda message, *args, **kwargs: notifications.append(
-                (str(message), kwargs.get("severity"))
-            ),
-        )
         monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
 
         app.action_quit()
         await pilot.pause()
 
+        assert app.screen.id == "confirm"
+        screen = app.screen
+        assert isinstance(screen, ConfirmScreen)
+        assert "target unreachable" in screen.title
+        assert "Cannot stop run run-1 from here" in screen.message
+        assert "leave it running on the target" in screen.message
+        assert screen.confirm_label == "Quit without stopping"
+        assert screen.confirm_action == "confirm_quit_without_stop"
+        assert exit_calls == []
+        assert all(method != "stop" for method, _ in app._target_client.calls)
+
+
+@pytest.mark.asyncio
+async def test_cancel_quit_without_stop_confirm_keeps_app_running_and_run_untouched(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 follow-up bullet 3: cancelling the disconnected quit variant keeps
+    # the TUI running with the run untouched (no exit, no stop RPC).
+    app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+        app.target_connection_state = "disconnected"
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        app.action_quit()
+        await pilot.pause()
+        assert app.screen.id == "confirm"
+
+        await pilot.press("escape")
+        await pilot.pause()
+
         assert app.screen.id != "confirm"
         assert exit_calls == []
-        assert any(
-            "reconnect before quit" in message and severity == "warning"
-            for message, severity in notifications
-        )
-        assert app.error_text != ""
+        assert app.is_running
+        assert app.current_run_id == "run-1"
+        assert all(method != "stop" for method, _ in app._target_client.calls)
+
+
+@pytest.mark.asyncio
+async def test_confirm_quit_without_stop_exits_without_stop_rpc_and_quiets_monitors(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 follow-up bullet 2: confirming the disconnected quit variant exits
+    # WITHOUT calling the stop RPC, after cancelling the local monitor workers
+    # the same way detach does (tail + health groups) so exit is quiet.
+    app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    exit_calls: list[bool] = []
+    cancelled_groups: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+        app.target_connection_state = "disconnected"
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+        real_cancel_group = app.workers.cancel_group
+
+        def spy_cancel_group(node, group):
+            cancelled_groups.append(group)
+            return real_cancel_group(node, group)
+
+        monkeypatch.setattr(app.workers, "cancel_group", spy_cancel_group)
+
+        app.action_quit()
+        await pilot.pause()
+        assert app.screen.id == "confirm"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app.screen.id != "confirm"
+        assert exit_calls == [True]
+        assert "tail" in cancelled_groups
+        assert "health" in cancelled_groups
+        assert all(method != "stop" for method, _ in app._target_client.calls)
 
 
 @pytest.mark.asyncio
