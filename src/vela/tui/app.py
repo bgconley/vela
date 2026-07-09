@@ -420,6 +420,11 @@ OPTIONAL_MONITOR_GROUP_LABELS = {
     # surfaces their failure instead of swallowing it silently.
     "engine": "launch",
     "tail": "log stream",
+    "restart": "restart",
+    "engine-signal": "stop/kill",
+    "quit": "quit",
+    "target-switch": "target switch",
+    "reattach": "reattach",
 }
 
 ERROR_GUIDANCE = {
@@ -1006,6 +1011,7 @@ class VelaApp(App):
                     name="reattach",
                     group="engine",
                     exclusive=True,
+                    exit_on_error=False,
                 ),
             )
 
@@ -2633,6 +2639,7 @@ class VelaApp(App):
                 name="reattach-stop",
                 group="engine-signal",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         if self.current_run_id is not None:
@@ -2645,6 +2652,7 @@ class VelaApp(App):
                 name="stop",
                 group="engine-signal",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         self._set_phase(Phase.STOPPED)
@@ -2695,6 +2703,7 @@ class VelaApp(App):
                 name="restart",
                 group="restart",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         if self.reattached_run_id is not None:
@@ -2703,6 +2712,7 @@ class VelaApp(App):
                 name="restart",
                 group="restart",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         self.action_stop()
@@ -3686,6 +3696,7 @@ class VelaApp(App):
                 name="quit-stop",
                 group="quit",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         self.exit()
@@ -3709,6 +3720,7 @@ class VelaApp(App):
                 name="reattach-kill",
                 group="engine-signal",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         if self.current_run_id is not None:
@@ -3717,6 +3729,7 @@ class VelaApp(App):
                 name="kill",
                 group="engine-signal",
                 exclusive=True,
+                exit_on_error=False,
             )
             return
         self._set_error_text("Kill requested")
@@ -4376,7 +4389,13 @@ class VelaApp(App):
         except Exception as exc:
             self._set_error_text(f"Unable to reattach {run_id}: {exc}")
             return
-        self.reattached_run_id = str(result["run_id"])
+        result_run_id = result.get("run_id")
+        if result_run_id is None:
+            self._set_error_text(
+                f"Unable to reattach {run_id}: malformed agent payload (missing run_id)"
+            )
+            return
+        self.reattached_run_id = str(result_run_id)
         self.current_run_id = None
         self.fsm = _phase_fsm_from_agent_metadata(
             dict(result.get("fsm") or {})

@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -12133,6 +12134,152 @@ def test_load_and_tail_worker_groups_surface_failures_as_optional_monitors() -> 
     # failure being silent after exit_on_error=False.
     assert "engine" in tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS
     assert "tail" in tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS
+
+
+def test_every_run_worker_spawn_passes_exit_on_error_false() -> None:
+    # bug-227 class: EVERY run_worker( spawn in app.py must pass
+    # exit_on_error=False so an unhandled worker exception surfaces via
+    # on_worker_state_changed instead of raising WorkerFailed and killing the
+    # whole TUI. Enforced structurally so a future spawn cannot silently
+    # regress. (Source-level assertion in the style of test_tui_screen_parsers.)
+    source = inspect.getsource(tui_app_module)
+    offenders: list[int] = []
+    for match in re.finditer(r"run_worker\(", source):
+        depth = 1
+        index = match.end()
+        while index < len(source) and depth:
+            char = source[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            index += 1
+        call_text = source[match.start() : index]
+        if "exit_on_error=False" not in call_text:
+            offenders.append(source.count("\n", 0, match.start()) + 1)
+    assert offenders == [], (
+        f"run_worker spawns missing exit_on_error=False at app.py lines: {offenders}"
+    )
+
+
+def test_lifecycle_worker_groups_are_registered_as_optional_monitors() -> None:
+    # The restart, stop/kill (engine-signal), quit, target-switch, and reattach
+    # workers run with exit_on_error=False; their groups must be registered so
+    # on_worker_state_changed surfaces a failure as a warning instead of it
+    # being swallowed silently (bug-227 class).
+    for group in ("restart", "engine-signal", "quit", "target-switch", "reattach"):
+        assert group in tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS
+
+
+@pytest.mark.asyncio
+async def test_restart_monitor_failure_does_not_crash_app(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-227 class: a restart whose monitor path raises (restart RPC succeeds,
+    # then the monitor call raises) must not kill the TUI. The restart worker
+    # runs with exit_on_error=False and its group is registered, so the failure
+    # surfaces as a warning notification and the app keeps running instead of
+    # raising WorkerFailed. _restart_attached_run awaits _monitor_restart_result
+    # OUTSIDE its try, so the raise escapes straight to the worker.
+    write_yaml(
+        config_dir / "alpha.yaml",
+        """
+        name: alpha
+        model: org/alpha
+        """,
+    )
+
+    class FakeTargetClient:
+        def __init__(self) -> None:
+            self.agent = LocalAgent()
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method == "restart":
+                return {
+                    "run_id": params["run_id"],
+                    "new_run_id": "run-2",
+                    "status": "started",
+                    "launch": {
+                        "run_id": "run-2",
+                        "status": "started",
+                        "launch_mode": "attached",
+                    },
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("restart monitor failure test should not subscribe")
+
+    app = VelaApp(configs_dir=config_dir, target_client=FakeTargetClient())
+    notifications: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *args, **kwargs: notifications.append(
+            (str(message), kwargs.get("severity"))
+        ),
+    )
+
+    async def exploding_monitor(*_args, **_kwargs) -> None:
+        raise RuntimeError("monitor exploded")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_config = load_registry(config_dir).by_name("alpha")
+        app.current_run_id = "run-1"
+        app.target_connection_state = "connected"
+        monkeypatch.setattr(
+            app, "_monitor_restart_result", exploding_monitor, raising=False
+        )
+
+        app.action_restart()
+        await _wait_for_condition(
+            lambda: any(sev == "warning" for _msg, sev in notifications)
+            or not app.is_running,
+            "restart worker failure did not surface as a warning",
+        )
+
+        assert app.is_running
+        assert any(
+            "restart monitor stopped" in msg and sev == "warning"
+            for msg, sev in notifications
+        )
+
+
+@pytest.mark.asyncio
+async def test_reattach_malformed_payload_missing_run_id_refuses_without_keyerror(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-227 class: a malformed agent reattach payload (missing run_id) must
+    # render the same "Unable to reattach" refusal as a corrupt sidecar, not
+    # raise a KeyError that (via the reattach worker) could crash the TUI.
+    payload = _target_reattach_payload(served_model_names=["fake-model"])
+    del payload["run_id"]
+    fake_target_client = _fake_reattach_target_client(payload)
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda _target, **_kwargs: fake_target_client(),
+    )
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await app._reattach_target_detached_run("run-1")
+
+        assert "Unable to reattach" in app.error_text
+        assert "run-1" in app.error_text
+        assert app.reattached_run_id is None
 
 
 @pytest.mark.asyncio
