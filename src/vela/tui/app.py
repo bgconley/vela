@@ -450,6 +450,10 @@ ERROR_GUIDANCE = {
 
 DEFAULT_MAX_LOG_LINES = 50_000
 DEFAULT_LOG_BATCH_INTERVAL_SECONDS = 0.025
+# bug-234: the quit-stop worker waits this long (seconds) for current_run_id to
+# clear after signalling stop before giving up and rendering an "unreachable"
+# banner. Tests inject a small value via app._quit_stop_wait_timeout_seconds.
+DEFAULT_QUIT_STOP_WAIT_SECONDS = 30.0
 
 
 class VelaApp(App):
@@ -3667,6 +3671,8 @@ class VelaApp(App):
 
     def action_quit(self) -> None:
         if self._attached_run_is_alive():
+            if self._target_control_blocked("quit"):
+                return
             self.push_screen(
                 ConfirmScreen("Attached server is still running. Stop it before quit?")
             )
@@ -3689,8 +3695,11 @@ class VelaApp(App):
         )
 
     def confirm_stop_running(self) -> None:
+        if self.screen.id == "confirm":
+            self.pop_screen()
         if self.current_run_id is not None:
             run_id = self.current_run_id
+            self.notify(f"Stopping run {run_id} …")
             self.run_worker(
                 self._exit_after_target_run_exit(run_id),
                 name="quit-stop",
@@ -3702,14 +3711,35 @@ class VelaApp(App):
         self.exit()
 
     async def _exit_after_target_run_exit(self, run_id: str) -> None:
-        await self._target_stop_run(
+        stopped = await self._target_stop_run(
             run_id,
             interrupt_timeout=2,
             terminate_timeout=2,
         )
+        if not stopped:
+            self._render_quit_stop_failure(run_id)
+            return
+        if await self._wait_for_run_id_cleared(run_id):
+            self.exit()
+        else:
+            self._render_quit_stop_failure(run_id)
+
+    async def _wait_for_run_id_cleared(self, run_id: str) -> bool:
+        timeout = float(
+            getattr(self, "_quit_stop_wait_timeout_seconds", DEFAULT_QUIT_STOP_WAIT_SECONDS)
+        )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout)
         while self.current_run_id == run_id:
+            if loop.time() >= deadline:
+                return False
             await asyncio.sleep(0.05)
-        self.exit()
+        return True
+
+    def _render_quit_stop_failure(self, run_id: str) -> None:
+        message = f"Unable to stop run {run_id} — target unreachable?"
+        self._set_error_text(message, style=f"bold {BAD}")
+        self.notify(message, severity="error")
 
     def confirm_kill_running(self) -> None:
         if self.screen.id == "confirm":
@@ -4431,7 +4461,7 @@ class VelaApp(App):
         *,
         interrupt_timeout: float,
         terminate_timeout: float,
-    ) -> None:
+    ) -> bool:
         try:
             await self._target_call(
                 "stop",
@@ -4443,6 +4473,8 @@ class VelaApp(App):
             )
         except Exception as exc:
             self._set_error_text(f"Unable to stop {run_id}: {exc}")
+            return False
+        return True
 
     async def _target_kill_run(self, run_id: str) -> None:
         try:

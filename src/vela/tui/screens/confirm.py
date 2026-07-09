@@ -67,6 +67,10 @@ class ConfirmScreen(ModalScreen):
             self.action_confirm()
 
     def action_cancel(self) -> None:
+        # bug-234: cancelling a quit confirmation must tear down any pending
+        # quit-stop worker so it cannot exit the app later when the run clears.
+        # (No-op for confirms with no quit worker running, e.g. kill.)
+        self.app.workers.cancel_group(self.app, "quit")
         self.app.pop_screen()
 
     def _message_text(self) -> Text:

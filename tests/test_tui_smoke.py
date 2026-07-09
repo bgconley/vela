@@ -13452,6 +13452,240 @@ async def test_quit_confirm_stop_attached_run_signals_target_client_by_run_id(
         await _wait_for_condition(lambda: exit_calls == [True], "quit did not exit after run")
 
 
+def _quit_stop_target_client(*, stop_fails: bool = False):
+    class _QuitStopTargetClient:
+        def __init__(self) -> None:
+            self.agent = RecordingConfigAgent()
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method == "stop":
+                if stop_fails:
+                    raise RuntimeError("target unreachable")
+                return {"run_id": params["run_id"], "signaled": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("quit-stop tests should not subscribe")
+
+    return _QuitStopTargetClient()
+
+
+@pytest.mark.asyncio
+async def test_quit_stop_pops_confirm_modal_immediately_and_notifies(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 bullet 1: confirming quit-stop must pop the ConfirmScreen right
+    # away and show a "Stopping run …" notification, not leave the modal up.
+    app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    notifications: list[str] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+        app.target_connection_state = "connected"
+        monkeypatch.setattr(
+            app, "notify", lambda message, *args, **kwargs: notifications.append(str(message))
+        )
+
+        async def _noop_exit_after(*_args, **_kwargs) -> None:
+            return
+
+        monkeypatch.setattr(app, "_exit_after_target_run_exit", _noop_exit_after)
+
+        app.push_screen(
+            ConfirmScreen("Attached server is still running. Stop it before quit?")
+        )
+        await pilot.pause()
+        assert app.screen.id == "confirm"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app.screen.id != "confirm"
+        assert any("Stopping run" in message for message in notifications)
+
+
+@pytest.mark.asyncio
+async def test_target_stop_run_reports_success_and_failure(config_dir: Path) -> None:
+    # bug-234 bullet 3: _target_stop_run must return True on a successful stop
+    # and False (still surfacing the error text) when the stop RPC raises, so
+    # the quit path can render a failure instead of waiting on current_run_id
+    # forever.
+    ok_app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    async with ok_app.run_test() as pilot:
+        await pilot.pause()
+        result = await ok_app._target_stop_run(
+            "run-1", interrupt_timeout=2, terminate_timeout=2
+        )
+        assert result is True
+
+    fail_app = VelaApp(
+        configs_dir=config_dir,
+        target_client=_quit_stop_target_client(stop_fails=True),
+    )
+    async with fail_app.run_test() as pilot:
+        await pilot.pause()
+        result = await fail_app._target_stop_run(
+            "run-9", interrupt_timeout=2, terminate_timeout=2
+        )
+        assert result is False
+        assert "Unable to stop run-9" in fail_app.error_text
+
+
+@pytest.mark.asyncio
+async def test_quit_stop_wait_is_bounded_and_renders_unreachable_banner(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 bullet 2: the wait for current_run_id to clear is bounded by an
+    # injectable timeout. On timeout render the unreachable banner and DO NOT
+    # exit the app (no surprise quit minutes later).
+    app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    app._quit_stop_wait_timeout_seconds = 0.2
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-7"  # never cleared -> the bounded wait times out
+        app.target_connection_state = "connected"
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        app.confirm_stop_running()
+        await _wait_for_condition(
+            lambda: "Unable to stop run" in app.error_text
+            and "target unreachable" in app.error_text,
+            "quit-stop timeout banner was not rendered",
+        )
+
+        assert exit_calls == []
+        assert app.is_running
+        assert app.current_run_id == "run-7"
+
+
+@pytest.mark.asyncio
+async def test_quit_stop_failed_stop_rpc_does_not_exit_or_hang(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 bullets 2+3: if the stop RPC itself fails, the quit path renders a
+    # failure immediately instead of waiting on current_run_id forever, and it
+    # never exits the app.
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=_quit_stop_target_client(stop_fails=True),
+    )
+    app._quit_stop_wait_timeout_seconds = 30.0  # a hang here would be caught, not masked
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-5"  # stays set; a hang would poll it forever
+        app.target_connection_state = "connected"
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        app.confirm_stop_running()
+        # The quit path must render its own failure banner ("… target
+        # unreachable?") immediately rather than swallowing the error and
+        # polling current_run_id forever.
+        await _wait_for_condition(
+            lambda: "target unreachable?" in app.error_text,
+            "failed quit-stop did not render the unreachable banner",
+        )
+
+        # Give any (buggy) unbounded wait a chance to wrongly call exit.
+        for _ in range(4):
+            await pilot.pause()
+            await asyncio.sleep(0.05)
+        assert exit_calls == []
+        assert app.is_running
+
+
+@pytest.mark.asyncio
+async def test_cancel_quit_confirm_cancels_quit_worker_so_no_zombie_exit(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 bullet 4: cancelling the confirm must cancel the "quit" worker
+    # group so a lingering quit-stop worker cannot exit the app by surprise
+    # once current_run_id eventually clears.
+    app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    app._quit_stop_wait_timeout_seconds = 5.0  # keep the worker in its wait loop
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-3"
+        app.target_connection_state = "connected"
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        # Start the quit-stop worker; it will sit in the bounded wait on run-3.
+        app.confirm_stop_running()
+        await _wait_for_condition(
+            lambda: any(method == "stop" for method, _ in app._target_client.calls),
+            "quit-stop worker did not request stop",
+        )
+
+        # Simulate the operator cancelling the confirm.
+        app.push_screen(
+            ConfirmScreen("Attached server is still running. Stop it before quit?")
+        )
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # A cancelled quit group means clearing the run id must NOT exit the app.
+        app.current_run_id = None
+        for _ in range(6):
+            await pilot.pause()
+            await asyncio.sleep(0.05)
+        assert exit_calls == []
+        assert app.is_running
+
+
+@pytest.mark.asyncio
+async def test_quit_while_disconnected_with_live_run_shows_disconnect_banner(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-234 bullet 5: quitting while the target is disconnected but a run is
+    # live must surface the disconnect banner (like stop/kill/restart), not push
+    # a modal that can never finish its stop.
+    app = VelaApp(configs_dir=config_dir, target_client=_quit_stop_target_client())
+    notifications: list[tuple[str, str | None]] = []
+    exit_calls: list[bool] = []
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"
+        app.target_connection_state = "disconnected"
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, *args, **kwargs: notifications.append(
+                (str(message), kwargs.get("severity"))
+            ),
+        )
+        monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+        app.action_quit()
+        await pilot.pause()
+
+        assert app.screen.id != "confirm"
+        assert exit_calls == []
+        assert any(
+            "reconnect before quit" in message and severity == "warning"
+            for message, severity in notifications
+        )
+        assert app.error_text != ""
+
+
 @pytest.mark.asyncio
 async def test_log_filter_and_search_are_functional(config_dir: Path) -> None:
     app = VelaApp(configs_dir=config_dir)
