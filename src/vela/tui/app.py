@@ -4182,8 +4182,10 @@ class VelaApp(App):
                 self._agent_params(configs_dir=self.configs_dir),
             )
         except TargetCallError as exc:
-            if exc.code not in {"version-mismatch", "agent-unreachable"}:
-                raise
+            # Any agent error at registry load is a connection-surface problem, never a
+            # reason to crash the TUI out of on_mount (bug-233). Route every code through
+            # the same connection-error banner + empty-registry sentinel that the
+            # version-mismatch / agent-unreachable codes already used.
             self._mark_target_connection_error(exc)
             return ConfigRegistry()
         return _config_registry_from_agent_payload(result)

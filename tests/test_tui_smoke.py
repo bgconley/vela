@@ -1470,6 +1470,64 @@ async def test_tui_surfaces_target_version_mismatch_on_mount(
         assert app.registry.invalid == []
 
 
+@pytest.mark.asyncio
+async def test_tui_surfaces_agent_auth_required_on_mount(
+    config_dir: Path,
+) -> None:
+    # bug-233: any TargetCallError raised while loading the registry at startup is a
+    # connection-surface problem and must never crash the TUI out of on_mount. connect()
+    # succeeds here so the failure is isolated to _load_registry_from_agent's except
+    # filter; the auth remediation must be rendered by that same handling.
+    class AuthRequiredTargetClient:
+        connected = False
+
+        async def connect(self):
+            self.connected = True
+            return None
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                raise TargetCallError(
+                    "agent-auth-required",
+                    "target agent requires a valid capability token",
+                    {"reason": "capability-token-required"},
+                )
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise RuntimeError("gpu stream unavailable in auth-required test")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=AuthRequiredTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # App reached a mounted state: on_mount ran past _load_registry_from_agent
+        # without a traceback escaping run_test(), and the #error banner is mounted.
+        assert app.query_one("#error", Static) is not None
+        assert app.registry.valid == []
+        assert app.registry.invalid == []
+
+        # The agent-auth remediation renders in the banner the same way the
+        # version-mismatch / agent-unreachable connection errors do.
+        assert "AGENT_AUTH_REQUIRED" in app.error_text
+        assert "target agent requires a capability token" in app.error_text
+        assert "vela agent gen-token --install --target local" in app.error_text
+        assert "(R) Reconnect" in app.error_text
+        assert "(t) Switch target" in app.error_text
+
+
 def test_target_connection_banner_renders_agent_not_installed_remediation(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
