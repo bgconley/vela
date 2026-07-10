@@ -312,9 +312,10 @@ async def test_download_now_hidden_and_reset_for_bare_source() -> None:
 
 @pytest.mark.asyncio
 async def test_download_now_spec_obeys_model_source() -> None:
-    # bug-236: the "Download now requires a pinned model" gate must stay
-    # reachable for pinnable sources (the flag reaches the spec) yet never fire
-    # for a bare source (the box was reset, so the flag is absent).
+    # bug-236: pinnable sources must emit the download_now flag into the spec;
+    # bare sources must not (the box was reset, so the flag is absent). The
+    # review-time gate consuming the flag is pinned app-level by test_tui_smoke
+    # .py::test_new_deployment_review_blocks_download_now_without_pin.
     app = _Host()
     async with app.run_test() as pilot:
         screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
@@ -322,8 +323,8 @@ async def test_download_now_spec_obeys_model_source() -> None:
         await pilot.pause()
         screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
         screen.query_one("#new-deployment-download-now", Checkbox).value = True
-        # Existing pin (default, pinnable) → the flag survives into the spec so
-        # app.py can still block when no pin is actually selected.
+        # Existing pin (default, pinnable) → the flag must survive into the
+        # spec; the no-pin block it feeds is asserted by the smoke test above.
         assert screen._collect_spec().get("download_now") is True
         # Bare repo id → box reset → the flag is gone → Review is never
         # dead-ended by the pinned-model gate.

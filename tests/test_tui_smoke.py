@@ -5442,6 +5442,119 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_review_blocks_download_now_without_pin(
+    config_dir: Path,
+) -> None:
+    # bug-236 regression pin for the review-time gate the wizard-side fix must
+    # NOT remove: source=Existing pin + Download-now checked + pinned Select
+    # left at "Custom model" (no pin selected) → _collect_spec emits
+    # download_now=True with no model_ref → _review_new_deployment must block
+    # before composing and reopen the wizard with the pinned-model error.
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.compose_params: dict | None = None
+            self.download_calls: list[dict[str, object]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method == "list_models":
+                return {"models": []}
+            if method == "suggest_deployment_defaults":
+                return {"engine_suggestions": {}, "warnings": [], "sources": []}
+            if method == "download_model":
+                self.download_calls.append(dict(params))
+                return {
+                    "job_id": params.get("job_id"),
+                    "kind": "download_model",
+                    "status": "running",
+                }
+            if method == "compose_config":
+                self.compose_params = dict(params)
+                return {
+                    "config": {
+                        "name": "qwen-nopin",
+                        "target": "blackbird",
+                        "model": "Qwen/Qwen3-32B",
+                        "command": {"runtime": "process"},
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "vllm serve Qwen/Qwen3-32B", "warnings": [], "metadata": {}}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("the pinned-model gate must fire before any job subscription")
+
+    client = ComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "qwen-nopin"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        # Source stays at the default "Existing pin"; the pinned Select stays at
+        # "Custom model" — no pin is actually selected.
+        assert (
+            app.screen.query_one("#new-deployment-model-mode", Select).value == "existing"
+        )
+        assert (
+            app.screen.query_one("#new-deployment-model-ref", Select).value == "__custom__"
+        )
+        app.screen.query_one("#new-deployment-download-now", Checkbox).value = True
+        await pilot.press("ctrl+s")
+
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment"
+            and "Download now requires a pinned model"
+            in str(app.screen.query_one("#new-deployment-error", Static).content),
+            "review did not reopen the wizard with the pinned-model gate error",
+        )
+        error_text = str(app.screen.query_one("#new-deployment-error", Static).content)
+        assert "Pin the HF repo or choose an existing pin" in error_text
+        # The draft round-trips: the box stays visible AND checked for the
+        # pinnable source — the gate blocks, it does not reset the operator.
+        download = app.screen.query_one("#new-deployment-download-now", Checkbox)
+        assert download.display is True
+        assert download.value is True
+
+    # The gate fired before any agent work: no download job, no compose.
+    assert client.download_calls == []
+    assert client.compose_params is None
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
