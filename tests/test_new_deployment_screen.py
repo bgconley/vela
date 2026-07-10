@@ -214,6 +214,47 @@ async def test_blank_name_uses_suggested_slug() -> None:
 
 
 @pytest.mark.asyncio
+async def test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select() -> None:
+    # bug-235: reopening the wizard with a restored draft goes through the
+    # constructor `initial=` path shared by every handoff round-trip and target
+    # switch (app._switch_new_deployment_target reopens with `initial=draft`,
+    # preserving the draft's own step_index). `_refresh_step` used to route mount
+    # focus through `_focus_current_step`, which mapped steps 1/2/3 straight to
+    # Select widgets — so a Runtime-step (step_index=1) restore landed focus on
+    # #new-deployment-runtime and Enter opened its dropdown overlay forever
+    # instead of advancing. Every mount must route through the Enter-safe
+    # `_focus_step_entry` (focus the step's first Input, else the inert step
+    # container) so the advertised Enter-walk survives a restore.
+    app = _Host()
+    async with app.run_test() as pilot:
+        draft = {
+            "step_index": 1,  # Runtime step (rendered "Step 2 of 6")
+            "runtime": "process",
+            "name": "demo",
+            "selected_target": "gpu-node",
+            "model_mode": "existing",
+            "preset": "balanced",
+        }
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            initial=draft,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        focused = screen.focused
+        # A focused Select swallows the screen-level "enter" binding; focus must
+        # instead be an Input or the step container (the inert focus anchor).
+        assert not isinstance(focused, Select)
+        step_container = screen.query_one(NewDeploymentScreen.STEP_IDS[1])
+        assert isinstance(focused, Input) or focused is step_container
+        # Enter now advances the wizard rather than expanding the runtime dropdown.
+        await pilot.press("enter")
+        await pilot.pause()
+        assert screen.step_index == 2
+
+
+@pytest.mark.asyncio
 async def test_customize_advanced_group_overrides_derived_fields() -> None:
     # J28: served_model_name / runs_dir / container_name editable behind Ctrl+R.
     app = _Host()

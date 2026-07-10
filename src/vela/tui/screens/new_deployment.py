@@ -1139,21 +1139,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             f"Step {self.step_index + 1} of {len(self.STEP_TITLES)}: "
             f"{self.STEP_TITLES[self.step_index]}"
         )
-        self._focus_current_step()
-
-    def _focus_current_step(self) -> None:
-        selector = {
-            0: "#new-deployment-name",
-            1: "#new-deployment-runtime",
-            2: "#new-deployment-model-ref",
-            3: "#new-deployment-preset",
-        }.get(self.step_index)
-        if selector is None:
-            return
-        try:
-            self.query_one(selector).focus()
-        except Exception:
-            return
+        # Every step refresh (mount restore included) routes focus through the
+        # Enter-safe entry helper: focus the step's first Input, else the inert
+        # step container. Steps 1/2/3 otherwise land on a Select, which swallows
+        # the screen-level "enter" binding and breaks the Enter-walk (bug-235).
+        self._focus_step_entry()
 
 
 def _model_reference(model: dict[str, Any]) -> str:
