@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.widgets import Input, Select, Static
+from textual.widgets import Checkbox, Input, Select, Static
 
 from vela.tui.screens.new_deployment import NewDeploymentReviewScreen, NewDeploymentScreen
 from vela.tui.widgets import KeyHintBar, StepIndicator
@@ -282,3 +282,110 @@ async def test_customize_advanced_group_overrides_derived_fields() -> None:
         assert "served_model_name" not in spec["overrides"]
         assert "launch" not in spec["overrides"]
         assert "container_name" not in spec["overrides"]
+
+
+@pytest.mark.asyncio
+async def test_download_now_hidden_and_reset_for_bare_source() -> None:
+    # bug-236: Download-now only applies to pinnable sources. Switching to a
+    # bare repo id hides the box AND resets it to False; switching back shows
+    # it again without re-checking (the box's state stays independent).
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        download = screen.query_one("#new-deployment-download-now", Checkbox)
+        # Existing pin (the default source) → visible.
+        assert download.display is True
+        download.value = True  # operator checks it under a pinnable source
+        # Bare repo id → nothing to pre-download → hidden + reset.
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        await pilot.pause()
+        assert download.display is False
+        assert download.value is False
+        # Back to Existing pin → visible again, but NOT re-checked.
+        screen.query_one("#new-deployment-model-mode", Select).value = "existing"
+        await pilot.pause()
+        assert download.display is True
+        assert download.value is False
+
+
+@pytest.mark.asyncio
+async def test_download_now_spec_obeys_model_source() -> None:
+    # bug-236: the "Download now requires a pinned model" gate must stay
+    # reachable for pinnable sources (the flag reaches the spec) yet never fire
+    # for a bare source (the box was reset, so the flag is absent).
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        screen.query_one("#new-deployment-download-now", Checkbox).value = True
+        # Existing pin (default, pinnable) → the flag survives into the spec so
+        # app.py can still block when no pin is actually selected.
+        assert screen._collect_spec().get("download_now") is True
+        # Bare repo id → box reset → the flag is gone → Review is never
+        # dead-ended by the pinned-model gate.
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        await pilot.pause()
+        spec = screen._collect_spec()
+        assert "download_now" not in spec
+        assert spec["model"] == "Qwen/Qwen3-32B"
+
+
+@pytest.mark.asyncio
+async def test_restored_bare_draft_resets_download_now() -> None:
+    # bug-236 round-trip: a draft (saved before this fix, or crafted) can carry
+    # download_now=True with a bare model source. After restore + disclosure the
+    # box must end hidden AND False so Review is not dead-ended.
+    app = _Host()
+    async with app.run_test() as pilot:
+        draft = {
+            "step_index": 2,  # Model step
+            "model_mode": "bare",
+            "model": "Qwen/Qwen3-32B",
+            "download_now": True,
+            "selected_target": "gpu-node",
+            "preset": "balanced",
+        }
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            initial=draft,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        download = screen.query_one("#new-deployment-download-now", Checkbox)
+        assert download.display is False
+        assert download.value is False
+        assert "download_now" not in screen._collect_spec()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,expected_download",
+    [("adopt_local", False), ("pin_hf", True)],
+)
+async def test_model_handoff_draft_download_now_obeys_source(
+    mode: str, expected_download: bool
+) -> None:
+    # bug-236: the "→" model sources dismiss immediately to a dedicated screen,
+    # capturing the wizard draft as they go. Adopt local path is unpinnable, so a
+    # checked box must be reset to False before the draft is captured; Pin HF
+    # repo is pinnable, so the box's checked state must survive into the draft
+    # (the download job runs after the pin returns).
+    app = _Host()
+    captured: list[dict[str, object]] = []
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen, captured.append)
+        await pilot.pause()
+        screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        screen.query_one("#new-deployment-download-now", Checkbox).value = True
+        screen.query_one("#new-deployment-model-mode", Select).value = mode
+        await pilot.pause()
+    assert captured, "the handoff did not dismiss the wizard"
+    result = captured[0]
+    assert result["action"] == "pin_model"
+    assert result["draft"]["download_now"] is expected_download

@@ -135,6 +135,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         ("escape", "cancel", "Cancel"),
     ]
 
+    # Model sources that support Download-now. A pinned entry ("existing") or a
+    # fresh HF pin ("pin_hf") resolves to an immutable revision the agent can
+    # pre-fetch; a bare repo id or an adopted local path cannot, so the box is
+    # hidden and reset for those (bug-236).
+    _DOWNLOAD_MODES = frozenset({"existing", "pin_hf"})
+
     def __init__(
         self,
         *,
@@ -460,6 +466,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             mode = str(event.value or "")
             if mode in {"pin_hf", "adopt_local"}:
                 event.stop()
+                if mode not in self._DOWNLOAD_MODES:
+                    # Adopt local path is unpinnable — clear a stale download-now
+                    # before capturing the draft so it never carries forward and
+                    # dead-ends Review after the handoff returns (bug-236).
+                    self.query_one("#new-deployment-download-now", Checkbox).value = False
                 self.dismiss(
                     {
                         "action": "pin_model",
@@ -919,6 +930,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
     def _apply_model_disclosure(self) -> None:
         mode = str(self.query_one("#new-deployment-model-mode", Select).value or "existing")
+        # Download-now only applies to pinnable sources. Hide AND reset it for a
+        # bare repo id / adopted local path so a stale check can't dead-end
+        # Review with "Download now requires a pinned model" (bug-236). Computed
+        # before the handoff early-return so a restored bare draft resets too.
+        download = self.query_one("#new-deployment-download-now", Checkbox)
+        download_visible = mode in self._DOWNLOAD_MODES
+        download.display = download_visible
+        if not download_visible:
+            download.value = False
         if mode in {"pin_hf", "adopt_local"}:
             return  # handoffs dismiss immediately; keep the current state
         self.query_one("#nd-group-pinned").display = mode == "existing"
