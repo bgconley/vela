@@ -2792,8 +2792,7 @@ class VelaApp(App):
         if cfg is None:
             self._set_error_text("No config selected for restart")
             return
-        self.workers.cancel_group(self, "tail")
-        self.workers.cancel_group(self, "health")
+        self._cancel_monitor_workers()
         self._set_phase(Phase.STARTING)
         params = self._restart_agent_params(run_id=run_id, name=cfg.name)
         try:
@@ -3622,8 +3621,7 @@ class VelaApp(App):
         if not self._has_reattached_run():
             self.notify("No detached run is attached", severity="warning")
             return
-        self.workers.cancel_group(self, "tail")
-        self.workers.cancel_group(self, "health")
+        self._cancel_monitor_workers()
         sidecar_name = str(self.reattached_run_id)
         self.reattached_run_id = None
         self.current_run_id = None
@@ -3632,6 +3630,11 @@ class VelaApp(App):
 
     def _has_reattached_run(self) -> bool:
         return self.reattached_run_id is not None
+
+    def _cancel_monitor_workers(self) -> None:
+        """Cancel the tail + health monitor workers (the detach/quit teardown pair)."""
+        self.workers.cancel_group(self, "tail")
+        self.workers.cancel_group(self, "health")
 
     async def _signal_reattached_target_run(self, action: str) -> None:
         if self.reattached_run_id is None:
@@ -3654,8 +3657,7 @@ class VelaApp(App):
         except Exception as exc:
             self._set_error_text(f"Unable to {action} {run_id}: {exc}")
             return
-        self.workers.cancel_group(self, "tail")
-        self.workers.cancel_group(self, "health")
+        self._cancel_monitor_workers()
         self.reattached_run_id = None
         self._set_phase(Phase.STOPPED)
 
@@ -3723,6 +3725,10 @@ class VelaApp(App):
             return
         self.exit()
 
+    def cancel_pending_quit(self) -> None:
+        """Cancel any pending quit-stop worker; the app owns the 'quit' group name."""
+        self.workers.cancel_group(self, "quit")
+
     async def _exit_after_target_run_exit(self, run_id: str) -> None:
         stopped = await self._target_stop_run(
             run_id,
@@ -3760,8 +3766,7 @@ class VelaApp(App):
         # detach does so exit does not race them into crash noise.
         if self.screen.id == "confirm":
             self.pop_screen()
-        self.workers.cancel_group(self, "tail")
-        self.workers.cancel_group(self, "health")
+        self._cancel_monitor_workers()
         self.exit()
 
     def confirm_kill_running(self) -> None:
