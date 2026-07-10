@@ -1425,7 +1425,7 @@
       "timestamp": "2026-06-02T18:20:29Z",
       "error_message": "Canonical Tab focus binding was not exposed in the TUI",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical \u00a78.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
+      "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical §8.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
       "fix": "Bound Tab to Textual's built-in focus_next action, added a Focus next widget system command, and documented Tab focus in the footer and Help modal.",
       "tags": [
         "tui",
@@ -1468,7 +1468,7 @@
       "timestamp": "2026-06-02T18:41:41Z",
       "error_message": "Responsive narrow layout hid the sidebar without a canonical overlay",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by \u00a78.6's sidebar-overlay behavior.",
+      "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by §8.6's sidebar-overlay behavior.",
       "fix": "Added a Textual-native `#sidebar-overlay` in the main column, rendered it as Rich Text with selected config, phase/status, and URL context, and toggled it on whenever the full sidebar is hidden while preserving GPU visibility rules and log visibility.",
       "tags": [
         "tui",
@@ -1490,7 +1490,7 @@
       "timestamp": "2026-06-02T18:48:05Z",
       "error_message": "ErrorBanner omitted the canonical jump-to-lines affordance",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the \u00a78.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
+      "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the §8.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
       "fix": "Added an error jump target derived from `PhaseFSM.error_excerpt`, routed named errors through a shared banner helper, appended a visible `Jump to error log line` palette hint, and added a dynamic palette command that applies log search/highlight for the target excerpt.",
       "tags": [
         "tui",
@@ -1512,7 +1512,7 @@
       "timestamp": "2026-06-02T18:55:16Z",
       "error_message": "TUI Kill bypassed the canonical confirmation modal",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical \u00a78.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
+      "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical §8.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
       "fix": "Generalized ConfirmScreen with configurable title, label, and app confirm action; action_kill now opens a Kill/Cancel modal for attached and reattached runs, and confirm_kill_running is the only path that sends SIGKILL or process.kill().",
       "tags": [
         "tui",
@@ -1621,7 +1621,7 @@
       "timestamp": "2026-06-02T19:36:58Z",
       "error_message": "Wrap toggle changed state without a toast",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical \u00a78.6 state-change notification used by neighboring controls.",
+      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical §8.6 state-change notification used by neighboring controls.",
       "fix": "Added a focused smoke regression for `w` wrap toggles and emitted `Wrap enabled`/`Wrap disabled` notifications after refreshing the visible chrome.",
       "tags": [
         "tui",
@@ -1792,7 +1792,7 @@
       "timestamp": "2026-06-02T20:20:58Z",
       "error_message": "Canonical message taxonomy was missing Textual message types",
       "file": "src/vllm_loader/messages.py",
-      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving \u00a76.3/P4 message wiring incomplete.",
+      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving §6.3/P4 message wiring incomplete.",
       "fix": "Added a Textual `LoaderMessage` base, converted canonical event dataclasses to `Message` subclasses, added the missing message types, and changed transient log-record conversion to emit `ProgressUpdated`.",
       "tags": [
         "messages",
@@ -2183,7 +2183,7 @@
     {
       "id": "bug-111",
       "timestamp": "2026-06-02T21:47:37Z",
-      "error_message": "\u00a713 recorded phase fixtures were still missing OOM and port-in-use cases",
+      "error_message": "§13 recorded phase fixtures were still missing OOM and port-in-use cases",
       "file": "tests/test_phases.py",
       "root_cause": "The phase suite had synthetic classifier strings for OOM and port-in-use but lacked recorded-style fixture files for those categories, leaving the canonical fixture matrix incomplete.",
       "fix": "Added fixture-backed OOM and port-in-use tests plus representative vLLM log snippets under `tests/fixtures/vllm_logs/`.",
@@ -2459,7 +2459,7 @@
       "error_message": "Significant refactor of ",
       "file": "vllm-agent-architecture-spec-v1.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 7\u219221 lines (5 removed) | Also: Event    (A\u2192C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
+      "fix": "Rewrote 7→21 lines (5 removed) | Also: Event    (A→C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
       "tags": [
         "auto-detected",
         "refactor",
@@ -2474,7 +2474,7 @@
       "timestamp": "2026-06-05T03:56:15.821Z",
       "error_message": "Missing await",
       "file": "vllm-full-repo-review-findings-v2.md",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -2491,7 +2491,7 @@
       "error_message": "Significant refactor of ",
       "file": "vllm-full-repo-review-findings-v2.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 5\u21926 lines (5 removed)",
+      "fix": "Rewrote 5→6 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -2507,7 +2507,7 @@
       "error_message": "Significant refactor of ",
       "file": "vela-session-context-2026-06-06.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 9\u219249 lines (5 removed)",
+      "fix": "Rewrote 9→49 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3360,7 +3360,7 @@
       "timestamp": "2026-06-08T07:52:44.574Z",
       "error_message": "Missing await",
       "file": "vela-tui-figma-redesign-handoff.md",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3393,7 +3393,7 @@
       "error_message": "Incorrect value in code",
       "file": "src/vela/tui/screens/create_build.py",
       "root_cause": "Had \"pip requirement - e.g. vllm==0.11.2 or vllm.\"",
-      "fix": "Changed to \"pip requirement \u00b7 e.g. vllm==0.11.2 or vllm.\"",
+      "fix": "Changed to \"pip requirement · e.g. vllm==0.11.2 or vllm.\"",
       "tags": [
         "auto-detected",
         "wrong-value",
@@ -3424,7 +3424,7 @@
       "timestamp": "2026-06-09T03:51:14.016Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_widgets.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3440,7 +3440,7 @@
       "timestamp": "2026-06-09T05:40:43.824Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_widgets.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3457,7 +3457,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_tui_widgets.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 7\u21929 lines (2 removed)",
+      "fix": "Rewrote 7→9 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3473,7 +3473,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/flag_manager.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 5\u219211 lines (3 removed) | Also: def _render_list(self) -> str:; lines = [ | Also: def _render_detail(self) -> str:; lines = [\"Editor + live preview\", \"\", \"Resolved co",
+      "fix": "Rewrote 5→11 lines (3 removed) | Also: def _render_list(self) -> str:; lines = [ | Also: def _render_detail(self) -> str:; lines = [\"Editor + live preview\", \"\", \"Resolved co",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3488,7 +3488,7 @@
       "timestamp": "2026-06-09T06:31:43.144Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_widgets.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3523,7 +3523,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/new_deployment.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 14\u219218 lines (2 removed) | Also: (\"Pin HF repo\", \"pin_hf\"),; (\"Adopt local path\", \"adopt_local\"), | Also: self.query_one(\"#new-deployment-actions\", Static).; def _actions_text(self) -> str: | Also: yield Static(; \"F Flags   Ctrl+S Save   S Save & Smoke   Esc Canc",
+      "fix": "Rewrote 14→18 lines (2 removed) | Also: (\"Pin HF repo\", \"pin_hf\"),; (\"Adopt local path\", \"adopt_local\"), | Also: self.query_one(\"#new-deployment-actions\", Static).; def _actions_text(self) -> str: | Also: yield Static(; \"F Flags   Ctrl+S Save   S Save & Smoke   Esc Canc",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3539,7 +3539,7 @@
       "error_message": "Wrong reference: level_for_line should be display_level_for_line",
       "file": "src/vela/tui/app.py",
       "root_cause": "Used \"level_for_line\" instead of \"display_level_for_line\"",
-      "fix": "Changed level_for_line \u2192 display_level_for_line",
+      "fix": "Changed level_for_line → display_level_for_line",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -3555,7 +3555,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/model_manager.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 9\u219221 lines (2 removed) | Also: with Vertical(id=\"model-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Model Manager\", \"\"]",
+      "fix": "Rewrote 9→21 lines (2 removed) | Also: with Vertical(id=\"model-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Model Manager\", \"\"]",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3571,7 +3571,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/build_manager.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 8\u219219 lines (2 removed) | Also: with Vertical(id=\"build-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Build Manager\", \"\"]",
+      "fix": "Rewrote 8→19 lines (2 removed) | Also: with Vertical(id=\"build-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Build Manager\", \"\"]",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3603,7 +3603,7 @@
       "error_message": "Significant refactor of ",
       "file": "vela-tui-session-context-2026-06-09.md",
       "root_cause": "6 lines replaced/restructured",
-      "fix": "Rewrote 6\u21927 lines (6 removed)",
+      "fix": "Rewrote 6→7 lines (6 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3643,7 +3643,7 @@
       "timestamp": "2026-06-09T22:35:49.202Z",
       "error_message": "Missing await",
       "file": "tests/test_create_build_screen.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3660,7 +3660,7 @@
       "error_message": "Wrong reference: PresetChips should be KeyHintBar",
       "file": "tests/test_download_model_screen.py",
       "root_cause": "Used \"PresetChips\" instead of \"KeyHintBar\"",
-      "fix": "Changed PresetChips \u2192 KeyHintBar",
+      "fix": "Changed PresetChips → KeyHintBar",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -3675,7 +3675,7 @@
       "timestamp": "2026-06-09T22:40:58.072Z",
       "error_message": "Missing await",
       "file": "tests/test_download_model_screen.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3692,7 +3692,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/download_model.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 11\u219214 lines (3 removed) | Also: (\"o\", \"Override revision\"),; (\"a\", \"Advanced patterns\"),",
+      "fix": "Rewrote 11→14 lines (3 removed) | Also: (\"o\", \"Override revision\"),; (\"a\", \"Advanced patterns\"),",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3707,7 +3707,7 @@
       "timestamp": "2026-06-09T22:44:04.740Z",
       "error_message": "Missing await",
       "file": "tests/test_target_manager_screen.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3724,7 +3724,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_adopt_build_screen.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 8\u219275 lines (2 removed)",
+      "fix": "Rewrote 8→75 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3756,7 +3756,7 @@
       "error_message": "Function not marked async",
       "file": "src/vela/tui/screens/adopt_build.py",
       "root_cause": "Function uses await but wasn't declared async",
-      "fix": "Added async modifier | Also: [(\"\u23ce\", \"Adopt\"), (\"Esc\", \"Cancel\")],; def on_input_changed(self, event: Input.Changed) -> None:",
+      "fix": "Added async modifier | Also: [(\"⏎\", \"Adopt\"), (\"Esc\", \"Cancel\")],; def on_input_changed(self, event: Input.Changed) -> None:",
       "tags": [
         "auto-detected",
         "async-fix",
@@ -3771,7 +3771,7 @@
       "timestamp": "2026-06-09T22:50:44.829Z",
       "error_message": "Missing await",
       "file": "src/vela/tui/app.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3878,7 +3878,7 @@
       "error_message": "Intermittent NoMatches '#pin-model-repo-id' on PinModelScreen in wizard handoff smoke tests (different victim each batch run)",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Tests waited on `app.screen.id == 'pin-model'` then immediately query_one a child input. The rebuilt (heavier) PinModelScreen registers as app.screen before its children finish mounting, so the wait passed during the mount gap under load.",
-      "fix": "Strengthened all 5 pin-model wait conditions to `app.screen.id == 'pin-model' and bool(app.screen.query(Input))`. Pattern: NEVER wait on screen.id alone before querying children \u2014 include a child-mounted check.",
+      "fix": "Strengthened all 5 pin-model wait conditions to `app.screen.id == 'pin-model' and bool(app.screen.query(Input))`. Pattern: NEVER wait on screen.id alone before querying children — include a child-mounted check.",
       "tags": [
         "tests",
         "flaky",
@@ -3915,7 +3915,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 5\u21926 lines (2 removed) | Also: lambda: app.screen.id == \"new-deployment\",; \"new deployment screen did not open\",",
+      "fix": "Rewrote 5→6 lines (2 removed) | Also: lambda: app.screen.id == \"new-deployment\",; \"new deployment screen did not open\",",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3928,7 +3928,7 @@
     {
       "id": "bug-209",
       "timestamp": "2026-06-10T07:45:00-04:00",
-      "error_message": "NoMatches: No nodes match '#label' on SelectCurrent(classes='-has-value') \u2014 test_new_deployment_create_build_handoff_pins_created_build + test_new_deployment_build_pin_and_smoke_acceptance_flow failed ONLY on the slower GPU host (blackbird rounds 1+2); pass on the Mac",
+      "error_message": "NoMatches: No nodes match '#label' on SelectCurrent(classes='-has-value') — test_new_deployment_create_build_handoff_pins_created_build + test_new_deployment_build_pin_and_smoke_acceptance_flow failed ONLY on the slower GPU host (blackbird rounds 1+2); pass on the Mac",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Both tests waited on app.screen.id alone ('new-deployment' / 'create-build') then immediately assigned Select.value. On the slower GPU box the Select's internal SelectCurrent #label child had not composed yet, so the value-watch update raised NoMatches. Same mount-race family as bug-207; the wizard/create-build screens got heavier this session, newly exposing it under GPU-host load.",
       "fix": "Strengthened all 4 screen-open gates in the 2 tests to also require bool(app.screen.query('#<first-assigned-select> SelectCurrent #label')) before any Select.value assignment (wizard: #new-deployment-runtime; create-build: #create-build-method).",
@@ -3969,7 +3969,7 @@
       "error_message": "Wrong reference: blackbird should be gpu",
       "file": "README.md",
       "root_cause": "Used \"blackbird\" instead of \"gpu\"",
-      "fix": "Changed blackbird \u2192 gpu",
+      "fix": "Changed blackbird → gpu",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -3985,7 +3985,7 @@
       "error_message": "Significant refactor of ",
       "file": "README.md",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 10\u219216 lines (3 removed)",
+      "fix": "Rewrote 10→16 lines (3 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4017,7 +4017,7 @@
       "error_message": "Wrong reference: dict should be Mapping",
       "file": "src/vela/config/targets.py",
       "root_cause": "Used \"dict\" instead of \"Mapping\"",
-      "fix": "Changed dict \u2192 Mapping",
+      "fix": "Changed dict → Mapping",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -4049,7 +4049,7 @@
       "error_message": "Significant refactor of ",
       "file": ".github/workflows/ci.yml",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 4\u21926 lines (2 removed)",
+      "fix": "Rewrote 4→6 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4080,7 +4080,7 @@
       "timestamp": "2026-06-10T20:16:36.577Z",
       "error_message": "Missing await",
       "file": "scripts/readme_screenshots.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -4096,7 +4096,7 @@
       "timestamp": "2026-06-10T20:21:30.053Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_smoke.py",
-      "root_cause": "Async call without await \u2014 returned Promise instead of value",
+      "root_cause": "Async call without await — returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -4113,7 +4113,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/app.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 8\u21924 lines (3 removed)",
+      "fix": "Rewrote 8→4 lines (3 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4128,7 +4128,7 @@
       "timestamp": "2026-06-10T16:30:00-04:00",
       "error_message": "Dashboard Configs card showed 'Selected: <name>' twice when a config is selected",
       "file": "src/vela/tui/app.py",
-      "root_cause": "_render_configs_title() appended a 'Selected: <name>' line to the card TITLE while _render_config_summary() (the card body) also renders one \u2014 both Statics carried the same line. Found while staging README screenshots.",
+      "root_cause": "_render_configs_title() appended a 'Selected: <name>' line to the card TITLE while _render_config_summary() (the card body) also renders one — both Statics carried the same line. Found while staging README screenshots.",
       "fix": "Removed the title appendix; the body remains the single carrier. Red-green: test_configs_title_does_not_duplicate_selected_line.",
       "tags": [
         "tui",
@@ -4145,7 +4145,7 @@
       "timestamp": "2026-06-10T16:55:00-04:00",
       "error_message": "CI test job failed: test_manual_remote_validation_workflow_executes_script_and_uploads_artifact asserted 'tiny-random-llama-detached-blackbird' in remote-validation.yml after the scrub removed personal defaults",
       "file": "tests/test_remote_workflow.py",
-      "root_cause": "The workflow file is pinned by a static content-assertion test; the scrub commit changed the file without updating the pin (same family as the VELA_REMOTE_BRANCH script-pin break, bug-201/202 era). Caught by the new CI on PR #1 \u2014 first save by the shakedown.",
+      "root_cause": "The workflow file is pinned by a static content-assertion test; the scrub commit changed the file without updating the pin (same family as the VELA_REMOTE_BRANCH script-pin break, bug-201/202 era). Caught by the new CI on PR #1 — first save by the shakedown.",
       "fix": "Updated the pin to the new contract: no 'bgconley'/'/home/bgconley' literals, vars.VELA_REMOTE_* wiring present, unconfigured-host guard message present.",
       "tags": [
         "tests",
@@ -4237,7 +4237,7 @@
       "error_message": "TUI 'load' (attached launch/monitor) and 'reattach-tail' workers were spawned without exit_on_error=False and had unguarded bodies, so a malformed agent payload or a dropped SSH/socket link could raise WorkerFailed and crash the whole TUI mid-launch (orphaning a just-launched GPU run). Found in the production-pilot review.",
       "file": "src/vela/tui/app.py",
       "root_cause": "Both run_worker spawns omitted exit_on_error=False (unlike the gpu/health monitors and the reattach-health worker fixed in bug-084), and their groups ('engine','tail') were not in OPTIONAL_MONITOR_GROUP_LABELS, so on_worker_state_changed could not surface the failure either.",
-      "fix": "FIXED 2026-06-13 (red-green): added exit_on_error=False to the 'load' and 'reattach-tail' spawns and registered 'engine'/'tail' in OPTIONAL_MONITOR_GROUP_LABELS so failures surface as a warning instead of crashing. Tests: test_load_worker_is_non_crashing_monitor, test_reattach_tail_worker_is_non_crashing_monitor, test_load_and_tail_worker_groups_surface_failures_as_optional_monitors.",
+      "fix": "FIXED 2026-06-13 (red-green): added exit_on_error=False to the 'load' and 'reattach-tail' spawns and registered 'engine'/'tail' in OPTIONAL_MONITOR_GROUP_LABELS so failures surface as a warning instead of crashing. Tests: test_load_worker_is_non_crashing_monitor, test_reattach_tail_worker_is_non_crashing_monitor, test_load_and_tail_worker_groups_surface_failures_as_optional_monitors. | EXTENDED 2026-07-09 (Task 1.2, commit a36d03f): the same pattern was applied to the remaining eight unguarded spawns (reattach, stop, kill, restart x2, quit-stop, reattach-stop, reattach-kill) and five more groups (restart, engine-signal, quit, target-switch, reattach) were labeled; a structural test now enforces exit_on_error=False on EVERY run_worker spawn. See bug-247.",
       "tags": [
         "tui",
         "textual",
@@ -4250,8 +4250,8 @@
         "bug-084",
         "bug-085"
       ],
-      "occurrences": 1,
-      "last_seen": "2026-06-13T06:36:49.854Z"
+      "occurrences": 2,
+      "last_seen": "2026-07-09T08:13:37Z"
     },
     {
       "id": "bug-228",
@@ -4347,6 +4347,181 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-06-13T08:28:06.521Z"
+    },
+    {
+      "id": "bug-233",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "TUI crashes at startup (traceback) or fails target-switch silently on unexpected agent error codes such as agent-auth-required",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_load_registry_from_agent re-raises TargetCallError codes outside {version-mismatch, agent-unreachable}; awaited bare in on_mount; 'target-switch' worker group missing from OPTIONAL_MONITOR_GROUP_LABELS so its failure is silent. remediation.py:51 has an agent-auth-required message that never renders.",
+      "fix": "FIXED 2026-07-09. Task 1.1 (commit e0f9fae, red-green): dropped the {version-mismatch, agent-unreachable} allowlist in _load_registry_from_agent so EVERY TargetCallError code now routes through _mark_target_connection_error + the empty ConfigRegistry() sentinel instead of re-raising; agent-auth-required (and any unexpected code) now renders the AGENT_AUTH_REQUIRED remediation banner instead of crashing out of on_mount/_switch_target. Task 1.2 (commit a36d03f) then registered the 'target-switch' worker group in OPTIONAL_MONITOR_GROUP_LABELS so a target-switch worker failure surfaces as a warning instead of failing silently. bug-233 fully closed. Test: tests/test_tui_smoke.py::test_tui_surfaces_agent_auth_required_on_mount (raises from list_configs after a successful connect so the fix itself, not _ensure_target_client_connected, must render the banner).",
+      "tags": [
+        "tui",
+        "crash",
+        "worker",
+        "target-call-error",
+        "startup"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T08:13:37Z"
+    },
+    {
+      "id": "bug-234",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "Quit->Stop on unreachable target hangs the confirm modal forever; Esc leaves a zombie worker that can exit the app minutes later",
+      "file": "src/vela/tui/app.py, src/vela/tui/screens/confirm.py",
+      "root_cause": "confirm_stop_running never pops ConfirmScreen; quit-stop worker waits unbounded on current_run_id while _target_stop_run swallows all exceptions; action_quit lacks the _target_control_blocked connection guard.",
+      "fix": "FIXED 2026-07-09 (commit 611a159, Task 1.3, red-green x6): confirm_stop_running now pops the ConfirmScreen and notifies 'Stopping run ...' before spawning the quit-stop worker; the wait for current_run_id to clear is bounded by an injectable _quit_stop_wait_timeout_seconds (default 30s via DEFAULT_QUIT_STOP_WAIT_SECONDS) and on timeout renders 'Unable to stop run ... - target unreachable?' WITHOUT exiting; _target_stop_run returns bool so the quit path renders failure immediately instead of polling forever (the 's' Stop path keeps its _set_error_text); ConfirmScreen.action_cancel cancels the 'quit' worker group so no zombie worker exits later; action_quit now guards with _target_control_blocked('quit') like stop/kill/restart. FOLLOW-UP (commit aa0e983): the bullet-5 _target_control_blocked('quit') guard itself created a no-exit trap (live attached run + dead target = q/ctrl+c banner-blocked while s/K/detach/target-switch already blocked). action_quit now drops the banner path: disconnected + live run pushes a ConfirmScreen variant (title 'Confirm quit — target unreachable', label 'Quit without stopping', action confirm_quit_without_stop) which exits WITHOUT the stop RPC after cancelling tail+health groups detach-style; cancel keeps the app running with the run untouched.",
+      "tags": [
+        "tui",
+        "quit",
+        "stop",
+        "hang",
+        "worker",
+        "confirm",
+        "fr-8",
+        "bug-234"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T19:53:25Z"
+    },
+    {
+      "id": "bug-235",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "New Deployment Enter-walk breaks after every handoff round-trip: focus lands on a Select and Enter opens the dropdown forever (probe-verified)",
+      "file": "src/vela/tui/screens/new_deployment.py:1144-1156",
+      "root_cause": "_refresh_step -> _focus_current_step maps steps 1-3 to Select widgets; the Enter-safe _focus_step_entry (507-519) is only used by next/previous actions. Also no visible focus indicator on Selects/Checkbox when reached via Tab (observed live).",
+      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "tags": [
+        "tui",
+        "wizard",
+        "focus",
+        "select",
+        "enter"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T06:05:00Z"
+    },
+    {
+      "id": "bug-236",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "Wizard Model step dead-ends: empty registry defaults to Existing pin + 'Custom model' with no model-id input; 'Download now' stays enabled+checked in Bare-repo-id mode and then hard-blocks Review; stray debug text 'sources configured_ports, defaults' rendered; 'Model is required' shows while breadcrumb marks Model as done (all observed live)",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "Model-source/checkbox visibility state machine incomplete: checkbox not hidden/reset per source; default source not switched when registry empty; validation only runs at review-compose and reports at panel bottom without stepping back.",
+      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "tags": [
+        "tui",
+        "wizard",
+        "model",
+        "checkbox",
+        "validation",
+        "ux"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T06:05:00Z"
+    },
+    {
+      "id": "bug-237",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "Layout: manager modals exceed 80 cols and clip (target 100 / model 104 / build 96 / target_edit 96 / review 92 / help 82); header fixed widths wrap+hide URL/badge/clock below ~130 cols with the floating status pill overlapping chrome at every size; Build Manager footer clips its own hint to 'Esc Clos'; 4th sidebar card clipped at <=~30 rows (probe + live verified)",
+      "file": "src/vela/tui/app.py:467-528,505-507; src/vela/tui/screens/*.py CSS widths",
+      "root_cause": "Fixed pixel/col widths and heights instead of %/auto/adaptive; responsive breakpoints key on width only and never adapt top chrome.",
+      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "tags": [
+        "tui",
+        "layout",
+        "responsive",
+        "modal",
+        "header"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T06:05:00Z"
+    },
+    {
+      "id": "bug-238",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "Local agent daemon socket ignores XDG_STATE_HOME so 'isolated' environments silently reuse the user daemon; stale daemon serves month-old code (observed: Jun 9 daemon still running Jul 9) and freezes ./configs discovery at its old cwd; pytest daemons can leak for weeks (one from Jun 10 still alive)",
+      "file": "src/vela/agent/daemon.py:41-48",
+      "root_cause": "default_agent_runtime_dir uses XDG_RUNTIME_DIR else ~/.local/state/vela — inconsistent with the rest of the XDG-aware state layout; no controller/daemon version-mismatch or cwd-mismatch detection.",
+      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "tags": [
+        "agent",
+        "daemon",
+        "xdg",
+        "staleness",
+        "isolation"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T06:05:00Z"
+    },
+    {
+      "id": "bug-239",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "Opening n/m/b/F runs agent RPCs with zero pending feedback; New Deployment runs 4 sequential RPCs and swallows 3 failure modes into empty lists; observed live: delayed wizard open made a double 'n' press type the letter into the Name field",
+      "file": "src/vela/tui/app.py:2857-2907,2167-2185,1392-1403,1350-1367",
+      "root_cause": "No busy/loading state convention for RPC-backed screen opens; except Exception -> {} on recipes/models/builds lists makes failures indistinguishable from empty registries.",
+      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "tags": [
+        "tui",
+        "latency",
+        "feedback",
+        "rpc",
+        "wizard"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T06:05:00Z"
+    },
+    {
+      "id": "bug-240",
+      "timestamp": "2026-07-09T06:05:00Z",
+      "error_message": "docker pull policy 'missing'/'always' cannot pull any real vLLM image: every docker command runs under a hard 10s timeout and TimeoutExpired is uncaught, killing the supervisor with no classified error",
+      "file": "src/vela/engine/docker_runtime.py:239-247,138-177; src/vela/engine/supervisor.py:197",
+      "root_cause": "_run_docker applies timeout=10 uniformly; pull path catches only DockerCommandError; masked because all recipes/examples use pull: never.",
+      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "tags": [
+        "docker",
+        "pull",
+        "timeout",
+        "supervisor",
+        "agent"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T06:05:00Z"
+    },
+    {
+      "id": "bug-247",
+      "timestamp": "2026-07-09T08:13:37Z",
+      "error_message": "bug-227 class: eight lifecycle/monitor run_worker spawns (reattach, stop, kill, restart x2, quit-stop, reattach-stop, reattach-kill) defaulted to exit_on_error=True, so an unhandled exception (dropped link, malformed agent payload, a raising restart monitor) raised WorkerFailed and killed the whole TUI. Separately, a malformed reattach payload missing run_id raised KeyError. Found in the 2026-07-09 review.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "The eight spawns omitted exit_on_error=False and their groups (engine-signal, restart, quit, plus already-flagged target-switch and reattach) were not in OPTIONAL_MONITOR_GROUP_LABELS, so on_worker_state_changed could neither keep the app alive nor surface the failure. _restart_attached_run / _restart_reattached_target_run await _monitor_restart_result OUTSIDE the RPC try, and _reattach_target_detached_run used str(result['run_id']) unguarded.",
+      "fix": "Task 1.2 (commit a36d03f, red-green x3): added exit_on_error=False to all eight spawns; registered restart/engine-signal/quit/target-switch/reattach in OPTIONAL_MONITOR_GROUP_LABELS with human-readable labels; guarded the reattach payload with result.get('run_id') + an early 'Unable to reattach ... malformed agent payload (missing run_id)' refusal reusing the corrupt-sidecar message. Structural test test_every_run_worker_spawn_passes_exit_on_error_false enforces the invariant across all 57 spawns. Tests: test_restart_monitor_failure_does_not_crash_app (behavioral), test_lifecycle_worker_groups_are_registered_as_optional_monitors + test_every_run_worker_spawn_passes_exit_on_error_false (structural), test_reattach_malformed_payload_missing_run_id_refuses_without_keyerror (payload guard). Smoke 235 pass; ruff+mypy clean.",
+      "tags": [
+        "tui",
+        "textual",
+        "worker",
+        "crash-safety",
+        "exit_on_error",
+        "bug-227-class",
+        "reattach",
+        "restart",
+        "quit"
+      ],
+      "related_bugs": [
+        "bug-227",
+        "bug-084",
+        "bug-085",
+        "bug-233"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-09T08:13:37Z"
     }
   ]
 }

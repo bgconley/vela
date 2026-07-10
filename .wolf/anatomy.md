@@ -1,7 +1,17 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-13T08:34:27.774Z
-> Files: 238 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-10T07:08:57.756Z
+> Files: 246 tracked | Anatomy hits: 0 | Misses: 0
+
+## ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/
+
+- `fix_buglog.py` (~657 tok)
+- `probe_chrome.py` — Replicate VelaApp's #top-chrome CSS exactly (copied from app.py) and measure (~529 tok)
+- `probe_flag2.py` — Harness: make_config, main (~576 tok)
+- `probe_sidebar.py` — Replicate VelaApp's body/sidebar CSS (copied from app.py) and check whether (~692 tok)
+- `probe_tui.py` — Headless probes for the TUI review claims (read-only; no repo changes). (~1425 tok)
+- `probe_wizard.py` — Harness: scenario, enter_walk, main (~537 tok)
+- `vela-review.template.html` — Vela — Repo & TUI Review · 2026-07-09 (~9979 tok)
 
 ## ./
 
@@ -131,6 +141,10 @@
 - `docker-runtime.md` — Docker Runtime (~1627 tok)
 - `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4080 tok)
 
+## docs/plans/
+
+- `2026-07-09-vela-remediation.md` — Vela Remediation Implementation Plan (v1) (~13353 tok)
+
 ## docs/superpowers/plans/
 
 - `2026-06-03-agent-pa0-local-targets.md` — Agent PA0: Local Target Foundation (~418 tok)
@@ -221,7 +235,7 @@
 ## src/vela/tui/
 
 - `__init__.py` — Textual user interface. (~9 tok)
-- `app.py` (~62527 tok)
+- `app.py` (~63568 tok)
 - `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~467 tok)
 
 ## src/vela/tui/screens/
@@ -230,7 +244,7 @@
 - `adopt_build.py` — AdoptBuildScreen: compose, on_mount, on_select_changed, on_input_submitted + 3 more (~3314 tok)
 - `build_manager.py` — BuildManagerScreen: compose, on_mount, action_previous, action_next + 9 more (~3467 tok)
 - `config_picker.py` — ConfigPickerScreen: compose, on_mount, on_input_changed, on_input_submitted + 5 more (~1464 tok)
-- `confirm.py` — ConfirmScreen: compose, action_confirm, action_stop, action_kill + 1 more (~713 tok)
+- `confirm.py` — ConfirmScreen: compose, action_confirm, action_stop, action_kill + 1 more (~859 tok)
 - `create_build.py` — CreateBuildScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~4442 tok)
 - `download_model.py` — DownloadModelScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~2885 tok)
 - `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7721 tok)
@@ -298,7 +312,7 @@
 - `test_targets.py` — Tests: missing_targets_file_still_yields_implicit_local_target, targets_registry_loads_ssh_targets_with_local_first, targets_registry_loads_json_ta... (~1557 tok)
 - `test_transport_factory.py` — Tests: subscription_event_matcher_accepts_job_ids, subscription_event_matcher_broadcasts_agent_errors, target_client_factory_builds_implicit_local_... (~4644 tok)
 - `test_tui_screen_parsers.py` — Tests: structured_tui_forms_do_not_export_legacy_free_form_parsers (~106 tok)
-- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~158638 tok)
+- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~164299 tok)
 - `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~3090 tok)
 
 ## tests/fakes/
