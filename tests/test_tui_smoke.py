@@ -5524,8 +5524,12 @@ async def test_new_deployment_review_blocks_download_now_without_pin(
         )
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-nopin"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
-        # Source stays at the default "Existing pin"; the pinned Select stays at
-        # "Custom model" — no pin is actually selected.
+        # The empty registry now defaults the source to "Bare repo id" (bug-236b),
+        # so drive the trap explicitly: switch to "Existing pin" ANYWAY and leave
+        # the pinned Select at its no-pins placeholder — no pin is actually
+        # selected (its value stays the __custom__ no-op sentinel).
+        app.screen.query_one("#new-deployment-model-mode", Select).value = "existing"
+        await pilot.pause()
         assert (
             app.screen.query_one("#new-deployment-model-mode", Select).value == "existing"
         )
@@ -5884,7 +5888,6 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-acceptance"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3.6-27B-FP8"
         app.screen.query_one("#new-deployment-model-revision", Input).value = "main"
-        app.screen.query_one("#new-deployment-download-now", Checkbox).value = True
         app.screen.query_one("#new-deployment-runtime", Select).value = "create_build"
 
         await _wait_for_condition(
@@ -5918,6 +5921,10 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
             == "qwen-fp8-pin",
             "acceptance flow did not return pinned model",
         )
+        # Download-now is a pinnable-source affordance (bug-236a); the empty
+        # registry now opens on the bare source (bug-236b), so check it here —
+        # once the model is pinned and the box is actually visible.
+        app.screen.query_one("#new-deployment-download-now", Checkbox).value = True
         await pilot.press("ctrl+s")
 
         await _wait_for_condition(

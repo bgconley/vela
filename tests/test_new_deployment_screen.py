@@ -20,6 +20,12 @@ class _Host(App):
     pass
 
 
+# The exact honest placeholder the pinned-model Select shows on an empty
+# registry (bug-236b). Hard-coded here (not imported) so the tests pin the
+# literal contract string, not whatever the screen constant happens to be.
+_EXPECTED_NO_PINS_PLACEHOLDER = 'No pins on this target — pick "Pin HF repo →"'
+
+
 @pytest.mark.asyncio
 async def test_new_deployment_wizard_uses_step_indicator_and_footer() -> None:
     app = _Host()
@@ -180,7 +186,14 @@ async def test_model_step_mode_discloses_pinned_vs_bare() -> None:
     # J25: the mode select finally drives what's visible.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        # A pin keeps the default source "Existing pin" so this test still
+        # exercises the existing→pinned / bare→bare disclosure mapping; bug-236b
+        # flips the default to "bare" only on an empty registry.
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+        )
         await app.push_screen(screen)
         await pilot.pause()
         assert screen.query_one("#nd-group-pinned").display is True
@@ -291,7 +304,14 @@ async def test_download_now_hidden_and_reset_for_bare_source() -> None:
     # it again without re-checking (the box's state stays independent).
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        # A pin keeps the default source "Existing pin" (bug-236b defaults an
+        # empty registry to "bare" instead); this test is about the source→box
+        # visibility mapping, not the empty-registry default.
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+        )
         await app.push_screen(screen)
         await pilot.pause()
         download = screen.query_one("#new-deployment-download-now", Checkbox)
@@ -318,7 +338,14 @@ async def test_download_now_spec_obeys_model_source() -> None:
     # .py::test_new_deployment_review_blocks_download_now_without_pin.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        # A pin keeps the default source "Existing pin" (bug-236b defaults an
+        # empty registry to "bare"); this test asserts the existing→bare source
+        # switch drives the download_now flag in/out of the spec.
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+        )
         await app.push_screen(screen)
         await pilot.pause()
         screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
@@ -390,3 +417,99 @@ async def test_model_handoff_draft_download_now_obeys_source(
     result = captured[0]
     assert result["action"] == "pin_model"
     assert result["draft"]["download_now"] is expected_download
+
+
+@pytest.mark.asyncio
+async def test_empty_registry_defaults_to_bare_repo_source() -> None:
+    # bug-236b: a target with zero pins has nothing to select under "Existing
+    # pin", so the Model step defaults to "Bare repo id" — the Model input is
+    # immediately visible instead of the dead-end placeholder picker. Download-now
+    # (pinnable-only) stays hidden per Task 2.2's rule (compound disclosure).
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "bare"
+        # The bare Model input group is disclosed so a model id can be typed now;
+        # the pinned picker group is hidden.
+        assert screen.query_one("#nd-group-bare").display is True
+        assert screen.query_one("#nd-group-pinned").display is False
+        # Download-now (pinnable-only) is hidden AND unchecked (Task 2.2 rule).
+        download = screen.query_one("#new-deployment-download-now", Checkbox)
+        assert download.display is False
+        assert download.value is False
+
+
+@pytest.mark.asyncio
+async def test_zero_pins_existing_source_shows_honest_placeholder() -> None:
+    # bug-236b: if the operator switches to "Existing pin" ANYWAY on an empty
+    # registry, the pinned Select shows an honest placeholder row (not the phantom
+    # "Custom model"), resolves to no ref, and cannot satisfy Review.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-model-mode", Select).value = "existing"
+        await pilot.pause()
+        assert screen.query_one("#nd-group-pinned").display is True
+        # The picker offers only the honest placeholder row — no real refs.
+        assert screen._model_options() == [(_EXPECTED_NO_PINS_PLACEHOLDER, "__custom__")]
+        # The live Select displays that placeholder as its current label.
+        ref_select = screen.query_one("#new-deployment-model-ref", Select)
+        current_label = getattr(ref_select.query_one("SelectCurrent"), "label", None)
+        assert str(current_label) == _EXPECTED_NO_PINS_PLACEHOLDER
+        # It resolves to no ref, so Review is blocked.
+        assert screen._selected_model_ref() is None
+        with pytest.raises(ValueError, match="Model is required"):
+            screen._collect_spec()
+
+
+@pytest.mark.asyncio
+async def test_restored_existing_draft_wins_over_empty_registry_default() -> None:
+    # bug-236b: the empty-registry "bare" default applies ONLY when the draft does
+    # not pin a mode. A restored draft carrying model_mode="existing" with zero
+    # pins must WIN — the mode stays existing, the placeholder Select shows, and
+    # mount does not crash.
+    app = _Host()
+    async with app.run_test() as pilot:
+        draft = {
+            "step_index": 2,  # Model step
+            "model_mode": "existing",
+            "selected_target": "gpu-node",
+            "preset": "balanced",
+        }
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            models=[],
+            initial=draft,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "existing"
+        assert screen.query_one("#nd-group-pinned").display is True
+        assert screen._selected_model_ref() is None
+        assert screen._model_options() == [(_EXPECTED_NO_PINS_PLACEHOLDER, "__custom__")]
+
+
+@pytest.mark.asyncio
+async def test_nonempty_registry_keeps_existing_default_and_custom_model_row() -> None:
+    # Scope guard for bug-236b: with >=1 pin the pre-existing behavior is
+    # unchanged — the source defaults to "Existing pin" and the pinned Select
+    # still offers the "Custom model" sentinel row plus the real pins.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "existing"
+        assert screen.query_one("#nd-group-pinned").display is True
+        options = screen._model_options()
+        assert options[0] == ("Custom model", "__custom__")
+        assert any(value == "qwen-pin" for _label, value in options)

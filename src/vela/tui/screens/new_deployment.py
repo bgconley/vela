@@ -65,6 +65,14 @@ def _connection_dot(state: str) -> str:
     }.get(state, "○")
 
 
+# Shown in the pinned-model Select when the target has zero pins. Replaces the
+# phantom "Custom model" row so switching to "Existing pin" is an honest dead
+# end that points back at the "Pin HF repo →" source. Its value stays the
+# __custom__ no-op sentinel, so _selected_model_ref() returns None and Review
+# still blocks (bug-236b).
+_NO_PINS_PLACEHOLDER = 'No pins on this target — pick "Pin HF repo →"'
+
+
 class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
     NewDeploymentScreen {{
@@ -276,7 +284,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         ("Adopt local path →", "adopt_local"),
                         ("Bare repo id", "bare"),
                     ],
-                    value="existing",
+                    value=self._default_model_mode(),
                     allow_blank=False,
                     id="new-deployment-model-mode",
                 )
@@ -870,14 +878,34 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 options.append((label, key))
         return options
 
-    def _model_options(self) -> list[tuple[str, str]]:
-        options = [("Custom model", "__custom__")]
+    def _pinned_model_options(self) -> list[tuple[str, str]]:
+        # The real, selectable pins the picker can offer. Task 2.6 will refine
+        # WHICH entries qualify; here "pinned" == "has a usable ref".
+        options: list[tuple[str, str]] = []
         for model in self.models:
             ref = _model_reference(model)
             if not ref:
                 continue
             options.append((_model_option_label(model), ref))
         return options
+
+    def _model_options(self) -> list[tuple[str, str]]:
+        pins = self._pinned_model_options()
+        if not pins:
+            # Empty registry: no real refs to offer. Show an honest placeholder
+            # (keeping the __custom__ no-op value) instead of the phantom
+            # "Custom model" so "Existing pin" is a dead-obvious dead end that
+            # points back at "Pin HF repo →" (bug-236b).
+            return [(_NO_PINS_PLACEHOLDER, "__custom__")]
+        return [("Custom model", "__custom__"), *pins]
+
+    def _default_model_mode(self) -> str:
+        # A target with zero pins has nothing to select under "Existing pin", so
+        # default the Model source to "Bare repo id" — its Model input is
+        # immediately visible instead of the dead-end placeholder picker
+        # (bug-236b). A restored draft's model_mode overrides this in
+        # _apply_initial, so this only governs the first, draft-less open.
+        return "existing" if self._pinned_model_options() else "bare"
 
     def _build_options(self) -> list[tuple[str, str]]:
         options = [("Custom build", "__custom__")]
