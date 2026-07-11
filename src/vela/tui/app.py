@@ -154,6 +154,20 @@ HEADER_CLOCK_MIN_WIDTH = 132
 # their space. 24 rows is the classic VT100 minimum height; at or above it all
 # four cards render.
 SIDEBAR_GPU_MIN_HEIGHT = 24
+# Context-sensitive footer (bug-237). The footer advertises only the actions that
+# apply to the current dashboard state and always fits: it packs cell-aware into
+# at most FOOTER_MAX_ROWS rows, dropping the lowest-priority hints from the tail —
+# but never `? Help` / `q Quit`, the two keys a new user needs to find Help and
+# escape. The BINDINGS stay unconditional; only the ADVERTISEMENT is contextual
+# (the Help screen remains the full key reference).
+FOOTER_MAX_ROWS = 2
+# Cells the footer row loses to chrome: terminal-shell border (1 each side) plus
+# the footer's own `padding: 0 2` (2 each side).
+FOOTER_CHROME_CELLS = 6
+# Cells rendered between two adjacent footer hints.
+FOOTER_HINT_GAP = 2
+# Always advertised, pinned last, never dropped by the width packer.
+FOOTER_PROTECTED_HINTS = (("?", "Help"), ("q", "Quit"))
 # Fixed cell cost of the status badge box around its label: solid border (1 each
 # side) + horizontal padding 0 1 (1 each side) + the width-3 status dot.
 HEADER_BADGE_CHROME_CELLS = 7
@@ -4930,6 +4944,10 @@ class VelaApp(App):
             clock_cells=8 if clock_shown else 0,
         )
         model_widget.update(truncate_cells(self._render_active_model(), model_budget))
+        # The footer advertises state-dependent actions (run controls, Reconnect)
+        # and re-fits to width, so refresh it wherever the chrome refreshes: phase
+        # changes, connection changes, and every resize (bug-237).
+        self._refresh_footer(width)
 
     def _active_model_budget(
         self,
@@ -5268,15 +5286,116 @@ class VelaApp(App):
         text.append("Log remains primary; press c for full config picker", style=MUTED)
         return text
 
+    def _has_active_run(self) -> bool:
+        """A launched-or-reattached server is under this dashboard's control."""
+        return self._attached_run_is_alive() or self._has_reattached_run()
+
+    def _footer_droppable_hints(self) -> list[tuple[str, str]]:
+        """Ordered, state-filtered footer hints, highest priority first.
+
+        Excludes the always-on ``? Help`` / ``q Quit`` (the packer pins those and
+        never drops them). This governs only what the footer ADVERTISES; the
+        BINDINGS stay unconditional, so every key still works when hidden and the
+        Help screen remains the full reference (bug-237).
+        """
+        hints: list[tuple[str, str]] = []
+        # Reconnect only when the target link is not healthily connected — a new
+        # user at a healthy IDLE never sees an inert `R Reconnect`.
+        if self.target_connection_state != "connected":
+            hints.append(("R", "Reconnect"))
+        if self._has_active_run():
+            # A live/attached run: the control keys and the log-navigation keys
+            # apply and return to the footer.
+            hints += [
+                ("s", "Stop"),
+                ("K", "Kill"),
+                ("r", "Restart"),
+                ("/", "Search"),
+                ("f", "Filter"),
+                ("p", "Pause"),
+                ("w", "Wrap"),
+                ("g/G", "Top/Bottom"),
+            ]
+        else:
+            # No run yet: Load is the primary action; Stop/Kill/Restart are inert.
+            hints.append(("l", "Load"))
+        # Navigation / global actions apply in every dashboard state. `n New` leads
+        # — it is the front door for a new deployment (J11). `F Flags` stays here:
+        # it edits the SELECTED config's vLLM flags, available at IDLE just like
+        # `c Configs`, so it belongs in the dashboard IDLE set.
+        hints += [
+            ("n", "New"),
+            ("c", "Configs"),
+            ("t", "Targets"),
+            ("b", "Builds"),
+            ("m", "Models"),
+            ("F", "Flags"),
+            ("Tab", "Focus"),
+            ("^P", "Palette"),
+        ]
+        return hints
+
     @staticmethod
-    def _render_footer_bindings() -> str:
-        # `n New` sits up front so it survives right-side truncation at
-        # narrow widths — it is the front door for new users (J11).
-        return (
-            "l Load   n New   s Stop   K Kill   r Restart   c Configs   t Targets   "
-            "b Builds   m Models   F Flags   R Reconnect   / Search   f Filter   "
-            "p Pause   w Wrap   g/G Top/Bottom   Tab Focus   ? Help   ^P Palette   q Quit"
-        )
+    def _footer_hint_cells(hint: tuple[str, str]) -> int:
+        key, label = hint
+        return cell_len(f"{key} {label}")
+
+    @classmethod
+    def _pack_footer_rows(
+        cls, hints: list[tuple[str, str]], usable: int
+    ) -> list[list[tuple[str, str]]]:
+        """Greedy first-fit of ``hints`` into rows no wider than ``usable`` cells."""
+        rows: list[list[tuple[str, str]]] = [[]]
+        used = 0
+        for hint in hints:
+            cells = cls._footer_hint_cells(hint)
+            addition = cells if not rows[-1] else FOOTER_HINT_GAP + cells
+            if rows[-1] and used + addition > usable:
+                rows.append([hint])
+                used = cells
+            else:
+                rows[-1].append(hint)
+                used += addition
+        return rows
+
+    def _footer_rows_for_width(self, width: int) -> list[list[tuple[str, str]]]:
+        """State- and width-fitted footer rows.
+
+        Packs the applicable hints plus the pinned ``? Help`` / ``q Quit`` into at
+        most ``FOOTER_MAX_ROWS`` rows; when they overflow, the lowest-priority
+        DROPPABLE hint is shed from the tail and the pack retried — the protected
+        pair is never removed, so Help and Quit survive every width (bug-237).
+        """
+        usable = max(1, width - FOOTER_CHROME_CELLS)
+        protected = list(FOOTER_PROTECTED_HINTS)
+        droppable = self._footer_droppable_hints()
+        while True:
+            rows = self._pack_footer_rows(droppable + protected, usable)
+            if len(rows) <= FOOTER_MAX_ROWS or not droppable:
+                return rows
+            droppable = droppable[:-1]
+
+    def _render_footer_bindings(self, width: int | None = None) -> Text:
+        if width is None:
+            width = self.size.width or 80
+        rows = self._footer_rows_for_width(width)
+        text = Text(no_wrap=True, overflow="ellipsis")
+        for row_index, row in enumerate(rows):
+            if row_index:
+                text.append("\n")
+            for hint_index, (key, label) in enumerate(row):
+                if hint_index:
+                    text.append(" " * FOOTER_HINT_GAP)
+                text.append(key, style=f"bold {ACCENT}")
+                text.append(f" {label}", style=MUTED)
+        return text
+
+    def _refresh_footer(self, width: int | None = None) -> None:
+        try:
+            footer = self.query_one("#footer-bindings", Static)
+        except WIDGET_MISSING_EXCEPTIONS:
+            return
+        footer.update(self._render_footer_bindings(width))
 
     @staticmethod
     def _progress_label(text: str) -> str:

@@ -16369,6 +16369,121 @@ async def test_sidebar_hides_gpu_panel_when_terminal_too_short(config_dir: Path)
         assert app.query_one("#phase-panel").display is True
 
 
+# --- Task 4.7: context-sensitive footer that always fits (bug-237) ---
+
+
+def _footer_rows(app: VelaApp) -> list[str]:
+    return str(app.query_one("#footer-bindings", Static).content).split("\n")
+
+
+def _footer_text(app: VelaApp) -> str:
+    return str(app.query_one("#footer-bindings", Static).content)
+
+
+@pytest.mark.asyncio
+async def test_footer_hides_inert_actions_at_idle(config_dir: Path) -> None:
+    # bug-237: at IDLE with no run the control keys (Stop/Kill/Restart) and the
+    # run-log keys (Search/Filter/Pause/Wrap/Top-Bottom) are inert, so the footer
+    # must not advertise them. `? Help` and `q Quit` always render.
+    _write_header_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(80, 30)) as pilot:
+        await pilot.pause()
+        assert app.phase is Phase.IDLE
+        content = _footer_text(app)
+        for hidden in (
+            "s Stop",
+            "K Kill",
+            "r Restart",
+            "/ Search",
+            "f Filter",
+            "p Pause",
+            "w Wrap",
+            "Top/Bottom",
+        ):
+            assert hidden not in content, f"{hidden!r} advertised at idle"
+        assert "? Help" in content
+        assert "q Quit" in content
+        # It also fits: no row exceeds the footer width, cell-aware.
+        footer_w = app.query_one("#footer-bindings", Static).region.width
+        for row in _footer_rows(app):
+            assert cell_len(row) <= footer_w, f"footer row overflows 80: {row!r}"
+
+
+@pytest.mark.asyncio
+async def test_footer_reconnect_only_when_not_connected(config_dir: Path) -> None:
+    # bug-237: `R Reconnect` is inert at a healthy IDLE — it only applies once the
+    # target link is not connected.
+    _write_header_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        assert app.target_connection_state == "connected"
+        assert "R Reconnect" not in _footer_text(app), "Reconnect shown at healthy IDLE"
+
+        app.target_connection_state = "disconnected"
+        app._refresh_dashboard_shell()
+        await pilot.pause()
+        assert "R Reconnect" in _footer_text(app), "Reconnect missing when disconnected"
+
+
+@pytest.mark.asyncio
+async def test_footer_shows_controls_when_running_and_keeps_help_quit(
+    config_dir: Path,
+) -> None:
+    # bug-237: with a live attached run the control + log keys return; if the
+    # width cannot fit them all, hints drop from a priority tail but `? Help` and
+    # `q Quit` are pinned at every width.
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    src_path = Path.cwd() / "src"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        env:
+          PYTHONPATH: "{src_path}"
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+
+    try:
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.press("l")
+            await _wait_for_log(app, "Uvicorn running")
+            await _wait_for_phase(app, Phase.READY)
+            for width in (80, 100, 142):
+                await pilot.resize_terminal(width, 40)
+                await pilot.pause()
+                content = _footer_text(app)
+                assert "s Stop" in content, f"control key missing at {width}"
+                assert "/ Search" in content, f"log key missing at {width}"
+                assert "? Help" in content, f"Help dropped at {width}"
+                assert "q Quit" in content, f"Quit dropped at {width}"
+                footer_w = app.query_one("#footer-bindings", Static).region.width
+                for row in _footer_rows(app):
+                    assert cell_len(row) <= footer_w, (
+                        f"footer row overflows {width}: {row!r} "
+                        f"({cell_len(row)} > {footer_w})"
+                    )
+            await pilot.press("s")
+            await _wait_for_stopped(app)
+    finally:
+        await _cleanup_port(port)
+
+
 @pytest.mark.asyncio
 async def test_server_url_is_dim_until_ready_then_live(config_dir: Path) -> None:
     _write_header_config(config_dir)
@@ -17027,11 +17142,13 @@ async def test_golden_path_journey_survives_failure_and_back(config_dir: Path) -
 @pytest.mark.asyncio
 async def test_footer_advertises_new_deployment_and_configs(config_dir: Path) -> None:
     # J11: the flagship flow's key must be visible in the persistent footer —
-    # and early enough to survive right-side truncation at narrow widths.
+    # and early enough to survive right-side truncation at narrow widths. The
+    # footer is now context/width-fitted (bug-237) and returns a Rich Text, so
+    # assert against its packed plain text at a wide width where all nav hints show.
     app = VelaApp(configs_dir=config_dir)
     async with app.run_test() as pilot:
         await pilot.pause()
-        footer = app._render_footer_bindings()
+        footer = app._render_footer_bindings(120).plain
         assert "n New" in footer
         assert "c Configs" in footer
         assert footer.index("n New") < footer.index("t Targets")

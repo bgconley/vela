@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from rich.cells import cell_len
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Label
@@ -49,10 +50,11 @@ def hint_row_width(hint: tuple[str, str]) -> int:
 
     key + 1-col gap + label + the widget's 2-col right margin. Matches the
     ``KeyHintBar`` TCSS so :func:`pack_hint_rows` can keep every packed row
-    inside a panel's content region.
+    inside a panel's content region. Measured cell-aware (``cell_len``) so a
+    wide glyph in a key/label counts as its true column width (bug-237).
     """
     key, label = hint
-    return len(key) + 1 + len(label) + 2
+    return cell_len(key) + 1 + cell_len(label) + 2
 
 
 def pack_hint_rows(
