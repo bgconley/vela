@@ -201,6 +201,14 @@ Hand-written Docker YAML that omits the mount is not blocked. Launching a
 `docker-no-hf-cache-mount` launch warning explaining that the container will
 re-download the weights on every fresh start.
 
+One limitation: the default mount is `HF_HOME`, but registry downloads land in
+`HF_HUB_CACHE`. If the agent host relocates `HF_HUB_CACHE` **outside** `HF_HOME`
+(so the hub cache is not `HF_HOME/hub`), the default HF_HOME mount will not
+contain the agent's downloads. In that case a docker + Hugging Face launch that
+relies on the default mount surfaces a `docker-hf-cache-env-mismatch` launch
+warning asking you to set `command.docker.hf_cache` explicitly to the target's
+actual hub cache directory.
+
 ## Real-Hardware Proof
 
 Current maintainer-lab P620-to-Blackbird native-Docker validations:

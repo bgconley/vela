@@ -75,6 +75,7 @@ from vela.engine.model_registry import (
     ModelHandoff,
     ModelRegistryError,
     default_hf_home_dir,
+    default_hf_hub_cache_dir,
     default_models_registry_path,
     download_hf_model,
     inspect_model,
@@ -1307,10 +1308,9 @@ class LocalAgent:
             # Promote the human-readable form onto the command-builder warnings so
             # the TUI banner path (_record_warnings) renders it with no new plumbing.
             result = replace(result, warnings=[*result.warnings, cache["detail"]])
-        mount = _docker_missing_hf_cache_mount_descriptor(cfg, preparation.model_handoff)
-        if mount is not None:
-            launch_warnings.append(mount)
-            result = replace(result, warnings=[*result.warnings, mount["detail"]])
+        for warning in _docker_launch_warnings(cfg, preparation.model_handoff):
+            launch_warnings.append(warning)
+            result = replace(result, warnings=[*result.warnings, warning["detail"]])
         return {
             "config": cfg.model_dump(mode="json"),
             "build": _build_payload(result),
@@ -1350,15 +1350,22 @@ class LocalAgent:
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
         failures: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
         cache = _model_not_cached_descriptor(cfg, preparation.model_handoff)
-        if cache is not None and cache["gateable"] and cfg.launch.require_cached_models:
-            failures.append({"kind": cache["kind"], "detail": cache["detail"]})
+        if cache is not None:
+            if cache["gateable"] and cfg.launch.require_cached_models:
+                failures.append({"kind": cache["kind"], "detail": cache["detail"]})
+            else:
+                # Non-gating cache warnings (uncached-but-allowed, unpinned) surface
+                # as preflight warnings so `deploy create` prints them without blocking.
+                warnings.append(_model_not_cached_wire(cache))
         failure = check_launch_preflight(
             preparation.preflight_config, cwd=preparation.result.cwd
         )
         if failure is not None:
             failures.append({"kind": failure.kind.value, "detail": failure.detail})
-        return {"ok": not failures, "failures": failures}
+        warnings.extend(_docker_launch_warnings(cfg, preparation.model_handoff))
+        return {"ok": not failures, "failures": failures, "warnings": warnings}
 
     def _config_with_request_overrides(
         self, cfg: ModelConfig, params: dict[str, Any]
@@ -5224,17 +5231,67 @@ def _docker_missing_hf_cache_mount_descriptor(
     return {"kind": "docker-no-hf-cache-mount", "detail": detail}
 
 
+def _docker_launch_warnings(
+    cfg: ModelConfig, handoff: ModelHandoff | None
+) -> list[dict[str, Any]]:
+    """Non-blocking docker HF-cache launch warnings, shared by prepare + preflight."""
+    warnings: list[dict[str, Any]] = []
+    mount = _docker_missing_hf_cache_mount_descriptor(cfg, handoff)
+    if mount is not None:
+        warnings.append(mount)
+    env_mismatch = _docker_hf_cache_env_mismatch_descriptor(cfg, handoff)
+    if env_mismatch is not None:
+        warnings.append(env_mismatch)
+    return warnings
+
+
+def _docker_hf_cache_env_mismatch_descriptor(
+    cfg: ModelConfig, handoff: ModelHandoff | None
+) -> dict[str, Any] | None:
+    """Warn when the agent HF_HUB_CACHE is relocated outside HF_HOME (H4 follow-up).
+
+    Registry downloads land in HF_HUB_CACHE, but the default docker mount is
+    HF_HOME. When HF_HUB_CACHE sits outside ``HF_HOME/hub``, a deployment relying
+    on the default HF_HOME mount (``hf_cache`` unset or set to HF_HOME) cannot see
+    the agent's downloads. Warning only; names no agent-local path (bug-225).
+    """
+    docker = cfg.command.docker
+    if cfg.command.runtime is not RuntimeKind.DOCKER or docker is None:
+        return None
+    if not _launch_uses_hf_repo(cfg, handoff):
+        return None
+    if _realpath(default_hf_hub_cache_dir()) == _realpath(default_hf_home_dir() / "hub"):
+        return None
+    if docker.hf_cache is not None and not _path_is_hf_home(docker.hf_cache):
+        return None
+    detail = (
+        "agent HF_HUB_CACHE is outside HF_HOME; the default mount will not contain "
+        "agent downloads — set command.docker.hf_cache explicitly"
+    )
+    return {"kind": "docker-hf-cache-env-mismatch", "detail": detail}
+
+
 def _launch_uses_hf_repo(cfg: ModelConfig, handoff: ModelHandoff | None) -> bool:
     if handoff is not None:
         return handoff.source == "hf_repo"
     return not is_local_model_reference(cfg.model) and "://" not in cfg.model
 
 
+def _realpath(path: Path | str) -> str:
+    return os.path.realpath(Path(path).expanduser())
+
+
+def _path_is_hf_home(value: str) -> bool:
+    return _realpath(value) == _realpath(default_hf_home_dir())
+
+
 def _volume_covers_hf_cache(volumes: list[str]) -> bool:
-    resolved = str(default_hf_home_dir())
+    # A source that resolves to either HF_HOME or the hub cache directly covers
+    # the agent HF cache; realpath comparison tolerates symlinked cache trees.
+    covering = {_realpath(default_hf_home_dir()), _realpath(default_hf_hub_cache_dir())}
     for volume in volumes:
         source = volume.split(":", 1)[0].strip()
-        if source and str(Path(source).expanduser()) == resolved:
+        if source and _realpath(source) in covering:
             return True
     return False
 

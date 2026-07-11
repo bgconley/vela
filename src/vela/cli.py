@@ -1423,6 +1423,10 @@ def deploy_create(
         bool,
         typer.Option("--overwrite", help="Overwrite an existing config of the same name."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Save even when preflight fails (warnings still print)."),
+    ] = False,
     smoke: Annotated[
         bool,
         typer.Option("--smoke", help="Run a bounded smoke after saving."),
@@ -1472,15 +1476,20 @@ def deploy_create(
             preview_params["configs_dir"] = str(configs_dir)
         preview_result = _agent_call("preview", preview_params, target_name=target)
         preflight_result: dict[str, Any] | None = None
+        preflight_ok = True
         saved: dict[str, Any] | None = None
         if not dry_run:
             preflight_result = _agent_call("preflight", preview_params, target_name=target)
-            save_params: dict[str, Any] = {"name": name, "config": config}
-            if configs_dir is not None:
-                save_params["configs_dir"] = str(configs_dir)
-            if overwrite:
-                save_params["overwrite"] = True
-            saved = _agent_call("save_config", save_params, target_name=target)
+            preflight_ok = bool(preflight_result.get("ok", True))
+            # Text mode refuses to save a failed preflight unless --force; --json is
+            # unchanged (it always saves and reports preflight_ok for the caller).
+            if preflight_ok or force or json_output:
+                save_params: dict[str, Any] = {"name": name, "config": config}
+                if configs_dir is not None:
+                    save_params["configs_dir"] = str(configs_dir)
+                if overwrite:
+                    save_params["overwrite"] = True
+                saved = _agent_call("save_config", save_params, target_name=target)
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, fallback_name=name)
 
@@ -1493,6 +1502,7 @@ def deploy_create(
     }
     if preflight_result is not None:
         payload["preflight"] = preflight_result
+        payload["preflight_ok"] = preflight_ok
     if saved is not None:
         payload["saved"] = {
             "name": saved.get("name", name),
@@ -1505,6 +1515,15 @@ def deploy_create(
     _echo_warnings(payload["warnings"])
     _echo_warnings(validation.get("warnings", []))
     _echo_warnings(preview_result.get("warnings", []))
+    if preflight_result is not None:
+        # Preflight warnings print but never block; failures print loudly and
+        # block the save unless --force already let it through above.
+        _echo_warnings(preflight_result.get("warnings", []))
+        if not preflight_ok:
+            for failure in preflight_result.get("failures", []):
+                typer.echo(_preflight_failure_line(failure), err=True)
+            if not force:
+                raise typer.Exit(2)
     if dry_run:
         typer.echo(f"dry-run deployment\t{name}")
     elif overwrite:
@@ -2184,6 +2203,14 @@ def _warning_text(warning: object) -> str:
         if detail:
             return str(detail)
     return str(warning)
+
+
+def _preflight_failure_line(failure: object) -> str:
+    if isinstance(failure, dict):
+        kind = failure.get("kind") or "error"
+        detail = failure.get("detail") or failure.get("message") or ""
+        return f"preflight: {kind} — {detail}"
+    return f"preflight: {failure}"
 
 
 def _echo_config_lint_result(result: dict[str, Any]) -> None:

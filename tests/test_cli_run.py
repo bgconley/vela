@@ -3267,6 +3267,217 @@ def test_cli_deploy_create_overwrite_updates_existing(
     assert f"updated deployment\trepeatable\t{tmp_path / 'repeatable.yaml'}" in result.output
 
 
+def _deploy_create_client_with_preflight(
+    config: dict[str, object],
+    preflight: dict[str, object],
+    calls: list[str],
+    *,
+    saved_path: str,
+):
+    class FakeTargetClient:
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def call(self, method: str, params):
+            calls.append(method)
+            if method == "compose_config":
+                return {"config": config, "warnings": [], "derived": []}
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                return {"preview": "cwd=/agent\nvllm serve org/model", "warnings": []}
+            if method == "preflight":
+                return preflight
+            if method == "save_config":
+                return {"path": saved_path, "name": config["name"]}
+            raise AssertionError(f"unexpected target call: {method}")
+
+    return FakeTargetClient()
+
+
+def test_cli_deploy_create_failed_preflight_blocks_save_and_exits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "gated",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    calls: list[str] = []
+    preflight = {
+        "ok": False,
+        "failures": [
+            {"kind": "PORT_IN_USE", "detail": "port 18001 is already in use"}
+        ],
+        "warnings": [],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: _deploy_create_client_with_preflight(
+            config, preflight, calls, saved_path=str(tmp_path / "gated.yaml")
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "gated",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "preflight: PORT_IN_USE — port 18001 is already in use" in result.output
+    assert "save_config" not in calls
+
+
+def test_cli_deploy_create_force_saves_past_failed_preflight(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "gated",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    calls: list[str] = []
+    preflight = {
+        "ok": False,
+        "failures": [
+            {"kind": "PORT_IN_USE", "detail": "port 18001 is already in use"}
+        ],
+        "warnings": [],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: _deploy_create_client_with_preflight(
+            config, preflight, calls, saved_path=str(tmp_path / "gated.yaml")
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "gated",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "save_config" in calls
+    assert "preflight: PORT_IN_USE — port 18001 is already in use" in result.output
+    assert "saved deployment\tgated" in result.output
+
+
+def test_cli_deploy_create_json_reports_preflight_ok(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "gated",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    calls: list[str] = []
+    preflight = {
+        "ok": False,
+        "failures": [
+            {"kind": "PORT_IN_USE", "detail": "port 18001 is already in use"}
+        ],
+        "warnings": [],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: _deploy_create_client_with_preflight(
+            config, preflight, calls, saved_path=str(tmp_path / "gated.yaml")
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "gated",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["preflight_ok"] is False
+    assert payload["preflight"]["failures"][0]["kind"] == "PORT_IN_USE"
+    # --json is unchanged apart from preflight_ok: it still saves and lets the
+    # caller decide off preflight_ok.
+    assert "save_config" in calls
+    assert payload["saved"]["name"] == "gated"
+
+
+def test_cli_deploy_create_preflight_warnings_print_but_do_not_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "warned",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    calls: list[str] = []
+    preflight = {
+        "ok": True,
+        "failures": [],
+        "warnings": [
+            {
+                "kind": "docker-no-hf-cache-mount",
+                "detail": "container cannot see the target HF cache",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: _deploy_create_client_with_preflight(
+            config, preflight, calls, saved_path=str(tmp_path / "warned.yaml")
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "warned",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "WARNING: container cannot see the target HF cache" in result.output
+    assert "save_config" in calls
+    assert "saved deployment\twarned" in result.output
+
+
 def test_cli_deploy_export_prints_agent_generated_script(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

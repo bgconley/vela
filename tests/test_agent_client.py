@@ -1471,7 +1471,7 @@ async def test_local_agent_preflight_accepts_unsaved_config_mapping(
     finally:
         await client.disconnect()
 
-    assert result == {"ok": True, "failures": []}
+    assert result == {"ok": True, "failures": [], "warnings": []}
 
 
 @pytest.mark.asyncio
@@ -6152,6 +6152,57 @@ async def test_prepare_launch_warns_when_docker_bare_hf_repo_has_no_hf_cache_mou
 
     warnings = prepared["launch_warnings"]
     assert [w["kind"] for w in warnings] == ["docker-no-hf-cache-mount"]
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_warns_when_agent_hf_hub_cache_is_outside_hf_home(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    # H4 follow-up: the agent host has HF_HUB_CACHE relocated outside HF_HOME, so
+    # the default HF_HOME mount would not contain agent downloads. hf_cache is set
+    # to HF_HOME (the composed default mount) so only the env-mismatch warning fires.
+    home = tmp_path / "hf-home"
+    home.mkdir()
+    hub = tmp_path / "relocated-hub"
+    monkeypatch.setattr(local_agent_module, "default_hf_home_dir", lambda: home)
+    monkeypatch.setattr(local_agent_module, "default_hf_hub_cache_dir", lambda: hub)
+    write_fake_docker_runtime(tmp_path / "docker")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "docker-relocated.yaml",
+            f"""
+            name: docker-relocated
+            model: meta-llama/Llama-3.1-8B-Instruct
+            command:
+              runtime: docker
+              docker:
+                image: vllm/vllm-openai@sha256:abc
+                hf_cache: {home}
+            server:
+              port: {unused_tcp_port}
+            vllm:
+              version_profile: current
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "docker-relocated", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    warnings = prepared["launch_warnings"]
+    assert [w["kind"] for w in warnings] == ["docker-hf-cache-env-mismatch"]
+    detail = warnings[0]["detail"]
+    assert "HF_HUB_CACHE" in detail
+    assert "HF_HOME" in detail
+    assert "command.docker.hf_cache" in detail
+    # (bug-225 class) no agent-local path leaks into the structured warning.
+    assert str(tmp_path) not in detail
+    assert any("HF_HUB_CACHE" in text for text in prepared["build"]["warnings"])
+    json.dumps(prepared)
 
 
 @pytest.mark.asyncio
