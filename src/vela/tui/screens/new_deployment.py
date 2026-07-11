@@ -72,6 +72,14 @@ def _connection_dot(state: str) -> str:
 # still blocks (bug-236b).
 _NO_PINS_PLACEHOLDER = 'No pins on this target — pick "Pin HF repo →"'
 
+# Review-time validation-error prefixes, bound ONCE here and shared with the
+# app-side handlers. app.py imports this module (never the reverse), so defining
+# them here is the correct import direction and keeps the wizard's
+# _ERROR_STEP_PREFIXES mapping and app.py's raising sites from drifting apart.
+# These are prefixes: app-side messages append guidance suffixes.
+MODEL_REQUIRED_ERROR = "Model is required"
+DOWNLOAD_NEEDS_PIN_ERROR = "Download now requires a pinned model"
+
 
 class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     CSS = f"""
@@ -157,10 +165,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     _STEP_ERROR_STATICS = {_MODEL_STEP_INDEX: "#new-deployment-model-error"}
     # Known review-time validation errors attributed to the wizard step that
     # owns the field (matched by prefix — app-side messages carry guidance
-    # suffixes). Unmapped errors render exactly as before: panel bottom only.
+    # suffixes). First match wins (see _error_step_for). Unmapped errors render
+    # exactly as before: panel bottom only.
     _ERROR_STEP_PREFIXES: tuple[tuple[str, int], ...] = (
-        ("Model is required", _MODEL_STEP_INDEX),
-        ("Download now requires a pinned model", _MODEL_STEP_INDEX),
+        (MODEL_REQUIRED_ERROR, _MODEL_STEP_INDEX),
+        (DOWNLOAD_NEEDS_PIN_ERROR, _MODEL_STEP_INDEX),
     )
 
     def __init__(
@@ -570,7 +579,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 and self._selected_model_ref() is None
                 and not self._field_value("#new-deployment-model")
             ):
-                return "Model is required"
+                return MODEL_REQUIRED_ERROR
         return None
 
     def _mark_step_error(self, index: int, message: str) -> None:
@@ -588,6 +597,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             widget.update("")
             widget.display = False
         self.query_one("#new-deployment-steps", StepIndicator).clear_error(index)
+        # A resolved step also clears a stale panel-bottom error that was
+        # attributed to it (item H) — otherwise "Model is required — …" lingered
+        # after the operator fixed the field and advanced. Panel-only / unmapped
+        # errors (owning step None or a different step) are left untouched.
+        panel = self.query_one("#new-deployment-error", Static)
+        if self._error_step_for(str(panel.content)) == index:
+            panel.update("")
 
     def action_previous_step(self) -> None:
         self.set_focus(None)
@@ -635,15 +651,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.last_draft = self._draft_state()
         self.dismiss(spec)
 
-    def _render_wizard_error(self, message: str) -> None:
-        """Render a validation error at #new-deployment-error (pinned contract).
+    def _error_step_for(self, message: str) -> int | None:
+        """First-match-wins step attribution for a review-time error message.
 
-        When the message is attributable to a wizard step (bug-236c), the
-        breadcrumb marks that step ✗ instead of a dishonest ✓ and the text
-        gains the way back: "… — Ctrl+B to <Step>". Unmapped messages render
-        exactly as before.
+        Matches by prefix (app-side messages append guidance suffixes); returns
+        the owning step index, or None for panel-only / unmapped errors.
         """
-        step_index = next(
+        return next(
             (
                 index
                 for prefix, index in self._ERROR_STEP_PREFIXES
@@ -651,9 +665,27 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             ),
             None,
         )
+
+    def _render_wizard_error(self, message: str) -> None:
+        """Render a validation error at #new-deployment-error (pinned contract).
+
+        When the message is attributable to a wizard step (bug-236c), the
+        breadcrumb marks that step ✗ instead of a dishonest ✓ and the text gains
+        a direction-honest pointer to it (item F). Unmapped messages render
+        exactly as before.
+        """
+        step_index = self._error_step_for(message)
         if step_index is not None:
             self.query_one("#new-deployment-steps", StepIndicator).set_error(step_index)
-            message = f"{message} — Ctrl+B to {self.STEP_TITLES[step_index]}"
+            if step_index < self.step_index:
+                # The owning step is behind us — Ctrl+B walks straight back to it.
+                message = f"{message} — Ctrl+B to {self.STEP_TITLES[step_index]}"
+            elif step_index > self.step_index:
+                # The owning step is ahead — Ctrl+B is the wrong direction, so
+                # point at it without prescribing a key that walks away from it.
+                message = f"{message} — see {self.STEP_TITLES[step_index]} step"
+            # owning == current: the operator is already on the step with its
+            # fields in view, so the message alone is the fix — no nav suffix.
         self.query_one("#new-deployment-error", Static).update(message)
 
     def action_cancel(self) -> None:
@@ -674,7 +706,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         port = self._field_value("#new-deployment-port")
         exposure = str(self.query_one("#new-deployment-exposure", Select).value or "local")
         if not model and model_ref is None:
-            raise ValueError("Model is required")
+            raise ValueError(MODEL_REQUIRED_ERROR)
         if not name:
             name = self._suggested_name()
         if not name:

@@ -633,18 +633,21 @@ async def test_reopened_unmapped_error_stays_panel_bottom_only() -> None:
 
 @pytest.mark.asyncio
 async def test_submit_validation_error_marks_owning_step() -> None:
-    # bug-236c bullet 2, screen-side surface: Ctrl+S with no model resolvable
-    # keeps rendering "Model is required" at #new-deployment-error (pinned
-    # semantics) but now with the Ctrl+B affordance and the ✗ breadcrumb mark.
+    # bug-236c bullet 2 + item F: Ctrl+S from the Target step (index 0) with no
+    # model resolvable renders "Model is required" at #new-deployment-error and
+    # marks the Model step ✗. The Model step is AHEAD of the current step, so
+    # Ctrl+B is the wrong direction — the affordance is the direction-neutral
+    # "see Model step", not a "Ctrl+B to Model" that would walk away from it.
     app = _Host()
     async with app.run_test() as pilot:
         screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
         await app.push_screen(screen)
         await pilot.pause()
+        assert screen.step_index == 0  # submitting from Target, Model is ahead
         await pilot.press("ctrl+s")
         await pilot.pause()
         error_text = str(screen.query_one("#new-deployment-error", Static).content)
-        assert error_text == "Model is required — Ctrl+B to Model"
+        assert error_text == "Model is required — see Model step"
         steps = screen.query_one("#new-deployment-steps", StepIndicator)
         assert "✗ Model" in str(steps.content)
 
@@ -730,3 +733,58 @@ async def test_wizard_hint_bar_advertises_enter_advance() -> None:
         # Additive: the existing hints survive and Esc/Cancel stays last.
         assert keys[0] == "Ctrl+B"
         assert keys[-1] == "Esc"
+
+
+@pytest.mark.asyncio
+async def test_advancing_past_fixed_step_clears_stale_panel_error() -> None:
+    # bug-236 (item H): a submit-time step error rendered at the panel bottom
+    # (#new-deployment-error) went stale — _clear_step_error cleared the
+    # breadcrumb ✗ and the step-adjacent Static but left the panel error pinned
+    # after the operator fixed the field and advanced. A valid advance that
+    # clears a step error now also clears the panel-bottom error IF it maps to
+    # that same step (unmapped / panel-only errors stay put).
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        # Walk to the Model step; force the dead-end (empty registry defaults to
+        # bare, so switch to "Existing pin" with nothing selectable).
+        screen.query_one("#new-deployment-model-mode", Select).value = "existing"
+        await pilot.pause()
+        await pilot.press("ctrl+n")  # Target → Runtime
+        await pilot.press("ctrl+n")  # Runtime → Model
+        await pilot.pause()
+        assert screen.step_index == 2
+        # Submit from the Model step (owning == current) → panel-bottom error.
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        panel = screen.query_one("#new-deployment-error", Static)
+        assert str(panel.content) == "Model is required"
+        # Fix the field and advance — the now-resolved step clears the panel too.
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        await pilot.pause()
+        await pilot.press("ctrl+n")
+        await pilot.pause()
+        assert screen.step_index == 3
+        assert str(panel.content) == ""
+
+
+def test_shared_error_constants_bind_the_mapped_prefixes() -> None:
+    # bug-236 (item G): the review-time error prefixes are bound ONCE as module
+    # constants (in the screen module — app.py imports it, never the reverse) so
+    # the wizard's _ERROR_STEP_PREFIXES mapping and app.py's raising sites cannot
+    # drift. The literal values are the pinned contract.
+    from vela.tui.screens.new_deployment import (
+        DOWNLOAD_NEEDS_PIN_ERROR,
+        MODEL_REQUIRED_ERROR,
+    )
+
+    assert MODEL_REQUIRED_ERROR == "Model is required"
+    assert DOWNLOAD_NEEDS_PIN_ERROR == "Download now requires a pinned model"
+    # The step-attribution mapping references the constants; both map to Model.
+    prefixes = dict(NewDeploymentScreen._ERROR_STEP_PREFIXES)
+    model_step = NewDeploymentScreen.STEP_TITLES.index("Model")
+    assert prefixes[MODEL_REQUIRED_ERROR] == model_step
+    assert prefixes[DOWNLOAD_NEEDS_PIN_ERROR] == model_step

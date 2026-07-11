@@ -78,6 +78,7 @@ from vela.tui.screens.help import HelpScreen
 from vela.tui.screens.log_prompt import LogPromptScreen
 from vela.tui.screens.model_manager import ModelManagerScreen
 from vela.tui.screens.new_deployment import (
+    DOWNLOAD_NEEDS_PIN_ERROR,
     NewDeploymentReviewScreen,
     NewDeploymentScreen,
 )
@@ -3200,7 +3201,7 @@ class VelaApp(App):
         model_ref = _optional_str(params.get("model_ref"))
         if model_ref is None:
             return (
-                "Download now requires a pinned model. "
+                f"{DOWNLOAD_NEEDS_PIN_ERROR}. "
                 "Pin the HF repo or choose an existing pin."
             )
         job_params: dict[str, Any] = {"job_id": uuid.uuid4().hex, "model_ref": model_ref}
