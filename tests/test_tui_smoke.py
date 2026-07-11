@@ -8754,6 +8754,306 @@ async def test_model_manager_open_banner_keeps_dashboard_when_list_models_fails(
 
 
 @pytest.mark.asyncio
+async def test_build_manager_open_shows_busy_verb_then_opens(
+    config_dir: Path,
+) -> None:
+    gate = asyncio.Event()
+
+    class GatedBuildClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_builds":
+                await gate.wait()
+                return {
+                    "default_build_id": "01STABLE",
+                    "builds": [
+                        {
+                            "build_id": "01STABLE",
+                            "label": "stable-cu124",
+                            "status": "ready",
+                            "default": True,
+                            "resolved": {"vllm": "0.11.2", "cuda": "12.4"},
+                            "paths": {"executable": "bin/vllm"},
+                        },
+                    ],
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build manager should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=GatedBuildClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        # Mid-flight: list_builds is parked on the gate, so the busy verb holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain == "loading builds…",
+            "busy verb did not appear while list_builds was gated",
+        )
+        assert app.screen.id != "build-manager"
+
+        gate.set()
+        await _wait_for_condition(
+            lambda: app.screen.id == "build-manager",
+            "build manager did not open after list_builds released",
+        )
+        # Badge restored to the live phase once the RPC completed.
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_build_manager_open_banner_keeps_dashboard_when_list_builds_fails(
+    config_dir: Path,
+) -> None:
+    class FailingBuildClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_builds":
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("build manager should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=FailingBuildClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("b")
+        # The busy helper routes the TargetCallError through the unified banner.
+        await _wait_for_condition(
+            lambda: "AGENT_UNREACHABLE" in app.error_text,
+            "unified remediation banner was not rendered on list_builds failure",
+        )
+        # Stayed on the dashboard; the manager never opened.
+        assert app.screen.id == "_default"
+        assert "target unreachable" in app.error_text
+        # Badge not stuck pulsing after the failed RPC.
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_open_shows_busy_verb_loading_flags(
+    config_dir: Path,
+) -> None:
+    # The flag manager runs TWO RPCs behind ONE overlay: a config preview then
+    # list_presets. Gating list_presets holds the overlay so the busy verb is
+    # observable while the compound loader runs.
+    gate = asyncio.Event()
+
+    class GatedFlagClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/flags.yaml",
+                            "name": "flags",
+                            "model": "org/model",
+                            "warnings": [],
+                            "config": {"name": "flags", "model": "org/model"},
+                        },
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "vllm serve org/model", "warnings": [], "metadata": {}}
+            if method == "list_presets":
+                await gate.wait()
+                return {"presets": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("flag manager should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=GatedFlagClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_condition(
+            lambda: app.current_config is not None,
+            "config was not auto-selected on mount",
+        )
+        await pilot.press("F")
+        # Mid-flight: list_presets is parked on the gate, so the busy verb holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain == "loading flags…",
+            "busy verb did not appear while list_presets was gated",
+        )
+        assert app.screen.id != "flag-manager"
+
+        gate.set()
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "flag manager did not open after list_presets released",
+        )
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_verify_model_shows_busy_verb_then_restores(
+    config_dir: Path,
+) -> None:
+    gate = asyncio.Event()
+
+    class GatedVerifyClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "verify_model":
+                await gate.wait()
+                return {"cache_state": "cached", "detail": "12 files"}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("verify model should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=GatedVerifyClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        task = asyncio.ensure_future(app._verify_model("org/model"))
+        # Mid-flight: verify_model is parked on the gate, so the busy verb holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain == "verifying model…",
+            "busy verb did not appear while verify_model was gated",
+        )
+
+        gate.set()
+        await task
+        await pilot.pause()
+        # Badge restored to the live (idle) phase after success.
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_verify_model_banner_on_failure_keeps_state_sane(
+    config_dir: Path,
+) -> None:
+    class FailingVerifyClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "verify_model":
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("verify model should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=FailingVerifyClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await app._verify_model("org/model")
+        await pilot.pause()
+        # Unified remediation banner; no manager was reopened; app stays alive.
+        assert "AGENT_UNREACHABLE" in app.error_text
+        assert "target unreachable" in app.error_text
+        assert app.screen.id == "_default"
+        assert app.is_running
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
 async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
     config_dir: Path,
 ) -> None:

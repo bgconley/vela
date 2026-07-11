@@ -8,7 +8,7 @@ import re
 import shlex
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
@@ -1368,14 +1368,21 @@ class VelaApp(App):
     async def _open_flag_manager(self) -> None:
         if self.current_config is None:
             return
-        await self._refresh_selected_config_preview()
-        presets = await self._load_flag_manager_presets()
+        # Both RPCs (config preview + preset list) run behind ONE busy overlay.
+        # The compound loader returns a dict (never None on success) so the
+        # _with_agent_busy None sentinel stays unambiguous (3.2 constraint).
+        result = await self._with_agent_busy(
+            "loading flags…",
+            self._load_flag_manager_sections(),
+        )
+        if result is None:
+            return
         self.push_screen(
             FlagManagerScreen(
                 self.current_config,
                 preview=self.selected_config_preview,
                 metadata=self.selected_config_metadata,
-                presets=presets,
+                presets=result["presets"],
                 selected_preset=_optional_str(
                     self.selected_config_metadata.get("selected_preset")
                 ),
@@ -1383,6 +1390,15 @@ class VelaApp(App):
             ),
             callback=self._handle_flag_manager_selection,
         )
+
+    async def _load_flag_manager_sections(self) -> dict[str, Any]:
+        # Compound loader for _open_flag_manager's busy overlay. Both sub-calls
+        # self-guard (preview → "Preview unavailable"; presets → []), so this
+        # returns a populated dict rather than propagating — the flag manager
+        # still opens in a degraded state instead of aborting.
+        await self._refresh_selected_config_preview()
+        presets = await self._load_flag_manager_presets()
+        return {"presets": presets}
 
     async def _load_flag_manager_presets(self) -> list[dict[str, Any]]:
         if not self._target_supports_capability("list_presets"):
@@ -1408,13 +1424,11 @@ class VelaApp(App):
         )
 
     async def _open_build_manager(self, *, focus_build: str | None = None) -> None:
-        try:
-            result = await self._target_call(
-                "list_builds",
-                {"configs_dir": str(self.configs_dir)},
-            )
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to list builds: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "loading builds…",
+            self._target_call("list_builds", {"configs_dir": str(self.configs_dir)}),
+        )
+        if result is None:
             return
         self.push_screen(
             BuildManagerScreen(result, focus_build=focus_build),
@@ -1559,10 +1573,11 @@ class VelaApp(App):
         )
 
     async def _select_build(self, build: str) -> None:
-        try:
-            result = await self._target_call("select_build", {"build": build})
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to select build: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "selecting build…",
+            self._target_call("select_build", {"build": build}),
+        )
+        if result is None:
             self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
             return
         label = _optional_str(result.get("label")) or build
@@ -1583,19 +1598,18 @@ class VelaApp(App):
         currently_pinned = str(cfg.command.build) if cfg.command.build is not None else None
         known = aliases or {build}
         new_build: str | None = None if currently_pinned in known else build
-        try:
-            await self._target_call(
+        result = await self._with_agent_busy(
+            "updating build pin…",
+            self._target_call(
                 "set_config_build",
                 {
                     "name": cfg.name,
                     "configs_dir": str(self.configs_dir),
                     "build": new_build,
                 },
-            )
-        except TargetCallError as exc:
-            self._set_error_text(
-                f"Unable to update build pin: {exc}", style=f"bold {BAD}"
-            )
+            ),
+        )
+        if result is None:
             self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
             return
         if new_build is None:
@@ -1615,10 +1629,11 @@ class VelaApp(App):
         self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
 
     async def _verify_build(self, build: str) -> None:
-        try:
-            result = await self._target_call("verify_build", {"build": build})
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to verify build: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "verifying build…",
+            self._target_call("verify_build", {"build": build}),
+        )
+        if result is None:
             return
         label = _optional_str(result.get("label")) or build
         status = _optional_str(result.get("status")) or "verified"
@@ -1629,10 +1644,11 @@ class VelaApp(App):
         self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
 
     async def _repair_build(self, build: str) -> None:
-        try:
-            result = await self._target_call("repair_build", {"build": build})
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to repair build: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "repairing build…",
+            self._target_call("repair_build", {"build": build}),
+        )
+        if result is None:
             return
         label = _optional_str(result.get("label")) or build
         detail = _optional_str(result.get("detail")) or _optional_str(result.get("status"))
@@ -1683,17 +1699,18 @@ class VelaApp(App):
         )
 
     async def _remove_build(self, build: str, label: str) -> None:
-        try:
-            result = await self._target_call(
-                "remove_build",
-                {"build": build, "configs_dir": str(self.configs_dir)},
-            )
-        except TargetCallError as exc:
-            self._set_error_text(
-                f"Unable to remove build: {exc}{_blocker_suffix(exc)}",
-                style=f"bold {BAD}",
-            )
-            return
+        with self._busy_badge("removing build…"):
+            try:
+                result = await self._target_call(
+                    "remove_build",
+                    {"build": build, "configs_dir": str(self.configs_dir)},
+                )
+            except TargetCallError as exc:
+                self._set_error_text(
+                    f"Unable to remove build: {exc}{_blocker_suffix(exc)}",
+                    style=f"bold {BAD}",
+                )
+                return
         removed_label = _optional_str(result.get("label")) or label
         self.notify(f"Removed build: {removed_label}")
         if self.current_config is not None:
@@ -2349,10 +2366,11 @@ class VelaApp(App):
         # The screen-level flag never reaches the pin RPC; it kicks the
         # existing download job after a successful pin (J15).
         download_now = bool(params.pop("download_now", False))
-        try:
-            result = await self._target_call("pin_model", params)
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to pin model: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "pinning model…",
+            self._target_call("pin_model", params),
+        )
+        if result is None:
             return
         entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
         label = _optional_str(entry.get("display_name"))
@@ -2379,10 +2397,11 @@ class VelaApp(App):
             await self._open_model_manager(focus_model=entry_id or rendered)
 
     async def _verify_model(self, model_ref: str) -> None:
-        try:
-            result = await self._target_call("verify_model", {"model_ref": model_ref})
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to verify model: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "verifying model…",
+            self._target_call("verify_model", {"model_ref": model_ref}),
+        )
+        if result is None:
             return
         cache_state = _optional_str(result.get("cache_state")) or "verified"
         detail = _optional_str(result.get("detail"))
@@ -2451,17 +2470,18 @@ class VelaApp(App):
         )
 
     async def _remove_model(self, model_ref: str, label: str) -> None:
-        try:
-            result = await self._target_call(
-                "remove_model",
-                {"model_ref": model_ref, "configs_dir": str(self.configs_dir)},
-            )
-        except TargetCallError as exc:
-            self._set_error_text(
-                f"Unable to remove model: {exc}{_blocker_suffix(exc)}",
-                style=f"bold {BAD}",
-            )
-            return
+        with self._busy_badge("removing model…"):
+            try:
+                result = await self._target_call(
+                    "remove_model",
+                    {"model_ref": model_ref, "configs_dir": str(self.configs_dir)},
+                )
+            except TargetCallError as exc:
+                self._set_error_text(
+                    f"Unable to remove model: {exc}{_blocker_suffix(exc)}",
+                    style=f"bold {BAD}",
+                )
+                return
         entry = result.get("entry") if isinstance(result.get("entry"), dict) else {}
         removed_label = _optional_str(entry.get("display_name")) or label
         self.notify(f"Removed model: {removed_label}")
@@ -4387,15 +4407,29 @@ class VelaApp(App):
         (last-writer-wins). The overlay is transient chrome and never mutates
         ``self.phase``.
         """
+        with self._busy_badge(verb):
+            try:
+                return await awaitable
+            except TargetCallError as exc:
+                self._mark_target_connection_error(exc)
+                return None
+
+    @contextlib.contextmanager
+    def _busy_badge(self, verb: str) -> Iterator[None]:
+        """Paint the pulsing busy badge for ``verb``, restoring the live phase on exit.
+
+        Exception-safe on both edges (the widget may be missing during teardown).
+        Shared by ``_with_agent_busy`` and the manager verbs that keep a bespoke
+        banner — build/model removal must preserve the J34 "pinned by …" suffix,
+        which the unified connection banner would drop, so they cannot funnel
+        through ``_with_agent_busy`` but still want the busy overlay.
+        """
         try:
             self._paint_status_badge_busy(verb)
         except WIDGET_MISSING_EXCEPTIONS:
             pass
         try:
-            return await awaitable
-        except TargetCallError as exc:
-            self._mark_target_connection_error(exc)
-            return None
+            yield
         finally:
             try:
                 self._paint_status_badge(self.phase)
