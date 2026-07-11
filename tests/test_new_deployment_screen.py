@@ -788,3 +788,82 @@ def test_shared_error_constants_bind_the_mapped_prefixes() -> None:
     model_step = NewDeploymentScreen.STEP_TITLES.index("Model")
     assert prefixes[MODEL_REQUIRED_ERROR] == model_step
     assert prefixes[DOWNLOAD_NEEDS_PIN_ERROR] == model_step
+
+
+# The exact honest cached-scan helper line, count 1 (M3). Hard-coded here (not
+# built from a screen constant) so the test pins the literal contract string.
+_EXPECTED_SCAN_HELPER_ONE = (
+    '1 cached (unpinned) models on this target — "Pin HF repo →" to use one'
+)
+
+
+@pytest.mark.asyncio
+async def test_model_step_offers_only_pinned_refs_and_flags_cached_scans() -> None:
+    # M3: the pinned-model Select must offer ONLY entries the composer can
+    # resolve (real registry pins, pinned=True). Synthetic HF-cache-scan rows
+    # (pinned=False, entry_id "repo@sha12") are NOT selectable — compose rejects
+    # them as "unknown model reference" — so they are excluded from the picker
+    # and summarized in an honest helper line pointing back at "Pin HF repo →".
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[
+                {"entry_id": "qwen-pin", "display_name": "Qwen Pin", "pinned": True},
+                {
+                    "entry_id": "Qwen/Qwen3-32B@abc123def456",
+                    "display_name": "Qwen/Qwen3-32B",
+                    "pinned": False,
+                },
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        # One real pin exists → the source defaults to "Existing pin".
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "existing"
+        assert screen._default_model_mode() == "existing"
+        # The picker offers the real pin and NOT the cache-scan row.
+        values = [value for _label, value in screen._model_options()]
+        assert "qwen-pin" in values
+        assert "Qwen/Qwen3-32B@abc123def456" not in values
+        # The one excluded scan row is summarized in the honest helper line.
+        helper = screen.query_one("#new-deployment-model-scan-help", Static)
+        assert helper.display is True
+        assert str(helper.content) == _EXPECTED_SCAN_HELPER_ONE
+
+
+@pytest.mark.asyncio
+async def test_scan_only_registry_defaults_to_bare_and_flags_cached_scans() -> None:
+    # M3 + bug-236b: a target whose only models are HF-cache-scan rows
+    # (pinned=False) has ZERO composer-resolvable pins, so _default_model_mode
+    # counts none and the Model step defaults to "Bare repo id". Switching to
+    # "Existing pin" ANYWAY shows the honest empty-pins placeholder AND the
+    # cached-scan helper line (both present).
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[
+                {
+                    "entry_id": "Qwen/Qwen3-32B@abc123def456",
+                    "display_name": "Qwen/Qwen3-32B",
+                    "pinned": False,
+                },
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        # Scan-only list → no real pins → default bare (2.3 now counts only pins).
+        assert screen._default_model_mode() == "bare"
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "bare"
+        # Switch to "Existing pin": the picker shows only the honest placeholder …
+        screen.query_one("#new-deployment-model-mode", Select).value = "existing"
+        await pilot.pause()
+        assert screen.query_one("#nd-group-pinned").display is True
+        assert screen._model_options() == [(_EXPECTED_NO_PINS_PLACEHOLDER, "__custom__")]
+        # … and the cached-scan helper line renders alongside it.
+        helper = screen.query_one("#new-deployment-model-scan-help", Static)
+        assert helper.display is True
+        assert "1 cached (unpinned) models" in str(helper.content)

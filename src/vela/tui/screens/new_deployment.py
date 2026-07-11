@@ -324,6 +324,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         id="new-deployment-model-ref",
                     )
                     yield Static("", id="new-deployment-model-state")
+                    # Cached-but-unpinned signpost (M3): filled + display-toggled
+                    # by _render_model_scan_help when the target has HF-cache-scan
+                    # rows the picker excluded. Bare Static (no wrapper container)
+                    # per the step's helper convention.
+                    model_scan_help = Static(
+                        "",
+                        id="new-deployment-model-scan-help",
+                        classes="new-deployment-helper",
+                    )
+                    model_scan_help.display = False
+                    yield model_scan_help
                 yield Static("", id="new-deployment-model-suggestions")
                 with Vertical(id="nd-group-bare"):
                     yield Static("Model", classes="new-deployment-field-label")
@@ -447,6 +458,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self._render_preset_help()
         self._apply_runtime_disclosure()
         self._apply_model_disclosure()
+        self._render_model_scan_help()
         self._apply_advanced_disclosure()
         # Render + focus the step LAST: _focus_step_entry (inside _refresh_step)
         # picks the step's first EFFECTIVELY-visible Input, so it must run AFTER
@@ -1004,15 +1016,38 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         return options
 
     def _pinned_model_options(self) -> list[tuple[str, str]]:
-        # The real, selectable pins the picker can offer. Task 2.6 will refine
-        # WHICH entries qualify; here "pinned" == "has a usable ref".
+        # The real, selectable pins the picker can offer: only registry pins the
+        # composer can resolve (model_ref → _entry_for_reference matches the
+        # registry file). list_models marks those pinned=True and synthetic
+        # HF-cache-scan rows (entry_id "repo@sha12") pinned=False (M3); offering
+        # a scan row would dead-end Review with "unknown model reference:
+        # repo@sha12". Entries WITHOUT the marker (older/simple test fixtures)
+        # are treated as pinned=True — compatible-by-default so bare
+        # {"entry_id": ...} dicts keep offering their entry.
         options: list[tuple[str, str]] = []
         for model in self.models:
+            if not _is_pinned_entry(model):
+                continue
             ref = _model_reference(model)
             if not ref:
                 continue
             options.append((_model_option_label(model), ref))
         return options
+
+    def _render_model_scan_help(self) -> None:
+        # Honest signpost (M3): count the HF-cache-scan rows the pinned picker
+        # excluded (pinned=False) and, when any exist, tell the operator they are
+        # cached-but-unpinned and how to make one selectable. Rows WITHOUT the
+        # marker are treated as pins (see _is_pinned_entry), so they never
+        # inflate this count. Display-toggled; shown in the empty-pins case too.
+        count = sum(1 for model in self.models if not _is_pinned_entry(model))
+        helper = self.query_one("#new-deployment-model-scan-help", Static)
+        if count:
+            helper.update(
+                f"{count} cached (unpinned) models on this target — "
+                '"Pin HF repo →" to use one'
+            )
+        helper.display = bool(count)
 
     def _model_options(self) -> list[tuple[str, str]]:
         pins = self._pinned_model_options()
@@ -1321,6 +1356,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
 def _model_reference(model: dict[str, Any]) -> str:
     return str(model.get("entry_id") or model.get("display_name") or "").strip()
+
+
+def _is_pinned_entry(model: dict[str, Any]) -> bool:
+    # A model row is a real, composer-resolvable pin when list_models marked it
+    # pinned=True; synthetic HF-cache-scan rows are pinned=False (M3). A row
+    # WITHOUT the field (older/simple test fixtures) is treated as pinned=True —
+    # compatible-by-default so bare {"entry_id": ...} dicts still qualify.
+    value = model.get("pinned")
+    if value is None:
+        return True
+    return bool(value)
 
 
 def _model_suggestions_summary(payload: dict[str, Any]) -> str:
