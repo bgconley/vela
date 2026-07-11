@@ -11,6 +11,7 @@ from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from vela.tui.cells import truncate_cells as _truncate_cells
 from vela.tui.theme import (
     AMBER,
     BG_BASE,
@@ -550,24 +551,6 @@ def _gb_label(size: int) -> str:
     return f"{size / 1_000_000_000:.1f} GB"
 
 
-def _truncate_cells(text: str, budget: int) -> str:
-    # Cell-aware left-justified truncation with a trailing ellipsis so a long
-    # display_name keeps the row on one line instead of wrapping (bug-237).
-    if budget <= 0:
-        return ""
-    if cell_len(text) <= budget:
-        return text
-    if budget == 1:
-        return "…"
-    used = 0
-    out: list[str] = []
-    for char in text:
-        width = cell_len(char)
-        if used + width > budget - 1:
-            break
-        out.append(char)
-        used += width
-    return "".join(out) + "…"
 
 
 def _files_label(files: dict[str, Any]) -> str:

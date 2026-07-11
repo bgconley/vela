@@ -19,6 +19,7 @@ from urllib.parse import urlsplit, urlunsplit
 if "NO_COLOR" not in os.environ:
     os.environ.setdefault("TEXTUAL_COLOR_SYSTEM", "truecolor")
 
+from rich.cells import cell_len
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult, ScreenStackError, SystemCommand
@@ -67,6 +68,7 @@ from vela.monitoring.gpu import (
 from vela.monitoring.health import HealthEvent
 from vela.remediation import remediation_for_error
 from vela.transport.factory import target_client_for_config
+from vela.tui.cells import truncate_cells
 from vela.tui.screens.adopt_build import AdoptBuildScreen
 from vela.tui.screens.build_manager import BuildManagerScreen
 from vela.tui.screens.config_picker import ConfigPickerScreen
@@ -137,6 +139,19 @@ WIDGET_MISSING_EXCEPTIONS = (NoMatches, ScreenStackError)
 SEARCH_HIGHLIGHT_STYLE = "black on yellow"
 PROGRESS_PERCENT_RE = re.compile(r"(?P<percent>\d{1,3}(?:\.\d+)?)%")
 PROGRESS_TRACK_WIDTH = 72
+# Adaptive top-chrome reveal thresholds (bug-237). The header collapses
+# right-to-left (badge > target > model > URL > clock): the server URL and the
+# clock — the two lowest-priority segments — only appear once the terminal is
+# wide enough to show them without starving the model/badge slots. These are
+# finer than HORIZONTAL_BREAKPOINTS (which only has compact/narrow/wide buckets)
+# because 100/120/140 are all "wide" yet must behave differently.
+HEADER_URL_MIN_WIDTH = 112
+HEADER_CLOCK_MIN_WIDTH = 132
+# Fixed cell cost of the status badge box around its label: solid border (1 each
+# side) + horizontal padding 0 1 (1 each side) + the width-3 status dot.
+HEADER_BADGE_CHROME_CELLS = 7
+# Cells the header reserves between adjacent segments (CSS margin-right: 2).
+HEADER_SEGMENT_GAP = 2
 LOADING_PHASES = {
     Phase.STARTING,
     Phase.RESOLVING_MODEL,
@@ -530,32 +545,36 @@ class VelaApp(App):
         align: left middle;
     }
     #app-title {
-        width: 20;
+        width: auto;
+        margin-right: 2;
         color: #60d7f8;
         text-style: bold;
         content-align: left middle;
     }
     #target-segment {
-        width: 18;
+        width: auto;
+        margin-right: 2;
         color: #8ba4ae;
         content-align: left middle;
     }
     #active-model {
-        width: 32;
+        width: 1fr;
+        min-width: 0;
+        margin-right: 2;
         color: #e8f1f2;
         text-style: bold;
         content-align: left middle;
     }
     #server-url {
-        width: 1fr;
-        color: #67e8a5;
-        text-style: bold;
+        width: auto;
+        margin-right: 2;
+        color: #8ba4ae;
         content-align: left middle;
     }
     #chrome-clock {
-        width: 10;
+        width: auto;
         color: #8ba4ae;
-        content-align: right middle;
+        content-align: left middle;
     }
     #body { height: 1fr; padding: 1 2; }
     #sidebar { width: 34; min-width: 24; margin-right: 2; }
@@ -584,7 +603,8 @@ class VelaApp(App):
         color: #e8f1f2;
     }
     #status-badge {
-        width: 26;
+        width: auto;
+        margin-right: 2;
         height: 3;
         border: solid #526a75;
         background: #14202b;
@@ -597,7 +617,7 @@ class VelaApp(App):
         content-align: center middle;
     }
     #status-label {
-        width: 1fr;
+        width: auto;
         height: 1;
         content-align: left middle;
         text-style: bold;
@@ -4873,18 +4893,75 @@ class VelaApp(App):
         self._refresh_log_controls()
         self._refresh_status_strip()
 
-    def _refresh_chrome(self) -> None:
+    def _refresh_chrome(self, width: int | None = None) -> None:
+        if width is None:
+            width = self.size.width
         try:
-            self.query_one("#target-segment", Static).update(
-                self._render_target_segment()
-            )
-            self.query_one("#active-model", Static).update(self._render_active_model())
-            self.query_one("#server-url", Static).update(self._render_chrome_url())
-            self.query_one("#chrome-clock", Static).update(
-                datetime.now().strftime("%H:%M:%S")
-            )
+            target_widget = self.query_one("#target-segment", Static)
+            model_widget = self.query_one("#active-model", Static)
+            url_widget = self.query_one("#server-url", Static)
+            clock_widget = self.query_one("#chrome-clock", Static)
         except WIDGET_MISSING_EXCEPTIONS:
             return
+        # Auto-width siblings (target, URL, clock) fix the columns the 1fr model
+        # slot has left, so render them first, then size the model text to the
+        # exact leftover — that way it ellipsizes instead of hard-clipping and
+        # the badge is never shoved off the right edge (bug-237).
+        target_text = self._render_target_segment()
+        target_widget.update(target_text)
+        url_full = self._chrome_url_plain()
+        url_shown = bool(url_widget.display and url_full)
+        clock_shown = bool(clock_widget.display)
+        url_widget.update(self._render_chrome_url(url_full))
+        clock_widget.update(datetime.now().strftime("%H:%M:%S") if clock_shown else "")
+        model_budget = self._active_model_budget(
+            width,
+            target_cells=cell_len(target_text.plain),
+            url_cells=cell_len(url_full) if url_shown else 0,
+            clock_cells=8 if clock_shown else 0,
+        )
+        model_widget.update(truncate_cells(self._render_active_model(), model_budget))
+
+    def _active_model_budget(
+        self,
+        width: int,
+        *,
+        target_cells: int,
+        url_cells: int,
+        clock_cells: int,
+    ) -> int:
+        """Columns the 1fr ``#active-model`` slot is left with after the
+        auto-width siblings claim theirs (bug-237).
+
+        Mirrors the header box model exactly so the model text can be truncated
+        to fit: ``#terminal-shell`` border (1 each side) + ``#top-chrome``
+        padding ``0 2``, then the auto widths of title, target, badge, URL and
+        clock, plus one ``margin-right: 2`` gap per segment that carries one.
+        """
+        inner = width - 2 - (2 * 2)
+        badge_cells = HEADER_BADGE_CHROME_CELLS + cell_len(self._status_label_plain())
+        # margin-right: 2 sits on title, target, model, badge, and — when shown —
+        # the URL (the clock is the last segment and carries none).
+        gap_segments = 4 + (1 if url_cells else 0)
+        gaps = HEADER_SEGMENT_GAP * gap_segments
+        used = (
+            cell_len("Vela")
+            + target_cells
+            + badge_cells
+            + url_cells
+            + clock_cells
+            + gaps
+        )
+        return max(0, inner - used)
+
+    def _status_label_plain(self) -> str:
+        """Plain text of the badge label as currently painted — the phase name
+        or the live agent-busy verb — so budgeting reserves the real box width."""
+        try:
+            content = self.query_one("#status-label", Static).content
+        except WIDGET_MISSING_EXCEPTIONS:
+            return self.phase.value
+        return content.plain if isinstance(content, Text) else str(content)
 
     def _render_target_segment(self) -> Text:
         dot = self._target_connection_dot(self.target_connection_state)
@@ -5083,12 +5160,26 @@ class VelaApp(App):
             return "✕"
         return "○"
 
-    def _render_chrome_url(self) -> str:
+    def _chrome_url_plain(self) -> str:
         if self.ready_url:
             return self.ready_url
         if self.current_config is None:
             return ""
         return self._server_url(self.current_config)
+
+    def _render_chrome_url(self, url: str | None = None) -> Text:
+        if url is None:
+            url = self._chrome_url_plain()
+        if not url:
+            return Text("")
+        if self.phase in {Phase.READY, Phase.DEGRADED}:
+            # Only a server that is actually serving gets the live colour.
+            style = self._status_style_for_phase(self.phase)
+        else:
+            # Honest chrome (bug-237): a configured URL that is not live reads
+            # dim, so IDLE/STOPPED never advertise a server that isn't there.
+            style = MUTED
+        return Text(url, style=style)
 
     def _refresh_log_controls(self) -> None:
         try:
@@ -5235,19 +5326,28 @@ class VelaApp(App):
             sidebar_overlay = self.query_one("#sidebar-overlay")
             gpu_panel = self.query_one("#gpu")
             log = self.query_one("#log", RichLog)
+            server_url = self.query_one("#server-url", Static)
+            clock = self.query_one("#chrome-clock", Static)
         except WIDGET_MISSING_EXCEPTIONS:
             return
         sidebar.display = self.responsive_mode == "wide"
         sidebar_overlay.display = self.responsive_mode != "wide"
         gpu_panel.display = self.responsive_mode != "compact"
         log.display = True
+        # Top chrome collapses right-to-left: the two lowest-priority segments
+        # (server URL, then clock) only appear once the terminal is wide enough
+        # that revealing them will not starve the badge/model slots (bug-237).
+        server_url.display = width >= HEADER_URL_MIN_WIDTH
+        clock.display = width >= HEADER_CLOCK_MIN_WIDTH
         if self.responsive_mode != previous_mode:
             self._debug_event(
                 "layout.responsive",
                 width=width,
                 mode=self.responsive_mode,
             )
-            self._refresh_chrome()
+        # Re-fit the header on every resize, not just on mode changes: 100/120/140
+        # are all "wide" yet need different model budgets and URL/clock reveals.
+        self._refresh_chrome(width)
 
     async def _run_selected_config(self) -> None:
         cfg = self.current_config

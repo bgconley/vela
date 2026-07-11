@@ -16,6 +16,7 @@ import httpx
 import pytest
 from conftest import scaled_timeout, write_yaml
 from fakes.fake_docker import write_fake_docker_runtime
+from rich.cells import cell_len
 from rich.text import Text
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, ProgressBar, RichLog, Select, Static
@@ -16145,6 +16146,158 @@ async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
         assert sidebar_overlay.display is False
         assert gpu_panel.display is True
         assert log.display is True
+
+
+# --- Task 4.5: adaptive truthful top chrome (bug-237) ---
+
+_HEADER_WIDTHS = (80, 100, 120, 140)
+
+
+def _write_header_config(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "demo.yaml",
+        """
+        name: demo-model
+        model: org/demo-model
+        server:
+          host: 127.0.0.1
+          port: 8765
+        """,
+    )
+
+
+def test_truncate_cells_is_cell_aware_and_never_splits_a_wide_glyph() -> None:
+    from vela.tui.cells import truncate_cells
+
+    assert truncate_cells("hello", 10) == "hello"
+    assert truncate_cells("hello world", 8) == "hello w…"
+    assert truncate_cells("anything", 0) == ""
+    # A leading double-width emoji must not be split across the boundary.
+    pinned = truncate_cells("📌abcdef", 4)
+    assert pinned.endswith("…")
+    assert cell_len(pinned) <= 4
+    # CJK glyphs are two cells each; the result must stay within budget.
+    cjk = truncate_cells("中文字符名称", 5)
+    assert cell_len(cjk) <= 5
+    assert cjk.endswith("…")
+
+
+@pytest.mark.asyncio
+async def test_top_chrome_badge_stays_in_flow_and_fully_visible(config_dir: Path) -> None:
+    _write_header_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        for width in _HEADER_WIDTHS:
+            await pilot.resize_terminal(width, 40)
+            await pilot.pause()
+            top = app.query_one("#top-chrome").region
+            badge = app.query_one("#status-badge").region
+            # Fully inside the header horizontally: both side borders visible.
+            assert badge.x >= top.x, f"badge left-clipped at {width}"
+            assert badge.x + badge.width <= top.x + top.width, (
+                f"badge right-overflows header at {width}: "
+                f"badge_right={badge.x + badge.width} header_right={top.x + top.width}"
+            )
+            # Full bordered box (3 rows) and within the header vertically.
+            assert badge.height >= 3, f"badge lost its border height at {width}"
+            assert badge.y >= top.y
+            assert badge.y + badge.height <= top.y + top.height
+
+
+@pytest.mark.asyncio
+async def test_top_chrome_priority_collapse_right_to_left(config_dir: Path) -> None:
+    _write_header_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        # Invariant at every width: header height fixed, no segment wraps, and no
+        # segment content is clipped mid-glyph (content always fits its region).
+        for width in _HEADER_WIDTHS:
+            await pilot.resize_terminal(width, 40)
+            await pilot.pause()
+            top = app.query_one("#top-chrome").region
+            assert top.height == 3, f"header height drifted at {width}"
+            for selector in (
+                "#app-title",
+                "#target-segment",
+                "#active-model",
+                "#server-url",
+                "#chrome-clock",
+            ):
+                widget = app.query_one(selector, Static)
+                if not widget.display:
+                    continue
+                content = str(widget.content)
+                assert "\n" not in content, f"{selector} wrapped at {width}"
+                assert cell_len(content) <= widget.region.width, (
+                    f"{selector} clipped at {width}: "
+                    f"{content!r} ({cell_len(content)} cells) > {widget.region.width}"
+                )
+
+        # 80: badge + target visible; URL and clock collapse away (right-to-left).
+        await pilot.resize_terminal(80, 40)
+        await pilot.pause()
+        assert str(app.query_one("#target-segment", Static).content) != ""
+        assert app.query_one("#server-url", Static).display is False
+        assert app.query_one("#chrome-clock", Static).display is False
+        assert "demo-model" in str(app.query_one("#active-model", Static).content)
+
+        # 100: model readable (fully rendered, not ellipsized).
+        await pilot.resize_terminal(100, 40)
+        await pilot.pause()
+        model_100 = str(app.query_one("#active-model", Static).content)
+        assert "model: demo-model" in model_100
+        assert not model_100.rstrip().endswith("…")
+
+        # 120: URL present again.
+        await pilot.resize_terminal(120, 40)
+        await pilot.pause()
+        assert app.query_one("#server-url", Static).display is True
+        assert "8765" in str(app.query_one("#server-url", Static).content)
+
+        # 140: everything, clock included.
+        await pilot.resize_terminal(140, 40)
+        await pilot.pause()
+        assert app.query_one("#server-url", Static).display is True
+        assert app.query_one("#chrome-clock", Static).display is True
+        clock = str(app.query_one("#chrome-clock", Static).content)
+        assert re.match(r"\d\d:\d\d:\d\d", clock), f"clock not shown at 140: {clock!r}"
+
+
+@pytest.mark.asyncio
+async def test_server_url_is_dim_until_ready_then_live(config_dir: Path) -> None:
+    _write_header_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        url = app.query_one("#server-url", Static)
+        # IDLE: the configured URL shows dim (muted), never the live colour.
+        assert app.phase is Phase.IDLE
+        content = url.content
+        assert isinstance(content, Text)
+        assert "127.0.0.1:8765" in content.plain
+        assert _text_uses_style(content, "#8ba4ae"), f"IDLE url not dim: {content!r}"
+        assert not _text_uses_style(content, "#67e8a5"), "IDLE url must not read as live"
+
+        # READY: the live server URL turns the ready colour.
+        app.ready_url = "http://127.0.0.1:8765"
+        app._set_phase(Phase.READY)
+        await pilot.pause()
+        content = app.query_one("#server-url", Static).content
+        assert isinstance(content, Text)
+        assert _text_uses_style(content, "#67e8a5"), f"READY url not live: {content!r}"
+
+        # STOPPED: back to dim — nothing is live any more.
+        app._set_phase(Phase.STOPPED)
+        await pilot.pause()
+        content = app.query_one("#server-url", Static).content
+        assert isinstance(content, Text)
+        assert _text_uses_style(content, "#8ba4ae"), f"STOPPED url not dim: {content!r}"
+        assert not _text_uses_style(content, "#67e8a5"), "STOPPED url must not read as live"
 
 
 @pytest.mark.asyncio
