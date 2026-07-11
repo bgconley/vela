@@ -113,6 +113,9 @@ LEVEL_STYLE = {
     # Known-benign shutdown/teardown noise: de-emphasized so it never reads as
     # a warning (the screenshot-#7 NCCL destroy_process_group fix).
     "BENIGN": "#56707c",
+    # Display-only run chrome (bug-237): the `── run … ──` separator and the
+    # `── STOPPED by operator ──` closure lines render dim, never as log data.
+    "RULE": "#56707c",
 }
 
 LEVEL_RAIL_STYLE = {
@@ -122,6 +125,7 @@ LEVEL_RAIL_STYLE = {
     "INFO": "#e8f1f2",
     "DEBUG": "#526a75",
     "BENIGN": "#56707c",
+    "RULE": "#56707c",
 }
 NEW_DEPLOYMENT_TARGET_PROBE_TIMEOUT_SECONDS = 3.0
 LEVEL_FILTER_ALIASES = {
@@ -186,6 +190,12 @@ LOADING_PHASES = {
 # transient RPC verb reads exactly like a run loading state without being bound
 # to any real run phase.
 BUSY_BADGE_PHASE = Phase.STARTING
+# Run phases in which stale RUN progress records may no longer paint the
+# transient panel (bug-237). IDLE is deliberately absent: background jobs
+# (model/build downloads) stream progress while no run is active.
+PROGRESS_SUPPRESSED_PHASES = frozenset(
+    {Phase.READY, Phase.DEGRADED, Phase.STOPPED, Phase.ERROR}
+)
 
 # Result type for the shared _with_agent_busy RPC wrapper.
 _T = TypeVar("_T")
@@ -624,7 +634,9 @@ class VelaApp(App):
         padding: 0 1;
     }
     #config-panel { height: auto; max-height: 9; }
-    #phase-panel { height: auto; max-height: 12; }
+    /* 13 = title + 8 workflow rows + terminal marker row + Overall + border 2
+       (bug-237: at 12 the terminal row pushed Overall past the clip). */
+    #phase-panel { height: auto; max-height: 13; }
     #gpu-panel { height: auto; max-height: 11; }
     .side-panel {
         height: auto;
@@ -879,6 +891,10 @@ class VelaApp(App):
         self.current_phase_started_at: float | None = None
         self.current_phase_started_uses_agent_mono = False
         self._intentional_shutdown_pids: set[int] = set()
+        # Operator stop/kill verbs recorded by run_id BEFORE signalling (the
+        # sidecar-intent idiom), so the terminal STOPPED can say which verb
+        # closed the run: "Stopped <id>" vs "Killed <id>" (bug-237).
+        self._operator_signal_verbs: dict[str, str] = {}
         self.phase_elapsed: dict[Phase, float] = {}
         self.phase_history: list[Phase] = []
         self.phase_timeline_text = "Phases\n○ IDLE"
@@ -3893,6 +3909,7 @@ class VelaApp(App):
         self._cancel_monitor_workers()
         self.reattached_run_id = None
         self._set_phase(Phase.STOPPED)
+        self._announce_operator_shutdown(run_id, action)
 
     def _server_url_for_copy(self) -> str | None:
         if self.ready_url:
@@ -4169,7 +4186,33 @@ class VelaApp(App):
         )
         self._refresh_status_strip()
 
+    def _write_run_separator(self, run_id: str, config_name: str) -> None:
+        """Dim display-only delimiter written before a run's first log line.
+
+        Marks where each launch/reattach begins so consecutive runs never read
+        as one concatenated stream (bug-237). Display path only — durable logs
+        are written agent-side and never carry TUI chrome (FR-27).
+        """
+        target = self.target_name or "local"
+        self._write_log(f"── run {run_id} · {config_name} · {target} ──", "RULE")
+
+    def _announce_operator_shutdown(self, run_id: str, verb: str) -> None:
+        """Close the operator stop/kill loop: a toast plus a display log line.
+
+        Without these the only evidence of a completed stop was the status pill
+        flipping (bug-237). Display path only, like the run separator.
+        """
+        label = "Killed" if verb == "kill" else "Stopped"
+        self.notify(f"{label} {run_id}")
+        self._write_log(f"── {label.upper()} by operator ──", "RULE")
+
     def _update_progress(self, text: str) -> None:
+        if self.phase in PROGRESS_SUPPRESSED_PHASES and self._active_job_id is None:
+            # bug-237: once the run leaves the loading family (READY) or ends
+            # (STOPPED/ERROR), a trailing carriage-return record must not
+            # resurrect the transient panel _set_phase already cleared. Live
+            # background jobs (e.g. a download while READY) keep streaming.
+            return
         self.progress_text = text
         try:
             self.query_one("#progress-panel").display = True
@@ -4661,6 +4704,10 @@ class VelaApp(App):
         """
         try:
             self._paint_status_badge_busy(verb)
+            # Re-fit the header for the (usually wider) verb label so the 1fr
+            # model slot re-truncates instead of wrapping the 80-col chrome
+            # (_status_label_plain reads the painted label; 4.5 follow-up).
+            self._refresh_chrome()
         except WIDGET_MISSING_EXCEPTIONS:
             pass
         try:
@@ -4668,6 +4715,7 @@ class VelaApp(App):
         finally:
             try:
                 self._paint_status_badge(self.phase)
+                self._refresh_chrome()
             except WIDGET_MISSING_EXCEPTIONS:
                 pass
 
@@ -4793,6 +4841,7 @@ class VelaApp(App):
             return
         self.reattached_run_id = str(result_run_id)
         self.current_run_id = None
+        self._write_run_separator(self.reattached_run_id, config_name)
         self.fsm = _phase_fsm_from_agent_metadata(
             dict(result.get("fsm") or {})
         )
@@ -4828,6 +4877,9 @@ class VelaApp(App):
         interrupt_timeout: float,
         terminate_timeout: float,
     ) -> bool:
+        # Record intent BEFORE signalling (the sidecar idiom) so the monitor's
+        # terminal STOPPED can name the verb even if `wait` resolves first.
+        self._operator_signal_verbs[run_id] = "stop"
         try:
             await self._target_call(
                 "stop",
@@ -4838,14 +4890,17 @@ class VelaApp(App):
                 },
             )
         except Exception as exc:
+            self._operator_signal_verbs.pop(run_id, None)
             self._set_error_text(f"Unable to stop {run_id}: {exc}")
             return False
         return True
 
     async def _target_kill_run(self, run_id: str) -> None:
+        self._operator_signal_verbs[run_id] = "kill"
         try:
             await self._target_call("kill", {"run_id": run_id})
         except Exception as exc:
+            self._operator_signal_verbs.pop(run_id, None)
             self._set_error_text(f"Unable to kill {run_id}: {exc}")
 
     async def _target_probe_run_until_ready(
@@ -5563,6 +5618,7 @@ class VelaApp(App):
 
     async def _monitor_attached_run(self, cfg: ModelConfig, run_id: str) -> None:
         self.current_run_id = run_id
+        self._write_run_separator(run_id, cfg.name)
         events_task = asyncio.create_task(
             self._consume_target_run_events_until_exit(run_id)
         )
@@ -5599,6 +5655,9 @@ class VelaApp(App):
                 self._set_error_banner(self.fsm.error_kind)
             if intentional and resolved_phase is Phase.STOPPED:
                 self._set_error_text("")
+                self._announce_operator_shutdown(
+                    run_id, self._operator_signal_verbs.pop(run_id, "stop")
+                )
             self._set_phase(resolved_phase)
             return
         self._set_error_text("Agent wait result did not include a terminal phase")
@@ -5959,9 +6018,19 @@ class VelaApp(App):
         text = Text("Phases", style=f"bold {ACCENT}")
         for marker, phase, elapsed, state in rows:
             style = self._phase_timeline_style(phase, state)
+            label = phase.value
+            if (
+                state == "terminal"
+                and phase is Phase.ERROR
+                and self.fsm.error_kind is ErrorKind.CRASHED
+            ):
+                label = "CRASHED"
             text.append("\n")
             text.append(marker, style=f"bold {style}")
-            text.append(f" {phase.value}", style=style if state == "upcoming" else f"bold {TEXT}")
+            # Terminal rows carry their own colour (dim/red) end to end so a
+            # dead run never renders with the live bold-text treatment.
+            label_style = style if state in {"upcoming", "terminal"} else f"bold {TEXT}"
+            text.append(f" {label}", style=label_style)
             text.append(f" {elapsed}", style=MUTED)
         if self.run_started_at is not None:
             overall = self._format_duration(self._overall_elapsed())
@@ -5982,9 +6051,16 @@ class VelaApp(App):
                 rows.append(("✓", phase, elapsed, "complete"))
             else:
                 rows.append(("○", phase, "--", "upcoming"))
-        if self.phase in {Phase.DEGRADED, Phase.STOPPED, Phase.ERROR}:
+        if self.phase is Phase.DEGRADED:
             elapsed = self._format_duration(self._elapsed_for(self.phase))
             rows.append(("●", self.phase, elapsed, "current"))
+        elif self.phase in {Phase.STOPPED, Phase.ERROR}:
+            # Terminal marker row (bug-237): the run has ENDED, so the timeline
+            # must not read as a live "current" state — ■ STOPPED dim,
+            # ✗ ERROR/CRASHED red — while the READY history above is kept.
+            elapsed = self._format_duration(self._elapsed_for(self.phase))
+            marker = "■" if self.phase is Phase.STOPPED else "✗"
+            rows.append((marker, self.phase, elapsed, "terminal"))
         return rows
 
     @staticmethod
@@ -5993,6 +6069,8 @@ class VelaApp(App):
             return GOOD
         if state == "upcoming":
             return MUTED
+        if state == "terminal":
+            return BAD if phase is Phase.ERROR else MUTED
         if phase is Phase.READY:
             return GOOD
         if phase is Phase.DEGRADED:
@@ -6031,6 +6109,7 @@ class VelaApp(App):
         self.ready_url = None
         self.served_models = []
         self.health_detail = ""
+        self._operator_signal_verbs.clear()
         self.warning_lines = []
         self.run_started_at = None
         self.run_started_uses_agent_mono = False

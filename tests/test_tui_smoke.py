@@ -9292,6 +9292,48 @@ async def test_with_agent_busy_shows_pulsing_verb_then_restores(
 
 
 @pytest.mark.asyncio
+async def test_busy_badge_refits_header_chrome_for_wide_verbs(config_dir: Path) -> None:
+    # 4.5 carry-forward: a wide busy verb grows the badge box; without a chrome
+    # re-fit the 1fr model slot keeps its stale wider text and the 80-col
+    # header wraps. _busy_badge must refresh the chrome on paint AND restore.
+    write_yaml(
+        config_dir / "long.yaml",
+        """
+        name: a-very-long-config-name
+        model: organization/a-really-long-model-name-that-fills-the-header
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        model = app.query_one("#active-model", Static)
+        text_before = str(model.content)
+        assert text_before
+
+        gate = asyncio.Event()
+
+        async def gated_rpc() -> dict[str, bool]:
+            await gate.wait()
+            return {"ok": True}
+
+        task = asyncio.ensure_future(
+            app._with_agent_busy("a deliberately wide busy verb…", gated_rpc())
+        )
+        await pilot.pause()
+        text_busy = str(model.content)
+        assert cell_len(text_busy) < cell_len(text_before), (
+            "header model slot was not re-fit while the wide busy verb was up"
+        )
+
+        gate.set()
+        await task
+        await pilot.pause()
+        # Restore re-fits too: the model text expands back to its idle width.
+        assert str(model.content) == text_before
+
+
+@pytest.mark.asyncio
 async def test_with_agent_busy_renders_banner_and_returns_none_on_target_error(
     config_dir: Path,
 ) -> None:
@@ -13306,6 +13348,96 @@ async def test_terminal_phases_clear_stale_progress_line(config_dir: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_phase_timeline_ends_on_terminal_marker_row(config_dir: Path) -> None:
+    # bug-237: after an operator stop the STOPPED pill coexisted with a
+    # timeline still ending on READY ✓. The panel must append a terminal
+    # marker row — ■ STOPPED dim, ✗ CRASHED red — and be tall enough to show
+    # it together with the Overall line.
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.STARTING)
+        app._set_phase(Phase.READY)
+        app._set_phase(Phase.STOPPED)
+
+        lines = app.phase_timeline_text.splitlines()
+        # READY history is preserved, but the timeline no longer ENDS on it.
+        assert "✓ READY" in app.phase_timeline_text
+        assert lines[-1].startswith("Overall")
+        assert lines[-2].startswith("■ STOPPED")
+        # The stepper card fits the full history + terminal row + Overall
+        # (content lines + 2 border rows) instead of clipping the tail.
+        panel = app.query_one("#phase-panel")
+        assert panel.styles.max_height is not None
+        assert panel.styles.max_height.value >= len(lines) + 2
+
+        # A crash renders a red ✗ CRASHED terminal row.
+        app.fsm.error_kind = ErrorKind.CRASHED
+        app._set_phase(Phase.ERROR)
+        assert app.phase_timeline_text.splitlines()[-2].startswith("✗ CRASHED")
+        phases = app.query_one("#phases", Static).content
+        assert isinstance(phases, Text)
+        assert _text_uses_style(phases, tui_app_module.BAD)
+
+        # Non-crash errors keep the honest phase name, still marked ✗.
+        app.fsm.error_kind = ErrorKind.OOM
+        app._set_phase(Phase.STOPPED)
+        app._set_phase(Phase.ERROR)
+        assert app.phase_timeline_text.splitlines()[-2].startswith("✗ ERROR")
+
+
+@pytest.mark.asyncio
+async def test_progress_record_after_terminal_phase_stays_hidden(config_dir: Path) -> None:
+    # bug-237: after READY the transient download panel lingered at "100% 4/4"
+    # because a trailing carriage-return record re-showed it after _set_phase's
+    # clear. Once the FSM leaves the loading family (READY) or the run ends
+    # (STOPPED/ERROR), stale run progress must stay hidden.
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # During a loading phase the transient panel still renders (FR-10).
+        app._set_phase(Phase.DOWNLOADING_MODEL)
+        app._update_progress("Loading safetensors checkpoint shards: 50% 2/4")
+        assert "50%" in app.progress_text
+        assert app.query_one("#progress-panel").display is True
+
+        app._set_phase(Phase.READY)
+        assert app.progress_text == ""
+
+        # The trailing transient record must not resurrect the panel.
+        app.handle_log_record(
+            LogRecord("transient", "Loading safetensors checkpoint shards: 100% 4/4", None)
+        )
+        await pilot.pause()
+        assert app.progress_text == ""
+        assert app.query_one("#progress-panel").display is False
+
+        # Terminal states behave the same (STOPPED here; ERROR by the same gate).
+        app._set_phase(Phase.STOPPED)
+        app._update_progress("Loading safetensors checkpoint shards: 100% 4/4")
+        assert app.progress_text == ""
+        assert app.query_one("#progress-panel").display is False
+
+
+@pytest.mark.asyncio
+async def test_progress_still_streams_for_active_job_after_ready(config_dir: Path) -> None:
+    # A background job started while a server is READY (e.g. pin+download)
+    # keeps its progress stream — the terminal gate only drops stale RUN
+    # progress, never live job progress.
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.READY)
+        app._active_job_id = "job-1"
+        app._update_progress("Downloading model: 10% 1/10")
+        assert "10%" in app.progress_text
+        assert app.query_one("#progress-panel").display is True
+
+
+@pytest.mark.asyncio
 async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None:
     write_yaml(
         config_dir / "messages.yaml",
@@ -15133,6 +15265,115 @@ async def test_fake_child_launch_streams_logs_and_stop_works(config_dir: Path) -
 
 
 @pytest.mark.asyncio
+async def test_run_separator_and_operator_stop_closure(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-237 live findings: launching again concatenated both runs' logs with
+    # no delimiter, and operator stop flipped the pill with no toast/log line.
+    port = _free_port()
+    script = Path.cwd() / "scripts" / "fake_vllm_child.py"
+    src_path = Path.cwd() / "src"
+    write_yaml(
+        config_dir / "fake.yaml",
+        f"""
+        name: fake
+        model: fake/model
+        command:
+          entrypoint: serve
+          executable: {script}
+        server:
+          host: 127.0.0.1
+          port: {port}
+        env:
+          PYTHONPATH: "{src_path}"
+        launch:
+          health:
+            interval_seconds: 0.05
+        """,
+    )
+    app = VelaApp(configs_dir=config_dir)
+    toasts: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *args, **kwargs: toasts.append(str(message)),
+    )
+
+    try:
+        async with app.run_test() as pilot:
+            await pilot.press("l")
+            await _wait_for_log(app, "Uvicorn running")
+            await _wait_for_phase(app, Phase.READY)
+            run_id = app.current_run_id
+            assert run_id
+            # Each launch opens with a dim display-only separator line that
+            # precedes every line the run itself streams.
+            separator = f"── run {run_id} · fake · local ──"
+            assert separator in app.log_lines
+            first_child_line = next(
+                index
+                for index, line in enumerate(app.log_lines)
+                if "Uvicorn running" in line
+            )
+            assert app.log_lines.index(separator) < first_child_line
+
+            await pilot.press("s")
+            await _wait_for_stopped(app)
+            # Operator stop closes the loop: a toast AND a display log line.
+            assert any(f"Stopped {run_id}" in toast for toast in toasts)
+            assert app.log_lines[-1] == "── STOPPED by operator ──"
+
+            # Launching again starts with a fresh separator, so consecutive
+            # runs never read as one concatenated stream.
+            await pilot.press("l")
+            await _wait_for_phase(app, Phase.READY)
+            second_run_id = app.current_run_id
+            assert second_run_id and second_run_id != run_id
+            separators = [
+                line for line in app.log_lines if line.startswith("── run ")
+            ]
+            assert separators == [
+                f"── run {run_id} · fake · local ──",
+                f"── run {second_run_id} · fake · local ──",
+            ]
+            await pilot.press("s")
+            await _wait_for_stopped(app)
+    finally:
+        await _cleanup_port(port)
+
+
+@pytest.mark.asyncio
+async def test_reattached_stop_signal_notifies_and_logs_closure(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The reattached (detached-run) stop path must close the loop the same way
+    # the attached path does: toast + display-only operator line.
+    app = VelaApp(configs_dir=config_dir)
+    toasts: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *args, **kwargs: toasts.append(str(message)),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.reattached_run_id = "run-detached-1"
+
+        async def fake_target_call(method: str, params: dict) -> dict:
+            assert method == "stop"
+            return {}
+
+        monkeypatch.setattr(app, "_target_call", fake_target_call)
+        await app._signal_reattached_target_run("stop")
+        await pilot.pause()
+
+        assert app.phase is Phase.STOPPED
+        assert any("Stopped run-detached-1" in toast for toast in toasts)
+        assert app.log_lines[-1] == "── STOPPED by operator ──"
+
+
+@pytest.mark.asyncio
 async def test_attached_tui_launch_uses_configured_runs_dir_for_durable_log(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -15177,7 +15418,7 @@ async def test_attached_tui_launch_uses_configured_runs_dir_for_durable_log(
 
 @pytest.mark.asyncio
 async def test_force_kill_running_attached_server_is_intentional_stop(
-    config_dir: Path,
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     port = _free_port()
     script = Path.cwd() / "scripts" / "fake_vllm_child.py"
@@ -15201,11 +15442,19 @@ async def test_force_kill_running_attached_server_is_intentional_stop(
         """,
     )
     app = VelaApp(configs_dir=config_dir)
+    toasts: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *args, **kwargs: toasts.append(str(message)),
+    )
 
     try:
         async with app.run_test() as pilot:
             await pilot.press("l")
             await _wait_for_phase(app, Phase.READY)
+            run_id = app.current_run_id
+            assert run_id
 
             await pilot.press("K")
             await pilot.press("enter")
@@ -15214,6 +15463,9 @@ async def test_force_kill_running_attached_server_is_intentional_stop(
 
             assert app.fsm.error_kind is None
             assert "CRASHED" not in app.error_text
+            # Operator kill closes the loop too (bug-237): toast + display line.
+            assert any(f"Killed {run_id}" in toast for toast in toasts)
+            assert app.log_lines[-1] == "── KILLED by operator ──"
     finally:
         await _cleanup_port(port)
 
@@ -16777,6 +17029,14 @@ async def test_server_url_is_dim_until_ready_then_live(config_dir: Path) -> None
         content = app.query_one("#server-url", Static).content
         assert isinstance(content, Text)
         assert _text_uses_style(content, "#67e8a5"), f"READY url not live: {content!r}"
+
+        # DEGRADED: still serving (flapping health) — amber live, never dim.
+        app._set_phase(Phase.DEGRADED)
+        await pilot.pause()
+        content = app.query_one("#server-url", Static).content
+        assert isinstance(content, Text)
+        assert _text_uses_style(content, "#f6c85f"), f"DEGRADED url not amber: {content!r}"
+        assert not _text_uses_style(content, "#8ba4ae"), "DEGRADED url must not read dim"
 
         # STOPPED: back to dim — nothing is live any more.
         app._set_phase(Phase.STOPPED)

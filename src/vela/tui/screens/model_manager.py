@@ -551,8 +551,6 @@ def _gb_label(size: int) -> str:
     return f"{size / 1_000_000_000:.1f} GB"
 
 
-
-
 def _files_label(files: dict[str, Any]) -> str:
     count = files.get("count")
     weights_format = files.get("weights_format")
