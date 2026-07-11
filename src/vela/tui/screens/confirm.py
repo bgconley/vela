@@ -6,10 +6,22 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from vela.tui.theme import ACCENT, BAD, BG_BASE, BG_PANEL, GOOD, MUTED, TEXT, WARN
+from vela.tui.theme import (
+    AMBER,
+    BAD,
+    BG_BASE,
+    BG_PANEL,
+    CYAN,
+    GREEN,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
 
 
 class ConfirmScreen(ModalScreen):
+    # bug-237: legacy ACCENT/GOOD/WARN/MUTED/TEXT tokens migrated to the
+    # canonical theme.py set (same hex — visual-only). BAD is kept for the
+    # destructive labels, matching the app-wide destructive color.
     CSS = f"""
     ConfirmScreen {{
         align: center middle;
@@ -20,13 +32,13 @@ class ConfirmScreen(ModalScreen):
         width: 68;
         height: auto;
         max-height: 80%;
-        border: round {WARN};
+        border: round {AMBER};
         background: {BG_PANEL};
         padding: 1 2;
     }}
 
     #confirm-message {{
-        color: {TEXT};
+        color: {TEXT_PRIMARY};
     }}
     """
 
@@ -79,9 +91,9 @@ class ConfirmScreen(ModalScreen):
         if self.confirm_label.lower() == "kill":
             title_style = f"bold {BAD}"
         else:
-            title_style = f"bold {ACCENT}"
+            title_style = f"bold {CYAN}"
         text = Text(f"{self.title}\n\n", style=title_style)
-        text.append(self.message, style=TEXT)
+        text.append(self.message, style=TEXT_PRIMARY)
         label = self.confirm_label.lower()
         if label == "kill":
             confirm_key = "Enter/K "
@@ -89,8 +101,8 @@ class ConfirmScreen(ModalScreen):
             confirm_key = "Enter/s "
         else:
             confirm_key = "Enter "
-        text.append(f"\n\n{confirm_key}", style=MUTED)
+        text.append(f"\n\n{confirm_key}", style=TEXT_SECONDARY)
         text.append(self.confirm_label, style=f"bold {BAD}")
-        text.append("    Esc/c ", style=MUTED)
-        text.append("Cancel", style=f"bold {GOOD}")
+        text.append("    Esc/c ", style=TEXT_SECONDARY)
+        text.append("Cancel", style=f"bold {GREEN}")
         return text

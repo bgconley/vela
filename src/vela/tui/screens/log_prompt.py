@@ -5,7 +5,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
-from vela.tui.theme import BG_BASE, BG_PANEL, BORDER_STRONG, TEXT
+from vela.tui.theme import BG_BASE, BG_PANEL, BORDER_STRONG, TEXT_PRIMARY
 
 
 class LogPromptScreen(ModalScreen[str | None]):
@@ -26,7 +26,7 @@ class LogPromptScreen(ModalScreen[str | None]):
 
     #log-prompt-title {{
         margin-bottom: 1;
-        color: {TEXT};
+        color: {TEXT_PRIMARY};
         text-style: bold;
     }}
     """

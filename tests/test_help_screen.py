@@ -120,3 +120,21 @@ async def test_help_colors_migrated_off_legacy_purple() -> None:
         assert isinstance(help_text, Text)
         assert _uses_style(help_text, VIOLET)  # migrated token in use
         assert not _uses_style(help_text, PURPLE)  # legacy token gone
+
+
+@pytest.mark.asyncio
+async def test_help_action_pills_dock_to_panel_bottom() -> None:
+    # bug-237 (4.4 carry-forward): dock the action pills at the panel bottom (the
+    # three-screen proven pattern) so they stay visible at 80x24 instead of
+    # scrolling off the bottom of a tall help panel.
+    app = _Host()
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = HelpScreen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        pills = screen.query_one("#help-actions", Static)
+        assert pills.styles.dock == "bottom"
+        # The pills sit within the visible terminal, not pushed below the fold.
+        assert pills.region.height > 0
+        assert pills.region.bottom <= 24

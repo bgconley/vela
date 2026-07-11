@@ -60,7 +60,10 @@ class HelpScreen(ModalScreen):
     }}
 
     HelpScreen #help-actions {{
+        dock: bottom;
+        height: auto;
         margin-top: 1;
+        background: {BG_PANEL};
         color: {TEXT_SECONDARY};
     }}
     """

@@ -623,7 +623,6 @@ class VelaApp(App):
         border: solid #274254;
         padding: 0 1;
     }
-    #sidebar { height: 1fr; }
     #config-panel { height: auto; max-height: 9; }
     #phase-panel { height: auto; max-height: 12; }
     #gpu-panel { height: auto; max-height: 11; }
@@ -2857,6 +2856,10 @@ class VelaApp(App):
         self.notify(f"Cancelled {label}")
 
     def action_kill(self) -> None:
+        # bug-279: don't stack a second id='confirm' screen (DuplicateIds crash)
+        # when a ConfirmScreen is already open (e.g. via the palette 'Kill').
+        if isinstance(self.screen, ConfirmScreen):
+            return
         if self._target_control_blocked("kill"):
             return
         if self._attached_run_is_alive():
@@ -3902,6 +3905,12 @@ class VelaApp(App):
         return self._server_url(cfg)
 
     def action_quit(self) -> None:
+        # bug-279 (1.3 carry-forward): a ConfirmScreen is already the top of the
+        # stack (e.g. the user hit q, then picked 'Quit app' from the palette).
+        # Pushing another id='confirm' screen raises DuplicateIds and crashes the
+        # app; no-op so exactly one confirm is ever live.
+        if isinstance(self.screen, ConfirmScreen):
+            return
         if self._attached_run_is_alive():
             # bug-234 follow-up: with the target unreachable, stop/kill/detach/
             # target-switch are all blocked, so a banner-and-return here would

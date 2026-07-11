@@ -7951,6 +7951,52 @@ async def test_confirm_screen_is_modal_panel_with_destructive_color(
         assert _text_uses_style(message.content, tui_app_module.GOOD)
 
 
+def test_confirm_and_log_prompt_use_canonical_tokens() -> None:
+    # bug-237 item 9: confirm.py / log_prompt.py migrate their same-hex legacy
+    # tokens (ACCENT/GOOD/WARN/MUTED/TEXT) to the canonical theme names. BAD is
+    # intentionally kept (the canonical RED differs in hex and the app-wide
+    # destructive color is still BAD). Visual-only: the rendered hex is identical.
+    import vela.tui.screens.confirm as confirm_mod
+    import vela.tui.screens.log_prompt as log_prompt_mod
+
+    for legacy in ("ACCENT", "GOOD", "WARN", "MUTED", "TEXT"):
+        assert not hasattr(confirm_mod, legacy), f"confirm still binds legacy {legacy}"
+    for canonical in ("CYAN", "GREEN", "AMBER", "TEXT_SECONDARY", "TEXT_PRIMARY"):
+        assert hasattr(confirm_mod, canonical), f"confirm missing canonical {canonical}"
+    # BAD stays (destructive color, matches the app + target_edit).
+    assert hasattr(confirm_mod, "BAD")
+
+    assert not hasattr(log_prompt_mod, "TEXT"), "log_prompt still binds legacy TEXT"
+    assert hasattr(log_prompt_mod, "TEXT_PRIMARY")
+
+
+@pytest.mark.asyncio
+async def test_quit_and_kill_do_not_stack_a_second_confirm(config_dir: Path) -> None:
+    # bug-279 (1.3 carry-forward): the palette 'Quit app' / 'Kill' (or any direct
+    # invocation) fired while a ConfirmScreen is already open used to push a
+    # SECOND screen with the same id='confirm' -> a DuplicateIds crash. The
+    # openers now no-op when a ConfirmScreen is on top: exactly one confirm.
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        app.current_run_id = "run-1"  # _attached_run_is_alive() -> True
+
+        await pilot.press("q")
+        await pilot.pause()
+        assert app.screen.id == "confirm"
+        assert len([s for s in app.screen_stack if isinstance(s, ConfirmScreen)]) == 1
+
+        app.action_quit()  # palette 'Quit app' while the confirm is open
+        await pilot.pause()
+        assert app.is_running
+        assert len([s for s in app.screen_stack if isinstance(s, ConfirmScreen)]) == 1
+
+        app.action_kill()  # palette 'Kill' while the confirm is open
+        await pilot.pause()
+        assert app.is_running
+        assert len([s for s in app.screen_stack if isinstance(s, ConfirmScreen)]) == 1
+
+
 @pytest.mark.asyncio
 async def test_confirm_kill_attached_run_signals_target_client_by_run_id(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
