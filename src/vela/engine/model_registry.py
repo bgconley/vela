@@ -556,6 +556,17 @@ def list_models(
         except (TypeError, ValueError):
             skipped.append({"entry_id": entry_id, "reason": "invalid-entry"})
     _merge_hf_cache_models(models)
+    # Additive marker (M3): flag whether each row is a real registry pin the
+    # composer can resolve (model_ref → _entry_for_reference matches the
+    # registry file) versus a synthetic HF-cache-scan row (entry_id
+    # "repo@sha12") that _merge_hf_cache_models appended and the composer would
+    # reject as an unknown reference. Registry entries populate pinned_entry_ids;
+    # a scan row merged into a registry pin keeps that pin's id (still pinned),
+    # while a pure scan row's id is absent (pinned=False). The deployment wizard
+    # offers only pinned=True rows; Model Manager and every other consumer keep
+    # seeing the full merged list unchanged apart from this field.
+    for model in models:
+        model["pinned"] = str(model.get("entry_id") or "") in pinned_entry_ids
     if pinned_only:
         models = [
             model

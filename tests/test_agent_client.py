@@ -5569,6 +5569,9 @@ async def test_agent_lists_models_from_agent_owned_registry(tmp_path: Path) -> N
             "created_at": "2026-06-02T14:03:11Z",
             "last_used_at": "2026-06-02T18:20:05Z",
             "notes": "pinned for repro",
+            # Registry entry → composer-resolvable pin (M3): pinned=True. The
+            # deployment wizard offers only pinned=True rows.
+            "pinned": True,
         }
     ]
     assert result["skipped"] == [
@@ -5676,6 +5679,9 @@ async def test_agent_list_models_merges_hf_cache_scan_with_pinned_entries(
             "created_at": "2026-06-02T14:03:11Z",
             "last_used_at": None,
             "notes": "pinned for repro",
+            # The HF-cache scan merged into this registry entry (matched by
+            # repo_id+commit_sha), so it stays a real pin: pinned=True (M3).
+            "pinned": True,
         }
     ]
     assert result["skipped"] == []
@@ -5771,6 +5777,11 @@ async def test_agent_list_models_filters_cached_and_pinned_rows(
     ]
     assert [model["display_name"] for model in pinned["models"]] == ["llama-pin"]
     assert [model["display_name"] for model in cached_pinned["models"]] == ["llama-pin"]
+    # M3: every merged row carries the additive `pinned` marker — the registry
+    # pin (llama-pin) is composer-resolvable (True); the pure HF-cache-scan row
+    # (org/Unpinned) is NOT (False). The deployment wizard offers only True rows.
+    assert [model["pinned"] for model in cached["models"]] == [True, False]
+    assert all(model["pinned"] for model in pinned["models"])
 
 
 @pytest.mark.asyncio
@@ -5817,7 +5828,10 @@ async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
     assert entry["repo_id"] is None
     assert entry["local_path"] is None
     assert entry["cache_state"] == "remote_only"
-    assert listed["models"] == [entry]
+    # list_models annotates each row with the additive `pinned` marker (M3); the
+    # pin_model `entry` payload does not carry it, so the listed row is the entry
+    # plus pinned=True (a registry pin the composer can resolve).
+    assert listed["models"] == [{**entry, "pinned": True}]
     assert prepared["config"]["model"] == "org/placeholder"
     assert prepared["config"]["model_ref"] == "url-gguf"
     assert prepared["build"]["argv"][:3] == ["vllm", "serve", model_url]
