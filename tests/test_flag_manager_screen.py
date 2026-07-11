@@ -50,14 +50,39 @@ def _make_screen() -> FlagManagerScreen:
 
 
 @pytest.mark.asyncio
+async def test_flag_manager_title_and_context_render_first() -> None:
+    # bug-237 (live-observed): the preset select + Changed-only checkbox
+    # rendered ABOVE the `Flag Manager` title and build/config context. The
+    # title row must be the panel's topmost rendered row, controls below it.
+    app = _Host()
+    async with app.run_test(size=(120, 40)) as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        title = screen.query_one("#flag-manager-title", Static)
+        content = str(title.content)
+        assert content.splitlines()[0] == "Flag Manager"
+        assert "build:" in content
+        assert "config: flags" in content
+        controls = screen.query_one("#flag-manager-controls")
+        flag_list = screen.query_one("#flag-manager-list", Static)
+        assert title.region.y < controls.region.y
+        assert title.region.y < flag_list.region.y
+        # Topmost rendered row of the panel == the title's first row.
+        panel = screen.query_one("#flag-manager-panel")
+        assert title.region.y == min(child.region.y for child in panel.children)
+
+
+@pytest.mark.asyncio
 async def test_flag_manager_preserves_list_contract() -> None:
     app = _Host()
     async with app.run_test() as pilot:
         screen = _make_screen()
         await app.push_screen(screen)
         await pilot.pause()
+        # "Flag Manager" moved to the topmost #flag-manager-title widget
+        # (bug-237 title-first fix); the list keeps the flag-table contract.
         flag_list = str(screen.query_one("#flag-manager-list", Static).content)
-        assert "Flag Manager" in flag_list
         assert "modeled 2" in flag_list
         assert "passthrough 1" in flag_list
         assert "unknown 1" in flag_list

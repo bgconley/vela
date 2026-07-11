@@ -86,6 +86,11 @@ class FlagManagerScreen(ModalScreen):
         color: {TEXT_PRIMARY};
     }}
 
+    #flag-manager-title {{
+        height: auto;
+        margin-bottom: 1;
+    }}
+
     #flag-manager-controls {{
         height: auto;
         margin-bottom: 1;
@@ -157,6 +162,9 @@ class FlagManagerScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="flag-manager-panel"):
+            # Title + context FIRST (bug-237): the operator reads what they are
+            # editing before any control renders.
+            yield Static(self._render_title(), id="flag-manager-title")
             with Horizontal(id="flag-manager-controls"):
                 yield Select(
                     self._preset_options(),
@@ -489,12 +497,15 @@ class FlagManagerScreen(ModalScreen):
             )
         self._refresh()
 
-    def _render_list(self) -> Text:
+    def _render_title(self) -> Text:
         text = Text()
         text.append("Flag Manager\n", style=f"bold {CYAN}")
         text.append(f"build: {_build_label(self.config, self.metadata)}\n", style=TEXT_FAINT)
-        text.append(f"config: {self.config.name}\n", style=TEXT_FAINT)
-        text.append("\n")
+        text.append(f"config: {self.config.name}", style=TEXT_FAINT)
+        return text
+
+    def _render_list(self) -> Text:
+        text = Text()
         text.append(
             f"modeled {len(self.modeled)} · passthrough {len(self.passthrough)} · "
             f"unknown {len(self.unknown)}\n",

@@ -1564,15 +1564,16 @@ class VelaApp(App):
         engine = selection.get("engine")
         extra_args = selection.get("extra_args")
         try:
-            result = await self._target_call(
-                "update_config_flags",
-                {
-                    "name": name,
-                    "configs_dir": str(self.configs_dir),
-                    "engine": engine if isinstance(engine, dict) else {},
-                    "extra_args": extra_args if isinstance(extra_args, list) else [],
-                },
-            )
+            with self._busy_badge("saving flags…"):
+                result = await self._target_call(
+                    "update_config_flags",
+                    {
+                        "name": name,
+                        "configs_dir": str(self.configs_dir),
+                        "engine": engine if isinstance(engine, dict) else {},
+                        "extra_args": extra_args if isinstance(extra_args, list) else [],
+                    },
+                )
         except TargetCallError as exc:
             self._set_error_text(f"Unable to save flags: {exc}", style=f"bold {BAD}")
             return
@@ -1875,9 +1876,10 @@ class VelaApp(App):
             self.notify("uv installed — nightly & commit builds unlocked")
             uv_available: bool | None = True
             try:
-                probe = await self._target_call(
-                    "check_build_prerequisites", {"method": "pip"}
-                )
+                with self._busy_badge("probing uv…"):
+                    probe = await self._target_call(
+                        "check_build_prerequisites", {"method": "pip"}
+                    )
                 uv_value = probe.get("uv_available")
                 if isinstance(uv_value, bool):
                     uv_available = uv_value
@@ -1897,10 +1899,11 @@ class VelaApp(App):
     async def _open_create_build_form(self) -> None:
         uv_available: bool | None = None
         try:
-            result = await self._target_call(
-                "check_build_prerequisites",
-                {"method": "pip"},
-            )
+            with self._busy_badge("probing uv…"):
+                result = await self._target_call(
+                    "check_build_prerequisites",
+                    {"method": "pip"},
+                )
         except TargetCallError:
             result = {}
         uv_value = result.get("uv_available")
@@ -2042,7 +2045,8 @@ class VelaApp(App):
 
     async def _adopt_build(self, params: dict[str, Any]) -> None:
         try:
-            result = await self._target_call("adopt_build", dict(params))
+            with self._busy_badge("adopting build…"):
+                result = await self._target_call("adopt_build", dict(params))
         except TargetCallError as exc:
             self._set_error_text(f"Unable to adopt build: {exc}", style=f"bold {BAD}")
             return
@@ -2065,10 +2069,11 @@ class VelaApp(App):
     ) -> None:
         uv_available: bool | None = None
         try:
-            result = await self._target_call(
-                "check_build_prerequisites",
-                {"method": "pip"},
-            )
+            with self._busy_badge("probing uv…"):
+                result = await self._target_call(
+                    "check_build_prerequisites",
+                    {"method": "pip"},
+                )
         except TargetCallError:
             result = {}
         uv_value = result.get("uv_available")
@@ -2199,7 +2204,8 @@ class VelaApp(App):
         draft: dict[str, Any],
     ) -> None:
         try:
-            result = await self._target_call("adopt_build", dict(params))
+            with self._busy_badge("adopting build…"):
+                result = await self._target_call("adopt_build", dict(params))
         except TargetCallError as exc:
             self._set_error_text(f"Unable to adopt build: {exc}", style=f"bold {BAD}")
             return
@@ -2252,7 +2258,10 @@ class VelaApp(App):
         params = dict(params)
         download_now = bool(params.pop("download_now", False))
         try:
-            result = await self._target_call("pin_model", params)
+            # Keeps its bespoke banner + wizard-draft resume, so _busy_badge
+            # (not _with_agent_busy) supplies the during-verb feedback.
+            with self._busy_badge("pinning model…"):
+                result = await self._target_call("pin_model", params)
         except TargetCallError as exc:
             self._set_error_text(f"Unable to pin model: {exc}", style=f"bold {BAD}")
             return
@@ -2863,7 +2872,8 @@ class VelaApp(App):
 
     async def _cancel_target_job(self, job_id: str) -> None:
         try:
-            await self._target_call("cancel_job", {"job_id": job_id})
+            with self._busy_badge("cancelling…"):
+                await self._target_call("cancel_job", {"job_id": job_id})
         except TargetCallError as exc:
             label = self._active_job_label or "job"
             self._set_error_text(f"Unable to cancel {label}: {exc}", style=f"bold {BAD}")
@@ -3398,25 +3408,32 @@ class VelaApp(App):
 
         try:
             if download_now:
+                # The download is a streaming job (progress panel + log lines),
+                # so only the quick compose/validate/preview RPCs get the badge.
                 download_error = await self._download_new_deployment_model(params)
                 if download_error is not None:
                     await fail(download_error)
                     return
-            composed = await self._target_call("compose_config", params)
-            config = composed.get("config")
-            if not isinstance(config, dict):
-                raise TargetCallError("compose-invalid", "composer returned no config")
-            validation = await self._target_call("validate_config", {"config": config})
-            if validation.get("ok") is not True:
-                await fail(_format_validation_errors(validation))
-                return
-            preview = await self._target_call(
-                "preview",
-                {
-                    "config": config,
-                    **self._agent_params(configs_dir=self.configs_dir),
-                },
-            )
+            with self._busy_badge("composing…"):
+                composed = await self._target_call("compose_config", params)
+                config = composed.get("config")
+                if not isinstance(config, dict):
+                    raise TargetCallError(
+                        "compose-invalid", "composer returned no config"
+                    )
+                validation = await self._target_call(
+                    "validate_config", {"config": config}
+                )
+                if validation.get("ok") is not True:
+                    await fail(_format_validation_errors(validation))
+                    return
+                preview = await self._target_call(
+                    "preview",
+                    {
+                        "config": config,
+                        **self._agent_params(configs_dir=self.configs_dir),
+                    },
+                )
         except TargetCallError as exc:
             await fail(f"Unable to review deployment: {exc}")
             return
@@ -3671,16 +3688,17 @@ class VelaApp(App):
         )
         save_params["config"] = config
         try:
-            preflight = await self._target_call(
-                "preflight",
-                {
-                    "config": config,
-                    **self._agent_params(configs_dir=self.configs_dir),
-                },
-            )
-            if not self._handle_preflight_result(preflight):
-                return
-            saved = await self._target_call("save_config", save_params)
+            with self._busy_badge("saving…"):
+                preflight = await self._target_call(
+                    "preflight",
+                    {
+                        "config": config,
+                        **self._agent_params(configs_dir=self.configs_dir),
+                    },
+                )
+                if not self._handle_preflight_result(preflight):
+                    return
+                saved = await self._target_call("save_config", save_params)
         except TargetCallError as exc:
             self._set_error_text(f"Unable to save deployment: {exc}", style=f"bold {BAD}")
             return

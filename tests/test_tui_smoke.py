@@ -8469,7 +8469,9 @@ async def test_flag_manager_opens_from_binding_and_partitions_flags(
         assert app.screen.id == "flag-manager"
         flag_list = str(app.screen.query_one("#flag-manager-list", Static).content)
         detail = str(app.screen.query_one("#flag-manager-detail", Static).content)
-        assert "Flag Manager" in flag_list
+        # Title moved to the panel-topmost #flag-manager-title (bug-237).
+        title = str(app.screen.query_one("#flag-manager-title", Static).content)
+        assert "Flag Manager" in title
         assert "modeled 2" in flag_list
         assert "passthrough 1" in flag_list
         assert "unknown 1" in flag_list
@@ -9492,6 +9494,258 @@ async def test_model_manager_open_banner_keeps_dashboard_when_list_models_fails(
         # Stayed on the dashboard; the manager never opened.
         assert app.screen.id == "_default"
         assert "target unreachable" in app.error_text
+
+
+class _GatedVerbClient:
+    """Fake target client that parks ONE method on an asyncio.Event.
+
+    Phase-3 verb-badge tests hold the gate open to assert the pulsing busy
+    verb deterministically (no sleeps), then release it and let the flow
+    finish against the canned ``responses``.
+    """
+
+    def __init__(
+        self,
+        gate: asyncio.Event,
+        gated_method: str,
+        responses: dict[str, object] | None = None,
+    ) -> None:
+        self.connected = False
+        self._gate = gate
+        self._gated_method = gated_method
+        self._responses = dict(responses or {})
+        self.calls: list[str] = []
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def disconnect(self) -> None:
+        self.connected = False
+
+    async def call(self, method: str, params):
+        self.calls.append(method)
+        if method == self._gated_method:
+            await self._gate.wait()
+        if method in self._responses:
+            return self._responses[method]
+        if method == "list_configs":
+            return {"valid": [], "invalid": []}
+        if method in {"gpu", "sample_gpus"}:
+            return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+        if method == "discover_runs":
+            return {"runs": []}
+        optional = _optional_wizard_section_result(method)
+        if optional is not None:
+            return optional
+        raise AssertionError(f"unexpected target client call: {method}")
+
+    def subscribe(self, *_args, **_kwargs):
+        raise AssertionError("verb badge tests should not subscribe")
+
+
+async def _assert_busy_verb_during(app, pilot, gate: asyncio.Event, verb: str, coro) -> None:
+    """Drive ``coro`` and assert the badge pulses with ``verb`` mid-flight."""
+    task = asyncio.ensure_future(coro)
+    await _wait_for_condition(
+        lambda: app.query_one("#status-badge").has_class("status--pulse")
+        and app.query_one("#status-label", Static).content.plain == verb,
+        f"busy verb {verb!r} did not appear while the RPC was gated",
+    )
+    gate.set()
+    await task
+    await pilot.pause()
+    assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+def _gated_verb_app(config_dir: Path, client: _GatedVerbClient) -> VelaApp:
+    return VelaApp(
+        configs_dir=config_dir,
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_compose_review_shows_composing_busy_verb(config_dir: Path) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "compose_config",
+        responses={
+            "compose_config": {"config": {"name": "demo", "model": "org/m"}},
+            "validate_config": {"ok": True},
+            "preview": {"preview": "vllm serve org/m", "warnings": []},
+        },
+    )
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "composing…",
+            app._review_new_deployment({"name": "demo", "model_source": "bare"}),
+        )
+        assert app.screen.id == "new-deployment-review"
+
+
+@pytest.mark.asyncio
+async def test_review_save_shows_saving_busy_verb(config_dir: Path) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "preflight",
+        responses={
+            "preflight": {"ok": True},
+            "save_config": {
+                "name": "demo",
+                "config": {"name": "demo", "model": "org/m"},
+            },
+            "preview": {"preview": "vllm serve org/m", "warnings": []},
+        },
+    )
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "saving…",
+            app._save_reviewed_new_deployment({"name": "demo", "model": "org/m"}),
+        )
+
+
+@pytest.mark.asyncio
+async def test_adopt_build_shows_adopting_busy_verb(config_dir: Path) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "adopt_build",
+        responses={
+            "adopt_build": {"build_id": "b1", "label": "adopted"},
+            "list_builds": {"builds": [], "skipped": []},
+        },
+    )
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "adopting build…",
+            app._adopt_build({"venv": "/tmp/venv", "label": "adopted"}),
+        )
+
+
+@pytest.mark.asyncio
+async def test_wizard_pin_model_shows_pinning_busy_verb(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "pin_model",
+        responses={
+            "pin_model": {
+                "entry": {"entry_id": "org/m@main", "display_name": "m"},
+                "warnings": [],
+            },
+        },
+    )
+    app = _gated_verb_app(config_dir, client)
+    resumed: list[dict] = []
+
+    async def fake_resume(draft, entry, params, *, warnings):
+        resumed.append(dict(entry))
+
+    monkeypatch.setattr(app, "_resume_new_deployment_with_model", fake_resume)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "pinning model…",
+            app._pin_model_for_new_deployment({"repo_id": "org/m"}, {}),
+        )
+        assert resumed  # the wizard handoff still resumes after the pin
+
+
+@pytest.mark.asyncio
+async def test_flag_save_shows_saving_flags_busy_verb(config_dir: Path) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "update_config_flags",
+        responses={
+            "update_config_flags": {
+                "config": {"name": "flags", "model": "org/m"},
+            },
+            "preview": {"preview": "vllm serve org/m", "warnings": []},
+        },
+    )
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "saving flags…",
+            app._save_flag_manager_changes(
+                {"action": "save_flags", "name": "flags", "engine": {}, "extra_args": []}
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_cancel_job_shows_cancelling_busy_verb(config_dir: Path) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(gate, "cancel_job", responses={"cancel_job": {}})
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "cancelling…",
+            app._cancel_target_job("job-1"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_build_form_uv_probe_shows_probing_busy_verb(
+    config_dir: Path,
+) -> None:
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "check_build_prerequisites",
+        responses={"check_build_prerequisites": {"uv_available": True}},
+    )
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "probing uv…",
+            app._open_create_build_form(),
+        )
+        await pilot.pause()
+        assert app.screen.id == "create-build"
         # Badge not stuck pulsing after the failed RPC.
         assert not app.query_one("#status-badge").has_class("status--pulse")
 
