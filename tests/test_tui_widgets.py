@@ -299,3 +299,40 @@ async def test_step_indicator_marks_done_current_and_future() -> None:
         content2 = str(si.content)
         assert "✓ Runtime" in content2
         assert "▸ Model" in content2
+
+
+@pytest.mark.asyncio
+async def test_step_indicator_set_error_marks_step_and_clear_restores() -> None:
+    # bug-236c: the breadcrumb must be honest about failed steps — set_error(i)
+    # renders an amber ✗ that wins over done/current/future, survives
+    # set_current re-renders, and clear_error restores the base state.
+    app = _StepIndicatorHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        si = app.query_one("#si", StepIndicator)
+        si.set_error(0)  # a done step (was ✓)
+        si.set_error(2)  # a future step (was faint)
+        content = str(si.content)
+        assert "✗ Target" in content
+        assert "✓ Target" not in content
+        assert "✗ Model" in content
+        assert "▸ Runtime" in content  # untouched steps keep their states
+        # The error glyph uses the shared amber theme token.
+        text = si._build_text()
+        assert any(AMBER in str(span.style) for span in text.spans)
+        # Errors persist across set_current re-renders.
+        si.set_current(3)
+        content = str(si.content)
+        assert "✗ Target" in content
+        assert "✗ Model" in content
+        assert "▸ Review" in content
+        # clear_error restores that one step; the other error remains.
+        si.clear_error(2)
+        content = str(si.content)
+        assert "✓ Model" in content
+        assert "✗ Target" in content
+        # clear_errors wipes the rest.
+        si.clear_errors()
+        content = str(si.content)
+        assert "✗" not in content
+        assert "✓ Target" in content

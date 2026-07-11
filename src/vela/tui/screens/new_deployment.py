@@ -115,6 +115,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     #nd-group-pinned, #nd-group-bare, #nd-group-derived {{ height: auto; }}
 
     #new-deployment-error {{ margin-top: 1; color: {RED}; }}
+    .step-error {{ margin-top: 1; color: {RED}; }}
     #new-deployment-footer {{ margin-top: 1; }}
     """
 
@@ -148,6 +149,19 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     # pre-fetch; a bare repo id or an adopted local path cannot, so the box is
     # hidden and reset for those (bug-236).
     _DOWNLOAD_MODES = frozenset({"existing", "pin_hf"})
+
+    # Per-step validation (bug-236c). Steps with an advance gate also carry a
+    # step-adjacent .step-error Static so the message renders next to the
+    # offending field, not only at the panel bottom.
+    _MODEL_STEP_INDEX = STEP_TITLES.index("Model")
+    _STEP_ERROR_STATICS = {_MODEL_STEP_INDEX: "#new-deployment-model-error"}
+    # Known review-time validation errors attributed to the wizard step that
+    # owns the field (matched by prefix — app-side messages carry guidance
+    # suffixes). Unmapped errors render exactly as before: panel bottom only.
+    _ERROR_STEP_PREFIXES: tuple[tuple[str, int], ...] = (
+        ("Model is required", _MODEL_STEP_INDEX),
+        ("Download now requires a pinned model", _MODEL_STEP_INDEX),
+    )
 
     def __init__(
         self,
@@ -321,6 +335,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-model-revision",
                 )
                 yield Checkbox("Download now", id="new-deployment-download-now")
+                # Step-adjacent validation message (bug-236c): a bare Static
+                # with a display toggle — no wrapper container to inflate.
+                model_error = Static(
+                    "", id="new-deployment-model-error", classes="step-error"
+                )
+                model_error.display = False
+                yield model_error
             with Vertical(id="new-deployment-step-customize"):
                 with Horizontal(classes="new-deployment-row"):
                     with Vertical(classes="new-deployment-column"):
@@ -419,7 +440,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self._apply_model_disclosure()
         self._apply_advanced_disclosure()
         if self.error_message:
-            self.query_one("#new-deployment-error", Static).update(self.error_message)
+            self._render_wizard_error(self.error_message)
         self.call_later(self._queue_target_state_refresh)
         self._queue_model_suggestions()
 
@@ -509,6 +530,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             return
 
     def action_next_step(self) -> None:
+        # Per-step advance gate (bug-236c): a step that cannot possibly review
+        # blocks Next HERE, with the message next to the field — instead of
+        # letting the operator walk into a Review dead-end. Focus is left
+        # untouched on a block so the Enter-walk stays Enter-safe (bug-235).
+        error = self._validate_step(self.step_index)
+        if error is not None:
+            self._mark_step_error(self.step_index, error)
+            return
+        self._clear_step_error(self.step_index)
         # Detach focus BEFORE hiding the old step: Textual otherwise restores
         # focus to the next focusable widget (a Select, which then swallows
         # Enter) after our own focus handling has run.
@@ -516,6 +546,41 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self.step_index = min(self.step_index + 1, len(self.STEP_TITLES) - 1)
         self._refresh_step()
         self._focus_step_entry()
+
+    def _validate_step(self, index: int) -> str | None:
+        """Advance gate for a wizard step; None means the step may advance.
+
+        One rule today: the Model step must resolve a model — no pinned ref
+        selected, no bare repo id typed, and a non-handoff source ("pin_hf" /
+        "adopt_local" dismiss to a dedicated screen and never advance) means
+        Next would walk into a guaranteed Review failure. More rules slot in
+        per step index as they earn their keep.
+        """
+        if index == self._MODEL_STEP_INDEX:
+            mode = str(self.query_one("#new-deployment-model-mode", Select).value or "")
+            if (
+                mode not in {"pin_hf", "adopt_local"}
+                and self._selected_model_ref() is None
+                and not self._field_value("#new-deployment-model")
+            ):
+                return "Model is required"
+        return None
+
+    def _mark_step_error(self, index: int, message: str) -> None:
+        selector = self._STEP_ERROR_STATICS.get(index)
+        if selector is not None:
+            widget = self.query_one(selector, Static)
+            widget.update(message)
+            widget.display = True
+        self.query_one("#new-deployment-steps", StepIndicator).set_error(index)
+
+    def _clear_step_error(self, index: int) -> None:
+        selector = self._STEP_ERROR_STATICS.get(index)
+        if selector is not None:
+            widget = self.query_one(selector, Static)
+            widget.update("")
+            widget.display = False
+        self.query_one("#new-deployment-steps", StepIndicator).clear_error(index)
 
     def action_previous_step(self) -> None:
         self.set_focus(None)
@@ -558,10 +623,31 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         try:
             spec = self._collect_spec()
         except ValueError as exc:
-            self.query_one("#new-deployment-error", Static).update(str(exc))
+            self._render_wizard_error(str(exc))
             return
         self.last_draft = self._draft_state()
         self.dismiss(spec)
+
+    def _render_wizard_error(self, message: str) -> None:
+        """Render a validation error at #new-deployment-error (pinned contract).
+
+        When the message is attributable to a wizard step (bug-236c), the
+        breadcrumb marks that step ✗ instead of a dishonest ✓ and the text
+        gains the way back: "… — Ctrl+B to <Step>". Unmapped messages render
+        exactly as before.
+        """
+        step_index = next(
+            (
+                index
+                for prefix, index in self._ERROR_STEP_PREFIXES
+                if message.startswith(prefix)
+            ),
+            None,
+        )
+        if step_index is not None:
+            self.query_one("#new-deployment-steps", StepIndicator).set_error(step_index)
+            message = f"{message} — Ctrl+B to {self.STEP_TITLES[step_index]}"
+        self.query_one("#new-deployment-error", Static).update(message)
 
     def action_cancel(self) -> None:
         self.dismiss(None)

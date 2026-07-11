@@ -513,3 +513,125 @@ async def test_nonempty_registry_keeps_existing_default_and_custom_model_row() -
         options = screen._model_options()
         assert options[0] == ("Custom model", "__custom__")
         assert any(value == "qwen-pin" for _label, value in options)
+
+
+@pytest.mark.asyncio
+async def test_model_step_blocks_next_without_resolvable_model() -> None:
+    # bug-236c bullet 1: Ctrl+N from the Model step with no model resolvable
+    # (source=Existing pin, nothing selected, no bare id) must stay on the step,
+    # render "Model is required" in the step-adjacent .step-error Static, and
+    # mark the breadcrumb with the amber ✗ — not silently advance to a dead-end.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        # Empty registry defaults to bare (bug-236b); drive the trap explicitly.
+        screen.query_one("#new-deployment-model-mode", Select).value = "existing"
+        await pilot.pause()
+        await pilot.press("ctrl+n")  # Target → Runtime
+        await pilot.press("ctrl+n")  # Runtime → Model
+        await pilot.pause()
+        assert screen.step_index == 2
+        await pilot.press("ctrl+n")  # blocked: no model resolvable
+        await pilot.pause()
+        assert screen.step_index == 2  # stays on the Model step
+        err = screen.query_one("#new-deployment-model-error", Static)
+        assert err.has_class("step-error")
+        assert err.display is True
+        assert "Model is required" in str(err.content)
+        # The step-adjacent Static lives INSIDE the model step group, not only
+        # at the panel bottom.
+        assert screen.query_one("#new-deployment-step-model").query_one(
+            "#new-deployment-model-error", Static
+        ) is err
+        # The breadcrumb is honest about the failed step.
+        steps = screen.query_one("#new-deployment-steps", StepIndicator)
+        assert "✗ Model" in str(steps.content)
+        # Focus stays Enter-safe: not the error Static, never a Select.
+        assert screen.focused is not err
+        assert not isinstance(screen.focused, Select)
+        # Fix the field: a valid advance clears the error state + Static.
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        await pilot.pause()
+        await pilot.press("ctrl+n")
+        await pilot.pause()
+        assert screen.step_index == 3
+        assert err.display is False
+        assert str(err.content) == ""
+        assert "✗" not in str(steps.content)
+
+
+@pytest.mark.asyncio
+async def test_reopened_review_error_marks_owning_step_and_offers_ctrl_b() -> None:
+    # bug-236c bullet 2: when review-time compose fails with an error we can
+    # attribute to a wizard step, the reopened wizard marks that step ✗ in the
+    # breadcrumb (instead of a dishonest ✓) and the panel error offers the way
+    # back: "… — Ctrl+B to Model".
+    app = _Host()
+    async with app.run_test() as pilot:
+        draft = {
+            "step_index": 4,  # Review — the step the operator submitted from
+            "model_mode": "existing",
+            "selected_target": "gpu-node",
+            "preset": "balanced",
+            "download_now": True,
+        }
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            initial=draft,
+            error_message=(
+                "Download now requires a pinned model. "
+                "Pin the HF repo or choose an existing pin."
+            ),
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        error_text = str(screen.query_one("#new-deployment-error", Static).content)
+        # The pinned 2.2 substrings survive (additive contract) …
+        assert "Download now requires a pinned model" in error_text
+        assert "Pin the HF repo or choose an existing pin" in error_text
+        # … and the honest navigation affordance is appended.
+        assert error_text.endswith("— Ctrl+B to Model")
+        steps = screen.query_one("#new-deployment-steps", StepIndicator)
+        assert "✗ Model" in str(steps.content)  # honest, not ✓
+        assert "✓ Model" not in str(steps.content)
+
+
+@pytest.mark.asyncio
+async def test_reopened_unmapped_error_stays_panel_bottom_only() -> None:
+    # bug-236c bullet 2 scope guard: errors we cannot attribute to a step render
+    # exactly as before — panel bottom, no suffix, no breadcrumb mark.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            initial={"step_index": 4, "selected_target": "gpu-node"},
+            error_message="target agent exploded",
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        error_text = str(screen.query_one("#new-deployment-error", Static).content)
+        assert error_text == "target agent exploded"  # untouched
+        assert "✗" not in str(screen.query_one("#new-deployment-steps", StepIndicator).content)
+
+
+@pytest.mark.asyncio
+async def test_submit_validation_error_marks_owning_step() -> None:
+    # bug-236c bullet 2, screen-side surface: Ctrl+S with no model resolvable
+    # keeps rendering "Model is required" at #new-deployment-error (pinned
+    # semantics) but now with the Ctrl+B affordance and the ✗ breadcrumb mark.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        error_text = str(screen.query_one("#new-deployment-error", Static).content)
+        assert error_text == "Model is required — Ctrl+B to Model"
+        steps = screen.query_one("#new-deployment-steps", StepIndicator)
+        assert "✗ Model" in str(steps.content)
