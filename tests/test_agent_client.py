@@ -6617,6 +6617,35 @@ async def test_entry_for_reference_repo_id_ambiguous_lists_candidates(
 
 
 @pytest.mark.asyncio
+async def test_entry_for_reference_display_name_ambiguous_lists_candidates(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        first = await client.call(
+            "pin_model",
+            {"repo_id": "org/one", "commit_sha": "aaa111", "display_name": "shared"},
+        )
+        second = await client.call(
+            "pin_model",
+            {"repo_id": "org/two", "commit_sha": "bbb222", "display_name": "shared"},
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("inspect_model", {"model_ref": "shared"})
+    finally:
+        await client.disconnect()
+
+    assert "display name is ambiguous" in exc_info.value.message
+    candidates = exc_info.value.details.get("candidates") or []
+    assert set(candidates) == {
+        first["entry"]["entry_id"],
+        second["entry"]["entry_id"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_pin_model_upserts_same_repo_id_preserving_entry_id(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
@@ -6837,6 +6866,228 @@ def test_pin_model_upsert_keeps_cache_state_when_sha_unchanged(tmp_path: Path) -
     )
     # A changed sha has not been verified in the cache → state resets.
     assert changed["entry"]["cache_state"] == "remote_only"
+
+
+def _fake_model_info_with_siblings(
+    repo_id: str, revision: str | None = None
+) -> object:
+    return SimpleNamespace(
+        sha="abc123",
+        gated=False,
+        siblings=[
+            SimpleNamespace(rfilename="config.json", size=10),
+            SimpleNamespace(rfilename="model-00001-of-00002.safetensors", size=100),
+            SimpleNamespace(rfilename="model-00002-of-00002.safetensors", size=110),
+            SimpleNamespace(rfilename="README.md", size=5),
+        ],
+    )
+
+
+def test_pin_model_stores_expected_manifest_from_siblings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    monkeypatch.setattr(
+        model_registry_module, "_hf_model_info", _fake_model_info_with_siblings
+    )
+    pinned = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "revision": "main"}, registry_path
+    )
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    # Weight + config filenames are persisted; README.md (neither) is excluded.
+    assert entry["expected_files"] == [
+        "config.json",
+        "model-00001-of-00002.safetensors",
+        "model-00002-of-00002.safetensors",
+    ]
+    assert entry["expected_size"] == 220
+    # The manifest also rides the wire payload.
+    assert pinned["entry"]["expected_files"] == entry["expected_files"]
+    assert pinned["entry"]["expected_size"] == 220
+    json.dumps(pinned)
+
+
+def test_pin_model_upsert_preserves_expected_manifest_when_sha_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    monkeypatch.setattr(
+        model_registry_module, "_hf_model_info", _fake_model_info_with_siblings
+    )
+    model_registry_module.pin_model(
+        {"repo_id": "org/repo", "revision": "main"}, registry_path
+    )
+    # Re-pin with the SAME sha but supplying commit_sha directly, so model_info is
+    # not re-resolved and the rebuilt entry carries no fresh manifest.
+    model_registry_module.pin_model(
+        {"repo_id": "org/repo", "revision": "main", "commit_sha": "abc123"},
+        registry_path,
+    )
+    entries = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
+    assert len(entries) == 1
+    # The unchanged-sha upsert preserves the manifest (like cache_state/sizes).
+    assert entries[0]["expected_files"] == [
+        "config.json",
+        "model-00001-of-00002.safetensors",
+        "model-00002-of-00002.safetensors",
+    ]
+    assert entries[0]["expected_size"] == 220
+
+
+def _write_partial_entry_registry(
+    registry_path: Path,
+    *,
+    files_count: int,
+    expected_files: list[str] | None = None,
+) -> None:
+    entry: dict[str, object] = {
+        "entry_id": "01PARTIAL",
+        "display_name": "org/repo",
+        "aliases": [],
+        "source": "hf_repo",
+        "repo_id": "org/repo",
+        "revision": "main",
+        "commit_sha": "abc123",
+        "local_path": None,
+        "url": None,
+        "quant_format": "none",
+        "tokenizer": None,
+        "files": {
+            "count": files_count,
+            "total_bytes": 110,
+            "weights_format": "safetensors",
+        },
+        "size_bytes": 110,
+        "cache_state": "partial",
+        "gated": False,
+        "token_required": False,
+        "created_at": "2026-06-02T14:03:11Z",
+        "last_used_at": None,
+        "notes": "",
+    }
+    if expected_files is not None:
+        entry["expected_files"] = expected_files
+        entry["expected_size"] = 330
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [entry],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _install_fake_scan(
+    monkeypatch: pytest.MonkeyPatch, *, present_files: list[tuple[str, int]]
+) -> None:
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=sum(size for _name, size in present_files),
+        files=tuple(
+            SimpleNamespace(file_name=name, size_on_disk=size)
+            for name, size in present_files
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="org/repo",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+
+def test_refresh_keeps_partial_entry_partial_when_manifest_short(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_partial_entry_registry(
+        registry_path,
+        files_count=2,
+        expected_files=[
+            "config.json",
+            "model-00001-of-00003.safetensors",
+            "model-00002-of-00003.safetensors",
+            "model-00003-of-00003.safetensors",
+        ],
+    )
+    # The cache only holds config + one of three shards.
+    _install_fake_scan(
+        monkeypatch,
+        present_files=[("config.json", 10), ("model-00001-of-00003.safetensors", 100)],
+    )
+    model_registry_module.refresh_models(registry_path)
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    # A rescan must not silently promote a short download back to cached.
+    assert stored["cache_state"] == "partial"
+
+
+def test_list_models_keeps_partial_entry_partial_when_manifest_short(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_partial_entry_registry(
+        registry_path,
+        files_count=2,
+        expected_files=[
+            "config.json",
+            "model-00001-of-00003.safetensors",
+            "model-00002-of-00003.safetensors",
+            "model-00003-of-00003.safetensors",
+        ],
+    )
+    _install_fake_scan(
+        monkeypatch,
+        present_files=[("config.json", 10), ("model-00001-of-00003.safetensors", 100)],
+    )
+    listed = model_registry_module.list_models(registry_path)
+    [model] = [m for m in listed["models"] if m["entry_id"] == "01PARTIAL"]
+    assert model["cache_state"] == "partial"
+
+
+def test_refresh_keeps_partial_entry_partial_when_inventory_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    # No manifest, and the rescan finds no more files than already recorded.
+    _write_partial_entry_registry(registry_path, files_count=2)
+    _install_fake_scan(
+        monkeypatch,
+        present_files=[("config.json", 10), ("model.safetensors", 100)],
+    )
+    model_registry_module.refresh_models(registry_path)
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert stored["cache_state"] == "partial"
+
+
+def test_refresh_promotes_partial_entry_when_inventory_grows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    # No manifest, but the rescan shows strictly more files than before → the
+    # download evidently completed, so promotion is honest.
+    _write_partial_entry_registry(registry_path, files_count=1)
+    _install_fake_scan(
+        monkeypatch,
+        present_files=[
+            ("config.json", 10),
+            ("model.safetensors", 100),
+            ("tokenizer.json", 20),
+        ],
+    )
+    model_registry_module.refresh_models(registry_path)
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert stored["cache_state"] == "cached"
 
 
 @pytest.mark.asyncio
@@ -7236,7 +7487,8 @@ async def test_agent_deep_verifies_adopted_local_model(tmp_path: Path) -> None:
     assert verified["ok"] is True
     assert verified["deep"] is True
     assert verified["cache_state"] == "cached"
-    assert verified["detail"] == "local model deep verified"
+    # First deep run only establishes a baseline (M1 honesty).
+    assert verified["detail"] == "baseline established — rerun to compare"
     assert verified["baseline_established"] is True
     integrity = verified["entry"]["integrity"]
     assert integrity["strategy"] == "local_files_sha256"
@@ -7449,6 +7701,158 @@ async def test_agent_verify_reconciles_cached_hf_model_from_cache_scan(
     json.dumps(verified)
 
 
+def _write_manifest_registry(registry_path: Path, *, expected_files: list[str]) -> None:
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01PINNED",
+                        "display_name": "sharded-llama",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 2,
+                            "total_bytes": 110,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 110,
+                        "expected_files": expected_files,
+                        "expected_size": 330,
+                        "cache_state": "cached",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_fails_when_manifest_short_of_weight_shards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_manifest_registry(
+        registry_path,
+        expected_files=[
+            "config.json",
+            "model-00001-of-00003.safetensors",
+            "model-00002-of-00003.safetensors",
+            "model-00003-of-00003.safetensors",
+        ],
+    )
+    # The HF cache only holds config + the first of three shards.
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=110,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model-00001-of-00003.safetensors", size_on_disk=100),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        verified = await client.call("verify_model", {"model_ref": "01PINNED"})
+    finally:
+        await client.disconnect()
+
+    assert verified["entry_id"] == "01PINNED"
+    assert verified["ok"] is False
+    assert verified["reason"] == "incomplete-inventory"
+    assert verified["cache_state"] == "partial"
+    assert verified["detail"] == "missing 2 of 3 weight files"
+    assert verified["entry"]["cache_state"] == "partial"
+    # Verify persists the downgrade so the registry stops claiming cached.
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert stored["cache_state"] == "partial"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_presence_only_without_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=130,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+            SimpleNamespace(file_name="tokenizer.json", size_on_disk=20),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "remote-llama",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+        verified = await client.call("verify_model", {"model_ref": "01REMOTE"})
+    finally:
+        await client.disconnect()
+
+    entry_id = _assert_minted_model_entry(pinned["entry"], ignored="01REMOTE")
+    assert verified["entry_id"] == entry_id
+    assert verified["ok"] is True
+    assert verified["cache_state"] == "cached"
+    # A sha-only pin carries no upstream manifest, so verify is honest about it.
+    assert verified["detail"] == "presence-only check (no manifest)"
+    json.dumps(verified)
+
+
 @pytest.mark.asyncio
 async def test_agent_deep_verifies_cached_hf_model_blobs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -7514,7 +7918,9 @@ async def test_agent_deep_verifies_cached_hf_model_blobs(
     assert verified["entry_id"] == entry_id
     assert verified["ok"] is True
     assert verified["deep"] is True
-    assert verified["detail"] == "hf model deep verified"
+    # First deep run only establishes a baseline (M1 honesty).
+    assert verified["detail"] == "baseline established — rerun to compare"
+    assert verified["baseline_established"] is True
     integrity = verified["entry"]["integrity"]
     assert integrity["strategy"] == "hf_cache_blob_sha256"
     assert integrity["deep"] is True
@@ -7524,6 +7930,84 @@ async def test_agent_deep_verifies_cached_hf_model_blobs(
         "model.safetensors": _sha256_uri(b"weights"),
     }
     json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_deep_verify_baseline_then_compare_surfaces_caveat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    cache_dir = tmp_path / "hf-cache" / "models--meta-llama--Llama-3.1-8B-Instruct"
+    snapshot_dir = cache_dir / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    config = snapshot_dir / "config.json"
+    weights = snapshot_dir / "model.safetensors"
+    config.write_bytes(b"{}")
+    weights.write_bytes(b"weights")
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=len(b"{}") + len(b"weights"),
+        files=(
+            SimpleNamespace(
+                file_name="config.json", size_on_disk=len(b"{}"), file_path=config
+            ),
+            SimpleNamespace(
+                file_name="model.safetensors",
+                size_on_disk=len(b"weights"),
+                file_path=weights,
+            ),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        await client.call(
+            "pin_model",
+            {
+                "entry_id": "01REMOTE",
+                "display_name": "remote-llama",
+                "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "cache_state": "cached",
+            },
+        )
+        first = await client.call("verify_model", {"model_ref": "01REMOTE", "deep": "true"})
+        second = await client.call("verify_model", {"model_ref": "01REMOTE", "deep": "true"})
+    finally:
+        await client.disconnect()
+
+    # First deep run only establishes a baseline — it verified nothing against
+    # a prior snapshot, so it says so at WARN level, not "deep verified".
+    assert first["ok"] is True
+    assert first["deep"] is True
+    assert first["baseline_established"] is True
+    assert first["detail"] == "baseline established — rerun to compare"
+    assert first["warnings"] == [
+        {
+            "kind": "baseline-established",
+            "detail": "baseline established — rerun to compare",
+        }
+    ]
+    # The rerun actually compares against the stored baseline.
+    assert second["ok"] is True
+    assert second["detail"] == "hf model deep verified"
+    assert second.get("baseline_established") is not True
+    assert not second.get("warnings")
+    json.dumps(first)
 
 
 @pytest.mark.asyncio
@@ -8909,6 +9393,8 @@ async def test_agent_preflight_reports_gated_model_missing_hf_token(
             ),
         }
     ]
+    # Early-return preflight payloads carry the same warnings key as the normal path.
+    assert result["warnings"] == []
 
 
 @pytest.mark.asyncio
@@ -8969,6 +9455,7 @@ async def test_agent_preflight_reports_hf_model_ref_without_commit_sha(
             ),
         }
     ]
+    assert result["warnings"] == []
 
 
 @pytest.mark.asyncio

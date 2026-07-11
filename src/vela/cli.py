@@ -1090,6 +1090,7 @@ def model_verify(
     if json_output:
         _echo_json(result)
         return
+    _echo_warnings(result.get("warnings", []))
     verdict = "OK" if result.get("ok") else "FAIL"
     typer.echo(
         "\t".join(

@@ -94,6 +94,8 @@ MODEL_ENTRY_FIELDS = (
     "size_bytes",
     "unique_size_bytes",
     "nominal_size_bytes",
+    "expected_files",
+    "expected_size",
     "cache_state",
     "gated",
     "token_required",
@@ -246,6 +248,8 @@ def _preserve_upserted_entry_state(entry: dict[str, Any], existing: dict[str, An
             "size_bytes",
             "unique_size_bytes",
             "nominal_size_bytes",
+            "expected_files",
+            "expected_size",
         ):
             if field in existing:
                 entry[field] = existing[field]
@@ -570,7 +574,9 @@ def _refresh_models_locked(path: Path) -> dict[str, Any]:
         elif entry.get("source") == "hf_repo":
             cached = _matching_hf_payload_for_entry(entry, cached_hf_payloads)
             if cached is not None:
-                _apply_cached_model_payload(entry, cached)
+                _apply_cached_model_payload(
+                    entry, cached, promote=not _rescan_keeps_partial(entry, cached)
+                )
                 refreshed += 1
             elif str(entry.get("cache_state") or "") == "cached":
                 entry["cache_state"] = "missing"
@@ -791,7 +797,8 @@ def _merge_hf_cache_models(models: list[dict[str, Any]]) -> None:
                 revision_index[(repo_id, revision)] = index
             continue
         existing = models[index]
-        existing["cache_state"] = "cached"
+        if not _rescan_keeps_partial(existing, payload):
+            existing["cache_state"] = "cached"
         existing["files"] = payload["files"]
         existing["size_bytes"] = payload["size_bytes"]
         existing["unique_size_bytes"] = payload.get("unique_size_bytes")
@@ -840,8 +847,11 @@ def _matching_hf_payload_for_entry(
     return fallback if commit_sha is None and revision is None else None
 
 
-def _apply_cached_model_payload(entry: dict[str, Any], payload: dict[str, Any]) -> None:
-    entry["cache_state"] = "cached"
+def _apply_cached_model_payload(
+    entry: dict[str, Any], payload: dict[str, Any], *, promote: bool = True
+) -> None:
+    if promote:
+        entry["cache_state"] = "cached"
     entry["files"] = dict(payload.get("files")) if isinstance(payload.get("files"), dict) else {}
     entry["size_bytes"] = int(payload.get("size_bytes") or 0)
     entry["unique_size_bytes"] = int(payload.get("unique_size_bytes") or 0)
@@ -850,6 +860,32 @@ def _apply_cached_model_payload(entry: dict[str, Any], payload: dict[str, Any]) 
         entry["commit_sha"] = payload["commit_sha"]
     if not entry.get("revision") and payload.get("revision"):
         entry["revision"] = payload["revision"]
+
+
+def _rescan_keeps_partial(
+    existing: dict[str, Any], scanned_payload: dict[str, Any]
+) -> bool:
+    """Whether a cache rescan must leave a ``partial`` entry partial (M1).
+
+    A cancelled download leaves ``partial``; a plain rescan then used to promote
+    it straight to ``cached``. With an upstream manifest we only promote once
+    every weight shard is present. Without one we keep the current promote
+    behaviour except when the rescan shows no more files than were already
+    recorded — i.e. nothing actually changed since it went partial.
+    """
+    if str(existing.get("cache_state") or "") != "partial":
+        return False
+    if _expected_weight_files(existing):
+        present = _hf_cache_present_file_names(existing)
+        if present is None:
+            return True
+        return bool(_manifest_missing_weight_files(existing, present))
+    return _file_inventory_count(scanned_payload) <= _file_inventory_count(existing)
+
+
+def _file_inventory_count(entry: dict[str, Any]) -> int:
+    files = entry.get("files")
+    return _safe_int(files.get("count")) if isinstance(files, dict) else 0
 
 
 def _cached_model_entries_from_hf_scan() -> list[dict[str, Any]]:
@@ -1137,6 +1173,59 @@ def _weights_format_from_names(names: list[str]) -> str:
     return "unknown"
 
 
+_WEIGHT_SUFFIXES = frozenset({".safetensors", ".gguf", ".bin"})
+
+
+def _is_weight_file(name: str) -> bool:
+    return Path(name).suffix in _WEIGHT_SUFFIXES
+
+
+def _is_manifest_file(name: str) -> bool:
+    # The upstream manifest records weight shards plus the model config, so a
+    # short download (missing shards) is detectable at verify time; other repo
+    # files (READMEs, images) are noise for that check.
+    return _is_weight_file(name) or Path(name).name == "config.json"
+
+
+def _hf_manifest_from_siblings(info: object) -> tuple[list[str], int]:
+    """Extract the expected weight/config manifest from an HfApi model_info.
+
+    Requires ``files_metadata=True`` on the model_info request so each sibling
+    carries a ``size``. Returns ``([], 0)`` when the info lacks siblings (offline
+    resolution or a stub), so callers simply persist no manifest.
+    """
+    files: list[str] = []
+    total = 0
+    for sibling in getattr(info, "siblings", None) or ():
+        name = _optional_str(getattr(sibling, "rfilename", None))
+        if name is None or not _is_manifest_file(name):
+            continue
+        files.append(name)
+        total += _safe_int(getattr(sibling, "size", 0))
+    return sorted(dict.fromkeys(files)), total
+
+
+def _expected_weight_files(entry: dict[str, Any]) -> list[str]:
+    """The weight shards the upstream manifest says this pin should contain."""
+    expected = entry.get("expected_files")
+    if not isinstance(expected, list):
+        return []
+    return sorted(
+        {name for name in expected if isinstance(name, str) and _is_weight_file(name)}
+    )
+
+
+def _manifest_missing_weight_files(
+    entry: dict[str, Any], present_names: list[str] | None
+) -> list[str]:
+    """Weight shards named in the manifest but absent from the local inventory."""
+    expected = _expected_weight_files(entry)
+    if not expected:
+        return []
+    present = {name for name in (present_names or []) if _is_weight_file(name)}
+    return [name for name in expected if name not in present]
+
+
 def _safe_int(value: object) -> int:
     try:
         return int(value or 0)
@@ -1231,7 +1320,12 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
         raise ModelRegistryError(
             "model-not-found",
             f"model display name is ambiguous: {reference}",
-            {"model_ref": reference},
+            {
+                "model_ref": reference,
+                "candidates": [
+                    str(entry.get("entry_id") or "") for entry in display_name_matches
+                ],
+            },
         )
     if len(alias_matches) == 1:
         return alias_matches[0]
@@ -1425,6 +1519,11 @@ def _hf_repo_entry_from_params(
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
     }
+    if info is not None:
+        expected_files, expected_size = _hf_manifest_from_siblings(info)
+        if expected_files:
+            entry["expected_files"] = expected_files
+            entry["expected_size"] = expected_size
     if warnings:
         entry["_warnings"] = warnings
     return entry
@@ -1461,7 +1560,7 @@ def _hf_model_info(repo_id: str, revision: str | None = None) -> object | None:
             {"repo_id": repo_id, "revision": revision, "reason": "missing-huggingface-hub"},
         ) from exc
 
-    kwargs: dict[str, Any] = {"repo_id": repo_id}
+    kwargs: dict[str, Any] = {"repo_id": repo_id, "files_metadata": True}
     if revision is not None:
         kwargs["revision"] = revision
     return HfApi().model_info(**kwargs)
@@ -1593,6 +1692,23 @@ def _verified_local_model_path(value: str) -> Path:
     return path
 
 
+_DEEP_BASELINE_DETAIL = "baseline established — rerun to compare"
+
+
+def _deep_baseline_payload_fields() -> dict[str, Any]:
+    """Verdict fields for a first deep-verify run (M1 baseline honesty).
+
+    A first deep run has no prior content snapshot to compare against, so it
+    only records a baseline. Saying "deep verified" would overstate it; instead
+    it surfaces a WARN-level caveat the CLI/TUI can echo.
+    """
+    return {
+        "detail": _DEEP_BASELINE_DETAIL,
+        "baseline_established": True,
+        "warnings": [{"kind": "baseline-established", "detail": _DEEP_BASELINE_DETAIL}],
+    }
+
+
 def _verify_local_model_entry(entry: dict[str, Any], *, deep: bool = False) -> dict[str, Any]:
     entry_id = str(entry.get("entry_id") or "")
     local_path = Path(str(entry.get("local_path") or "")).expanduser()
@@ -1644,9 +1760,10 @@ def _verify_local_model_entry(entry: dict[str, Any], *, deep: bool = False) -> d
     if deep:
         payload["deep"] = True
         if payload["ok"]:
-            payload["detail"] = "local model deep verified"
             if baseline_established:
-                payload["baseline_established"] = True
+                payload.update(_deep_baseline_payload_fields())
+            else:
+                payload["detail"] = "local model deep verified"
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
@@ -1656,6 +1773,7 @@ def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -
     entry_id = str(entry.get("entry_id") or "")
     status = _verify_hf_model_status(entry)
     entry["cache_state"] = status["cache_state"]
+    baseline_established = False
     if bool(status["ok"]) and deep and entry.get("source") == "hf_repo":
         current_integrity = _hf_model_integrity_payload(entry)
         previous_integrity = entry.get("integrity")
@@ -1684,6 +1802,7 @@ def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -
                 },
                 "entry": _model_payload(entry),
             }
+        baseline_established = not expected_files_sha256
         current_integrity["deep"] = True
         entry["integrity"] = current_integrity
     payload = {
@@ -1696,7 +1815,10 @@ def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -
     if deep:
         payload["deep"] = True
         if payload["ok"] and entry.get("source") == "hf_repo":
-            payload["detail"] = "hf model deep verified"
+            if baseline_established:
+                payload.update(_deep_baseline_payload_fields())
+            else:
+                payload["detail"] = "hf model deep verified"
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
@@ -1718,10 +1840,32 @@ def _verify_hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
             "detail": "cached model was not found in the Hugging Face cache",
         }
     _apply_cached_model_payload(entry, cached)
-    return _hf_model_status(entry)
+    present_names = _hf_cache_present_file_names(entry)
+    return _hf_model_status(entry, present_names=present_names)
 
 
-def _hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
+def _hf_cache_present_file_names(entry: dict[str, Any]) -> list[str] | None:
+    """Filenames present in the HF cache for the entry's revision, or None.
+
+    ``None`` means the cache scan was unavailable (huggingface_hub missing, or
+    the revision is not in the cache), so callers fall back to a presence-only
+    check instead of asserting an inventory they cannot see.
+    """
+    try:
+        revision = _hf_cache_revision_for_entry(entry)
+    except ModelRegistryError:
+        return None
+    names: list[str] = []
+    for cached_file in getattr(revision, "files", ()) or ():
+        name = _optional_str(getattr(cached_file, "file_name", None))
+        if name:
+            names.append(name)
+    return names
+
+
+def _hf_model_status(
+    entry: dict[str, Any], *, present_names: list[str] | None = None
+) -> dict[str, object]:
     cache_state = str(entry.get("cache_state") or "remote_only")
     if cache_state != "cached":
         return {
@@ -1752,11 +1896,37 @@ def _hf_model_status(entry: dict[str, Any]) -> dict[str, object]:
             "cache_state": "partial",
             "detail": "cached model metadata is missing weight files",
         }
+    # M1: a bare presence-shape check passed with 1 of 12 shards. When the pin
+    # carries an upstream manifest, the local inventory must actually hold every
+    # weight shard, or verify fails and the entry drops back to partial.
+    expected = _expected_weight_files(entry)
+    if expected:
+        if present_names is None:
+            return {
+                "ok": True,
+                "reason": "cached",
+                "cache_state": "cached",
+                "detail": "presence-only check (cache scan unavailable)",
+            }
+        missing = _manifest_missing_weight_files(entry, present_names)
+        if missing:
+            return {
+                "ok": False,
+                "reason": "incomplete-inventory",
+                "cache_state": "partial",
+                "detail": f"missing {len(missing)} of {len(expected)} weight files",
+            }
+        return {
+            "ok": True,
+            "reason": "cached",
+            "cache_state": "cached",
+            "detail": "model inventory verified against manifest",
+        }
     return {
         "ok": True,
         "reason": "cached",
         "cache_state": "cached",
-        "detail": "model metadata is cached",
+        "detail": "presence-only check (no manifest)",
     }
 
 
@@ -2116,9 +2286,12 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
             payload[field] = bool(value)
         elif field == "size_bytes":
             payload[field] = int(value or 0)
-        elif field in {"unique_size_bytes", "nominal_size_bytes"}:
+        elif field in {"unique_size_bytes", "nominal_size_bytes", "expected_size"}:
             if value is not None:
                 payload[field] = int(value or 0)
+        elif field == "expected_files":
+            if isinstance(value, list) and value:
+                payload[field] = [str(item) for item in value if isinstance(item, str)]
         elif field in {"allow_patterns", "ignore_patterns"}:
             if isinstance(value, list):
                 payload[field] = [str(item) for item in value if isinstance(item, str)]

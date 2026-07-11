@@ -96,10 +96,20 @@ For gated repos, accept the license upstream and set `HF_TOKEN` on the target
 host before pinning or downloading. The token is never stored in the registry
 and is scrubbed from job output.
 
-`model download --json` emits the final job payload for automation. `model
-verify --deep` runs the registry's deep content verification path when the
-source supports it; shallow verification is still the default for quick health
-checks.
+`model download --json` emits the final job payload for automation.
+
+Shallow `model verify` is the default. When the pin carries an upstream manifest
+(recorded at pin time from `HfApi().model_info(files_metadata=True)`), verify
+checks the local inventory against it and **fails** listing `missing N of M
+weight files` if the download is short — a cancelled download no longer passes
+as cached. A pin with no manifest (offline or `--commit-sha`-only) says
+`presence-only check (no manifest)` so the weaker check is explicit.
+
+`model verify --deep` hashes the cached blobs, but the **first** deep run only
+records a baseline — there is nothing yet to compare against, so it reports
+`baseline established — rerun to compare` (a WARN line, not a pass). Re-run
+`--deep` to actually compare the content against that baseline; a later drift
+then fails with an integrity mismatch.
 
 Pre-downloading pays off for Docker deployments: a composed `runtime: docker`
 deployment of a Hugging Face model **mounts the agent HF cache by default**

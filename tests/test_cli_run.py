@@ -2072,6 +2072,45 @@ def test_cli_model_verify_deep_passes_deep_flag(
     assert result.output == "OK\t01MODEL\tcached\tmodel deep verified\n"
 
 
+def test_cli_model_verify_echoes_baseline_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        return {
+            "entry_id": "01MODEL",
+            "ok": True,
+            "cache_state": "cached",
+            "detail": "baseline established — rerun to compare",
+            "deep": True,
+            "baseline_established": True,
+            "warnings": [
+                {
+                    "kind": "baseline-established",
+                    "detail": "baseline established — rerun to compare",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app, ["model", "verify", "01MODEL", "--deep"]
+    )
+
+    assert result.exit_code == 0, result.output
+    # The caveat rides both a WARN line and the verdict detail column.
+    assert "WARNING: baseline established — rerun to compare" in result.output
+    assert (
+        "OK\t01MODEL\tcached\tbaseline established — rerun to compare"
+        in result.output
+    )
+
+
 def test_cli_model_remove_requires_yes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

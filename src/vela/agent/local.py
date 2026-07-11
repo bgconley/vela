@@ -1338,6 +1338,7 @@ class LocalAgent:
                 return {
                     "ok": False,
                     "failures": [{"kind": ErrorKind.HF_AUTH.value, "detail": exc.message}],
+                    "warnings": [],
                 }
             if exc.code == "model-unavailable":
                 return {
@@ -1345,6 +1346,7 @@ class LocalAgent:
                     "failures": [
                         {"kind": ErrorKind.MODEL_NOT_FOUND.value, "detail": exc.message}
                     ],
+                    "warnings": [],
                 }
             raise
         except VllmProfileError as exc:
