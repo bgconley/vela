@@ -1882,6 +1882,13 @@ def run_config(
         str | None,
         typer.Option("--revision", help="Model revision override."),
     ] = None,
+    require_cached: Annotated[
+        bool,
+        typer.Option(
+            "--require-cached",
+            help="Fail before launch if a pinned model is not cached on the target.",
+        ),
+    ] = False,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
@@ -1905,8 +1912,10 @@ def run_config(
         client,
         name,
         configs_dir,
+        require_cached=require_cached,
         **overrides,
     )
+    _echo_warnings(prepared.get("launch_warnings", []))
     cfg = ModelConfig.model_validate(prepared["config"])
     if cfg.launch.mode.value == "detached":
         asyncio.run(_run_detached_cli(client, name, configs_dir, prepared, **overrides))
@@ -1934,6 +1943,13 @@ def smoke_config(
         str | None,
         typer.Option("--revision", help="Model revision override."),
     ] = None,
+    require_cached: Annotated[
+        bool,
+        typer.Option(
+            "--require-cached",
+            help="Fail before launch if a pinned model is not cached on the target.",
+        ),
+    ] = False,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
@@ -1945,8 +1961,10 @@ def smoke_config(
         client,
         name,
         configs_dir,
+        require_cached=require_cached,
         **overrides,
     )
+    _echo_warnings(prepared.get("launch_warnings", []))
     raise typer.Exit(
         asyncio.run(_smoke_config_cli(client, prepared, name, configs_dir, **overrides))
     )
@@ -1969,6 +1987,13 @@ def smoke_tui_config(
         str | None,
         typer.Option("--revision", help="Model revision override."),
     ] = None,
+    require_cached: Annotated[
+        bool,
+        typer.Option(
+            "--require-cached",
+            help="Fail before launch if a pinned model is not cached on the target.",
+        ),
+    ] = False,
 ) -> None:
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
@@ -1980,8 +2005,10 @@ def smoke_tui_config(
         client,
         name,
         configs_dir,
+        require_cached=require_cached,
         **overrides,
     )
+    _echo_warnings(prepared.get("launch_warnings", []))
     cfg = ModelConfig.model_validate(prepared["config"])
     helper_overrides = _agent_params(**overrides)
     raise typer.Exit(
@@ -2485,6 +2512,7 @@ def _prepare_launch_with_client_or_exit(
     build_id: str | None = None,
     model_ref: str | None = None,
     revision: str | None = None,
+    require_cached: bool = False,
 ) -> dict[str, Any]:
     try:
         return _target_call(
@@ -2496,6 +2524,7 @@ def _prepare_launch_with_client_or_exit(
                 build_id=build_id,
                 model_ref=model_ref,
                 revision=revision,
+                require_cached="true" if require_cached else None,
             ),
         )
     except TargetCallError as exc:

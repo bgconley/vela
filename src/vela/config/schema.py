@@ -160,6 +160,7 @@ class LaunchConfig(BaseModel):
     ready_timeout_seconds: int = Field(default=900, ge=0)
     health: HealthConfig = Field(default_factory=HealthConfig)
     runs_dir: Path | None = None
+    require_cached_models: bool = False
 
 
 class ModelConfig(BaseModel):

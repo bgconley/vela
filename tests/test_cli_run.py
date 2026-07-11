@@ -251,6 +251,78 @@ def test_cli_preview_uses_local_target_client(
     assert stderr == "WARNING: heads up\n"
 
 
+class _FakeRequireCachedClient:
+    def __init__(self, launch_warnings: list[dict[str, object]]) -> None:
+        self.prepare_calls: list[dict[str, object]] = []
+        self._launch_warnings = launch_warnings
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def call(self, method: str, params):
+        if method == "prepare_launch":
+            self.prepare_calls.append(dict(params or {}))
+            return {
+                "config": {"name": "cfg", "model": "org/model"},
+                "build": {"warnings": []},
+                "preflight": None,
+                "launch_warnings": self._launch_warnings,
+            }
+        raise AssertionError(f"unexpected target client call: {method}")
+
+
+def test_cli_smoke_require_cached_flag_threads_and_echoes_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeRequireCachedClient(
+        [
+            {
+                "kind": "model-not-cached",
+                "entry_id": "01CACHE",
+                "detail": "model cache-llama (01CACHE) is not cached",
+            }
+        ]
+    )
+
+    async def fake_smoke_config_cli(*_args, **_kwargs):
+        return 0
+
+    monkeypatch.setattr(
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
+    )
+    monkeypatch.setattr(cli_module, "_smoke_config_cli", fake_smoke_config_cli)
+
+    result = CliRunner().invoke(cli_module.app, ["smoke", "cfg", "--require-cached"])
+
+    assert result.exit_code == 0, result.output
+    assert client.prepare_calls and client.prepare_calls[0].get("require_cached") == "true"
+    assert "WARNING:" in result.output
+    assert "not cached" in result.output
+
+
+def test_cli_smoke_without_require_cached_omits_the_param(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeRequireCachedClient([])
+
+    async def fake_smoke_config_cli(*_args, **_kwargs):
+        return 0
+
+    monkeypatch.setattr(
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
+    )
+    monkeypatch.setattr(cli_module, "_smoke_config_cli", fake_smoke_config_cli)
+
+    result = CliRunner().invoke(cli_module.app, ["smoke", "cfg"])
+
+    assert result.exit_code == 0, result.output
+    assert client.prepare_calls and "require_cached" not in client.prepare_calls[0]
+    assert "WARNING:" not in result.output
+
+
 def test_cli_preview_target_option_uses_selected_target_from_registry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

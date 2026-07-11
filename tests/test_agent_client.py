@@ -5841,6 +5841,357 @@ async def test_agent_pins_url_model_metadata_and_prepares_launch_handoff(
     json.dumps(prepared)
 
 
+def _write_hf_model_registry(
+    registry_path: Path,
+    *,
+    cache_state: str,
+    nominal_size_bytes: int = 0,
+) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "entry_id": "01CACHE",
+        "display_name": "cache-llama",
+        "aliases": [],
+        "source": "hf_repo",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "revision": "main",
+        "commit_sha": "abc123",
+        "local_path": None,
+        "url": None,
+        "quant_format": "none",
+        "tokenizer": None,
+        "files": {},
+        "size_bytes": 0,
+        "nominal_size_bytes": nominal_size_bytes,
+        "cache_state": cache_state,
+        "gated": False,
+        "token_required": False,
+        "created_at": "2026-06-02T14:03:11Z",
+        "last_used_at": None,
+        "notes": "",
+    }
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [entry],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return entry
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_warns_when_hf_repo_model_not_cached(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    entry = _write_hf_model_registry(
+        registry_path, cache_state="remote_only", nominal_size_bytes=50_000_000_000
+    )
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "uncached.yaml",
+            f"""
+            name: uncached
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            server:
+              port: {unused_tcp_port}
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "uncached", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    assert entry["cache_state"] == "remote_only"
+    warnings = prepared["launch_warnings"]
+    assert isinstance(warnings, list) and len(warnings) == 1
+    warning = warnings[0]
+    assert warning["kind"] == "model-not-cached"
+    assert warning["entry_id"] == entry["entry_id"]
+    assert warning["cache_state"] == "remote_only"
+    assert warning["size_bytes"] == 50_000_000_000
+    # (bug-225 class) the structured warning must not leak an agent-local path.
+    assert "/" not in warning["detail"].replace("meta-llama/Llama-3.1-8B-Instruct", "")
+    # (1a) the human-readable form rides the existing command-builder warnings list
+    # so the TUI banner renders it with no new plumbing.
+    assert any("not cached" in text for text in prepared["build"]["warnings"])
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_does_not_warn_when_model_cached(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(registry_path, cache_state="cached")
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "cached.yaml",
+            f"""
+            name: cached
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            server:
+              port: {unused_tcp_port}
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "cached", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    assert prepared["launch_warnings"] == []
+    assert not any("not cached" in text for text in prepared["build"]["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_blocks_uncached_model_when_require_cached(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(registry_path, cache_state="remote_only")
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "gated.yaml",
+            f"""
+            name: gated
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            server:
+              port: {unused_tcp_port}
+            launch:
+              require_cached_models: true
+            """,
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch", {"name": "gated", "configs_dir": str(config_dir)}
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "preflight-failed"
+    assert exc_info.value.details["kind"] == "model-not-cached"
+    assert "not cached" in exc_info.value.details["detail"]
+
+
+@pytest.mark.asyncio
+async def test_preflight_reports_model_not_cached_when_require_cached(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(registry_path, cache_state="remote_only")
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "gated-preflight.yaml",
+            f"""
+            name: gated-preflight
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            server:
+              port: {unused_tcp_port}
+            launch:
+              require_cached_models: true
+            """,
+        )
+        preflight = await client.call(
+            "preflight", {"name": "gated-preflight", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    assert preflight["ok"] is False
+    kinds = [failure["kind"] for failure in preflight["failures"]]
+    assert "model-not-cached" in kinds
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_warns_unpinned_model_only_when_require_cached(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "bare.yaml",
+            f"""
+            name: bare
+            model: meta-llama/Llama-3.1-8B-Instruct
+            server:
+              port: {unused_tcp_port}
+            """,
+        )
+        write_yaml(
+            config_dir / "bare-require.yaml",
+            f"""
+            name: bare-require
+            model: meta-llama/Llama-3.1-8B-Instruct
+            server:
+              port: {unused_tcp_port}
+            launch:
+              require_cached_models: true
+            """,
+        )
+        without_flag = await client.call(
+            "prepare_launch", {"name": "bare", "configs_dir": str(config_dir)}
+        )
+        with_flag = await client.call(
+            "prepare_launch", {"name": "bare-require", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    # No pin means the registry cannot answer; the flag never fails an unpinned
+    # model (deliberate escape hatch) — it only warns.
+    assert without_flag["launch_warnings"] == []
+    warnings = with_flag["launch_warnings"]
+    assert len(warnings) == 1
+    assert warnings[0]["kind"] == "model-not-cached"
+    assert warnings[0]["unpinned"] is True
+    assert "not pinned" in warnings[0]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_probe_until_ready_refreshes_model_registry_cache_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01REMOTE",
+                        "display_name": "remote-llama",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {},
+                        "size_bytes": 0,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot_dir = tmp_path / "hf-cache" / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    weights = snapshot_dir / "model.safetensors"
+    weights.write_bytes(b"weights")
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=len(b"weights"),
+        files=(
+            SimpleNamespace(
+                file_name="model.safetensors",
+                size_on_disk=len(b"weights"),
+                file_path=weights,
+            ),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        repo_type="model",
+        revisions=(fake_revision,),
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    log_path = tmp_path / "run-1.run.log"
+    log_path.write_text("", encoding="utf-8")
+    manifest_path = tmp_path / "run-1.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "run-1.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8123,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        config_snapshot={
+            "name": "detached",
+            "model": "meta-llama/Llama-3.1-8B-Instruct",
+            "model_ref": "01REMOTE",
+            "server": {"host": "127.0.0.1", "port": 8123},
+            "launch": {"mode": "detached", "health": {"interval_seconds": 0.05}},
+        },
+    )
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+    agent = LocalAgent(models_registry_path=registry_path)
+    client = InProcessTargetClient(agent)
+    await client.connect()
+    try:
+        await client.call("discover_detached", {"runs_dirs": [str(tmp_path)]})
+        await client.call("reattach_detached", {"run_id": "run-1"})
+        result = await client.call("probe_until_ready", {"run_id": "run-1"})
+    finally:
+        await client.disconnect()
+
+    assert result["ready"] is True
+    refreshed = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert refreshed["entries"][0]["cache_state"] == "cached"
+
+
 @pytest.mark.asyncio
 async def test_agent_pins_model_to_agent_owned_registry(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"

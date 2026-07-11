@@ -537,6 +537,10 @@ ERROR_GUIDANCE = {
     ErrorKind.NAME_CONFLICT: "Remove the existing container or add it to command.docker.evict.",
     ErrorKind.GPU_NOT_AVAILABLE: "Check --gpus, the NVIDIA runtime, driver, and target GPU.",
     ErrorKind.MODEL_NOT_FOUND: "Check the model path/name and Hugging Face access.",
+    ErrorKind.MODEL_NOT_CACHED: (
+        "Download the pinned model to the target first, or drop --require-cached / "
+        "launch.require_cached_models to let vLLM fetch it during startup."
+    ),
     ErrorKind.TP_MISMATCH: "Check tensor_parallel_size, pipeline_parallel_size, and visible GPUs.",
     ErrorKind.HF_AUTH: (
         "Accept the model license on huggingface.co, then set HF_TOKEN in the "

@@ -57,6 +57,7 @@ from vela.engine.build_registry import (
 from vela.engine.command_builder import (
     CommandBuildResult,
     build_command,
+    is_local_model_reference,
     render_preview,
     render_standalone_docker_script,
 )
@@ -85,7 +86,7 @@ from vela.engine.model_registry import (
     resolve_model_handoff,
     verify_model,
 )
-from vela.engine.phases import ErrorKind, PhaseFSM
+from vela.engine.phases import ErrorKind, Phase, PhaseFSM
 from vela.engine.preflight import check_launch_preflight
 from vela.engine.process_manager import (
     DetachedLaunch,
@@ -368,6 +369,7 @@ class LocalJob:
 class LocalCommandPreparation:
     result: CommandBuildResult
     preflight_config: ModelConfig
+    model_handoff: ModelHandoff | None = None
 
 
 class LocalAgent:
@@ -415,6 +417,7 @@ class LocalAgent:
         self._all_subscribers: list[asyncio.Queue[dict[str, Any]]] = []
         self._gpu_stream_tasks: dict[str, asyncio.Task[None]] = {}
         self._post_ready_probes: dict[str, asyncio.Task[None]] = {}
+        self._post_ready_registry_refreshed: set[str] = set()
         self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._controller_version: str | None = None
 
@@ -1283,6 +1286,13 @@ class LocalAgent:
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
         result = preparation.result
+        cache = _model_not_cached_descriptor(cfg, preparation.model_handoff)
+        if cache is not None and cache["gateable"] and cfg.launch.require_cached_models:
+            raise TargetCallError(
+                "preflight-failed",
+                cache["detail"],
+                {"kind": cache["kind"], "detail": cache["detail"]},
+            )
         failure = check_launch_preflight(preparation.preflight_config, cwd=result.cwd)
         if failure is not None:
             raise TargetCallError(
@@ -1290,10 +1300,17 @@ class LocalAgent:
                 failure.detail,
                 {"kind": failure.kind.value, "detail": failure.detail},
             )
+        launch_warnings: list[dict[str, Any]] = []
+        if cache is not None:
+            launch_warnings.append(_model_not_cached_wire(cache))
+            # Promote the human-readable form onto the command-builder warnings so
+            # the TUI banner path (_record_warnings) renders it with no new plumbing.
+            result = replace(result, warnings=[*result.warnings, cache["detail"]])
         return {
             "config": cfg.model_dump(mode="json"),
             "build": _build_payload(result),
             "preflight": None,
+            "launch_warnings": launch_warnings,
         }
 
     def _preflight(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1327,15 +1344,16 @@ class LocalAgent:
             raise
         except VllmProfileError as exc:
             raise TargetCallError("profile-error", str(exc)) from exc
+        failures: list[dict[str, Any]] = []
+        cache = _model_not_cached_descriptor(cfg, preparation.model_handoff)
+        if cache is not None and cache["gateable"] and cfg.launch.require_cached_models:
+            failures.append({"kind": cache["kind"], "detail": cache["detail"]})
         failure = check_launch_preflight(
             preparation.preflight_config, cwd=preparation.result.cwd
         )
-        failures = (
-            [{"kind": failure.kind.value, "detail": failure.detail}]
-            if failure is not None
-            else []
-        )
-        return {"ok": failure is None, "failures": failures}
+        if failure is not None:
+            failures.append({"kind": failure.kind.value, "detail": failure.detail})
+        return {"ok": not failures, "failures": failures}
 
     def _config_with_request_overrides(
         self, cfg: ModelConfig, params: dict[str, Any]
@@ -1380,6 +1398,11 @@ class LocalAgent:
         revision = _optional_param_str(params.get("revision"))
         if revision is not None:
             payload["revision"] = revision
+        require_cached = _optional_param_str(params.get("require_cached"))
+        if require_cached is not None and require_cached.lower() in {"1", "true", "yes", "on"}:
+            launch = dict(payload.get("launch") or {})
+            launch["require_cached_models"] = True
+            payload["launch"] = launch
         return ModelConfig.model_validate(payload)
 
     def _build_command_for_config(self, cfg: ModelConfig) -> CommandBuildResult:
@@ -1424,7 +1447,11 @@ class LocalAgent:
                 },
                 preview=render_preview(result.argv, result_env, result.cwd),
             )
-        return LocalCommandPreparation(result=result, preflight_config=resolved_cfg)
+        return LocalCommandPreparation(
+            result=result,
+            preflight_config=resolved_cfg,
+            model_handoff=model_handoff,
+        )
 
     def _build_command_for_resolved_config(
         self, cfg: ModelConfig
@@ -1607,9 +1634,32 @@ class LocalAgent:
             # publishing post-READY health events (DEGRADED / recovery) and
             # exits on its own once the run's process is gone.
             self._track_post_ready_probe(run_id, probe_task)
+            if fsm.phase is Phase.READY:
+                # H2: vLLM just downloaded the model to reach READY; re-scan so the
+                # registry learns the entry is now cached. Best-effort — a scan
+                # failure must never disturb the run.
+                self._refresh_model_registry_after_ready(run_id, run_config)
         else:
             completed_task.cancel()
         return {"run_id": run_id, **last_event}
+
+    def _refresh_model_registry_after_ready(
+        self, run_id: str, run_config: ModelConfig
+    ) -> None:
+        if run_id in self._post_ready_registry_refreshed:
+            return
+        model_ref = _optional_param_str(run_config.model_ref)
+        if model_ref is None:
+            return
+        self._post_ready_registry_refreshed.add(run_id)
+        try:
+            handoff = resolve_model_handoff(model_ref, self._models_registry_path)
+            if handoff is None or handoff.source != "hf_repo":
+                return
+            refresh_models(self._models_registry_path)
+        except Exception:
+            # Best-effort registry learning: never let a scan failure disturb the run.
+            self._post_ready_registry_refreshed.discard(run_id)
 
     def _track_post_ready_probe(self, run_id: str, task: asyncio.Task[None]) -> None:
         previous = self._post_ready_probes.pop(run_id, None)
@@ -5074,6 +5124,74 @@ def _validate_model_handoff_prelaunch(cfg: ModelConfig, handoff: ModelHandoff) -
                 "reason": "missing-hf-token",
             },
         )
+
+
+def _model_not_cached_descriptor(
+    cfg: ModelConfig, handoff: ModelHandoff | None
+) -> dict[str, Any] | None:
+    """Describe an uncached-model launch condition (H2), or None when cache is fine.
+
+    Returns a structured descriptor with a ``gateable`` flag: a pinned hf_repo whose
+    cache_state is not ``cached`` is gateable (``require_cached_models`` can upgrade the
+    warning to a preflight failure); a bare unpinned model is never gateable (the
+    registry cannot answer, and an unpinned model is a deliberate escape hatch).
+    Detail text carries only model identity/size — never an agent-local path (bug-225).
+    """
+    if handoff is not None and handoff.source == "hf_repo":
+        state = (handoff.cache_state or "").lower()
+        if state == "cached":
+            return None
+        detail = (
+            f"model {handoff.display_name} ({handoff.entry_id}) is not cached "
+            f"(cache_state={state or 'unknown'}); vLLM will download it during "
+            "startup, which can silently consume the ready timeout"
+        )
+        descriptor: dict[str, Any] = {
+            "kind": ErrorKind.MODEL_NOT_CACHED.value,
+            "entry_id": handoff.entry_id,
+            "cache_state": state or None,
+            "gateable": True,
+        }
+        if handoff.size_bytes:
+            descriptor["size_bytes"] = handoff.size_bytes
+            detail = f"{detail} (~{_format_handoff_size(handoff.size_bytes)})"
+        descriptor["detail"] = detail
+        return descriptor
+    if (
+        handoff is None
+        and cfg.launch.require_cached_models
+        and not is_local_model_reference(cfg.model)
+    ):
+        detail = (
+            f"model {cfg.model} is not pinned to a registry entry, so its cache "
+            "state cannot be verified; require_cached_models does not gate an "
+            "unpinned model"
+        )
+        return {
+            "kind": ErrorKind.MODEL_NOT_CACHED.value,
+            "entry_id": None,
+            "unpinned": True,
+            "gateable": False,
+            "detail": detail,
+        }
+    return None
+
+
+def _model_not_cached_wire(descriptor: dict[str, Any]) -> dict[str, Any]:
+    wire = {"kind": descriptor["kind"], "detail": descriptor["detail"]}
+    for key in ("entry_id", "cache_state", "size_bytes", "unpinned"):
+        if key in descriptor and descriptor[key] is not None:
+            wire[key] = descriptor[key]
+    return wire
+
+
+def _format_handoff_size(size_bytes: int) -> str:
+    amount = float(size_bytes)
+    for unit in ("B", "KB", "MB"):
+        if amount < 1000:
+            return f"{amount:.0f} {unit}"
+        amount /= 1000
+    return f"{amount:.1f} GB"
 
 
 def _validate_model_ref_repo(cfg: ModelConfig, handoff: ModelHandoff) -> None:

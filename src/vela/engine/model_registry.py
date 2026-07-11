@@ -39,6 +39,7 @@ class ModelHandoff:
     cache_state: str | None
     gated: bool
     token_required: bool
+    size_bytes: int | None = None
 
     def metadata(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1130,7 +1131,20 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
         cache_state=_optional_str(entry.get("cache_state")),
         gated=bool(entry.get("gated")),
         token_required=bool(entry.get("token_required")),
+        size_bytes=_handoff_size_bytes(entry),
     )
+
+
+def _handoff_size_bytes(entry: dict[str, Any]) -> int | None:
+    for key in ("nominal_size_bytes", "size_bytes", "unique_size_bytes"):
+        raw = entry.get(key)
+        try:
+            value = int(raw) if raw is not None else 0
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
 
 
 def _pin_entry_from_params(

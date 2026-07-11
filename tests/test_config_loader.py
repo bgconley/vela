@@ -172,6 +172,29 @@ def test_model_ref_and_explicit_local_model_path_are_mutually_exclusive() -> Non
         )
 
 
+def test_launch_require_cached_models_defaults_false() -> None:
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    assert cfg.launch.require_cached_models is False
+
+
+def test_launch_require_cached_models_accepts_true() -> None:
+    cfg = ModelConfig.model_validate(
+        {"name": "x", "model": "org/model", "launch": {"require_cached_models": True}}
+    )
+
+    assert cfg.launch.require_cached_models is True
+
+
+def test_launch_require_cached_models_rejects_non_bool() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ModelConfig.model_validate(
+            {"name": "x", "model": "org/model", "launch": {"require_cached_models": "sometimes"}}
+        )
+
+
 def test_vllm_pass_through_defaults_are_unset() -> None:
     cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
 

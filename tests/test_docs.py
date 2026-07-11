@@ -63,6 +63,15 @@ def test_build_model_docs_cover_operational_cli_surfaces() -> None:
         assert phrase in text
 
 
+def test_docs_cover_launch_cache_check_and_registry_learning() -> None:
+    text = _read("docs/builds-and-models.md")
+
+    assert "require_cached_models" in text
+    assert "--require-cached" in text
+    assert "model-not-cached" in text
+    assert "learns" in text or "re-scans" in text
+
+
 def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     readme = _read("README.md")
     configuration = _read("docs/configuration.md")

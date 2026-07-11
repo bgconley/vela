@@ -100,3 +100,24 @@ The agent resolves the selected build into executable, Python, environment, and
 profile metadata. It resolves the selected model into a model argument,
 revision flag, tokenizer override, and HF environment contribution. The
 controller only passes ids and renders the resulting events.
+
+### Cache check and registry learning
+
+When a launch references a pinned Hugging Face model (`model_ref`) whose registry
+entry is not yet `cached`, the agent surfaces a structured `model-not-cached`
+warning (with the entry id and the download size when known) in the prepare/launch
+result. The TUI renders it on the launch banner and `vela run`/`vela smoke` print
+it to stderr. This is a warning by default so existing lab flows are not broken:
+vLLM will simply download the weights during startup, which can silently consume
+`launch.ready_timeout_seconds`.
+
+Set `launch.require_cached_models: true` (config `launch:` block) or pass
+`--require-cached` to `vela run`/`vela smoke`/`vela smoke-tui` to upgrade the
+warning to a hard preflight failure (`model-not-cached`) before anything spawns.
+A bare `model:` config with no `model_ref` cannot be checked against the registry,
+so `require_cached_models` only warns for unpinned models — it never fails them
+(an unpinned model is a deliberate escape hatch).
+
+When a launch reaches READY, the agent re-scans that model entry and updates its
+`cache_state`, so the registry learns that vLLM has now cached the weights. The
+re-scan is best-effort: a scan failure never disturbs the running server.
