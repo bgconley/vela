@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.cells import cell_len
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Vertical, VerticalScroll
+from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
@@ -15,32 +18,80 @@ from vela.tui.theme import (
     BORDER_STRONG,
     CYAN,
     GREEN,
+    MODAL_LIST_CSS,
+    MODAL_PANEL_CSS,
     RED,
     TEXT_FAINT,
     TEXT_PRIMARY,
+    TEXT_SECONDARY,
 )
-from vela.tui.widgets import KeyHintBar, MasterDetail
+from vela.tui.widgets import KeyHintBar, pack_hint_rows, source_tag
+
+_FOOTER_HINTS = [
+    ("⏎", "Select"),
+    ("d", "Download"),
+    ("p", "Pin"),
+    ("r", "Refresh"),
+    ("v", "Verify"),
+    ("x", "Remove"),
+    ("Esc", "Close"),
+]
+
+# Short source words for the list row's source-tag column.
+_SOURCE_WORDS = {"hf_repo": "hf", "local_path": "local", "url": "url"}
+
+# Terminal-width breakpoints for the responsive row: below these column counts
+# the row sheds its rightmost columns so it never wraps (bug-237). sha8 goes
+# first (identity lives in the detail too), then size.
+_SHOW_SHA_MIN_COLS = 100
+_SHOW_SIZE_MIN_COLS = 80
 
 
 class ModelManagerScreen(ModalScreen):
+    # Full-width STACKED rebuild (bug-237): the shared 4.1 modal frame
+    # (MODAL_PANEL_CSS / MODAL_LIST_CSS) replaces the old fixed ``width: 104``
+    # box that clipped even at 100 cols, and the two-pane MasterDetail is dropped
+    # for a full-width list-in-a-VerticalScroll STACKED ABOVE the detail (the
+    # Target Manager 4.2 precedent). The list rows use a scannable one-line
+    # grammar that truncates the name and drops columns by width instead of
+    # wrapping into interleaved SHA fragments.
     CSS = f"""
     ModelManagerScreen {{
         align: center middle;
         background: {BG_BASE};
     }}
 
-    #model-manager-panel {{
-        width: 104;
-        max-height: 90%;
-        overflow-y: auto;
+    ModelManagerScreen #model-manager-panel {{
+        {MODAL_PANEL_CSS}
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #model-manager-list {{ width: 50; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
-    #model-manager-detail {{ width: 1fr; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
-    #model-manager-footer {{ margin-top: 1; }}
+    ModelManagerScreen #model-manager-list-scroll {{
+        {MODAL_LIST_CSS}
+        max-height: 16;
+        margin-bottom: 1;
+    }}
+
+    ModelManagerScreen #model-manager-list {{
+        width: 1fr;
+        height: auto;
+        color: {TEXT_PRIMARY};
+    }}
+
+    ModelManagerScreen #model-manager-detail {{
+        width: 1fr;
+        height: auto;
+        color: {TEXT_PRIMARY};
+    }}
+
+    ModelManagerScreen #model-manager-footer {{
+        dock: bottom;
+        height: auto;
+        margin-top: 1;
+        background: {BG_PANEL};
+    }}
     """
 
     BINDINGS = [
@@ -64,26 +115,30 @@ class ModelManagerScreen(ModalScreen):
         self.selected_index = self._focus_index(focus_model)
 
     def compose(self) -> ComposeResult:
-        yield MasterDetail(
-            Static(id="model-manager-list"),
-            Static(id="model-manager-detail"),
-            footer=KeyHintBar(
-                [
-                    ("⏎", "Select"),
-                    ("d", "Download"),
-                    ("p", "Pin"),
-                    ("r", "Refresh"),
-                    ("v", "Verify"),
-                    ("x", "Remove"),
-                    ("Esc", "Close"),
-                ],
-                id="model-manager-footer",
-            ),
-            id="model-manager-panel",
-        )
+        with Vertical(id="model-manager-panel"):
+            with VerticalScroll(id="model-manager-list-scroll"):
+                yield Static(id="model-manager-list")
+            yield Static(id="model-manager-detail")
+            with Vertical(id="model-manager-footer"):
+                for index, row in enumerate(pack_hint_rows(_FOOTER_HINTS)):
+                    yield KeyHintBar(row, id=f"model-manager-footer-row-{index}")
 
     def on_mount(self) -> None:
+        # Keep the list scroll out of the Tab order so key bindings reach the
+        # screen instead of scrolling the region (no focusable inputs here).
+        try:
+            self.query_one("#model-manager-list-scroll").can_focus = False
+        except Exception:
+            pass
         self._refresh()
+
+    def on_resize(self, event: Resize) -> None:
+        # Re-render rows once the real width is known / on terminal resize so the
+        # width-responsive columns and name truncation track the panel size.
+        try:
+            self._refresh()
+        except Exception:
+            pass
 
     def action_previous(self) -> None:
         if self.models:
@@ -157,22 +212,59 @@ class ModelManagerScreen(ModalScreen):
             )
             return text
         text.append("\n")
+        content_width = self._list_content_width()
+        term_width = self.size.width or 100
+        show_size = term_width >= _SHOW_SIZE_MIN_COLS
+        show_sha = term_width >= _SHOW_SHA_MIN_COLS
         for index, model in enumerate(self.models):
-            selected = index == self.selected_index
-            text.append(">" if selected else " ", style=CYAN if selected else TEXT_FAINT)
-            text.append(" ")
-            text.append(f"{_model_status_dot(model)} ", style=_model_status_color(model))
-            text.append(
-                _model_label(model),
-                style=f"bold {TEXT_PRIMARY}" if selected else TEXT_PRIMARY,
-            )
-            revision = _revision_label(model)
-            gated = " 🔒" if model.get("gated") else ""
-            text.append(
-                f"  {_quant_label(model)}  {_size_label(model)} @{revision}{gated}\n",
-                style=TEXT_FAINT,
-            )
+            self._append_row(text, index, model, content_width, show_size, show_sha)
         return text
+
+    def _append_row(
+        self,
+        text: Text,
+        index: int,
+        model: dict[str, Any],
+        content_width: int,
+        show_size: bool,
+        show_sha: bool,
+    ) -> None:
+        selected = index == self.selected_index
+        marker = ">" if selected else " "
+        dot = _model_status_dot(model)
+        tag = _row_source_tag(model)
+        cache_state = str(model.get("cache_state") or "unknown")
+        size = _row_size_label(model)
+        sha = _sha8(model)
+        # Reserve the fixed right-side columns, give the name whatever is left,
+        # then truncate it so the row never wraps.
+        fixed = (
+            1  # marker
+            + 1  # space
+            + cell_len(dot)
+            + 1  # space
+            + 2 + cell_len(tag.plain)
+            + 2 + cell_len(cache_state)
+            + (2 + cell_len(size) if show_size else 0)
+            + (2 + cell_len(sha) if show_sha else 0)
+        )
+        name = _truncate_cells(_model_label(model), max(1, content_width - fixed))
+        text.append(marker, style=CYAN if selected else TEXT_FAINT)
+        text.append(" ")
+        text.append(dot, style=_model_status_color(model))
+        text.append(" ")
+        text.append(name, style=f"bold {TEXT_PRIMARY}" if selected else TEXT_PRIMARY)
+        text.append("  ")
+        text.append(tag.plain, style=tag.style)
+        text.append("  ")
+        text.append(cache_state, style=TEXT_SECONDARY)
+        if show_size:
+            text.append("  ")
+            text.append(size, style=TEXT_FAINT)
+        if show_sha:
+            text.append("  ")
+            text.append(sha, style=TEXT_FAINT)
+        text.append("\n")
 
     def _render_detail(self) -> Text:
         model = self._selected_model()
@@ -185,9 +277,11 @@ class ModelManagerScreen(ModalScreen):
         rows = [
             ("entry_id", str(model.get("entry_id") or "-")),
             ("source", str(model.get("source") or "-")),
+            ("pinned", "yes" if _is_pinned(model) else "no"),
             ("repo", str(model.get("repo_id") or "-")),
             ("revision", _revision_detail(model)),
             ("cache", str(model.get("cache_state") or "unknown")),
+            ("quant", _quant_label(model)),
             ("size", _size_label(model)),
         ]
         auth = _auth_detail(model)
@@ -204,6 +298,14 @@ class ModelManagerScreen(ModalScreen):
             text.append(f"{key}: ", style=TEXT_FAINT)
             text.append(f"{value}\n", style=TEXT_PRIMARY)
         return text
+
+    def _list_content_width(self) -> int:
+        # Content region available to a list row: 96% panel − round border (2) −
+        # padding 1 2 (4) − vertical scrollbar (2). A safe lower bound (matches
+        # the measured width when the scrollbar is present) so truncation never
+        # under-reserves and wraps.
+        term = self.size.width or 100
+        return max(24, int(term * 0.96) - 8)
 
     def _selected_model(self) -> dict[str, Any] | None:
         if not self.models:
@@ -271,6 +373,16 @@ def _is_url_model(model: dict[str, Any]) -> bool:
     return str(model.get("source") or "") == "url"
 
 
+def _is_pinned(model: dict[str, Any]) -> bool:
+    # Mirrors new_deployment._is_pinned_entry: real registry pins are
+    # pinned=True, synthetic HF-cache-scan rows are pinned=False, and a missing
+    # field fails open to pinned=True (compatible-by-default for simple fixtures).
+    value = model.get("pinned")
+    if value is None:
+        return True
+    return bool(value)
+
+
 def _initial_pin_params(model: dict[str, Any]) -> dict[str, Any]:
     fields = [
         ("entry_id", model.get("entry_id")),
@@ -293,12 +405,27 @@ def _initial_pin_params(model: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _row_source_tag(model: dict[str, Any]) -> Text:
+    """Source/pin tag for a list row, colored via the shared source-tag palette.
+
+    Keeps pinned entries visually distinct from HF-cache-scan rows: registry
+    pins read as ``modeled`` (cyan), launch-time-only URL models as
+    ``passthrough`` (violet), and unpinned cache-scan rows as ``unknown``
+    (amber). Returns a Rich :class:`Text` so its plain ``str()`` stays markup-free.
+    """
+    source = str(model.get("source") or "").lower()
+    word = _SOURCE_WORDS.get(source, source or "scan")
+    if source == "url":
+        kind = "passthrough"
+    elif _is_pinned(model):
+        kind = "modeled"
+    else:
+        kind = "unknown"
+    return source_tag(kind, word)
+
+
 def _quant_label(model: dict[str, Any]) -> str:
     return str(model.get("quant_format") or "none")
-
-
-def _revision_label(model: dict[str, Any]) -> str:
-    return str(model.get("commit_sha") or model.get("revision") or "-")
 
 
 def _revision_detail(model: dict[str, Any]) -> str:
@@ -307,6 +434,12 @@ def _revision_detail(model: dict[str, Any]) -> str:
     if commit:
         return f"{revision} → {commit}"
     return revision
+
+
+def _sha8(model: dict[str, Any]) -> str:
+    # Short 8-char identity for the row; the full sha stays in the detail pane.
+    sha = str(model.get("commit_sha") or model.get("revision") or "").strip()
+    return sha[:8] if sha else "—"
 
 
 def _model_status_dot(model: dict[str, Any]) -> str:
@@ -335,6 +468,29 @@ def _model_status_color(model: dict[str, Any]) -> str:
     if state in {"missing", "unresolved"}:
         return RED
     return TEXT_FAINT
+
+
+def _row_size_label(model: dict[str, Any]) -> str:
+    # Row size: `—` for unknown / zero / metadata-only (all-`unknown`-weights)
+    # caches — never the misleading `0.0 GB` — `<0.1 GB` for small-but-real
+    # weights, else the shared GB formatting.
+    files = _dict_or_empty(model.get("files"))
+    size = (
+        _size_value(model.get("unique_size_bytes"))
+        or _size_value(model.get("nominal_size_bytes"))
+        or _size_value(model.get("size_bytes"))
+    )
+    if size <= 0 or not _weights_known(files):
+        return "—"
+    gb = size / 1_000_000_000
+    if gb < 0.1:
+        return "<0.1 GB"
+    return _gb_label(size)
+
+
+def _weights_known(files: dict[str, Any]) -> bool:
+    fmt = str(files.get("weights_format") or "").lower()
+    return bool(fmt) and fmt != "unknown"
 
 
 def _size_label(model: dict[str, Any]) -> str:
@@ -379,6 +535,26 @@ def _size_value(value: object) -> int:
 
 def _gb_label(size: int) -> str:
     return f"{size / 1_000_000_000:.1f} GB"
+
+
+def _truncate_cells(text: str, budget: int) -> str:
+    # Cell-aware left-justified truncation with a trailing ellipsis so a long
+    # display_name keeps the row on one line instead of wrapping (bug-237).
+    if budget <= 0:
+        return ""
+    if cell_len(text) <= budget:
+        return text
+    if budget == 1:
+        return "…"
+    used = 0
+    out: list[str] = []
+    for char in text:
+        width = cell_len(char)
+        if used + width > budget - 1:
+            break
+        out.append(char)
+        used += width
+    return "".join(out) + "…"
 
 
 def _files_label(files: dict[str, Any]) -> str:

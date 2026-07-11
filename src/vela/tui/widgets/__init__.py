@@ -6,7 +6,7 @@ on, mapping to the Figma Component Kit reference frame (node ``61:2``).
 
 from vela.tui.widgets.contextcard import ContextCard
 from vela.tui.widgets.field import Field
-from vela.tui.widgets.keyhintbar import KeyHintBar
+from vela.tui.widgets.keyhintbar import KeyHintBar, pack_hint_rows
 from vela.tui.widgets.masterdetail import MasterDetail
 from vela.tui.widgets.preset_chips import PresetChips
 from vela.tui.widgets.step_indicator import StepIndicator
@@ -28,6 +28,7 @@ __all__ = [
     "StepIndicator",
     "ValidationCard",
     "is_recipe_flag",
+    "pack_hint_rows",
     "source_tag",
     "summarize_capabilities",
 ]

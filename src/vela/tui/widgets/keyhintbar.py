@@ -42,3 +42,40 @@ class KeyHintBar(Horizontal):
             with Horizontal(classes="keyhint"):
                 yield Label(key, classes="keyhint-key")
                 yield Label(label, classes="keyhint-label")
+
+
+def hint_row_width(hint: tuple[str, str]) -> int:
+    """Rendered width of one ``KeyHintBar`` pair.
+
+    key + 1-col gap + label + the widget's 2-col right margin. Matches the
+    ``KeyHintBar`` TCSS so :func:`pack_hint_rows` can keep every packed row
+    inside a panel's content region.
+    """
+    key, label = hint
+    return len(key) + 1 + len(label) + 2
+
+
+def pack_hint_rows(
+    hints: list[tuple[str, str]], *, max_width: int = 68
+) -> list[list[tuple[str, str]]]:
+    """Pack footer hints into as few rows as fit within ``max_width``.
+
+    The stacked manager layout (Task 4.2/4.3, bug-237) gives the vertical room
+    for a second footer row, so the full verb set always renders without
+    clipping at 80 cols instead of the old single row that ran off the panel's
+    right edge. The default cap fits the 80-col panel content region; both the
+    Target Manager and Model Manager consume this shared packer.
+    """
+    rows: list[list[tuple[str, str]]] = []
+    row: list[tuple[str, str]] = []
+    used = 0
+    for hint in hints:
+        width = hint_row_width(hint)
+        if row and used + width > max_width:
+            rows.append(row)
+            row, used = [], 0
+        row.append(hint)
+        used += width
+    if row:
+        rows.append(row)
+    return rows

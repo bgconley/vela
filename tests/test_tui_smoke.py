@@ -11508,8 +11508,8 @@ async def test_model_manager_opens_model_catalog_from_target_client(
 
         model_list = str(app.screen.query_one("#model-manager-list", Static).content)
         detail = str(app.screen.query_one("#model-manager-detail", Static).content)
-        assert "> ● llama-pin  awq  2.1 GB unique / 16.1 GB nominal @abc123 🔒" in model_list
-        assert "  ○ qwen-remote  bf16  -- @main" in model_list
+        assert "> ● llama-pin  hf  cached  2.1 GB  abc123" in model_list
+        assert "  ○ qwen-remote  hf  remote_only  —  main" in model_list
         assert "repo: meta-llama/Llama-3.1-8B-Instruct" in detail
         assert "revision: main → abc123" in detail
         assert "size: 2.1 GB unique / 16.1 GB nominal" in detail
@@ -11859,7 +11859,7 @@ async def test_model_manager_refreshes_catalog_through_target_client(
             "model refresh was not requested",
         )
         model_list = str(app.screen.query_one("#model-manager-list", Static).content)
-        assert "> ● qwen-remote  bf16  -- @main" in model_list
+        assert "> ● qwen-remote  hf  cached  —  main" in model_list
 
 
 @pytest.mark.asyncio

@@ -23,7 +23,7 @@ from vela.tui.theme import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
-from vela.tui.widgets import KeyHintBar, summarize_capabilities
+from vela.tui.widgets import KeyHintBar, pack_hint_rows, summarize_capabilities
 
 _FOOTER_HINTS = [
     ("↑↓", "Select"),
@@ -135,7 +135,7 @@ class TargetManagerScreen(ModalScreen):
                 yield Static(id="target-manager-list")
             yield Static(id="target-manager-detail")
             with Vertical(id="target-manager-footer"):
-                for index, row in enumerate(_pack_hint_rows(_FOOTER_HINTS)):
+                for index, row in enumerate(pack_hint_rows(_FOOTER_HINTS)):
                     yield KeyHintBar(row, id=f"target-manager-footer-row-{index}")
 
     def on_mount(self) -> None:
@@ -357,36 +357,6 @@ def _connection_label(state: str) -> str:
     if state in ("connecting", "reconnecting"):
         return f"{state}…"
     return state
-
-
-def _hint_row_width(hint: tuple[str, str]) -> int:
-    # Rendered width of one KeyHintBar pair: key + 1-col gap + label + the
-    # widget's 2-col right margin. Matches the KeyHintBar TCSS so the packer can
-    # keep every row inside the panel.
-    key, label = hint
-    return len(key) + 1 + len(label) + 2
-
-
-def _pack_hint_rows(
-    hints: list[tuple[str, str]], *, max_width: int = 68
-) -> list[list[tuple[str, str]]]:
-    # Pack the footer hints into as few rows as fit within ``max_width`` so the
-    # full verb set (incl. `v view all` and `Esc Close`) always renders without
-    # clipping at 80 cols — the stacked layout gives the vertical room for a
-    # second row (bug-237). The default cap fits the 80-col panel content region.
-    rows: list[list[tuple[str, str]]] = []
-    row: list[tuple[str, str]] = []
-    used = 0
-    for hint in hints:
-        width = _hint_row_width(hint)
-        if row and used + width > max_width:
-            rows.append(row)
-            row, used = [], 0
-        row.append(hint)
-        used += width
-    if row:
-        rows.append(row)
-    return rows
 
 
 def _connection_dot(state: str) -> str:
