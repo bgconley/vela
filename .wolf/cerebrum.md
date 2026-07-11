@@ -15,6 +15,7 @@
 - Use STRICT red-green TDD (the `superpowers:test-driven-development` skill) for ALL code — widgets, screen refactors, bug fixes: write the failing test FIRST, run it and watch it fail for the RIGHT reason (feature missing, not a typo), then write minimal code to pass (GREEN), then refactor. NEVER write production code test-alongside or test-after — if you do, delete it and redo red-green. (Correction 2026-06-08 — user caught the `Field` widget written test-alongside; it was redone via a real red→green cycle.)
 
 ## Key Learnings
+- Operator-stop toast immunity lives ONLY in the `current_run_id == run_id` terminal guard (app.py `_monitor_attached_run`): `_operator_signal_verbs.pop(run_id, "stop")` has a DEFAULT, so popping/clearing the verb dict does NOT suppress the announce. Any restart/stop suppression must re-point `current_run_id`, never the verb registry (established A3, commit a3493d7).
 
 - **Project:** lab-tui
 - Canonical v2 requires detached mode to survive TUI/CLI exit; supervisor must drain child pipes live and write scrubbed durable logs, sidecar, and manifest for reattach.
