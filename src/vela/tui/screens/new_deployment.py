@@ -422,6 +422,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     ("Ctrl+B", "Back"),
                     ("Ctrl+N", "Next"),
                     ("Ctrl+S", "Review"),
+                    ("⏎", "Next"),
                     ("Esc", "Cancel"),
                 ],
                 id="new-deployment-footer",
@@ -1306,9 +1307,10 @@ def _model_suggestions_summary(payload: dict[str, Any]) -> str:
     warnings = payload.get("warnings")
     if isinstance(warnings, list) and warnings:
         parts.append("warnings " + ", ".join(str(item) for item in warnings))
-    sources = payload.get("sources")
-    if isinstance(sources, list) and sources:
-        parts.append("sources " + ", ".join(str(item) for item in sources))
+    # The compose-response `sources` list is internal provenance metadata
+    # ("configured_ports", "defaults", …) — deliberately NOT surfaced to the
+    # operator (bug-236d). No screen-side debug sink is wired, so it is simply
+    # dropped rather than re-plumbed elsewhere.
     return "   ".join(parts)
 
 
@@ -1466,10 +1468,13 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             yield Static(self.preview, id="new-deployment-review-preview")
             yield KeyHintBar(
                 [
-                    ("B", "Back"),
-                    ("F", "Flags"),
+                    # Case matches the actual lowercase b/f/s bindings above —
+                    # capital letters are distinct Shift-bindings elsewhere in
+                    # the app, so showing B/F/S here would be a lie (bug-236d).
+                    ("b", "Back"),
+                    ("f", "Flags"),
                     ("Ctrl+S", "Save"),
-                    ("S", "Save & Smoke"),
+                    ("s", "Save & Smoke"),
                     ("Esc", "Cancel"),
                 ],
                 id="new-deployment-review-actions",

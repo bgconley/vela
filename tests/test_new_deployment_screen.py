@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.widgets import Checkbox, Input, Select, Static
+from textual.widgets import Checkbox, Input, Label, Select, Static
 
 from vela.tui.screens.new_deployment import NewDeploymentReviewScreen, NewDeploymentScreen
 from vela.tui.widgets import KeyHintBar, StepIndicator
@@ -24,6 +24,13 @@ class _Host(App):
 # registry (bug-236b). Hard-coded here (not imported) so the tests pin the
 # literal contract string, not whatever the screen constant happens to be.
 _EXPECTED_NO_PINS_PLACEHOLDER = 'No pins on this target — pick "Pin HF repo →"'
+
+
+def _hint_pairs(keybar: KeyHintBar) -> list[tuple[str, str]]:
+    # The rendered (key, label) pairs a KeyHintBar shows, read from its Labels.
+    keys = [str(lbl.content) for lbl in keybar.query(".keyhint-key").results(Label)]
+    labels = [str(lbl.content) for lbl in keybar.query(".keyhint-label").results(Label)]
+    return list(zip(keys, labels, strict=True))
 
 
 @pytest.mark.asyncio
@@ -635,3 +642,86 @@ async def test_submit_validation_error_marks_owning_step() -> None:
         assert error_text == "Model is required — Ctrl+B to Model"
         steps = screen.query_one("#new-deployment-steps", StepIndicator)
         assert "✗ Model" in str(steps.content)
+
+
+@pytest.mark.asyncio
+async def test_model_step_suggestions_drop_sources_debug_line() -> None:
+    # bug-236d (item A): the compose-response `sources` metadata (observed live
+    # as "sources configured_ports, defaults") was leaking raw into the model
+    # step's live suggestions Static. Real engine hints + warnings still render;
+    # the internal sources line does not.
+    async def resolver(_params: dict[str, object]) -> dict[str, object]:
+        return {
+            "engine_suggestions": {"dtype": "auto", "kv_cache_dtype": "fp8"},
+            "warnings": ["gated-needs-token"],
+            "sources": ["configured_ports", "defaults"],
+        }
+
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node", presets=[], suggestion_resolver=resolver
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-model", Input).value = "org/m"
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        content = str(
+            screen.query_one("#new-deployment-model-suggestions", Static).content
+        )
+        assert "suggested:" in content  # real engine hints survive
+        assert "gated-needs-token" in content  # warnings survive
+        assert "sources" not in content  # the internal debug line is gone
+
+
+@pytest.mark.asyncio
+async def test_review_hint_bar_key_case_matches_lowercase_bindings() -> None:
+    # bug-236d (item B): the review screen's action keys are lowercase b/f/s
+    # bindings, but the KeyHintBar showed uppercase B/F/S — a lie in an app where
+    # Shift+letter is a real, distinct binding. The shown case must match reality.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentReviewScreen(
+            config={"name": "demo", "model": "org/m"},
+            preview="vllm serve org/m",
+            derived=[],
+            warnings=[],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        keybar = screen.query_one("#new-deployment-review-actions", KeyHintBar)
+        keys = [key for key, _label in _hint_pairs(keybar)]
+        # Single-letter action keys are shown lowercase, matching the bindings.
+        assert "b" in keys
+        assert "f" in keys
+        assert "s" in keys
+        # No dishonest uppercase single-letter keys remain.
+        assert "B" not in keys
+        assert "F" not in keys
+        assert "S" not in keys
+        # Binding behavior is unchanged: the actions are still keyed b/f/s.
+        binding_keys = {
+            (binding.key if hasattr(binding, "key") else binding[0])
+            for binding in NewDeploymentReviewScreen.BINDINGS
+        }
+        assert {"b", "f", "s"} <= binding_keys
+
+
+@pytest.mark.asyncio
+async def test_wizard_hint_bar_advertises_enter_advance() -> None:
+    # bug-236d (item C): the wizard walks steps on Enter, but the footer only
+    # advertised Ctrl+B/Ctrl+N/Ctrl+S/Esc. Surface the Enter-advance too.
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        keybar = screen.query_one("#new-deployment-footer", KeyHintBar)
+        pairs = _hint_pairs(keybar)
+        keys = [key for key, _label in pairs]
+        assert ("⏎", "Next") in pairs
+        # Additive: the existing hints survive and Esc/Cancel stays last.
+        assert keys[0] == "Ctrl+B"
+        assert keys[-1] == "Esc"

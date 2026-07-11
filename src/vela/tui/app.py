@@ -865,7 +865,7 @@ class VelaApp(App):
             self._write_log(
                 "INFO   n  create a deployment — pin a model & build inside the wizard"
             )
-            self._write_log("INFO   ⏎  review · S saves & smoke-tests it")
+            self._write_log("INFO   ⏎  review · s saves & smoke-tests it")
             self._write_log("INFO   l  launch the saved config")
         self._debug_event(
             "app.mounted",
