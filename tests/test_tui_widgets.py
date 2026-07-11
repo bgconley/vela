@@ -174,6 +174,42 @@ async def test_preset_chips_click_selects_chip() -> None:
         assert app.selections == [(1, "everything")]
 
 
+@pytest.mark.asyncio
+async def test_preset_chips_keyboard_navigation_selects() -> None:
+    # bug-237: the chip row was mouse-only. Left/Right move the cursor and Enter
+    # commits when the row is focused.
+    app = _PresetChipsSelectHarness()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pc = app.query_one("#pc", PresetChips)
+        pc.focus()
+        await pilot.pause()
+        assert pc.has_focus
+
+        # Right/Left move the cursor WITHOUT committing a selection.
+        await pilot.press("right", "right")
+        await pilot.pause()
+        assert pc.selected == 2
+        assert app.selections == []
+        await pilot.press("left")
+        await pilot.pause()
+        assert pc.selected == 1
+        assert app.selections == []
+
+        # Enter commits the current cursor (posts Selected).
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.selections == [(1, "everything")]
+
+        # The cursor clamps at both ends.
+        await pilot.press("right", "right", "right")
+        await pilot.pause()
+        assert pc.selected == 2
+        await pilot.press("left", "left", "left", "left")
+        await pilot.pause()
+        assert pc.selected == 0
+
+
 class _ValidationOkHarness(App):
     def compose(self) -> ComposeResult:
         yield ValidationCard(

@@ -18,6 +18,7 @@ from conftest import scaled_timeout, write_yaml
 from fakes.fake_docker import write_fake_docker_runtime
 from rich.cells import cell_len
 from rich.text import Text
+from textual.color import Color
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, ProgressBar, RichLog, Select, Static
 from textual.worker import WorkerState
@@ -16230,7 +16231,11 @@ async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
         assert gpu_panel.display is True
         assert log.display is True
         assert isinstance(sidebar_overlay.content, Text)
-        assert "Sidebar overlay" in sidebar_overlay.content.plain
+        # bug-237: the overlay renders the real Configs card ("Config"), not the
+        # meta spec-note ("Sidebar overlay" / "Log remains primary…").
+        assert "Config" in sidebar_overlay.content.plain
+        assert "Sidebar overlay" not in sidebar_overlay.content.plain
+        assert "Log remains primary" not in sidebar_overlay.content.plain
         assert "narrow" in sidebar_overlay.content.plain
         assert "IDLE" in sidebar_overlay.content.plain
 
@@ -16251,6 +16256,120 @@ async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
         assert sidebar_overlay.display is False
         assert gpu_panel.display is True
         assert log.display is True
+
+
+# bug-237: unchecked vs checked Checkbox states must be unambiguous. The dim
+# slate box (#56707c = TEXT_FAINT) reads clearly as "off"; the green box
+# (#67e8a5 = GREEN) reads clearly as "on". Assert the resolved component style,
+# not pixels. Default Textual gives BOTH states the same near-invisible bg.
+_CHECKBOX_OFF_BG = Color.parse("#56707c")
+_CHECKBOX_ON_BG = Color.parse("#67e8a5")
+
+
+@pytest.mark.asyncio
+async def test_flag_manager_changed_only_checkbox_states_are_visible(
+    config_dir: Path,
+    tmp_path: Path,
+) -> None:
+    fake_vllm = tmp_path / "fake-vllm"
+    fake_vllm.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('vllm 0.11.2')\n"
+        "elif len(sys.argv) >= 2 and sys.argv[1] == 'serve':\n"
+        "    print('usage: vllm serve')\n"
+        "    print('  --tensor-parallel-size INTEGER')\n",
+        encoding="utf-8",
+    )
+    fake_vllm.chmod(0o755)
+    write_yaml(
+        config_dir / "flags.yaml",
+        f"""
+        name: flags
+        model: org/model
+        command:
+          executable: {fake_vllm}
+        engine:
+          tensor_parallel_size: 2
+        """,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=InProcessTargetClient(LocalAgent()),
+        target_ping_interval_seconds=None,
+    )
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("F")
+        await pilot.pause()
+        assert app.screen.id == "flag-manager"
+        checkbox = app.screen.query_one("#flag-manager-changed-only", Checkbox)
+
+        off = checkbox.get_component_styles("toggle--button")
+        assert off.background == _CHECKBOX_OFF_BG
+        assert off.background != _CHECKBOX_ON_BG
+
+        checkbox.value = True
+        await pilot.pause()
+        on = checkbox.get_component_styles("toggle--button")
+        assert on.background == _CHECKBOX_ON_BG
+
+
+@pytest.mark.asyncio
+async def test_wizard_download_now_checkbox_states_are_visible(config_dir: Path) -> None:
+    class ComposerClient:
+        connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {
+                    "presets": [
+                        {
+                            "name": "balanced",
+                            "description": "Balanced",
+                            "engine": {},
+                            "extra_args": [],
+                            "applies_to": ["all"],
+                        }
+                    ]
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("checkbox-style test should not subscribe")
+
+    app = VelaApp(configs_dir=config_dir, target_client=ComposerClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        assert app.screen.id == "new-deployment"
+        checkbox = app.screen.query_one("#new-deployment-download-now", Checkbox)
+
+        off = checkbox.get_component_styles("toggle--button")
+        assert off.background == _CHECKBOX_OFF_BG
+        assert off.background != _CHECKBOX_ON_BG
+
+        checkbox.value = True
+        await pilot.pause()
+        on = checkbox.get_component_styles("toggle--button")
+        assert on.background == _CHECKBOX_ON_BG
 
 
 # --- Task 4.5: adaptive truthful top chrome (bug-237) ---

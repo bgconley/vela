@@ -40,6 +40,16 @@ class _Chip(Label):
 class PresetChips(Horizontal):
     """A horizontal row of preset chips; the ``selected`` index is highlighted."""
 
+    # bug-237: the chip row is keyboard-operable, not mouse-only. When focused,
+    # Left/Right move the cursor (silently) and Enter commits the selection.
+    can_focus = True
+
+    BINDINGS = [
+        ("left", "cursor_left", "Previous"),
+        ("right", "cursor_right", "Next"),
+        ("enter", "select_cursor", "Select"),
+    ]
+
     DEFAULT_CSS = f"""
     PresetChips {{ height: 1; }}
     PresetChips .preset-chip {{
@@ -52,6 +62,11 @@ class PresetChips(Horizontal):
     PresetChips .preset-chip.selected {{
         background: {SURFACE_CYAN};
         color: {CYAN};
+        text-style: bold;
+    }}
+    PresetChips:focus .preset-chip.selected {{
+        background: {CYAN};
+        color: {BG_FIELD};
         text-style: bold;
     }}
     """
@@ -97,6 +112,23 @@ class PresetChips(Horizontal):
         """User-intent selection: move the highlight and notify listeners."""
         self.highlight(index)
         self.post_message(self.Selected(self, index, self._options[index]))
+
+    def action_cursor_left(self) -> None:
+        self._move_cursor(-1)
+
+    def action_cursor_right(self) -> None:
+        self._move_cursor(1)
+
+    def action_select_cursor(self) -> None:
+        if self._selected is not None and self._options:
+            self.select(self._selected)
+
+    def _move_cursor(self, delta: int) -> None:
+        """Move the visual cursor without posting a message (Enter commits)."""
+        if not self._options:
+            return
+        current = self._selected if self._selected is not None else 0
+        self.highlight(max(0, min(len(self._options) - 1, current + delta)))
 
     def highlight(self, index: int | None) -> None:
         """Move (or clear) the visual selection without posting a message."""

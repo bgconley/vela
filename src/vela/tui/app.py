@@ -553,6 +553,21 @@ class VelaApp(App):
 
     CSS = """
     Screen { layout: vertical; background: #091015; color: #e8f1f2; }
+    /* bug-237: unambiguous Checkbox states via theme tokens. Unchecked reads as
+       a dim slate block (TEXT_FAINT #56707c); checked is bright green
+       (GREEN #67e8a5) with a dark glyph (TEXT_ON_ACCENT #06120c). Default
+       Textual gives both states the SAME near-invisible background. Global so
+       every modal Checkbox (wizard Download-now, Flag Manager Changed-only, …)
+       inherits it. */
+    Checkbox > .toggle--button {
+        color: #56707c;
+        background: #56707c;
+        text-style: bold;
+    }
+    Checkbox.-on > .toggle--button {
+        color: #06120c;
+        background: #67e8a5;
+    }
     #terminal-shell {
         height: 1fr;
         background: #0c141b;
@@ -601,7 +616,8 @@ class VelaApp(App):
     #sidebar { width: 34; min-width: 24; height: 1fr; margin-right: 2; }
     #main { width: 1fr; }
     #sidebar-overlay {
-        height: 4;
+        height: auto;
+        max-height: 7;
         margin-bottom: 1;
         background: #101923;
         border: solid #274254;
@@ -5266,16 +5282,12 @@ class VelaApp(App):
             return
 
     def _render_sidebar_overlay(self) -> Text:
-        text = Text("Sidebar overlay", style=f"bold {ACCENT}")
+        # bug-237: in narrow/compact mode the sidebar is hidden, so this overlay
+        # stands in for its Configs card. Render the SAME config content the wide
+        # sidebar shows (titled "Config") plus a glanceable phase/status line —
+        # no meta spec-note about the overlay itself.
+        text = Text("Config", style=f"bold {ACCENT}")
         text.append("  ")
-        if self.current_config is None:
-            text.append("no config selected", style=MUTED)
-        else:
-            text.append(self.current_config.name, style=f"bold {TEXT}")
-            meta = self._config_meta(self.current_config)
-            if meta:
-                text.append(f"  {meta}", style=MUTED)
-        text.append("\n")
         status_style = self._status_style_for_phase(self.phase)
         text.append(self._status_icon_for_phase(self.phase), style=status_style)
         text.append(f" {self.phase.value}", style=status_style)
@@ -5284,7 +5296,9 @@ class VelaApp(App):
         elif self.current_config is not None:
             text.append(f"  {self._server_url(self.current_config)}", style=GOOD)
         text.append("\n")
-        text.append("Log remains primary; press c for full config picker", style=MUTED)
+        text.append(self._render_config_summary())
+        text.no_wrap = True
+        text.overflow = "ellipsis"
         return text
 
     def _has_active_run(self) -> bool:
