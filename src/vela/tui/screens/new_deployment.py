@@ -10,6 +10,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Checkbox, Input, Select, Static
 
 from vela.tui.theme import (
+    AMBER,
     BG_BASE,
     BG_INSET,
     BG_PANEL,
@@ -124,6 +125,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
     #new-deployment-error {{ margin-top: 1; color: {RED}; }}
     .step-error {{ margin-top: 1; color: {RED}; }}
+    .new-deployment-warning {{ margin-top: 1; color: {AMBER}; }}
     #new-deployment-footer {{ margin-top: 1; }}
     """
 
@@ -185,6 +187,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         connection_state: str = "disconnected",
         agent_info: dict[str, Any] | None = None,
         error_message: str = "",
+        section_errors: dict[str, str] | None = None,
         target_state_resolver: Callable[[], Awaitable[list[dict[str, Any]]]]
         | None = None,
         suggestion_resolver: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -192,6 +195,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     ) -> None:
         super().__init__(id="new-deployment")
         self.error_message = error_message
+        # Per-section RPC failures (recipes/models/builds) recorded by the app's
+        # compound loader → a visible warning row per section instead of a
+        # silently-empty dropdown (Task 3.2 Part A #3). Defaulted so pre-existing
+        # call shapes still construct.
+        self.section_errors = dict(section_errors or {})
         # Captured at submit so the app can restore the wizard if server-side
         # review fails — the dismiss payload (the spec) stays contract-exact.
         self.last_draft: dict[str, Any] | None = None
@@ -216,6 +224,19 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             for key in ("served_model_name", "runs_dir", "container_name")
         )
         self.step_index = 0
+
+    def _section_warning_text(self, section: str) -> str:
+        code = self.section_errors.get(section)
+        return f"{section} unavailable: {code}" if code else ""
+
+    def _section_warning(self, section: str, widget_id: str) -> Static:
+        warning = Static(
+            self._section_warning_text(section),
+            id=widget_id,
+            classes="new-deployment-warning",
+        )
+        warning.display = bool(self.section_errors.get(section))
+        return warning
 
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-panel"):
@@ -247,6 +268,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     id="new-deployment-recipe-note",
                     classes="new-deployment-helper",
                 )
+                yield self._section_warning("recipes", "new-deployment-recipe-warning")
                 yield Static("Name", classes="new-deployment-field-label")
                 yield Input(placeholder="qwen3-32b-bf16", id="new-deployment-name")
             with Vertical(id="new-deployment-step-runtime"):
@@ -268,6 +290,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     "Create build / Adopt venv open a dedicated screen, then return here.",
                     classes="new-deployment-helper",
                 )
+                yield self._section_warning("builds", "new-deployment-build-warning")
                 with Vertical(id="nd-group-image"):
                     yield Static("Docker image", classes="new-deployment-field-label")
                     yield Input(
@@ -315,6 +338,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     "Pin HF repo / Adopt local path open a dedicated screen, then return here.",
                     classes="new-deployment-helper",
                 )
+                yield self._section_warning("models", "new-deployment-model-warning")
                 with Vertical(id="nd-group-pinned"):
                     yield Static("Pinned model", classes="new-deployment-field-label")
                     yield Select(

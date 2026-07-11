@@ -9053,6 +9053,248 @@ async def test_verify_model_banner_on_failure_keeps_state_sane(
         assert not app.query_one("#status-badge").has_class("status--pulse")
 
 
+class _NewDeploymentSectionsClient:
+    """Fake serving all four new-deployment RPCs; individual sections can fail."""
+
+    def __init__(self, *, builds_gate=None, fail=frozenset()):
+        self.connected = False
+        self._builds_gate = builds_gate
+        self._fail = fail
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def disconnect(self) -> None:
+        self.connected = False
+
+    async def call(self, method: str, params):
+        if method == "list_configs":
+            return {"valid": [], "invalid": []}
+        if method == "list_presets":
+            if "list_presets" in self._fail:
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+        if method == "list_deployment_recipes":
+            if "list_deployment_recipes" in self._fail:
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            return {"recipes": [{"name": "recipe-a", "target": "blackbird"}]}
+        if method == "list_models":
+            if "list_models" in self._fail:
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            return {
+                "models": [
+                    {"entry_id": "org/m", "display_name": "org/m", "pinned": True},
+                ],
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "skipped": [],
+            }
+        if method == "list_builds":
+            if self._builds_gate is not None:
+                await self._builds_gate.wait()
+            if "list_builds" in self._fail:
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            return {"default_build_id": None, "builds": [], "skipped": []}
+        if method in {"gpu", "sample_gpus"}:
+            return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+        if method == "discover_runs":
+            return {"runs": []}
+        raise AssertionError(f"unexpected target client call: {method}")
+
+    def subscribe(self, *_args, **_kwargs):
+        raise AssertionError("new deployment open should not subscribe")
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_open_shows_busy_verb_spanning_four_rpcs(
+    config_dir: Path,
+) -> None:
+    gate = asyncio.Event()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=_NewDeploymentSectionsClient(builds_gate=gate),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("n")
+        # Mid-flight: the final RPC (list_builds) is gated, so the ONE overlay
+        # spanning all four RPCs still holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain
+            == "loading deployment options…",
+            "busy verb did not span the four-RPC new-deployment load",
+        )
+        assert app.screen.id != "new-deployment"
+
+        gate.set()
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: app.screen.id == "new-deployment",
+            "new deployment wizard did not open after list_builds released",
+        )
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_open_surfaces_warning_when_only_builds_fails(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=_NewDeploymentSectionsClient(fail=frozenset({"list_builds"})),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        notifications: list[tuple[str, object]] = []
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append(
+                (str(message), kwargs.get("severity"))
+            ),
+        )
+        await pilot.press("n")
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query("#new-deployment-build-warning")),
+            "new deployment wizard did not open with a build warning row",
+        )
+        # The failed section shows a visible warning row with the code.
+        warning = app.screen.query_one("#new-deployment-build-warning", Static)
+        assert warning.display is True
+        assert "builds unavailable: agent-unreachable" in str(warning.content)
+        # A notify warning fired for the failed section.
+        assert ("builds unavailable: agent-unreachable", "warning") in notifications
+        # The sections that loaded fine still populated their data.
+        screen = app.screen
+        assert len(screen.recipes) > 0
+        assert len(screen.models) > 0
+        assert screen.builds == []
+        # Sections that loaded fine keep their rows hidden.
+        assert screen.query_one("#new-deployment-recipe-warning", Static).display is False
+        assert screen.query_one("#new-deployment-model-warning", Static).display is False
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_open_aborts_on_presets_failure(
+    config_dir: Path,
+) -> None:
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=_NewDeploymentSectionsClient(fail=frozenset({"list_presets"})),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("n")
+        # presets is the required first RPC: its failure aborts the open via the
+        # unified remediation banner, and the wizard never opens.
+        await _wait_for_condition(
+            lambda: "AGENT_UNREACHABLE" in app.error_text,
+            "unified remediation banner was not rendered on list_presets failure",
+        )
+        assert app.screen.id == "_default"
+        assert "target unreachable" in app.error_text
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_target_switch_shows_connecting_verb_then_restores(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                # Gate ONLY the switched-to target so the connecting overlay holds.
+                if self.target.name == "blackbird":
+                    await gate.wait()
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target selection should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: FactoryTargetClient(target),
+    )
+
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.press("down")
+        await pilot.press("enter")
+        # Mid-switch: blackbird's registry load is gated, so the connecting verb holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain
+            == "connecting to blackbird…",
+            "connecting verb did not appear during the target switch",
+        )
+
+        gate.set()
+        # target_name flips to blackbird early in the switch, so wait on the busy
+        # overlay CLEARING (its finally) rather than on the state var.
+        await _wait_for_condition(
+            lambda: not app.query_one("#status-badge").has_class("status--pulse"),
+            "connecting verb did not clear after the registry load released",
+        )
+        assert app.target_name == "blackbird"
+
+
 @pytest.mark.asyncio
 async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
     config_dir: Path,

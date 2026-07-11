@@ -208,6 +208,17 @@ def _config_registry_from_agent_payload(payload: dict[str, Any]) -> ConfigRegist
     )
 
 
+def _section_error_code(exc: BaseException) -> str:
+    """Short, visible marker for a best-effort wizard-section RPC failure (Part A #3).
+
+    Production sections fail with ``TargetCallError`` → its ``.code`` (e.g.
+    ``agent-unreachable``); any other error shows its type name. Either way the
+    failure is now VISIBLE (a warning row + notify) instead of the old silent
+    ``except Exception: {}`` empty-dropdown swallow.
+    """
+    return exc.code if isinstance(exc, TargetCallError) else type(exc).__name__
+
+
 def _blocker_suffix(exc: TargetCallError) -> str:
     """Names the configs blocking a removal, when the agent reports them (J34)."""
     details = getattr(exc, "details", None)
@@ -2605,7 +2616,15 @@ class VelaApp(App):
         self._reset_run_state()
         self._set_phase(Phase.IDLE)
 
-        self.registry = await self._load_registry_from_agent()
+        # Surface the connect/registry-load as a pulsing "connecting to <target>…"
+        # overlay — otherwise a slow SSH handshake is a silent wait (Part A #5).
+        # _load_registry_from_agent self-guards TargetCallError (banner + empty
+        # registry), so the None sentinel is defensive only.
+        registry = await self._with_agent_busy(
+            f"connecting to {self.target_name}…",
+            self._load_registry_from_agent(),
+        )
+        self.registry = registry if registry is not None else ConfigRegistry()
         if self.registry.valid:
             self.current_config = self.registry.valid[0].config
             await self._refresh_selected_config_preview()
@@ -2900,51 +2919,79 @@ class VelaApp(App):
         initial: dict[str, Any] | None = None,
         error_message: str = "",
     ) -> None:
-        try:
-            presets_result = await self._target_call("list_presets", {})
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to load deployment presets: {exc}", style=f"bold {BAD}")
-            return
-        presets = presets_result.get("presets")
-        self._new_deployment_presets = (
-            [dict(item) for item in presets if isinstance(item, dict)]
-            if isinstance(presets, list)
-            else []
+        # All four RPCs (presets → recipes → models → builds) run behind ONE
+        # busy overlay via a compound loader. presets is required: its failure
+        # aborts the open (the loader lets the TargetCallError propagate, so
+        # _with_agent_busy renders the unified banner and returns the None
+        # sentinel). recipes/models/builds are best-effort — a failure records a
+        # per-section marker so the wizard shows a visible warning row instead of
+        # a silently-empty dropdown (Task 3.2 Part A #3).
+        result = await self._with_agent_busy(
+            "loading deployment options…",
+            self._load_new_deployment_sections(),
         )
+        if result is None:
+            return
+        presets = result["presets"]
+        self._new_deployment_presets = [
+            dict(item) for item in presets if isinstance(item, dict)
+        ]
+        section_errors = result["section_errors"]
+        for section, code in section_errors.items():
+            self.notify(f"{section} unavailable: {code}", severity="warning")
+        self.call_later(
+            self._push_new_deployment_screen,
+            presets,
+            result["recipes"],
+            result["models"],
+            result["builds"],
+            initial,
+            self._new_deployment_target_rows(),
+            error_message,
+            section_errors,
+        )
+
+    async def _load_new_deployment_sections(self) -> dict[str, Any]:
+        # Compound loader for the wizard's ONE busy overlay. presets is REQUIRED:
+        # its call is unguarded, so any failure propagates to _with_agent_busy
+        # (TargetCallError → banner + None → abort; other errors → monitored
+        # worker). recipes/models/builds are OPTIONAL enrichments and must never
+        # abort the core wizard, so each self-guards and degrades to a per-section
+        # error CODE — the wizard then renders a VISIBLE warning row + a notify,
+        # replacing the old silent `except Exception: {}` empty-dropdown swallow.
+        presets_result = await self._target_call("list_presets", {})
+        presets = presets_result.get("presets")
+        section_errors: dict[str, str] = {}
         recipes: object = []
         models: object = []
         builds: object = []
-        target_rows = self._new_deployment_target_rows()
         if self._target_supports_capability("list_deployment_recipes"):
             try:
                 recipe_result = await self._target_call(
                     "list_deployment_recipes", {"target": self.target_name}
                 )
-            except Exception:
-                recipe_result = {}
-            recipes = recipe_result.get("recipes")
+                recipes = recipe_result.get("recipes")
+            except Exception as exc:
+                section_errors["recipes"] = _section_error_code(exc)
         if self._target_supports_capability("list_models"):
             try:
                 models_result = await self._target_call("list_models", {})
-            except Exception:
-                models_result = {}
-            models = models_result.get("models")
+                models = models_result.get("models")
+            except Exception as exc:
+                section_errors["models"] = _section_error_code(exc)
         if self._target_supports_capability("list_builds"):
             try:
                 builds_result = await self._target_call("list_builds", {})
-            except Exception:
-                builds_result = {}
-            builds = builds_result.get("builds")
-        self.call_later(
-            self._push_new_deployment_screen,
-            presets if isinstance(presets, list) else [],
-            recipes if isinstance(recipes, list) else [],
-            models if isinstance(models, list) else [],
-            builds if isinstance(builds, list) else [],
-            initial,
-            target_rows,
-            error_message,
-        )
+                builds = builds_result.get("builds")
+            except Exception as exc:
+                section_errors["builds"] = _section_error_code(exc)
+        return {
+            "presets": presets if isinstance(presets, list) else [],
+            "recipes": recipes if isinstance(recipes, list) else [],
+            "models": models if isinstance(models, list) else [],
+            "builds": builds if isinstance(builds, list) else [],
+            "section_errors": section_errors,
+        }
 
     def _push_new_deployment_screen(
         self,
@@ -2955,6 +3002,7 @@ class VelaApp(App):
         initial: dict[str, Any] | None,
         target_rows: list[dict[str, str]],
         error_message: str = "",
+        section_errors: dict[str, str] | None = None,
     ) -> None:
         screen = NewDeploymentScreen(
             target_label=self.target_name,
@@ -2967,6 +3015,7 @@ class VelaApp(App):
             connection_state=self.target_connection_state,
             agent_info=self._target_agent_info,
             error_message=error_message,
+            section_errors=section_errors,
             target_state_resolver=self._refresh_new_deployment_target_rows,
             suggestion_resolver=(
                 self._suggest_new_deployment_defaults

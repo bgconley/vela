@@ -64,6 +64,29 @@ async def test_new_deployment_handoff_choices_signpost_screens() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_renders_per_section_warning_rows() -> None:
+    # A section whose agent RPC failed gets a visible warning row (id per the
+    # #new-deployment-* convention) instead of a silently-empty dropdown; the
+    # sections that loaded fine stay silent. Kills the old except-Exception:{}
+    # swallows (Task 3.2 Part A #3).
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            section_errors={"builds": "agent-unreachable"},
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        build_warning = screen.query_one("#new-deployment-build-warning", Static)
+        assert build_warning.display is True
+        assert "builds unavailable: agent-unreachable" in str(build_warning.content)
+        # Recipes/models loaded fine → their rows stay hidden.
+        assert screen.query_one("#new-deployment-recipe-warning", Static).display is False
+        assert screen.query_one("#new-deployment-model-warning", Static).display is False
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_review_uses_step_indicator_and_preserves_panels() -> None:
     app = _Host()
     async with app.run_test() as pilot:
