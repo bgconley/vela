@@ -1241,3 +1241,256 @@
 | 05:57 | Edited src/vela/tui/app.py | 6→7 lines | ~83 |
 | 06:05 | Fable closing review Phase 3: verified tail (f661885 stale-premise+deferred-reopen test, 8c292cd 3x-stable, b442dfd race/flip/refresh analysis + RED replay 5/5, 4a1c4ab breadcrumbs+12 fixtures); mutation-replayed f661885 (build-manager!=_default) and b442dfd (all 5 claimed failures); app.py restored byte-identical c056f603 | src/vela/tui/app.py, tests/test_tui_smoke.py | full suite 1201 passed; ruff+mypy clean; group coverage uncovered=[] overlap=[]; VERDICT: Phase 3 CLOSED | ~95000 |
 | 10:05 | Phase 3 CLOSED: 9 commits (9434758..1dd5ab3), busy/feedback convention app-wide, honest offline states, keepalive bug-253 fixed, suite 1195→1201; Fable close review hard-verified connection machinery; live shot confirms offline card | app.py, new_deployment.py, test files | phase-4 routings recorded in tracker | ~700k |
+| 06:08 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_frame_styles.py | — | ~457 |
+| 06:08 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_frame_styles.py | 5→7 lines | ~66 |
+| 06:10 | Edited tests/test_tui_widgets.py | added 2 import(s) | ~70 |
+| 06:11 | Edited tests/test_tui_widgets.py | modified test_modal_panel_css_encodes_the_four_load_bearing_frame_rules() | ~1007 |
+| 06:11 | Edited src/vela/tui/theme.py | expanded (+44 lines) | ~737 |
+| 06:12 | Edited tests/test_tui_widgets.py | added 1 import(s) | ~63 |
+| 06:12 | Edited tests/test_tui_widgets.py | 8→10 lines | ~172 |
+| 06:16 | Edited src/vela/tui/theme.py | 4→4 lines | ~44 |
+| 06:16 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/commit_4_1.txt | — | ~279 |
+| 06:17 | Task 4.1: shared modal frame tokens (MODAL_PANEL_CSS/MODAL_LIST_CSS) in theme.py — bug-232 Flag Manager pattern → bug-237 foundation; strict red-green (3 new tests) | src/vela/tui/theme.py, tests/test_tui_widgets.py | done, smoke 273 + widgets 20 green, ruff+mypy clean, commit e135dad | ~9k |
+| 06:22 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/prove_comment_example.py | — | ~322 |
+| 06:33 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_footer_fit.py | — | ~794 |
+| 06:33 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_footer_fit.py | 3→3 lines | ~41 |
+| 06:34 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_footer_fit.py | expanded (+10 lines) | ~234 |
+| 06:37 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_layout.py | — | ~1267 |
+| 06:42 | Edited src/vela/tui/screens/target_manager.py | 35→39 lines | ~240 |
+| 06:42 | Edited src/vela/tui/screens/target_manager.py | modified TargetManagerScreen() | ~364 |
+| 06:42 | Edited src/vela/tui/screens/target_manager.py | modified compose() | ~248 |
+| 06:42 | Edited src/vela/tui/screens/target_manager.py | modified action_reconnect() | ~594 |
+| 06:43 | Edited src/vela/tui/screens/target_manager.py | 11→12 lines | ~160 |
+| 06:43 | Edited src/vela/tui/screens/target_manager.py | modified _connection_label() | ~429 |
+| 06:43 | Edited src/vela/tui/app.py | modified _target_manager_state_payload() | ~413 |
+| 06:43 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_stable.py | — | ~732 |
+| 06:45 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_footer_vis.py | — | ~675 |
+| 06:45 | Edited src/vela/tui/screens/target_manager.py | 2→7 lines | ~47 |
+| 06:49 | Created tests/test_target_manager_screen.py | — | ~4139 |
+| 06:51 | Edited tests/test_tui_smoke.py | modified test_target_manager_live_refreshes_on_reconnect_while_open() | ~1395 |
+
+## Session 2026-07-11 — Task 4.2 Target Manager rebuild (bug-237 slice / bug-256)
+- Rebuilt TargetManagerScreen: shared 4.1 modal frame + full-width list-in-a-VerticalScroll stacked above the detail (dropped MasterDetail); footer packs single _FOOTER_HINTS list into KeyHintBar rows DOCKED to the panel bottom (added `v view all`); refresh_target_state(payload) live-refresh + `reconnecting…` optimistic feedback in action_reconnect.
+- App wiring: VelaApp._reconnect_target calls _refresh_open_target_manager() (guarded isinstance(self.screen, TargetManagerScreen)) with _target_manager_state_payload().
+- Red-green per bullet (stash src to prove RED). Result: 12 screen tests + 1 smoke integration test; full suite 1204→1211, smoke 273→274, ruff+mypy clean. Commit 0f3ffed.
+| 07:09 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_probe_failed_reconnect.py | — | ~1392 |
+| 07:09 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_probe_failed_reconnect.py | modified scaled_timeout() | ~67 |
+| 07:12 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_probe_footer_dock.py | — | ~1085 |
+| 07:13 | Edited src/vela/tui/screens/target_manager.py | 3→1 lines | ~19 |
+| 07:14 | Edited src/vela/tui/screens/target_manager.py | 1→3 lines | ~39 |
+| 07:14 | Edited src/vela/tui/app.py | modified _target_manager_state_payload() | ~19 |
+| 07:14 | Edited src/vela/tui/app.py | modified _target_manager_state_payload() | ~32 |
+| 07:55 | Task 4.2 review: verified diff/pinned tests/RED checks/runs; CONFIRMED failed-reconnect leaves manager stuck at reconnecting… (bug-257) | app.py, target_manager.py | verdict: fixes required | ~55k |
+| 07:20 | Session end: 248 writes across 38 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 117 reads | ~845903 tok |
+| 07:22 | Edited tests/test_tui_smoke.py | modified test_target_manager_failed_reconnect_renders_truthfully() | ~1286 |
+| 07:23 | Edited src/vela/tui/app.py | modified _reconnect_target() | ~406 |
+| 07:24 | Edited tests/test_tui_smoke.py | modified test_target_manager_tracks_keepalive_drop_and_recovery_while_open() | ~1300 |
+| 07:24 | Edited src/vela/tui/app.py | modified _mark_target_disconnected() | ~298 |
+| 12:05 | bug-257 fix: try/finally refresh in _reconnect_target + keepalive branches refresh open manager | src/vela/tui/app.py, tests/test_tui_smoke.py | red-green x2; screen 12, smoke 276, ruff+mypy clean; commit fa9fc52 | ~90 |
+| 07:29 | Session end: 252 writes across 38 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 117 reads | ~850991 tok |
+| 07:31 | Edited src/vela/tui/app.py | 5→3 lines | ~31 |
+| 07:31 | Edited src/vela/tui/app.py | 5→3 lines | ~31 |
+| 08:20 | Task 4.2 re-review fa9fc52: try/finally + keepalive hooks verified (2 RED configs, byte-identical restores); 12/12+12/12+276/276, ruff+mypy clean; bug-257 marked FIXED | app.py, test_tui_smoke.py, buglog | verdict: CLOSED | ~25k |
+| 07:41 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_width.py | — | ~738 |
+| 07:42 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_resize.py | — | ~728 |
+| 07:48 | Created tests/test_model_manager_screen.py | — | ~4917 |
+| 07:49 | Edited src/vela/tui/widgets/keyhintbar.py | modified compose() | ~437 |
+| 07:49 | Edited src/vela/tui/widgets/__init__.py | 4→4 lines | ~66 |
+| 07:49 | Edited src/vela/tui/screens/target_manager.py | inline fix | ~23 |
+| 07:49 | Edited src/vela/tui/screens/target_manager.py | inline fix | ~22 |
+| 07:49 | Edited src/vela/tui/screens/target_manager.py | removed 31 lines | ~12 |
+| 07:52 | Created src/vela/tui/screens/model_manager.py | — | ~5512 |
+| 07:53 | Edited tests/test_tui_smoke.py | 2→2 lines | ~42 |
+| 07:53 | Edited tests/test_tui_smoke.py | "> ● qwen-remote  bf16  --" → "> ● qwen-remote  hf  cach" | ~20 |
+| 07:53 | Edited src/vela/tui/widgets/__init__.py | inline fix | ~19 |
+| 07:56 | Edited src/vela/tui/widgets/__init__.py | 4→5 lines | ~27 |
+| 07:59 | Edited src/vela/tui/screens/model_manager.py | modified _revision_detail() | ~15 |
+
+| 08:03 | Task 4.3: Model Manager full-width rebuild + scannable row grammar (bug-264/237) | src/vela/tui/screens/model_manager.py | shared frame + stacked list; new row grammar; 16 screen tests green | ~9k |
+| 08:03 | Hoisted _pack_hint_rows → widgets/keyhintbar.pack_hint_rows; both managers consume it | keyhintbar.py, target_manager.py, __init__.py | target_manager 12 tests stay green | ~1k |
+| 08:03 | Updated 3 smoke row pins + rewrote test_model_manager_screen.py to new grammar | tests/test_tui_smoke.py, tests/test_model_manager_screen.py | smoke 276 green; ruff+mypy clean | ~2k |
+| 08:12 | Edited src/vela/tui/screens/model_manager.py | removed 6 lines | ~8 |
+| 08:12 | Edited src/vela/tui/screens/model_manager.py | 3→5 lines | ~45 |
+| 08:16 | Fable 5 review of Task 4.3 (fa9fc52..8c278ed): verified hoist/row grammar/pins/truncation, 2 RED spot-checks (honest-size + fixed-width mutants bit, restored byte-identical), 28+13 screen/smoke, 1223 full, ruff+mypy clean — APPROVED | src/vela/tui/screens/model_manager.py, tests/test_model_manager_screen.py | approved | ~28k |
+| 08:27 | Created tests/test_build_manager_screen.py | — | ~2613 |
+| 08:27 | Edited src/vela/tui/screens/build_manager.py | modified BuildManagerScreen() | ~88 |
+| 08:28 | Edited src/vela/tui/screens/build_manager.py | reduced (-13 lines) | ~69 |
+| 08:29 | Edited tests/test_build_manager_screen.py | 3→7 lines | ~120 |
+| 08:29 | Edited src/vela/tui/screens/build_manager.py | 17→20 lines | ~127 |
+| 08:29 | Edited src/vela/tui/screens/build_manager.py | modified BuildManagerScreen() | ~382 |
+| 08:29 | Edited src/vela/tui/screens/build_manager.py | modified compose() | ~359 |
+| 08:30 | Edited tests/test_model_manager_screen.py | modified forward() | ~88 |
+| 08:30 | Edited tests/test_model_manager_screen.py | modified test_model_manager_row_ellipsizes_non_sha_revision() | ~408 |
+| 08:31 | Edited src/vela/tui/screens/model_manager.py | modified _sha8() | ~203 |
+| 08:32 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/commit_s1.txt | — | ~292 |
+| 08:33 | Edited tests/test_new_deployment_screen.py | added 1 import(s) | ~84 |
+| 08:33 | Edited tests/test_new_deployment_screen.py | modified test_review_panel_uses_shared_frame_and_fits_at_80x24() | ~504 |
+| 08:33 | Edited src/vela/tui/screens/new_deployment.py | 5→6 lines | ~25 |
+| 08:33 | Edited src/vela/tui/screens/new_deployment.py | 8→6 lines | ~46 |
+| 08:35 | Created tests/test_target_edit_screen.py | — | ~804 |
+| 08:35 | Edited src/vela/tui/screens/target_edit.py | inline fix | ~25 |
+| 08:35 | Edited src/vela/tui/screens/target_edit.py | 8→6 lines | ~44 |
+| 08:38 | Created tests/test_help_screen.py | — | ~1331 |
+| 08:39 | Edited src/vela/tui/screens/help.py | modified HelpScreen() | ~76 |
+| 08:39 | Edited src/vela/tui/screens/help.py | modified _content_width() | ~92 |
+| 08:41 | Edited tests/test_help_screen.py | 4→5 lines | ~60 |
+| 08:41 | Created src/vela/tui/screens/help.py | — | ~1939 |
+| 08:44 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/commit_s2.txt | — | ~347 |
+
+## Session 2026-07-11 — Task 4.4 (Build Manager + Review + Target Edit + Help widths, bug-237)
+| time | description | files | outcome | ~tokens |
+| --- | --- | --- | --- | --- |
+| — | S1: Build Manager full 4.2-style rebuild (shared frame, VerticalScroll list above detail, docked pack_hint_rows footer, conditional empty-state hints n/a/Esc) | src/vela/tui/screens/build_manager.py, tests/test_build_manager_screen.py | red→green; 9 tests + smoke 16 | ~6k |
+| — | CF: _sha8 ellipsizes non-sha refs (release-candidate→release…) via hex heuristic; quant: detail pin | src/vela/tui/screens/model_manager.py, tests/test_model_manager_screen.py | red→green; 17 tests | ~2k |
+| — | Commit 1 = 630c95a (S1 + carry-forwards) | — | committed | — |
+| — | S2/S3: Review (w92) + Target Edit (w96) panels → shared MODAL_PANEL_CSS frame | src/vela/tui/screens/new_deployment.py, target_edit.py, tests | red→green | ~3k |
+| — | S4: Help → frame + retitle 'HelpScreen - bindings + palette hint'→'Help — keys & markers' + Markers legend packed to content width (whole pairs) + legacy→canonical color migration | src/vela/tui/screens/help.py, tests/test_help_screen.py | red→green; 4 tests + smoke 4 | ~5k |
+| — | Commit 2 = 936673e (S2-S4) | — | committed | — |
+| — | Gate: full smoke+screens 343 passed; ruff clean; mypy clean (74 files) | — | green | — |
+| 08:54 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_444_probes.py | — | ~1058 |
+| 08:57 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_parent_reds.py | — | ~869 |
+| 08:59 | Task 4.4 REVIEW (Fable): IDE MasterDetail diag = stale snapshot; REDs reproduced behaviorally vs parent; pinned bodies AST-hash identical; docked-footer long-detail probe ok; suite 1234 + ruff + mypy green — APPROVED | build_manager.py, help.py, target_edit.py, new_deployment.py | approved | ~30k |
+| 09:23 | Created src/vela/tui/cells.py | — | ~409 |
+| 09:23 | Edited tests/test_tui_smoke.py | added 1 import(s) | ~54 |
+| 09:24 | Edited tests/test_tui_smoke.py | modified _write_header_config() | ~1877 |
+| 09:24 | Edited tests/test_tui_smoke.py | 3→3 lines | ~49 |
+| 09:24 | Edited src/vela/tui/app.py | added 1 import(s) | ~25 |
+| 09:25 | Edited src/vela/tui/app.py | added 1 import(s) | ~46 |
+| 09:25 | Edited src/vela/tui/app.py | modified left() | ~254 |
+| 09:25 | Edited src/vela/tui/app.py | 28→32 lines | ~202 |
+| 09:25 | Edited src/vela/tui/app.py | 19→20 lines | ~123 |
+| 09:26 | Edited src/vela/tui/app.py | expanded (+9 lines) | ~393 |
+| 09:27 | Edited src/vela/tui/app.py | modified _refresh_chrome() | ~898 |
+| 09:27 | Edited src/vela/tui/app.py | modified _chrome_url_plain() | ~236 |
+| 09:27 | Edited src/vela/tui/screens/model_manager.py | added 1 import(s) | ~29 |
+| 09:27 | Edited src/vela/tui/screens/model_manager.py | — | ~0 |
+
+| 09:30 | Task 4.5 adaptive top chrome (bug-237): header fixed-cols -> width:auto + #active-model 1fr; badge auto (full border, no overflow); cell-aware model truncation; URL/clock reveal by width (112/132); honest dim URL until READY/DEGRADED; hoisted truncate_cells -> vela/tui/cells.py | src/vela/tui/app.py, src/vela/tui/cells.py, src/vela/tui/screens/model_manager.py, tests/test_tui_smoke.py | 280 smoke + full suite green, ruff+mypy clean | ~46k |
+| 09:49 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/reviewer_45_probe.py | — | ~994 |
+| 09:55 | Fable review Task 4.5 (adaptive top chrome): RED-checked 2 tests, probed 12 widths + busy transient, suite 1238/ruff/mypy green — APPROVED | src/vela/tui/app.py, src/vela/tui/cells.py | approved; busy-verb re-budget noted for 4.9 | ~30k |
+| 09:59 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_sidebar_fit.py | — | ~355 |
+| 10:00 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_card_content.py | — | ~548 |
+| 10:07 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_footer_geom.py | — | ~450 |
+| 10:11 | Edited tests/test_tui_smoke.py | modified _write_sidebar_config() | ~1299 |
+| 10:11 | Edited src/vela/tui/app.py | inline fix | ~20 |
+| 10:11 | Edited src/vela/tui/app.py | expanded (+7 lines) | ~145 |
+| 10:11 | Edited src/vela/tui/app.py | 9→11 lines | ~96 |
+| 10:11 | Edited src/vela/tui/app.py | 2→2 lines | ~28 |
+| 10:11 | Edited src/vela/tui/app.py | 6→6 lines | ~37 |
+| 10:12 | Edited src/vela/tui/app.py | modified Horizontal() | ~48 |
+| 10:12 | Edited src/vela/tui/app.py | modified _apply_responsive_layout() | ~378 |
+| 10:12 | Edited src/vela/tui/app.py | 18→21 lines | ~337 |
+| 10:12 | Edited src/vela/tui/app.py | 3→3 lines | ~41 |
+| 10:12 | Edited src/vela/tui/app.py | modified on_resize() | ~37 |
+| 10:20 | Edited tests/test_tui_smoke.py | modified _footer_rows() | ~1346 |
+| 10:21 | Edited src/vela/tui/app.py | expanded (+14 lines) | ~297 |
+| 10:21 | Edited src/vela/tui/app.py | modified _has_active_run() | ~1337 |
+| 10:21 | Edited src/vela/tui/app.py | modified _active_model_budget() | ~110 |
+| 10:22 | Edited src/vela/tui/widgets/keyhintbar.py | added 1 import(s) | ~67 |
+| 10:22 | Edited src/vela/tui/widgets/keyhintbar.py | 6→7 lines | ~109 |
+| 10:22 | Edited tests/test_tui_smoke.py | modified test_footer_advertises_new_deployment_and_configs() | ~202 |
+| 10:23 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_footer_render.py | — | ~276 |
+| 10:28 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/extend_bug237.py | — | ~1081 |
+| 10:35 | Task 4.6 sidebar vertical fit (bug-237): VerticalScroll + height:auto/max-height cards + SIDEBAR_GPU_MIN_HEIGHT height-keyed GPU hide | src/vela/tui/app.py, tests/test_tui_smoke.py | 3 tests RED→GREEN; smoke 283; commit 5f62a5e | ~1900 |
+| 10:36 | Task 4.7 context-sensitive footer (bug-237): _footer_droppable_hints state filter + cell-aware ≤2-row packer pinning Help/Quit; refreshed in _refresh_chrome; keyhintbar hint_row_width→cell_len | src/vela/tui/app.py, src/vela/tui/widgets/keyhintbar.py, tests/test_tui_smoke.py | 3 tests + 2 pins RED→GREEN; full suite 1244; ruff+mypy clean; commit 21a7663 | ~2600 |
+| 10:41 | Created tests/_reviewer_probe_46_47.py | — | ~1815 |
+| 10:42 | Edited src/vela/tui/app.py | 2→1 lines | ~10 |
+| 10:42 | Edited src/vela/tui/app.py | 3→1 lines | ~16 |
+| 15:05 | Fable review Tasks 4.6+4.7 (5f62a5e+21a7663): probes + RED spot-checks + full gate — APPROVED; noted Overall-line clip at terminal phases for 4.9 | src/vela/tui/app.py, keyhintbar.py, tests | approved | ~60k |
+| 11:01 | Edited tests/test_tui_smoke.py | modified test_config_picker_panel_hugs_content_with_shared_frame() | ~1219 |
+| 11:03 | Created src/vela/tui/screens/config_picker.py | — | ~2342 |
+| 11:03 | Edited src/vela/tui/app.py | modified action_config_picker() | ~80 |
+| 11:04 | Edited tests/test_tui_smoke.py | modified marker_visible() | ~246 |
+| 11:04 | Edited tests/test_tui_smoke.py | 5→5 lines | ~72 |
+| 11:13 | Edited tests/test_tui_smoke.py | 4→8 lines | ~149 |
+| 11:13 | Edited src/vela/tui/app.py | 7→8 lines | ~52 |
+| 11:13 | Edited src/vela/tui/app.py | modified _render_sidebar_overlay() | ~288 |
+| 11:18 | Edited tests/test_tui_smoke.py | added 1 import(s) | ~33 |
+| 11:18 | Edited tests/test_tui_smoke.py | 3→3 lines | ~44 |
+| 11:19 | Edited tests/test_tui_smoke.py | modified test_flag_manager_changed_only_checkbox_states_are_visible() | ~1239 |
+| 11:20 | Edited src/vela/tui/app.py | expanded (+15 lines) | ~202 |
+| 11:22 | Edited tests/test_tui_widgets.py | modified test_preset_chips_click_selects_chip() | ~462 |
+| 11:22 | Edited src/vela/tui/widgets/preset_chips.py | modified PresetChips() | ~273 |
+| 11:22 | Edited src/vela/tui/widgets/preset_chips.py | modified select() | ~240 |
+| 11:30 | Edited tests/test_tui_smoke.py | modified test_confirm_and_log_prompt_use_canonical_tokens() | ~669 |
+| 11:30 | Edited tests/test_tui_smoke.py | 263 → 279 | ~22 |
+| 11:31 | Edited tests/test_help_screen.py | modified test_help_action_pills_dock_to_panel_bottom() | ~288 |
+| 11:32 | Edited tests/test_tui_smoke.py | modified test_quit_and_kill_do_not_stack_a_second_confirm() | ~355 |
+| 11:33 | Edited src/vela/tui/screens/confirm.py | modified ConfirmScreen() | ~213 |
+| 11:33 | Edited src/vela/tui/screens/confirm.py | modified _message_text() | ~221 |
+| 11:33 | Edited src/vela/tui/screens/log_prompt.py | inline fix | ~21 |
+| 11:33 | Edited src/vela/tui/screens/log_prompt.py | 5→5 lines | ~33 |
+| 11:33 | Edited src/vela/tui/app.py | modified action_quit() | ~128 |
+| 11:34 | Edited src/vela/tui/app.py | modified action_kill() | ~95 |
+| 11:34 | Edited src/vela/tui/screens/help.py | 4→7 lines | ~49 |
+| 11:34 | Edited src/vela/tui/app.py | 5→4 lines | ~32 |
+| 11:42 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_bookkeeping_48.py | — | ~1621 |
+
+
+## Session 2026-07-11 (remediation Task 4.8 — small-screen polish batch)
+- Delivered 12 items in 3 commits on remediate/2026-07-09-review: 83cd96b (config picker fits/scrolls/truth), 7524af8 (narrow overlay + visible checkboxes + keyboard chips), 3a1dba0 (dialog tokens + single confirm stack + docked help pills). Full suite 1255 passed (1244 baseline + 11 new); smoke 295; ruff+mypy clean. buglog: stripped 8 auto-hook junk entries (bug-279..286 reused ids), added the REAL bug-279 (q-stack DuplicateIds crash), extended bug-237 notes with the 4.8 work.
+| 16:20 | Reviewed Task 4.8 (spec+quality): stale-diagnostic contradiction settled, 2 RED spot-checks bit + byte-identical restore, gates 1255/ruff/mypy green — APPROVED | src/vela/tui/*, tests/* | approved | ~28k |
+| 12:04 | Session end: 365 writes across 66 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 130 reads | ~929596 tok |
+| 12:22 | Edited tests/test_tui_smoke.py | modified test_terminal_phases_clear_stale_progress_line() | ~763 |
+| 12:23 | Edited src/vela/tui/app.py | modified _update_progress() | ~145 |
+| 12:23 | Edited src/vela/tui/app.py | expanded (+6 lines) | ~152 |
+| 12:25 | Edited tests/test_tui_smoke.py | modified test_run_separator_and_operator_stop_closure() | ~1113 |
+| 12:25 | Edited tests/test_tui_smoke.py | modified test_force_kill_running_attached_server_is_intentional_stop() | ~39 |
+| 12:25 | Edited tests/test_tui_smoke.py | modified too() | ~270 |
+| 12:26 | Edited tests/test_tui_smoke.py | expanded (+8 lines) | ~183 |
+| 12:26 | Edited src/vela/tui/app.py | modified chrome() | ~157 |
+| 12:26 | Edited src/vela/tui/app.py | 2→6 lines | ~111 |
+| 12:27 | Edited src/vela/tui/app.py | modified _write_run_separator() | ~326 |
+| 12:27 | Edited src/vela/tui/app.py | modified _monitor_attached_run() | ~61 |
+| 12:27 | Edited src/vela/tui/app.py | 4→7 lines | ~89 |
+| 12:27 | Edited src/vela/tui/app.py | modified _target_stop_run() | ~344 |
+| 12:27 | Edited src/vela/tui/app.py | modified _server_url_for_copy() | ~64 |
+| 12:27 | Edited src/vela/tui/app.py | 6→7 lines | ~95 |
+| 12:28 | Edited src/vela/tui/app.py | modified _reset_run_state() | ~60 |
+| 12:28 | Edited tests/test_tui_smoke.py | 14→15 lines | ~199 |
+| 12:29 | Edited tests/test_tui_smoke.py | modified test_phase_timeline_ends_on_terminal_marker_row() | ~558 |
+| 12:29 | Edited src/vela/tui/app.py | modified row() | ~197 |
+| 12:29 | Edited src/vela/tui/app.py | added 1 condition(s) | ~264 |
+| 12:29 | Edited src/vela/tui/app.py | modified _phase_timeline_style() | ~82 |
+| 12:29 | Edited src/vela/tui/app.py | 1→3 lines | ~58 |
+| 12:31 | Edited tests/test_tui_smoke.py | modified test_busy_badge_refits_header_chrome_for_wide_verbs() | ~459 |
+| 12:31 | Edited src/vela/tui/app.py | 11→16 lines | ~174 |
+| 12:31 | Edited tests/test_tui_smoke.py | expanded (+8 lines) | ~245 |
+| 12:32 | Edited src/vela/tui/screens/model_manager.py | modified _gb_label() | ~36 |
+| 12:35 | Edited tests/test_flag_manager_screen.py | modified test_flag_manager_title_and_context_render_first() | ~356 |
+| 12:36 | Edited src/vela/tui/screens/flag_manager.py | 4→9 lines | ~48 |
+| 12:36 | Edited src/vela/tui/screens/flag_manager.py | modified compose() | ~99 |
+| 12:36 | Edited src/vela/tui/screens/flag_manager.py | modified _render_title() | ~133 |
+| 12:36 | Edited tests/test_flag_manager_screen.py | 3→4 lines | ~77 |
+| 12:36 | Edited tests/test_tui_smoke.py | 5→7 lines | ~128 |
+| 12:38 | Edited tests/test_tui_smoke.py | modified __init__() | ~2484 |
+| 12:40 | Edited src/vela/tui/app.py | modified _busy_badge() | ~409 |
+| 12:40 | Edited src/vela/tui/app.py | modified _busy_badge() | ~195 |
+| 12:40 | Edited src/vela/tui/app.py | modified _adopt_build() | ~102 |
+| 12:40 | Edited src/vela/tui/app.py | modified _adopt_build_for_new_deployment() | ~123 |
+| 12:40 | Edited src/vela/tui/app.py | modified _busy_badge() | ~149 |
+| 12:40 | Edited src/vela/tui/app.py | modified _busy_badge() | ~207 |
+| 12:41 | Edited src/vela/tui/app.py | modified _cancel_target_job() | ~140 |
+| 12:41 | Edited src/vela/tui/app.py | modified _open_create_build_form() | ~106 |
+| 12:41 | Edited src/vela/tui/app.py | modified _open_new_deployment_create_build_form() | ~123 |
+| 12:41 | Edited src/vela/tui/app.py | modified _busy_badge() | ~132 |
+| 12:50 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_bookkeeping_49_410.py | — | ~837 |
+| 23:50 | Task 4.9: progress gate on terminal phases, run separators, stop/kill toast+closure line, ■/✗ terminal stepper rows, phase-panel 13, busy-badge chrome refit, DEGRADED URL pin, model_manager blanks (commit a5dbba9) | src/vela/tui/app.py, model_manager.py, test_tui_smoke.py | 301 smoke green | ~52k |
+| 23:55 | Task 4.10: Flag Manager #flag-manager-title composes first (pins relocated); 7 submit verbs get _busy_badge with Event-gated tests (commit 583730d) | src/vela/tui/app.py, flag_manager.py, tests | full suite 1269 green, ruff+mypy clean | ~38k |
+| 13:03 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_restart_announce_probe.py | — | ~996 |
+| 13:04 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_restart_announce_probe.py | modified isolated_vela_state() | ~385 |
+| 13:07 | Edited src/vela/tui/app.py | removed 8 lines | ~24 |
+| 13:08 | Edited src/vela/tui/screens/flag_manager.py | modified Vertical() | ~30 |
+| 13:08 | Edited src/vela/tui/screens/flag_manager.py | 4→5 lines | ~58 |
+| 13:13 | Fable review 4.9+4.10 (3a1dba0..583730d): verified progress gate, separators, stop/kill closure, terminal stepper, flag title, 7 busy verbs; 2 RED checks; restart-immunity probed empirically; APPROVED w/ 4.11 notes | src/vela/tui/app.py, screens/flag_manager.py, tests | ok | ~55k |
+| 13:30 | Edited tests/test_tui_smoke.py | modified test_customize_review_shows_composing_busy_verb() | ~443 |
+| 13:30 | Edited src/vela/tui/app.py | modified _busy_badge() | ~317 |
+| 13:33 | Edited tests/test_tui_smoke.py | modified test_progress_panel_hides_when_job_ends_while_ready() | ~1132 |
+| 13:35 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/dbg_a2.py | — | ~855 |
+| 13:36 | Edited tests/test_tui_smoke.py | modified __aiter__() | ~398 |
+| 13:37 | Edited src/vela/tui/app.py | expanded (+7 lines) | ~221 |
+| 13:39 | Edited tests/test_tui_smoke.py | modified test_restart_never_announces_operator_stop_for_the_old_run() | ~1458 |
+| 13:40 | Edited tests/test_tui_smoke.py | 4→4 lines | ~71 |
+| 13:40 | Edited src/vela/tui/app.py | modified _restart_reattached_target_run() | ~292 |
+| 13:51 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/edit_buglog.py | — | ~2478 |
+| 14:20 | Task 4.11 Phase-4 GATE closed: A1 customize-review `composing…` badge (0c4577e), A2 clear stale progress panel on job-end while READY (667dc66), A3 deterministic restart immunity — re-point current_run_id before restart RPC (a3493d7); 3 red-green tests; ruff+mypy clean, full suite 1272, smoke+flag 322; closed bug-237/256/264/279, opened 280/281/282, bug-248 stays open; stripped Phase-4 buglog auto-junk; staged .wolf + uv.lock | src/vela/tui/app.py, tests/test_tui_smoke.py, .wolf/* | ok | ~60k |

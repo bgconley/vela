@@ -1,25 +1,51 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T09:57:27.480Z
-> Files: 255 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T17:51:14.122Z
+> Files: 285 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/
 
 - `append_bug254.py` — Append bug-254 to .wolf/buglog.json (idempotent, preserves top-level keys). (~1113 tok)
 - `append_wolf_notes.py` — Append Task 3.4 session notes to .wolf/memory.md and .wolf/cerebrum.md (unstaged). (~930 tok)
+- `commit_4_1.txt` (~262 tok)
 - `commit_msg.txt` (~340 tok)
+- `commit_s1.txt` (~273 tok)
+- `commit_s2.txt` (~325 tok)
+- `dbg_a2.py` — _GatedJobEvents: aclose, connect, disconnect, call + 2 more (~855 tok)
+- `edit_buglog.py` — find, close_prefix (~2478 tok)
+- `extend_bug237.py` — Idempotently extend bug-237 notes with Task 4.6 + 4.7 (unstaged .wolf edit). (~1081 tok)
 - `fix_buglog.py` (~657 tok)
 - `partA_commit.txt` (~292 tok)
+- `probe_card_content.py` — Probe (Task 4.6): measure intrinsic content line counts per sidebar card at (~548 tok)
 - `probe_chrome.py` — Replicate VelaApp's #top-chrome CSS exactly (copied from app.py) and measure (~529 tok)
 - `probe_flag2.py` — Harness: make_config, main (~576 tok)
 - `probe_focus_v2.py` — _Host: fmt, main (~481 tok)
 - `probe_focus.py` — Probe: where does focus land on a RESTORED-DRAFT mount at step_index=1? (~788 tok)
+- `probe_footer_fit.py` — Measure whether a candidate KeyHintBar footer fits inside a 96%-width modal (~895 tok)
+- `probe_footer_geom.py` — Probe (Task 4.7): footer geometry + current content at 80/100/142, and the (~450 tok)
+- `probe_footer_render.py` — Probe (Task 4.7): show the packed footer at IDLE/running x 80/100/142. (~276 tok)
+- `probe_footer_vis.py` — Does the footer 'Close' stay visible inside the clamped panel at 80x24 with (~675 tok)
+- `probe_frame_styles.py` — Probe: mount a ModalScreen whose CSS interpolates a frame-declaration string (~472 tok)
 - `probe_hints.py` — _Host: hint_pairs, main, resolver (~636 tok)
+- `probe_layout.py` — Probe the real intended Task 4.2 layout: VerticalScroll list stacked above a (~1267 tok)
+- `probe_resize.py` — Confirm on_resize fires for a ModalScreen in run_test and that self.size.width (~728 tok)
+- `probe_sidebar_fit.py` — Probe (Task 4.6): measure the four sidebar card regions at 100x30 and 142x38 (~355 tok)
 - `probe_sidebar.py` — Replicate VelaApp's body/sidebar CSS (copied from app.py) and check whether (~692 tok)
+- `probe_stable.py` — Measure the REAL rebuilt TargetManagerScreen: does panel.region stay equal (~732 tok)
 - `probe_tui.py` — Headless probes for the TUI review claims (read-only; no repo changes). (~1425 tok)
 - `probe_visible.py` — _Host: main (~582 tok)
+- `probe_width.py` — Measure, in the real stacked modal layout I plan for Task 4.3, the width (~738 tok)
 - `probe_wizard.py` — Harness: scenario, enter_walk, main (~537 tok)
+- `prove_comment_example.py` — Reconstruct the theme.py comment's interpolation example VERBATIM and prove (~322 tok)
+- `reviewer_45_probe.py` — Reviewer probe (Task 4.5): header invariants at boundary widths + busy-verb transient. (~994 tok)
+- `test_444_probes.py` — Reviewer probes for Task 4.4 (not part of the repo suite). (~1058 tok)
+- `test_parent_reds.py` — Behavioral RED reproduction against the PARENT (8c278ed) screen classes. (~869 tok)
+- `test_probe_failed_reconnect.py` — Probe (review Task 4.2): does a FAILED reconnect leave the open Target (~1434 tok)
+- `test_probe_footer_dock.py` — Probe (review Task 4.2): footer `dock: bottom` inside the scrollable panel — (~1085 tok)
+- `test_restart_announce_probe.py` — Reviewer probe: does an attached restart fire the operator-stop announce (~1306 tok)
 - `vela-review.template.html` — Vela — Repo & TUI Review · 2026-07-09 (~9979 tok)
+- `wolf_bookkeeping_48.py` — Task 4.8 buglog bookkeeping (unstaged .wolf edit): (~1621 tok)
+- `wolf_bookkeeping_49_410.py` — Tasks 4.9 + 4.10 bookkeeping (unstaged .wolf edits, idempotent). (~837 tok)
 
 ## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/memory/
 
@@ -247,41 +273,43 @@
 ## src/vela/tui/
 
 - `__init__.py` — Textual user interface. (~9 tok)
-- `app.py` — Declares for (~67514 tok)
-- `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~467 tok)
+- `app.py` — Declares for (~73534 tok)
+- `cells.py` — Cell-aware text helpers shared across the TUI (bug-237). (~409 tok)
+- `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~1164 tok)
 
 ## src/vela/tui/screens/
 
 - `__init__.py` — Textual screens. (~7 tok)
 - `adopt_build.py` — AdoptBuildScreen: compose, on_mount, on_select_changed, on_input_submitted + 3 more (~3314 tok)
-- `build_manager.py` — BuildManagerScreen: compose, on_mount, action_previous, action_next + 9 more (~3467 tok)
-- `config_picker.py` — ConfigPickerScreen: compose, on_mount, on_input_changed, on_input_submitted + 5 more (~1464 tok)
-- `confirm.py` — ConfirmScreen: compose, action_confirm, action_stop, action_kill + 1 more (~859 tok)
+- `build_manager.py` — BuildManagerScreen: compose, on_mount, action_previous, action_next + 9 more (~3920 tok)
+- `config_picker.py` — ConfigPickerScreen: compose, on_mount, on_input_changed, on_input_submitted + 5 more (~2342 tok)
+- `confirm.py` — ConfirmScreen: compose, action_confirm, action_stop, action_kill + 1 more (~945 tok)
 - `create_build.py` — CreateBuildScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~4442 tok)
 - `download_model.py` — DownloadModelScreen: compose, on_mount, on_input_submitted, on_input_changed + 4 more (~2885 tok)
-- `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7721 tok)
-- `help.py` — HelpScreen: compose, action_close (~1086 tok)
-- `log_prompt.py` — LogPromptScreen: compose, on_mount, on_input_submitted, action_cancel (~455 tok)
-- `model_manager.py` — ModelManagerScreen: compose, on_mount, action_previous, action_next + 7 more (~3657 tok)
-- `new_deployment.py` — NewDeploymentScreen: compose (~20561 tok)
+- `flag_manager.py` — FlagManagerScreen: compose, on_mount, action_previous, action_next + 8 more (~7780 tok)
+- `help.py` — HelpScreen: compose, on_mount, on_resize, action_close (~1961 tok)
+- `log_prompt.py` — LogPromptScreen: compose, on_mount, on_input_submitted, action_cancel (~473 tok)
+- `model_manager.py` — ModelManagerScreen: compose, on_mount, on_resize, action_previous + 8 more (~5469 tok)
+- `new_deployment.py` — NewDeploymentScreen: compose (~20554 tok)
 - `pin_model.py` — Pin Model — register a model so deployments can reference it by a stable id. (~4884 tok)
-- `target_edit.py` — TargetEditScreen: compose, on_mount, on_input_submitted, action_cancel (~1178 tok)
-- `target_manager.py` — from: compose, on_mount, action_previous, action_next + 9 more (~3367 tok)
+- `target_edit.py` — TargetEditScreen: compose, on_mount, on_input_submitted, action_cancel (~1185 tok)
+- `target_manager.py` — from: compose, on_mount, action_previous, action_next + 10 more (~4433 tok)
 
 ## src/vela/tui/widgets/
 
-- `__init__.py` — Reusable Textual widgets for the Vela TUI. (~267 tok)
+- `__init__.py` — Reusable Textual widgets for the Vela TUI. (~278 tok)
 - `contextcard.py` — ``ContextCard`` — a read-only "what you're operating on" card. (~517 tok)
 - `field.py` — The ``Field`` compound widget — the shared "form language" for Vela screens. (~772 tok)
-- `keyhintbar.py` — ``KeyHintBar`` — renders footer keybinding hints as ``key label`` pairs. (~417 tok)
+- `keyhintbar.py` — ``KeyHintBar`` — renders footer keybinding hints as ``key label`` pairs. (~829 tok)
 - `masterdetail.py` — ``MasterDetail`` — the shared two-pane layout for the manager screens. (~550 tok)
-- `preset_chips.py` — ``PresetChips`` — a row of selectable preset chips. (~996 tok)
+- `preset_chips.py` — ``PresetChips`` — a row of selectable preset chips. (~1306 tok)
 - `step_indicator.py` — ``StepIndicator`` — the shared wizard step breadcrumb. (~638 tok)
 - `tags.py` — Shared color/text primitives for the master-detail manager screens. (~679 tok)
 - `validation_card.py` — ``ValidationCard`` — a green/red live-validation result card. (~607 tok)
 
 ## tests/
 
+- `_reviewer_probe_46_47.py` — Reviewer probes for Tasks 4.6/4.7 — TEMPORARY file, deleted after review. (~1815 tok)
 - `.DS_Store` (~1640 tok)
 - `conftest.py` — scaled_timeout, isolated_vela_state, config_dir, write_yaml (~1095 tok)
 - `test_adopt_build_screen.py` — Headless tests for the refactored AdoptBuildScreen (Mac-safe; no GPU/vLLM). (~1793 tok)
@@ -290,7 +318,7 @@
 - `test_agent_socket.py` — FakeWriter: get_extra_info, test_same_user_peer_check_accepts_current_uid, test_same_user_peer_check (~600 tok)
 - `test_blackbird_config.py` — Tests: blackbird_qwen36_fp8_config_uses_native_docker_runtime, blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins, tiny_blackbird_res... (~1321 tok)
 - `test_branding.py` — URL configuration (~880 tok)
-- `test_build_manager_screen.py` — Headless tests for the refactored BuildManagerScreen (Phase 6 consistency pass). (~1261 tok)
+- `test_build_manager_screen.py` — Headless tests for the rebuilt BuildManagerScreen (Task 4.4, bug-237). (~2678 tok)
 - `test_build_registry.py` — Engine-level tests for build_registry venv inspection (Mac-safe; no GPU/vLLM). (~1095 tok)
 - `test_cli_run.py` — FakeTargetsRegistry: test_debug_mode_enables_textual_debug_and_devtools, test_cli_root_version_optio (~53435 tok)
 - `test_command_builder.py` — Tests: exact_argv_env_for_serve_entrypoint, revision_pin_is_emitted_for_standalone_model_handoff, docker_error_classifier_covers_named_runtime_fail... (~5213 tok)
@@ -301,14 +329,15 @@
 - `test_docs.py` — Tests: readme_covers_new_contributor_v1_paths, user_docs_cover_schema_artifacts_and_rpc, build_model_docs_cover_operational_cli_surfaces, v15_docs_... (~1380 tok)
 - `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~1779 tok)
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
-- `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2417 tok)
+- `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2779 tok)
 - `test_gpu.py` — Tests: nvml_unavailable_path_returns_unavailable, nvidia_smi_fallback_parsing, nvml_sampling_includes_mig_instance_identity, cuda_visible_devices_n... (~879 tok)
 - `test_health.py` — test_health_called_without_auth_and_models_with_bearer_when_key_configured, handler, test_models_401 (~2795 tok)
+- `test_help_screen.py` — Headless tests for the reframed HelpScreen (Task 4.4, bug-237). (~1566 tok)
 - `test_job_phases.py` — Tests: build_phase_enum_matches_spec_values, download_phase_enum_matches_spec_values, build_install_phase_rules_are_enum_backed_wire_values (~275 tok)
 - `test_log_sink.py` — Tests: display_level_dims_known_benign_shutdown_noise, splits_carriage_return_and_newline_and_persists_only_committed, terminal_carriage_return_emi... (~1945 tok)
 - `test_messages.py` — Tests: canonical_event_taxonomy_uses_textual_messages, message_payloads_match_engine_monitoring_contract, log_record_conversion_uses_progress_updat... (~699 tok)
-- `test_model_manager_screen.py` — Headless tests for the refactored ModelManagerScreen (Phase 6 consistency pass). (~1560 tok)
-- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~12903 tok)
+- `test_model_manager_screen.py` — Headless tests for the rebuilt ModelManagerScreen (Task 4.3, bug-237). (~5330 tok)
+- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~13394 tok)
 - `test_package_metadata.py` — Tests: model_download_progress_runtime_dependency_is_declared, model_download_huggingface_runtime_dependency_is_declared (~193 tok)
 - `test_phases.py` — Tests: success_fixture_produces_expected_phase_sequence, recorded_success_fixture_walks_current_vllm_startup_phases, recorded_hf_cache_miss_fixture... (~1710 tok)
 - `test_pin_model_screen.py` — Headless tests for the rebuilt PinModelScreen (Mac-safe; no GPU/vLLM). (~2022 tok)
@@ -320,12 +349,13 @@
 - `test_sidecar.py` — Tests: identity_verification_passes_for_matching_process_metadata, identity_accepts_executable_alias_when_command_line_matches, identity_accepts_py... (~5050 tok)
 - `test_ssh_discovery.py` — URL configuration (~5770 tok)
 - `test_state_isolation.py` — Pins the test-suite state isolation (the durable bug-185 fix). (~444 tok)
-- `test_target_manager_screen.py` — Headless tests for the refactored TargetManagerScreen (Mac-safe; no GPU/vLLM). (~1724 tok)
+- `test_target_edit_screen.py` — Headless tests for TargetEditScreen's shared modal frame (Task 4.4, bug-237). (~804 tok)
+- `test_target_manager_screen.py` — Headless tests for the refactored TargetManagerScreen (Mac-safe; no GPU/vLLM). (~4139 tok)
 - `test_targets.py` — Tests: missing_targets_file_still_yields_implicit_local_target, targets_registry_loads_ssh_targets_with_local_first, targets_registry_loads_json_ta... (~1557 tok)
 - `test_transport_factory.py` — Tests: subscription_event_matcher_accepts_job_ids, subscription_event_matcher_broadcasts_agent_errors, target_client_factory_builds_implicit_local_... (~4644 tok)
 - `test_tui_screen_parsers.py` — Tests: structured_tui_forms_do_not_export_legacy_free_form_parsers (~106 tok)
-- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~185439 tok)
-- `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~3090 tok)
+- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~205356 tok)
+- `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~4919 tok)
 
 ## tests/fakes/
 

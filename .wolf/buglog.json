@@ -4432,7 +4432,7 @@
       "error_message": "Layout: manager modals exceed 80 cols and clip (target 100 / model 104 / build 96 / target_edit 96 / review 92 / help 82); header fixed widths wrap+hide URL/badge/clock below ~130 cols with the floating status pill overlapping chrome at every size; Build Manager footer clips its own hint to 'Esc Clos'; 4th sidebar card clipped at <=~30 rows (probe + live verified)",
       "file": "src/vela/tui/app.py:467-528,505-507; src/vela/tui/screens/*.py CSS widths",
       "root_cause": "Fixed pixel/col widths and heights instead of %/auto/adaptive; responsive breakpoints key on width only and never adapt top chrome.",
-      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "fix": "CLOSED at the Phase-4 gate (Task 4.11), commits e135dad..583730d (14) plus the 4.11 review follow-ups 0c4577e/667dc66/a3493d7. Shipped: 4.1 shared modal frame tokens (e135dad); 4.2 Target Manager full-width list-over-detail + live refresh_target_state + reconnect feedback (0f3ffed), incl. truthful FAILED reconnect (fa9fc52, bug-257); 4.3 Model Manager full-width + one-line scannable row grammar (8c278ed, bug-264); 4.4 Build Manager full-width + honest empty state and Review/Target-Edit/Help on the shared frame, Help retitled 'Help — keys & markers' (630c95a, 936673e); 4.5 adaptive header — 1fr model slot absorbs slack so the badge is never pushed off, honest URL, per-width reveal (37b25d1); 4.6 sidebar hugs content in a VerticalScroll + height-keyed GPU shed (5f62a5e); 4.7 context-sensitive footer that always keeps ? Help / q Quit (21a7663); 4.8 small-screen polish — config picker fits/scrolls/tells the truth, honest narrow overlay, visible checkboxes, keyboard preset chips, legacy→canonical dialog tokens, single confirm stack (bug-279), docked Help pills (83cd96b, 7524af8, 3a1dba0); 4.9 run-lifecycle feedback — progress suppression gate, run separators, operator stop/kill closure, terminal phase markers (a5dbba9); 4.10 Flag Manager title-first + 7 submit verbs on _busy_badge (583730d). 4.11 review follow-ups (bug-280/281/282): customize-review 'composing…' badge, clear the stale progress panel on job-end while READY, deterministic restart immunity. Gate: ruff+mypy clean, full suite 1272 green, smoke+flag 322. Chrome + managers + modals are now width/height-adaptive (no fixed-col clipping) and truthful. The broader reactive-hardening sweep is tracked separately (bug-248, stays open).",
       "tags": [
         "tui",
         "layout",
@@ -4441,8 +4441,9 @@
         "header"
       ],
       "related_bugs": [],
-      "occurrences": 1,
-      "last_seen": "2026-07-09T06:05:00Z"
+      "occurrences": 2,
+      "last_seen": "2026-07-11",
+      "notes": "Task 4.4 (commits 630c95a, 936673e): Build Manager rebuilt full-width stacked like 4.2/4.3 (shared MODAL_PANEL_CSS/MODAL_LIST_CSS frame + VerticalScroll list above detail + docked pack_hint_rows footer); its footer no longer clips its own last hint to 'Esc Clos', and the empty state advertises only n New / a Adopt / Esc Close. Review (width 92), Target Edit (96) and Help (82) panels swapped their fixed pixel widths for the shared frame so they fit the 80-col screen. Help also retitled 'HelpScreen - bindings + palette hint' -> 'Help — keys & markers', packs its Markers legend to the panel content width (whole pairs, no orphaned glyphs), and migrates legacy ACCENT/GOOD/WARN/PURPLE + hardcoded 'on #0e2a21' to canonical theme tokens. Carry-forwards: model-manager _sha8 now ellipsizes non-sha refs (release-candidate -> release…) + a quant: detail pin. Remaining modal-frame work: header/sidebar/footer chrome (Tasks 4.5-4.8) still pending. | Task 4.5 (adaptive top chrome): the header used ~110 fixed cols (app-title 20 + target 18 + active-model 32 + status-badge 26 + clock 10 + padding) before the 1fr URL got a cell, so at 80 the badge overflowed to x=73 w26 (right edge 99 on a 78-wide header — cut mid-border), active-model hard-clipped at 32 mid-glyph (content 40-47 cells), and the URL got 1 col. Fix: segments are now width:auto except #active-model (width:1fr min-width:0) which absorbs all slack so Textual can never push the badge off-screen; #status-badge/#status-label are width:auto (badge sizes to dot+label, full border always visible); model text is cell-aware truncated (rich cell_len via hoisted vela.tui.cells.truncate_cells — model_manager now imports it too) to its exact 1fr region so it ellipsizes instead of clipping; server URL + clock reveal by exact width (HEADER_URL_MIN_WIDTH=112, HEADER_CLOCK_MIN_WIDTH=132) in _apply_responsive_layout, which now re-fits chrome on EVERY resize (100/120/140 are all 'wide' but differ); _render_chrome_url returns a Rich Text styled MUTED unless phase is READY/DEGRADED (honest — IDLE/STOPPED no longer advertise a live cyan server). CSS margin-right:2 gives inter-segment gaps without touching widget .content (exact #target-segment assertions stay green). 4 new tests in test_tui_smoke.py; 280 smoke + full suite green. Remaining: sidebar/footer chrome (Tasks 4.6-4.8). | Task 4.6 (5f62a5e): sidebar vertical fit. Fixed heights (config 7 + phase 11 + gpu 10 + status 3 = 34 rows) overflowed short terminals — at 100x30 the GPU panel was clipped 5 rows and the status strip fell fully off-screen (probe: y=36); at 142x38 the Phases card reserved 11 rows for its single IDLE line. Fix: #sidebar is now a VerticalScroll; #config-panel/#phase-panel/#gpu-panel use height:auto with per-card max-height (9/12/11) and #status-strip is height:auto, so each hugs its real content and the column scrolls rather than clipping chrome. _apply_responsive_layout now takes height too and keys on it: below SIDEBAR_GPU_MIN_HEIGHT=24 the GPU card sheds first (mirroring the compact-WIDTH behaviour), toggling BOTH #gpu-panel and #gpu so FR-24's #gpu display assertion stays green. Tradeoff: config caps at 9 even on tall terminals (its later list lines clip) so all four card tops stay on-screen at 100x30 — full detail is one 'c' away. 3 new tests; FR-24 + narrow overlay unchanged. | Task 4.7 (21a7663): context-sensitive footer that always fits. The footer advertised all ~20 keys unconditionally (inert Stop/Kill/Restart/Reconnect at IDLE) as one 215-cell line, so below ~135 cols the tail (? Help, q Quit) clipped and a new user could not find Help/Quit. Now _footer_droppable_hints() is state-filtered+ordered: control keys (Stop/Kill/Restart) and log keys (Search/Filter/Pause/Wrap/Top-Bottom) show only with an active run (_has_active_run = attached-alive or reattached); Load shows only when no run; R Reconnect shows only when target_connection_state != 'connected' (hidden at healthy IDLE). Decision: F Flags STAYS in the dashboard IDLE set (it edits the selected config's vLLM flags, available at IDLE like c Configs — also pinned by the existing chrome/footer test). _footer_rows_for_width packs cell-aware into <= FOOTER_MAX_ROWS=2 rows (usable = width - FOOTER_CHROME_CELLS=6) and drops the lowest-priority DROPPABLE hint from the tail until it fits, but FOOTER_PROTECTED_HINTS (? Help, q Quit) are never dropped — asserted present at 80/100/142 idle+running. _render_footer_bindings(width) returns Rich Text (keys bold ACCENT, labels MUTED) refreshed inside _refresh_chrome (phase/connection/resize choke point). BINDINGS stay unconditional (keys work when hidden; Help screen is the full reference). Shared keyhintbar.hint_row_width now uses cell_len (closes the 4.2 len() nit). 3 new tests + 2 footer-content pins updated (_render_footer_bindings now instance/Text). Full suite 1244 passed; ruff+mypy clean. Phase-4 layout chrome (header/sidebar/footer) now complete; remaining 4.x: 4.8 small-screen polish, 4.9-4.11. | Task 4.8 (small-screen polish batch, commits 83cd96b/7524af8/3a1dba0; full suite 1255 green, ruff+mypy clean): (1-5) config_picker.py adopts the shared MODAL_PANEL_CSS frame so the panel hugs content (height:auto — the missing-height:auto full-height-empty-box gotcha); the list moved into a #config-picker-scroll VerticalScroll and the '>' marker line is scrolled into view after each selection (arrowing past the fold no longer loses it); Enter with zero filter matches no-ops (stays open) and shows 'no match — Esc to close' instead of silently popping at action_accept; first-run empty copy -> 'No configs yet — Esc to close, then press n on the dashboard' (the focused filter Input ate 'n'); a DEFAULTED connection_state ctor param renders amber 'target unreachable — configs unknown' when disconnected (bug-252 sibling, now closed); the list is rendered as Rich Text so those states carry color. app.action_config_picker threads self.target_connection_state. (6) narrow/compact #sidebar-overlay renders the REAL Configs card (reuses _render_config_summary) titled 'Config' + a glanceable phase line, box now height:auto/max-height:7; dropped the 'Sidebar overlay' title + 'Log remains primary; press c for full config picker' spec-note (FR-24 pin updated old->new). (7) global Checkbox CSS in VelaApp.CSS: unchecked = dim slate #56707c (TEXT_FAINT) block, checked = green #67e8a5 (GREEN) + dark glyph — default Textual gave BOTH states the SAME near-invisible #242f38 bg; asserted via get_component_styles('toggle--button').background on wizard Download-now + Flag Manager Changed-only. (8) PresetChips can_focus=True + Left/Right cursor (silent highlight) + Enter commit (posts Selected); was mouse-only on_click; click + widget tests preserved. (9) confirm.py/log_prompt.py migrate same-hex legacy tokens (ACCENT/GOOD/WARN/MUTED/TEXT) -> canonical; BAD kept (canonical RED differs in hex; app + target_edit still use BAD); verified by a structural hasattr token test. NOTE: target_edit.py STILL imports BAD+TEXT (4.4 did only its frame, not tokens) — out of item-9 named scope, flagged. (10) bug-279 q-stack guard (see that entry). (11) Help #help-actions docked bottom (dock:bottom+background) so pills stay visible at 80x24; _content_width() pre-Resize 'or 100' fallback left as-is (self-corrects on first Resize). (12) folded the duplicate #sidebar { height: 1fr } CSS rule. Tasks 4.9+4.10 (commits a5dbba9, 583730d): run-lifecycle feedback — _update_progress gated by PROGRESS_SUPPRESSED_PHASES (READY/DEGRADED/STOPPED/ERROR, _active_job_id escape) so trailing CR records can't resurrect the panel; dim RULE-level display separators `── run <id> · <config> · <target> ──` on attached monitor + reattach; operator stop/kill closure (verb recorded by run_id pre-signal → `Stopped/Killed <id>` toast + `── STOPPED/KILLED by operator ──` line); phases panel terminal marker rows (■ STOPPED dim / ✗ CRASHED red, #phase-panel max-height 12→13). Flag Manager title+context now compose FIRST as #flag-manager-title (pins moved out of #flag-manager-list); 7 submit verbs wired through _busy_badge (composing…/saving…/adopting build…/pinning model…/saving flags…/cancelling…/probing uv…); _busy_badge now _refresh_chrome()s on paint+restore."
     },
     {
       "id": "bug-238",
@@ -4685,6 +4686,163 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-07-11T08:53:13+00:00"
+    },
+    {
+      "id": "bug-256",
+      "timestamp": "2026-07-11T00:00:00Z",
+      "error_message": "Target Manager: width:100 two-pane MasterDetail clips past 80 cols; modal resizes/jumps arrowing between targets; detail is a constructor snapshot so R Reconnect does nothing visibly; footer hints overflow (last clipped) and v view all missing",
+      "file": "src/vela/tui/screens/target_manager.py; src/vela/tui/app.py",
+      "root_cause": "Fixed width:100 box + content-hugging two-pane MasterDetail; screen held a frozen constructor snapshot with no live-refresh path; single-row KeyHintBar cannot fit the verb set at 80 cols.",
+      "fix": "CLOSED (Phase-4 gate, Task 4.2, commits 0f3ffed + fa9fc52). Task 4.2 (bug-237 slice): shared 4.1 modal frame (MODAL_PANEL_CSS/MODAL_LIST_CSS) + full-width list-in-a-VerticalScroll stacked above the detail; footer packs _FOOTER_HINTS into KeyHintBar rows docked to the panel bottom (v view all added); refresh_target_state(payload) re-renders in place, called by app _reconnect_target when the manager is top-of-stack; action_reconnect shows reconnecting… immediately.",
+      "tags": [
+        "tui",
+        "layout",
+        "modal",
+        "target-manager",
+        "live-refresh",
+        "reconnect",
+        "footer"
+      ],
+      "related_bugs": [
+        "bug-237",
+        "bug-252",
+        "bug-253"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11"
+    },
+    {
+      "id": "bug-257",
+      "timestamp": "2026-07-11T11:18:55Z",
+      "error_message": "Task 4.2 review (Fable 5): a FAILED reconnect fired from the open Target Manager leaves the modal stuck at the optimistic 'reconnecting…' (header dot + list dot + connection row) forever while app.target_connection_state is 'unreachable' and the chrome shows the unreachable banner — modal contradicts chrome.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_reconnect_target (app.py:2610) has no try/finally: _ensure_target_client_connected re-raises on BOTH failure paths (TargetCallError app.py:4477-4479, generic Exception app.py:4480-4488), so the worker dies before the tail _refresh_open_target_manager() (app.py:2628) ever runs. Nothing else refreshes the open manager (keepalive never calls it), so the truthful failed state is never pushed into the modal.",
+      "fix": "FIXED 2026-07-11 commit fa9fc52 (red-green, reviewer-verified in two RED configs): _reconnect_target body after the disconnect wrapped in try/finally with _refresh_open_target_manager() in the finally (single refresh on every path); plus the keepalive's two state-change branches (_mark_target_disconnected drop, _target_keepalive_once not-was_connected recovery flip) also call it so an open manager tracks mid-session drops/recoveries. Pinned by test_target_manager_failed_reconnect_renders_truthfully and test_target_manager_tracks_keepalive_drop_and_recovery_while_open.",
+      "tags": [
+        "target-manager",
+        "reconnect",
+        "live-state",
+        "worker-failure",
+        "modal",
+        "task-4.2",
+        "review"
+      ],
+      "related_bugs": [
+        "bug-237",
+        "bug-253"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T11:35:17Z"
+    },
+    {
+      "id": "bug-264",
+      "timestamp": "2026-07-11T00:00:00Z",
+      "error_message": "Model Manager: width:104 two-pane MasterDetail clips even at 100 cols; against a real HF cache the ~33-col list pane wraps every row into interleaved SHA fragments; sizes read 0.0 GB for metadata-only caches; 'files: 1 unknown' renders raw. Unscannable — and it's the screen where you decide what to deploy.",
+      "file": "src/vela/tui/screens/model_manager.py; src/vela/tui/widgets/keyhintbar.py; src/vela/tui/widgets/__init__.py",
+      "root_cause": "Fixed width:104 box + side-by-side MasterDetail squeezed the list pane so long rows (full commit sha + quant + 'unique/nominal' size) soft-wrapped into interleaved fragments; the list row rendered the FULL sha and raw 'N unknown' files; small metadata-only caches formatted as 0.0 GB via _gb_label.",
+      "fix": "CLOSED (Phase-4 gate, Task 4.3, commit 8c278ed). Task 4.3 (bug-237 slice): shared 4.1 modal frame (MODAL_PANEL_CSS/MODAL_LIST_CSS) replaces width:104; full-width list-in-a-VerticalScroll stacked above the detail (Task 4.2 precedent); new one-line row grammar {dot} {name-truncated} {source_tag} {cache_state} {size} {sha8}. Name truncates (cell-aware ellipsis) to the width-derived content region so rows never wrap; size shows '—' for zero/metadata-only(all-unknown-weights) caches and '<0.1 GB' for small-but-real (never 0.0 GB); only the 8-char short sha is in the row (full sha stays in the detail); sha8 drops <100 cols then size drops <80 cols (self.size.width breakpoints, re-rendered via on_resize). Pinned rows are cyan(modeled)/violet(url passthrough)/amber(unpinned cache-scan) via the shared source_tag palette; detail gains 'pinned:' and 'quant:' lines. _pack_hint_rows hoisted to widgets/keyhintbar.pack_hint_rows and consumed by BOTH managers; footer docked at the panel bottom.",
+      "tags": [
+        "tui",
+        "layout",
+        "modal",
+        "model-manager",
+        "row-grammar",
+        "truncation",
+        "sha",
+        "size",
+        "footer",
+        "bug-237"
+      ],
+      "related_bugs": [
+        "bug-237",
+        "bug-256"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11"
+    },
+    {
+      "id": "bug-279",
+      "timestamp": "2026-07-11T15:45:00Z",
+      "error_message": "textual._node_list.DuplicateIds: Tried to insert a widget with ID 'confirm', but a widget already exists with that ID (ConfirmScreen) — invoking action_quit or action_kill (e.g. command-palette 'Quit app'/'Kill') while a ConfirmScreen is already open crashes the TUI",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "action_quit and action_kill push a fresh ConfirmScreen(id='confirm') unconditionally. With one already on the stack, Textual's node registration raises DuplicateIds (ids must be unique). A bubbled keyboard q does NOT reproduce (the open ModalScreen swallows the unhandled key), but any DIRECT invocation — the palette command, or a second action call — does. Observed in Task 1.3's self-review as 'q can push a second ConfirmScreen'.",
+      "fix": "CLOSED (Phase-4 gate, Task 4.8, commit 3a1dba0). Guard both openers: `if isinstance(self.screen, ConfirmScreen): return` at the top of action_quit and action_kill, so exactly one confirm is ever live. Test: test_quit_and_kill_do_not_stack_a_second_confirm (RED = DuplicateIds crash on action_quit() with a confirm open).",
+      "tags": [
+        "tui",
+        "modal",
+        "confirm",
+        "quit",
+        "kill",
+        "crash",
+        "duplicate-id"
+      ],
+      "related_bugs": [
+        "bug-234",
+        "bug-237"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11"
+    },
+    {
+      "id": "bug-280",
+      "timestamp": "2026-07-11T20:00:00Z",
+      "error_message": "Wizard flag-customize review (_review_customized_new_deployment) ran its validate_config+preview RPCs with banners but no busy badge, so a slow agent left the customize→review step looking frozen — unlike the plain compose/review path which paints 'composing…'.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_review_customized_new_deployment never wrapped its RPCs in _busy_badge; only _review_new_deployment did.",
+      "fix": "Task 4.11/A1 (commit 0c4577e): wrapped the validate+preview RPCs in `with self._busy_badge('composing…')`, scoped to the RPCs only (no nesting), matching _review_new_deployment exactly. Red-green: test_customize_review_shows_composing_busy_verb (Event-gated on validate_config; RED = badge never appears while the RPC is gated).",
+      "tags": [
+        "tui",
+        "busy-badge",
+        "new-deployment",
+        "flag-customize",
+        "bug-237"
+      ],
+      "related_bugs": [
+        "bug-237"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T20:00:00Z"
+    },
+    {
+      "id": "bug-281",
+      "timestamp": "2026-07-11T20:00:00Z",
+      "error_message": "A background job (e.g. a download) that finished while the server was READY/DEGRADED left its last streamed percent frozen in the transient panel ('87% 7/8') over a settled server.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "The job_done→ProgressUpdated('Job complete') message is pumped AFTER _run_target_job's finally clears _active_job_id, so the 4.9 PROGRESS_SUPPRESSED_PHASES gate in _update_progress drops the final text swap and the stale percent stays on screen.",
+      "fix": "Task 4.11/A2 (commit 667dc66): on job end, if self.phase is in PROGRESS_SUPPRESSED_PHASES, _run_target_job's finally now calls _clear_progress() to hide the transient panel instead of leaving the stale percent (showing 'Job complete' over a READY server would just add noise). Live jobs and non-suppressed phases are unchanged. Red-green: test_progress_panel_hides_when_job_ends_while_ready (a gated download renders its percent while READY, then the panel must be hidden on job end; RED = stale percent remained).",
+      "tags": [
+        "tui",
+        "progress",
+        "job",
+        "ready",
+        "bug-237"
+      ],
+      "related_bugs": [
+        "bug-237"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T20:00:00Z"
+    },
+    {
+      "id": "bug-282",
+      "timestamp": "2026-07-11T20:00:00Z",
+      "error_message": "During an attached restart, the OLD run's monitor could fire a spurious 'Stopped <old-id>' operator-closure toast if its exit-event drain finished before the restart response re-pointed current_run_id (racy — empirically immune but not guaranteed).",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_monitor_attached_run announces operator stop when its terminal guard sees current_run_id == run_id; restart re-pointed current_run_id only inside _monitor_restart_result (AFTER the restart RPC response), so the losing interleave let the old monitor consume the intent and announce.",
+      "fix": "Task 4.11/A3 (commit a3493d7): re-point self.current_run_id = None in _restart_attached_run BEFORE the restart RPC, so the old monitor's `current_run_id != run_id` guard fires deterministically regardless of drain/response interleave; _monitor_restart_result then re-points it to the replacement run. Red-green: test_restart_never_announces_operator_stop_for_the_old_run forces the losing interleave with a gated restart RPC (the old monitor runs to its terminal guard before the response returns) and asserts no operator-closure announce for the old run (RED = announced == ['run-1']).",
+      "tags": [
+        "tui",
+        "restart",
+        "operator-closure",
+        "race",
+        "bug-237"
+      ],
+      "related_bugs": [
+        "bug-237",
+        "bug-234"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T20:00:00Z"
     }
   ]
 }
