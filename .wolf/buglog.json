@@ -4528,10 +4528,10 @@
     {
       "id": "bug-248",
       "timestamp": "2026-07-10T00:00:00-04:00",
-      "error_message": "test_new_deployment_adopt_venv_handoff_pins_adopted_build failed once with NoMatches (textual dom.py query) during a `pytest tests/ -k new_deployment` batch run; passed in isolation and in two full-cluster reruns",
+      "error_message": "test_new_deployment_adopt_venv_handoff_pins_adopted_build failed once with NoMatches (textual dom.py query) during a `pytest tests/ -k new_deployment` batch run; passed in isolation and in two full-cluster reruns; recurred 2026-07-11 during Task 3.2 review in a full-suite run that OVERLAPPED a concurrent smoke-file pytest run (load-flake); passed in isolation and in a clean full-suite rerun (1190/1190)",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Pre-existing bug-207/bug-209 class flake, not the reviewed commit (1f19ccc is tests-only and its new test sits AFTER the victim at line 5103 vs 5445). The test waits on app.screen.id alone ('new-deployment' / 'adopt-build') then immediately query_one's child widgets; under load the screen registers before children finish mounting.",
-      "fix": "No code change in the reviewed slice (out of its scope); recorded the occurrence. Hardening path is the bug-209 fix: strengthen the wait to include child presence (query() truthiness) or use _wait_for_textual_condition, which retries when the condition raises (bare _wait_for_condition propagates NoMatches raised inside the lambda). PARTIAL (Phase-2 gate, commit 69fd1d7): the two waits in test_new_deployment_review_blocks_download_now_without_pin were hardened per this path — the screen-open wait now also gates on a #new-deployment-name child via query() truthiness, and the reopen wait moved to _wait_for_textual_condition (retries NoMatches instead of propagating it). Entry stays OPEN: the file-wide sweep of the remaining id-only / query_one-in-_wait_for_condition waits across test_tui_smoke.py is still pending.",
+      "fix": "No code change in the reviewed slice (out of its scope); recorded the occurrence. Hardening path is the bug-209 fix: strengthen the wait to include child presence (query() truthiness) or use _wait_for_textual_condition, which retries when the condition raises (bare _wait_for_condition propagates NoMatches raised inside the lambda). PARTIAL (Phase-2 gate, commit 69fd1d7): the two waits in test_new_deployment_review_blocks_download_now_without_pin were hardened per this path — the screen-open wait now also gates on a #new-deployment-name child via query() truthiness, and the reopen wait moved to _wait_for_textual_condition (retries NoMatches instead of propagating it). FURTHER (Task 3.5 gate, commit 8c292cd): the two waits actually observed to flake are now hardened -- test_new_deployment_adopt_venv_handoff_pins_adopted_build (its two id-only open waits gate on a child via query() truthiness; the reopen wait that query_one's several children moved to _wait_for_textual_condition) and test_flag_manager_open_shows_busy_verb_loading_flags (the flag-manager open wait now gates on the #flag-manager-preset Select being composed -- SelectCurrent #label -- so a mid-mount teardown cannot raise NoMatches: SelectOverlay; its busy-verb wait moved to the retrying variant). Each passed 5x consecutively and the full suite is clean at 1201. Entry stays OPEN: a scan still finds ~86 bare _wait_for_condition( calls whose condition query_one's a widget across test_tui_smoke.py; only the instances observed to flake have been hardened reactively, so a file-wide sweep of the remaining id-only / query_one-in-_wait_for_condition waits is still pending.",
       "tags": [
         "test",
         "tui",
@@ -4545,7 +4545,7 @@
         "bug-207",
         "bug-209"
       ],
-      "occurrences": 1,
+      "occurrences": 2,
       "last_seen": "2026-07-11"
     },
     {
@@ -4588,6 +4588,103 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-07-11T00:00:00Z"
+    },
+    {
+      "id": "bug-251",
+      "timestamp": "2026-07-11T00:00:00Z",
+      "error_message": "New Deployment wizard: a failed list_deployment_recipes/list_models/list_builds RPC left the recipe/model/build dropdown silently empty (no explanation)",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_open_new_deployment wrapped each optional-section RPC in `except Exception: {}` and returned an empty payload on failure, so a target/capability/transport error produced a silently-empty dropdown instead of surfacing the problem",
+      "fix": "FIXED 2026-07-11 commit b38fd2b (Task 3.2). Compound loader _load_new_deployment_sections runs all four RPCs behind one busy overlay and records a per-section error code (_section_error_code) on failure; NewDeploymentScreen renders a visible '#new-deployment-{recipe,model,build}-warning' row ('<section> unavailable: <code>') + a notify warning. The required presets RPC still aborts the open via the unified _with_agent_busy banner. Follow-up (Task 3.5 A2, commit 4a1c4ab): each swallowed optional-section exception now also records a _debug_event('new_deployment.section_failed', section=..., error=repr(exc)) breadcrumb so the degraded path is diagnosable from the debug log.",
+      "tags": [
+        "tui",
+        "new-deployment",
+        "wizard",
+        "silent-swallow",
+        "rpc-feedback"
+      ],
+      "related_bugs": [
+        "bug-236",
+        "bug-227"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T00:00:00Z"
+    },
+    {
+      "id": "bug-252",
+      "timestamp": "2026-07-11T08:18:38+00:00",
+      "error_message": "Switching to an unreachable target made the dashboard Configs card render the FIRST-RUN empty state 'No configs yet — press n to create your first deployment · ? help', which reads as 'your configs were deleted' when the target is merely unreachable.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "_render_config_summary / _render_config_summary_plain / _render_configs_title rendered an empty registry unconditionally as the first-run onboarding copy plus a confident valid/invalid count, with no branch on target_connection_state. A disconnect (e.g. switching to an unreachable target, which resets self.registry to empty in _switch_target) therefore showed 'No configs yet' and a stale/absent count instead of an offline indicator. _reconnect_target (the R action) also never reloaded the registry, so the offline card stayed frozen after the link was restored.",
+      "fix": "FIXED 2026-07-11 commit a88fb84 (Task 3.3, red-green). When target_connection_state != 'connected': the Configs card BODY renders amber 'target unreachable — configs unknown · R reconnect' in the empty case (and keeps cached entries otherwise), and the card TITLE replaces the valid/invalid count badges with an amber 'target unreachable' marker (the 'count line' replacement — covers both the empty and cached cases). Connected + empty is UNCHANGED (first-run copy pinned by test_configs_card_keeps_first_run_copy_when_connected_and_empty). _reconnect_target now reloads the registry + _refresh_target_backed_views on a successful reconnect so R restores the normal card. Rich Text renderables only (no markup strings) per the Static.content leak gotcha. Build/model manager empty-states are NOT reachable offline (they open via list_builds/list_models wrapped in _with_agent_busy, which banners-and-aborts on TargetCallError since Task 3.2 — the screen never mounts), so no change there. KNOWN SIBLING (out of Task 3.3's named scope): ConfigPickerScreen (config_picker.py:116, opened by 'c' from the cached registry) shows the same 'No configs yet' copy offline; fixing it needs the connection state passed into the screen constructor — flagged for follow-up. Tests: tests/test_tui_smoke.py::{test_configs_card_reports_target_unreachable_when_disconnected_and_empty, test_configs_card_keeps_first_run_copy_when_connected_and_empty, test_configs_card_keeps_cached_entries_and_flags_unreachable_when_disconnected, test_reconnect_restores_normal_configs_card}. Task 3.5 (bug-253, commit b442dfd) extended this immediate-render contract to keepalive-detected drops and auto-recovery flips, which previously only refreshed chrome and left the offline card frozen.",
+      "tags": [
+        "tui",
+        "dashboard",
+        "configs-card",
+        "offline",
+        "empty-state",
+        "connection-state",
+        "honesty",
+        "bug-252"
+      ],
+      "related_bugs": [
+        "bug-233"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T08:18:38+00:00"
+    },
+    {
+      "id": "bug-253",
+      "timestamp": "2026-07-11T14:30:00+00:00",
+      "error_message": "Pressing R (action_reconnect) permanently killed automatic target drop-detection for the session: the keepalive loop ran in the SAME exclusive 'target-connection' worker group as _reconnect_target, so starting the reconnect worker CANCELLED keepalive; after one R press no ping ran again and a later link drop was never detected. Separately, an auto-recovery only refreshed chrome (never reloaded the registry), and a mid-session drop (_mark_target_disconnected / _mark_target_connection_error) also only refreshed chrome, so the offline-aware Configs card (bug-252) stayed frozen on the stale state after a drop or a recovery.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "on_mount spawned _poll_target_keepalive with group='target-connection', exclusive=True; action_reconnect spawned _reconnect_target with the same group + exclusive, so Textual cancelled the running keepalive worker. _target_keepalive_once's success branch only called _refresh_chrome and never reloaded the registry on a non-connected->connected flip; _mark_target_disconnected / _mark_target_connection_error only called _refresh_chrome, which updates #target-segment/#active-model/#server-url/#chrome-clock but NOT #configs/#configs-title, so the offline Configs card never re-rendered on a drop.",
+      "fix": "FIXED 2026-07-11 commit b442dfd (Task 3.5 A4/A5, red-green). (i) keepalive moved to its OWN group 'target-keepalive' (registered in OPTIONAL_MONITOR_GROUP_LABELS: its loop reloads the registry / refreshes target-backed views / calls _refresh_chrome outside the guarded ping, so it is NOT fully self-guarding and an unexpected fault must surface as a warning rather than silently killing drop detection). _reconnect_target stays exclusive in 'target-connection', so exclusivity between R presses is preserved but a reconnect can no longer cancel keepalive. Test: test_keepalive_survives_reconnect_and_still_detects_drops (a drop staged AFTER R is still detected). (ii) _target_keepalive_once now captures was_connected BEFORE _ensure_target_client_connected (which itself sets state=connected on reconnect) and, on a non-connected->connected FLIP only, reloads the registry + _refresh_target_backed_views (test test_keepalive_recovery_transition_reloads_registry). _mark_target_disconnected and _mark_target_connection_error now call _refresh_target_backed_views so a mid-session drop renders the offline Configs card immediately (tests test_mark_target_disconnected_renders_offline_card_immediately, test_mark_target_connection_error_renders_offline_card_immediately). A5 shipped in the same commit: a structural disjointness assert between OPTIONAL_MONITOR_GROUP_LABELS and SELF_REPORTING_WORKER_GROUPS (mutation-verified), and _refresh_models funnelled through _with_agent_busy('refreshing models...') -- the one RPC verb 3.2 missed (now yields the unified remediation banner on TargetCallError). Gate: full suite 1201 passed, ruff + mypy clean.",
+      "tags": [
+        "tui",
+        "keepalive",
+        "reconnect",
+        "worker-group",
+        "exclusive",
+        "drop-detection",
+        "offline-card",
+        "transition-guard",
+        "red-green",
+        "bug-253"
+      ],
+      "related_bugs": [
+        "bug-252",
+        "bug-227",
+        "bug-233"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T14:30:00+00:00"
+    },
+    {
+      "id": "bug-254",
+      "timestamp": "2026-07-11T08:53:13+00:00",
+      "error_message": "Task 3.4 premise: 'model verify (v in the Model Manager) dumps you on the dashboard instead of reopening the Model Manager the way build verify does.' On investigation the reported asymmetry no longer reproduces at HEAD a88fb84 — _verify_model already reopens the Model Manager on success.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "The model-verify asymmetry was real historically but was already resolved on 2026-06-10 in commit 3f7df485 (journey-friction punchlist J30, 'maintenance actions land the user back in the refreshed manager'): _verify_model ends with self._reopen_manager_later(lambda: self._open_model_manager(focus_model=model_ref)), symmetric with _verify_build's self._reopen_manager_later(_open_build_manager). The 2026-07-09 remediation plan was written from stale pre-drift line numbers (~2364-2376) and did not observe the June-10 fix. The only genuine remaining gap was TEST coverage of the FAILURE-path symmetry: both verbs funnel failures through _with_agent_busy (TargetCallError -> unified remediation banner via _mark_target_connection_error -> returns None -> `if result is None: return`, so NEITHER reopens after a failure), but only the model failure path was pinned (test_verify_model_banner_on_failure_keeps_state_sane); the build failure path was unpinned.",
+      "fix": "FIXED 2026-07-11 commit f661885 (Task 3.4). No production change needed and none made — model verify already reopens the Model Manager (pre-existing passing test_verify_model_reopens_manager_focused proves it; src/vela/tui/app.py is byte-for-byte unchanged). Symmetry decision recorded: neither verb reopens after a failure banner; both reopen only on success. Closed the coverage gap by adding tests/test_tui_smoke.py::test_verify_build_banner_on_failure_keeps_state_sane, which pins the previously-unpinned build side: a failed verify_build banners-and-aborts (AGENT_UNREACHABLE) and never reopens the Build Manager (stays on _default; list_builds is never issued, even by a DEFERRED reopen — the test waits 0.2s past the 0.05s _reopen_manager_later set_timer and asserts client.list_builds_calls == 0). Mutation-verified RED: injecting _reopen_manager_later into the _verify_build failure branch turns the test RED (AssertionError: 'build-manager' == '_default'); reverting restores GREEN. Gate: smoke 267 (266 baseline + 1), ruff + mypy clean. (Unrelated pre-existing full-suite flake observed once: test_flag_manager_open_shows_busy_verb_loading_flags -> NoMatches SelectOverlay on Select#flag-manager-preset; passes 3/3 in isolation, not caused by this test-only change.)",
+      "tags": [
+        "tui",
+        "verify",
+        "build-manager",
+        "model-manager",
+        "reopen",
+        "symmetry",
+        "failure-path",
+        "red-green",
+        "already-fixed",
+        "stale-plan",
+        "bug-254"
+      ],
+      "related_bugs": [
+        "bug-252"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T08:53:13+00:00"
     }
   ]
 }

@@ -1,10 +1,13 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T05:07:50.643Z
-> Files: 252 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T09:26:04.456Z
+> Files: 255 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/
 
+- `append_bug254.py` — Append bug-254 to .wolf/buglog.json (idempotent, preserves top-level keys). (~1113 tok)
+- `append_wolf_notes.py` — Append Task 3.4 session notes to .wolf/memory.md and .wolf/cerebrum.md (unstaged). (~930 tok)
+- `commit_msg.txt` (~340 tok)
 - `fix_buglog.py` (~657 tok)
 - `partA_commit.txt` (~292 tok)
 - `probe_chrome.py` — Replicate VelaApp's #top-chrome CSS exactly (copied from app.py) and measure (~529 tok)
@@ -244,7 +247,7 @@
 ## src/vela/tui/
 
 - `__init__.py` — Textual user interface. (~9 tok)
-- `app.py` (~63574 tok)
+- `app.py` — Declares for (~67488 tok)
 - `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~467 tok)
 
 ## src/vela/tui/screens/
@@ -260,7 +263,7 @@
 - `help.py` — HelpScreen: compose, action_close (~1086 tok)
 - `log_prompt.py` — LogPromptScreen: compose, on_mount, on_input_submitted, action_cancel (~455 tok)
 - `model_manager.py` — ModelManagerScreen: compose, on_mount, action_previous, action_next + 7 more (~3657 tok)
-- `new_deployment.py` — NewDeploymentScreen: compose (~20214 tok)
+- `new_deployment.py` — NewDeploymentScreen: compose (~20561 tok)
 - `pin_model.py` — Pin Model — register a model so deployments can reference it by a stable id. (~4884 tok)
 - `target_edit.py` — TargetEditScreen: compose, on_mount, on_input_submitted, action_cancel (~1178 tok)
 - `target_manager.py` — from: compose, on_mount, action_previous, action_next + 9 more (~3367 tok)
@@ -305,7 +308,7 @@
 - `test_log_sink.py` — Tests: display_level_dims_known_benign_shutdown_noise, splits_carriage_return_and_newline_and_persists_only_committed, terminal_carriage_return_emi... (~1945 tok)
 - `test_messages.py` — Tests: canonical_event_taxonomy_uses_textual_messages, message_payloads_match_engine_monitoring_contract, log_record_conversion_uses_progress_updat... (~699 tok)
 - `test_model_manager_screen.py` — Headless tests for the refactored ModelManagerScreen (Phase 6 consistency pass). (~1560 tok)
-- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~12578 tok)
+- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~12903 tok)
 - `test_package_metadata.py` — Tests: model_download_progress_runtime_dependency_is_declared, model_download_huggingface_runtime_dependency_is_declared (~193 tok)
 - `test_phases.py` — Tests: success_fixture_produces_expected_phase_sequence, recorded_success_fixture_walks_current_vllm_startup_phases, recorded_hf_cache_miss_fixture... (~1710 tok)
 - `test_pin_model_screen.py` — Headless tests for the rebuilt PinModelScreen (Mac-safe; no GPU/vLLM). (~2022 tok)
@@ -321,7 +324,7 @@
 - `test_targets.py` — Tests: missing_targets_file_still_yields_implicit_local_target, targets_registry_loads_ssh_targets_with_local_first, targets_registry_loads_json_ta... (~1557 tok)
 - `test_transport_factory.py` — Tests: subscription_event_matcher_accepts_job_ids, subscription_event_matcher_broadcasts_agent_errors, target_client_factory_builds_implicit_local_... (~4644 tok)
 - `test_tui_screen_parsers.py` — Tests: structured_tui_forms_do_not_export_legacy_free_form_parsers (~106 tok)
-- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~169178 tok)
+- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~185439 tok)
 - `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~3090 tok)
 
 ## tests/fakes/

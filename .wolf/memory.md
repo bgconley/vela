@@ -1152,3 +1152,89 @@
 | 01:07 | Edited src/vela/tui/screens/new_deployment.py | modified _restored_model_mode() | ~419 |
 | 21:55 | Fable closing review Phase 2: verified 2.8 (RED-honesty revert proved loop: 4 fail pre-fix incl. assert 2==1 + _default screen; 33 screen / 247 smoke / ruff+mypy clean; restored byte-identical) + gate commits 69fd1d7 A1-A4 & c032872 .wolf-only; one pre-existing flake noted (adopt_venv smoke, load-dependent) | .wolf/memory.md | Phase 2 CLOSED | ~55k |
 | 05:40 | Phase 2 CLOSED: 13 commits (c5f9ba5..5cf4536+c032872), wizard state machine fixed (bug-235/236/250, M3), live visual QA (9 shots in .playwright-mcp/shots/after-phase2/) confirmed every fix incl. the cancel-loop; suite 1133→1169+ green | new_deployment.py, step_indicator.py, model_registry.py, app.py, tests | Fable closing review ✅; bug-250 cancel-loop found BY live QA and fixed same-phase | ~600k |
+| 01:52 | Edited tests/test_tui_smoke.py | modified test_with_agent_busy_shows_pulsing_verb_then_restores() | ~1024 |
+| 01:53 | Edited src/vela/tui/app.py | 4→4 lines | ~47 |
+| 01:53 | Edited src/vela/tui/app.py | 9→13 lines | ~120 |
+| 01:53 | Edited src/vela/tui/app.py | 4→7 lines | ~84 |
+| 01:53 | Edited src/vela/tui/app.py | modified _paint_status_badge() | ~558 |
+| 01:53 | Edited src/vela/tui/app.py | modified _target_call() | ~611 |
+| 01:55 | Edited tests/test_tui_smoke.py | modified test_model_manager_open_shows_busy_verb_then_opens() | ~1312 |
+| 01:56 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~98 |
+| 02:10 | Task 3.1 DONE — _with_agent_busy convention + status-badge busy overlay + _open_model_manager wiring; 5 red-green tests | src/vela/tui/app.py, tests/test_tui_smoke.py | commit 9434758; full suite 1179 green (smoke 252); ruff+mypy clean | ~9000 |
+| 21:05 | Reviewed Task 3.1 (9131e61..9434758): _with_agent_busy + badge extraction + model-manager wiring — RED/GREEN verified, smoke 252, suite 1179, ruff+mypy clean, APPROVED | src/vela/tui/app.py, tests/test_tui_smoke.py | approved | ~30k |
+| 02:31 | Edited tests/test_tui_smoke.py | modified _busy_build_list_payload() | ~3386 |
+| 02:32 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~132 |
+| 02:32 | Edited src/vela/tui/app.py | modified _open_flag_manager() | ~470 |
+| 02:32 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~116 |
+| 02:33 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~206 |
+| 02:33 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~109 |
+| 02:33 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~116 |
+| 02:35 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~98 |
+| 02:36 | Edited src/vela/tui/app.py | _set_error_text() → _with_agent_busy() | ~133 |
+| 02:37 | Edited src/vela/tui/app.py | inline fix | ~22 |
+| 02:37 | Edited src/vela/tui/app.py | modified _busy_badge() | ~395 |
+| 02:37 | Edited src/vela/tui/app.py | modified _remove_build() | ~178 |
+| 02:37 | Edited src/vela/tui/app.py | modified _remove_model() | ~186 |
+| 02:39 | Edited tests/test_tui_smoke.py | modified test_build_manager_open_shows_busy_verb_then_opens() | ~355 |
+| 02:43 | Edited tests/test_new_deployment_screen.py | modified test_new_deployment_renders_per_section_warning_rows() | ~420 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | 13→14 lines | ~59 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | 4→5 lines | ~67 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | expanded (+6 lines) | ~252 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | modified _section_warning_text() | ~160 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | 7→8 lines | ~137 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | modified Vertical() | ~95 |
+| 02:44 | Edited src/vela/tui/screens/new_deployment.py | modified Vertical() | ~96 |
+| 02:46 | Edited tests/test_tui_smoke.py | modified __init__() | ~1924 |
+| 02:47 | Edited src/vela/tui/app.py | modified _open_new_deployment() | ~1306 |
+| 02:54 | Edited src/vela/tui/app.py | modified _section_error_code() | ~186 |
+| 02:54 | Edited src/vela/tui/app.py | row() → _section_error_code() | ~548 |
+| 03:00 | Edited tests/test_tui_smoke.py | modified test_target_switch_shows_connecting_verb_then_restores() | ~950 |
+| 03:01 | Edited src/vela/tui/app.py | expanded (+8 lines) | ~232 |
+| 03:02 | Edited tests/test_tui_smoke.py | modified test_dashboard_uses_figma_terminal_shell_chrome_and_footer() | ~157 |
+| 03:03 | Edited tests/test_tui_smoke.py | modified test_every_run_worker_group_is_monitored_or_self_reporting() | ~541 |
+| 03:04 | Edited src/vela/tui/app.py | modified forward() | ~530 |
+| 03:06 | Edited src/vela/tui/app.py | removed 36 lines | ~57 |
+| 03:06 | Edited tests/test_tui_smoke.py | removed 42 lines | ~45 |
+| 03:09 | Edited src/vela/tui/app.py | modified forward() | ~530 |
+| 03:09 | Edited tests/test_tui_smoke.py | modified test_every_run_worker_group_is_monitored_or_self_reporting() | ~541 |
+
+## Session 2026-07-11 (Task 3.2 — mass RPC-feedback wiring)
+| HH:MM | Wired build/flag managers + 8 manager verbs + target-switch + wizard opener through _with_agent_busy busy convention; killed wizard silent-swallow (visible per-section warning rows); classified all 11 worker groups monitored-vs-self-reporting | src/vela/tui/app.py, screens/new_deployment.py, tests/test_tui_smoke.py, tests/test_new_deployment_screen.py | 3 commits f5f960c/b38fd2b/1f523f5; full suite 1190 green; ruff+mypy clean | ~heavy |
+| 03:56 | Fable-5 review of Task 3.2 (f5f960c/b38fd2b/1f523f5): diffs verified vs spec, 2 RED-honesty checks, Part B dispositions spot-verified, scanner validated standalone; ruff+mypy clean; smoke 262, clean full suite 1190 (one bug-248 load-flake recurrence logged); APPROVED with follow-ups routed to 3.5 | .wolf/buglog.json | approved | ~60k |
+| 04:09 | Edited tests/test_tui_smoke.py | modified test_configs_card_reports_target_unreachable_when_disconnected_and_empty() | ~2298 |
+| 04:10 | Edited src/vela/tui/app.py | 3→5 lines | ~76 |
+| 04:10 | Edited src/vela/tui/app.py | expanded (+9 lines) | ~197 |
+| 04:10 | Edited src/vela/tui/app.py | modified _render_configs_title() | ~191 |
+| 04:10 | Edited src/vela/tui/app.py | modified _reconnect_target() | ~213 |
+
+| 04:20 | Task 3.3 (bug-252): Configs card tells the truth offline — title swaps count badges for amber 'target unreachable', empty body shows 'target unreachable — configs unknown · R reconnect', cached entries kept; reconnect reloads+re-renders. Managers unreachable offline (no change). Commit a88fb84 | src/vela/tui/app.py, tests/test_tui_smoke.py | smoke 266, new_deploy 34, ruff+mypy clean | ~48k || 05:20 | Reviewed Task 3.3 (a88fb84): RED-honesty check, byte-identity, 266 smoke + 1194 full + ruff + mypy — APPROVED | src/vela/tui/app.py, tests/test_tui_smoke.py | approved | ~28k |
+| 04:41 | Edited tests/test_tui_smoke.py | modified test_verify_build_banner_on_failure_keeps_state_sane() | ~646 |
+| 04:42 | Edited src/vela/tui/app.py | 6→7 lines | ~97 |
+| 04:44 | Edited tests/test_tui_smoke.py | added error handling | ~900 |
+| 04:44 | Edited src/vela/tui/app.py | 7→6 lines | ~71 |
+| 04:50 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/append_bug254.py | — | ~1113 |
+| 04:52 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/commit_msg.txt | — | ~362 |
+| 04:54 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/append_wolf_notes.py | — | ~930 |
+| 04:53 | Task 3.4: model verify ALREADY reopens (3f7df485/J30) — no prod change; pinned the missing build-verify failure symmetry | tests/test_tui_smoke.py (+test_verify_build_banner_on_failure_keeps_state_sane), buglog.json (bug-254) | commit f661885; smoke 267, full 1195, ruff+mypy clean | ~700 |
+| 05:08 | Edited tests/test_tui_smoke.py | modified _wait_for_condition() | ~250 |
+| 05:08 | Edited tests/test_tui_smoke.py | _wait_for_condition() → _wait_for_textual_condition() | ~224 |
+| 05:08 | Edited tests/test_tui_smoke.py | expanded (+8 lines) | ~326 |
+| 05:16 | Edited tests/test_tui_smoke.py | modified test_keepalive_survives_reconnect_and_still_detects_drops() | ~1537 |
+| 05:16 | Edited tests/test_tui_smoke.py | modified test_refresh_models_shows_busy_verb_refreshing_models() | ~707 |
+| 05:16 | Edited tests/test_tui_smoke.py | modified test_mark_target_disconnected_renders_offline_card_immediately() | ~594 |
+| 05:16 | Edited tests/test_tui_smoke.py | modified A5() | ~212 |
+| 05:18 | Edited src/vela/tui/app.py | expanded (+9 lines) | ~225 |
+| 05:18 | Edited src/vela/tui/app.py | 7→7 lines | ~61 |
+| 05:18 | Edited src/vela/tui/app.py | modified _target_keepalive_once() | ~502 |
+| 05:18 | Edited src/vela/tui/app.py | modified _mark_target_disconnected() | ~144 |
+| 05:18 | Edited src/vela/tui/app.py | 10→13 lines | ~148 |
+| 05:19 | Edited src/vela/tui/app.py | modified _refresh_models() | ~153 |
+| 05:22 | Edited tests/test_tui_smoke.py | modified test_new_deployment_section_failure_records_debug_breadcrumb() | ~838 |
+| 05:23 | Edited tests/test_tui_smoke.py | modified _optional_wizard_section_result() | ~290 |
+| 05:24 | Edited tests/test_tui_smoke.py | modified walk() | ~144 |
+| 05:25 | Edited tests/test_tui_smoke.py | modified walk() | ~235 |
+| 05:25 | Edited tests/test_tui_smoke.py | modified walk() | ~175 |
+| 05:25 | Edited src/vela/tui/app.py | 2→7 lines | ~82 |
+| 05:26 | Edited src/vela/tui/app.py | 2→7 lines | ~82 |
+| 05:26 | Edited src/vela/tui/app.py | 2→7 lines | ~82 |
+| 14:35 | Phase-3 gate (Task 3.5): hardened 2 flaky mount-gap waits (bug-248); keepalive survives R + drops/recovery render offline card now (bug-253, A4+A5); section-failure debug breadcrumbs (A2); 12 wizard walks on clean path (A3) | tests/test_tui_smoke.py, src/vela/tui/app.py | commits 8c292cd,b442dfd,4a1c4ab; ruff+mypy clean; full suite 1201 x2 | ~52000 |
