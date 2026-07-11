@@ -3022,18 +3022,33 @@ class VelaApp(App):
                 recipes = recipe_result.get("recipes")
             except Exception as exc:
                 section_errors["recipes"] = _section_error_code(exc)
+                self._debug_event(
+                    "new_deployment.section_failed",
+                    section="recipes",
+                    error=repr(exc),
+                )
         if self._target_supports_capability("list_models"):
             try:
                 models_result = await self._target_call("list_models", {})
                 models = models_result.get("models")
             except Exception as exc:
                 section_errors["models"] = _section_error_code(exc)
+                self._debug_event(
+                    "new_deployment.section_failed",
+                    section="models",
+                    error=repr(exc),
+                )
         if self._target_supports_capability("list_builds"):
             try:
                 builds_result = await self._target_call("list_builds", {})
                 builds = builds_result.get("builds")
             except Exception as exc:
                 section_errors["builds"] = _section_error_code(exc)
+                self._debug_event(
+                    "new_deployment.section_failed",
+                    section="builds",
+                    error=repr(exc),
+                )
         return {
             "presets": presets if isinstance(presets, list) else [],
             "recipes": recipes if isinstance(recipes, list) else [],

@@ -50,6 +50,24 @@ from vela.tui.screens import config_picker as config_picker_module
 from vela.tui.screens.confirm import ConfirmScreen
 
 
+def _optional_wizard_section_result(method: str) -> dict[str, object] | None:
+    """Empty-but-present results for the wizard's 3 optional enrichment RPCs.
+
+    Wizard-walk fakes that don't exercise recipe/model/build enrichment delegate
+    their ``call`` fallback here so ``_load_new_deployment_sections`` takes the
+    CLEAN path (no ``#new-deployment-*-warning`` row) instead of the degraded
+    warning-row layout its ``except`` branch renders when the RPC raises
+    AssertionError. Returns ``None`` for any other method, so the caller still
+    raises on a genuinely unexpected call. Shared so a fake opts in with a
+    single fallback line rather than three copy-pasted stubs (A3).
+    """
+    return {
+        "list_deployment_recipes": {"recipes": []},
+        "list_models": {"models": []},
+        "list_builds": {"builds": [], "skipped": []},
+    }.get(method)
+
+
 def _run_fresh_tui_import(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[1]
     subprocess_env = env.copy()
@@ -4240,6 +4258,9 @@ async def test_new_deployment_screen_opens_from_tui_binding(config_dir: Path) ->
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -4259,6 +4280,14 @@ async def test_new_deployment_screen_opens_from_tui_binding(config_dir: Path) ->
         assert isinstance(app.screen, ModalScreen)
         assert app.screen.query_one("#new-deployment-panel").region.x > 0
         assert ("list_presets", {}) in client.calls
+        # Clean walk (A3): the optional-section RPCs returned empty, so no
+        # #new-deployment-*-warning row is displayed.
+        for _warn_id in (
+            "#new-deployment-recipe-warning",
+            "#new-deployment-model-warning",
+            "#new-deployment-build-warning",
+        ):
+            assert app.screen.query_one(_warn_id, Static).display is False
 
 
 @pytest.mark.asyncio
@@ -4307,6 +4336,9 @@ async def test_new_deployment_target_picker_shows_registry_connection_state(
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -4643,6 +4675,9 @@ async def test_new_deployment_wizard_steps_forward_and_back_preserve_edits(
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -4757,6 +4792,9 @@ async def test_new_deployment_runtime_picker_hands_build_and_executable_to_compo
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -4881,6 +4919,9 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -4915,6 +4956,15 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
         assert app.screen.query_one("#new-deployment-host", Input).value == "0.0.0.0"
         assert app.screen.query_one("#new-deployment-port", Input).value == "18003"
         assert app.screen.query_one("#new-deployment-exposure", Select).value == "lan"
+
+        # Clean walk (A3): recipes/models/builds returned data or empty, so no
+        # #new-deployment-*-warning row is displayed.
+        for _warn_id in (
+            "#new-deployment-recipe-warning",
+            "#new-deployment-model-warning",
+            "#new-deployment-build-warning",
+        ):
+            assert app.screen.query_one(_warn_id, Static).display is False
 
         await pilot.press("ctrl+s")
         await pilot.pause()
@@ -6622,6 +6672,9 @@ async def test_new_deployment_model_selection_shows_live_suggestions(
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -6707,6 +6760,9 @@ async def test_new_deployment_bare_model_shows_live_suggestions(
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "discover_runs":
                 return {"runs": []}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -6841,6 +6897,9 @@ async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> N
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -6852,6 +6911,14 @@ async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> N
         await pilot.pause()
         await pilot.press("n")
         await pilot.pause()
+        # Clean walk (A3): the optional-section RPCs returned empty, so no
+        # #new-deployment-*-warning row is displayed.
+        for _warn_id in (
+            "#new-deployment-recipe-warning",
+            "#new-deployment-model-warning",
+            "#new-deployment-build-warning",
+        ):
+            assert app.screen.query_one(_warn_id, Static).display is False
         app.screen.query_one("#new-deployment-name", Input).value = "qwen3"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
         app.screen.query_one("#new-deployment-port", Input).value = "18001"
@@ -6935,6 +7002,9 @@ async def test_new_deployment_review_preflights_draft_before_save(
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -7053,6 +7123,9 @@ async def test_new_deployment_review_customizes_draft_with_flag_manager(
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -7211,6 +7284,9 @@ async def test_new_deployment_review_save_and_smoke_launches_saved_config(
                 return {"runs": []}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         async def _events(self):
@@ -7427,6 +7503,9 @@ async def test_new_deployment_review_cancel_does_not_write(config_dir: Path) -> 
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
             if method == "save_config":
                 raise AssertionError("cancelled deployment review should not save")
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
             raise AssertionError(f"unexpected target client call: {method}")
 
         def subscribe(self, *_args, **_kwargs):
@@ -9486,6 +9565,75 @@ async def test_new_deployment_open_aborts_on_presets_failure(
         assert app.screen.id == "_default"
         assert "target unreachable" in app.error_text
         assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_section_failure_records_debug_breadcrumb(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    # A2: a swallowed optional-section RPC failure degrades the wizard to a
+    # warning-row layout. Leave a debug breadcrumb (mirroring
+    # detached.discovery_failed) so that silent degradation is diagnosable.
+    debug_log_path = tmp_path / "debug.jsonl"
+
+    class SectionFailingClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "list_deployment_recipes":
+                return {"recipes": []}
+            if method == "list_models":
+                raise TargetCallError("agent-unreachable", "models rpc down")
+            if method == "list_builds":
+                return {"builds": [], "skipped": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment section test should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=SectionFailingClient(),
+        target_ping_interval_seconds=None,
+        debug_log_path=debug_log_path,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("n")
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query("#new-deployment-model-warning")),
+            "new deployment wizard did not open with the models warning row",
+        )
+
+    records = [
+        json.loads(line)
+        for line in debug_log_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(
+        record["event"] == "new_deployment.section_failed"
+        and record["payload"]["section"] == "models"
+        and "models rpc down" in record["payload"]["error"]
+        for record in records
+    )
 
 
 @pytest.mark.asyncio
