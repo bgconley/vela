@@ -711,6 +711,219 @@ async def test_target_manager_live_refreshes_on_reconnect_while_open(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_failed_reconnect_renders_truthfully(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-257: a FAILED reconnect fired from the open manager must NOT leave the
+    # modal stuck at the optimistic `reconnecting…`. _ensure_target_client_connected
+    # re-raises on failure, killing the worker BEFORE the tail refresh — the
+    # try/finally in _reconnect_target guarantees the truthful failed state
+    # (`unreachable`) is still pushed into the open modal, matching the chrome.
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        workdir=Path("/tank/repos/vela"),
+        venv=Path("/tank/venvs/vela"),
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            if name == "local":
+                return TargetConfig(name="local")
+            raise KeyError(name)
+
+    class DyingAgentClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.connects = 0
+
+        async def connect(self) -> dict[str, object]:
+            self.connects += 1
+            if self.connects >= 2:
+                # The agent died between the startup connect and the R press —
+                # the most likely real reason an operator reaches for Reconnect.
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            self.connected = True
+            return {
+                "agent_version": "0.9.0-agent",
+                "controller_version": "0.9.0-controller",
+                "agent_protocol_version": 1,
+                "protocol_version": 1,
+                "target": "blackbird",
+                "daemon_start_ts": "2026-06-03T00:00:00Z",
+                "capabilities": ["list_configs", "preview", "gpu", "health"],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target manager should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=DyingAgentClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.pause()
+        assert app.screen.id == "target-manager"
+
+        # R from the open manager; the reconnect worker dies on the raised error.
+        app.screen.action_reconnect()
+        await _wait_for_target_connection_state(app, "unreachable")
+        # The still-open modal must flip to the truthful failed state — never a
+        # frozen `reconnecting…` contradicting the chrome's unreachable banner.
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "connection: unreachable"
+            in str(app.screen.query_one("#target-manager-detail", Static).content),
+            "target manager did not render the failed reconnect state",
+        )
+        assert app.screen.id == "target-manager"
+        detail = str(app.screen.query_one("#target-manager-detail", Static).content)
+        assert "reconnecting…" not in detail
+
+
+@pytest.mark.asyncio
+async def test_target_manager_tracks_keepalive_drop_and_recovery_while_open(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-257 companion: the keepalive's state-change branches (drop via
+    # _mark_target_disconnected, recovery flip in _target_keepalive_once) also
+    # push live state into an open manager, so a mid-session link drop and its
+    # automatic recovery render truthfully without the operator pressing R.
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        workdir=Path("/tank/repos/vela"),
+        venv=Path("/tank/venvs/vela"),
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            if name == "local":
+                return TargetConfig(name="local")
+            raise KeyError(name)
+
+    class FlakyLinkClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.fail_ping = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "agent_version": "0.9.0-agent",
+                "controller_version": "0.9.0-controller",
+                "agent_protocol_version": 1,
+                "protocol_version": 1,
+                "target": "blackbird",
+                "daemon_start_ts": "2026-06-03T00:00:00Z",
+                "capabilities": ["list_configs", "preview", "gpu", "health"],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self):
+            if self.fail_ping:
+                raise ConnectionError("link down")
+            return {"ok": True}
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    client = FlakyLinkClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=0.05,
+        target_ping_timeout_seconds=0.05,
+    )
+
+    async with app.run_test() as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.pause()
+        assert app.screen.id == "target-manager"
+        detail = str(app.screen.query_one("#target-manager-detail", Static).content)
+        assert "connection: connected" in detail
+
+        # Mid-session drop: only the keepalive can notice — the open manager
+        # must flip to disconnected without any keypress.
+        client.fail_ping = True
+        await _wait_for_target_connection_state(app, "disconnected")
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "connection: disconnected"
+            in str(app.screen.query_one("#target-manager-detail", Static).content),
+            "open manager did not render the keepalive drop",
+        )
+
+        # Automatic recovery: the keepalive flip pushes the honest connected
+        # card back into the still-open manager.
+        client.fail_ping = False
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "connection: connected"
+            in str(app.screen.query_one("#target-manager-detail", Static).content),
+            "open manager did not render the keepalive recovery",
+        )
+        assert app.screen.id == "target-manager"
+
+
+@pytest.mark.asyncio
 async def test_target_manager_selection_switches_target_and_refreshes_configs(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

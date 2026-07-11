@@ -2612,20 +2612,26 @@ class VelaApp(App):
             await self._target_client.disconnect()
         except Exception:
             pass
-        await self._ensure_target_client_connected()
-        # A restored link must restore the honest card: reload the registry and
-        # re-render so a successful reconnect clears the "target unreachable" state
-        # on the dashboard instead of leaving the offline copy frozen (bug-252).
-        self.registry = await self._load_registry_from_agent()
-        if self.current_config is None and self.registry.valid:
-            self.current_config = self.registry.valid[0].config
-            await self._refresh_selected_config_preview()
-        self._refresh_target_backed_views()
-        # If the Target Manager is still open on top of the stack, push the fresh
-        # live state into it so a successful reconnect flips its frozen snapshot
-        # (and the `reconnecting…` feedback) to the honest connected card without
-        # closing the modal (bug-237).
-        self._refresh_open_target_manager()
+        try:
+            await self._ensure_target_client_connected()
+            # A restored link must restore the honest card: reload the registry and
+            # re-render so a successful reconnect clears the "target unreachable"
+            # state on the dashboard instead of leaving the offline copy frozen
+            # (bug-252).
+            self.registry = await self._load_registry_from_agent()
+            if self.current_config is None and self.registry.valid:
+                self.current_config = self.registry.valid[0].config
+                await self._refresh_selected_config_preview()
+            self._refresh_target_backed_views()
+        finally:
+            # If the Target Manager is still open on top of the stack, push the
+            # fresh live state into it — on EVERY path (bug-237/bug-257): a
+            # successful reconnect flips its frozen snapshot to the honest
+            # connected card, and a FAILED one (_ensure_target_client_connected
+            # re-raises after marking unreachable/disconnected, killing this
+            # worker) must still replace the optimistic `reconnecting…` with the
+            # truthful failed state instead of contradicting the chrome banner.
+            self._refresh_open_target_manager()
 
     def _target_manager_state_payload(self) -> dict[str, object]:
         return {
@@ -4653,6 +4659,8 @@ class VelaApp(App):
                     self.current_config = self.registry.valid[0].config
                     await self._refresh_selected_config_preview()
                 self._refresh_target_backed_views()
+                # An open Target Manager tracks the auto-recovery too (bug-257).
+                self._refresh_open_target_manager()
             else:
                 self._refresh_chrome()
 
@@ -4663,6 +4671,8 @@ class VelaApp(App):
         # Configs card flips to the offline state at once on a mid-session drop
         # (bug-253).
         self._refresh_target_backed_views()
+        # An open Target Manager must render the drop truthfully too (bug-257).
+        self._refresh_open_target_manager()
         try:
             await self._target_client.disconnect()
         except Exception:
