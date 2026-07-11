@@ -1759,6 +1759,39 @@ def test_cli_model_pin_passes_metadata_to_agent(
     ) in result.output
 
 
+def test_cli_model_pin_new_flag_threads_new_param(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, str] | None, str]] = []
+
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        calls.append((method, params, target_name))
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "org/repo",
+                "source": "hf_repo",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["model", "pin", "org/repo", "--new"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ("pin_model", {"repo_id": "org/repo", "new": "true"}, "local"),
+    ]
+
+
 def test_cli_model_pin_passes_optional_model_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

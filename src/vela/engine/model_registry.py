@@ -165,8 +165,16 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
         if registry_path is not None
         else default_models_registry_path()
     )
+    # Re-pinning the same repo id upserts the existing entry in place (preserving
+    # its entry_id) unless --new forces a fresh mint. Resolving the target is a
+    # lock-free read; the write below still runs under the registry lock.
+    upsert = None if _param_flag(params.get("new")) else _pin_upsert_target(params, path)
     for _attempt in range(16):
-        entry = _pin_entry_from_params(params)
+        entry = _pin_entry_from_params(
+            params,
+            entry_id=(_optional_str(upsert.get("entry_id")) if upsert else None),
+            created_at=(_optional_str(upsert.get("created_at")) if upsert else None),
+        )
         entry_id = _required_str(entry, "entry_id", "new model entry")
         with _entry_lock(path, entry_id):
             with _registry_lock(path):
@@ -174,16 +182,68 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
                 entries = registry.get("entries") or []
                 if not isinstance(entries, list):
                     entries = []
-                if any(
+                exists = any(
                     isinstance(item, dict) and item.get("entry_id") == entry_id
                     for item in entries
-                ):
+                )
+                if upsert is None and exists:
                     continue
                 return _pin_model_entry_payload(entry, path, registry, entries)
     raise ModelRegistryError(
         "resource-in-use",
         "unable to mint an unused model entry id",
         {"reason": "model-entry-id-collision"},
+    )
+
+
+def _param_flag(value: object) -> bool:
+    return str(value).strip().lower() in {"true", "1", "yes", "on"}
+
+
+def _pin_upsert_target(params: dict[str, Any], path: Path) -> dict[str, Any] | None:
+    """Find the single existing hf_repo entry to update in place, or None to mint.
+
+    Matches on repo_id + revision intent. Multiple matches → refuse and list them
+    (no guessing). This is a lock-free read: the write still runs under the
+    registry lock, and a benign race at worst upserts or mints one extra entry.
+    """
+    source = _optional_str(params.get("source")) or "hf_repo"
+    if source != "hf_repo":
+        return None
+    repo_id = _optional_str(params.get("repo_id"))
+    if repo_id is None:
+        return None
+    revision = _optional_str(params.get("revision"))
+    registry = _load_registry_for_write(path)
+    entries = registry.get("entries") or []
+    if not isinstance(entries, list):
+        return None
+    matches = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("source") == "hf_repo"
+        and _optional_str(entry.get("repo_id")) == repo_id
+        and _optional_str(entry.get("revision")) == revision
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    entry_ids = [str(entry.get("entry_id") or "") for entry in matches]
+    revision_note = f" at revision {revision}" if revision else ""
+    raise ModelRegistryError(
+        "invalid-config",
+        (
+            f"multiple registry entries already pin {repo_id}{revision_note}: "
+            f"{', '.join(entry_ids)}; pass --new to add another or remove the duplicates"
+        ),
+        {
+            "repo_id": repo_id,
+            "revision": revision,
+            "entry_ids": entry_ids,
+            "reason": "ambiguous-repo-pin",
+        },
     )
 
 
@@ -1073,6 +1133,7 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
     entry_id_matches: list[dict[str, Any]] = []
     display_name_matches: list[dict[str, Any]] = []
     alias_matches: list[dict[str, Any]] = []
+    repo_id_matches: list[dict[str, Any]] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -1082,6 +1143,8 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
             display_name_matches.append(entry)
         if reference in _model_aliases_from_entry(entry):
             alias_matches.append(entry)
+        if entry.get("source") == "hf_repo" and entry.get("repo_id") == reference:
+            repo_id_matches.append(entry)
     if len(entry_id_matches) == 1:
         return entry_id_matches[0]
     if len(entry_id_matches) > 1:
@@ -1105,6 +1168,21 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
             "model-not-found",
             f"model alias is ambiguous: {reference}",
             {"model_ref": reference},
+        )
+    # Repo-id resolution is additive: tried only after entry_id/display_name/alias
+    # misses, and an ambiguous repo id lists the candidate entry ids (M4).
+    if len(repo_id_matches) == 1:
+        return repo_id_matches[0]
+    if len(repo_id_matches) > 1:
+        raise ModelRegistryError(
+            "model-not-found",
+            f"model repo id is ambiguous: {reference}",
+            {
+                "model_ref": reference,
+                "candidates": [
+                    str(entry.get("entry_id") or "") for entry in repo_id_matches
+                ],
+            },
         )
     raise ModelRegistryError(
         "model-not-found",
@@ -1178,13 +1256,20 @@ def _handoff_size_bytes(entry: dict[str, Any]) -> int | None:
 
 
 def _pin_entry_from_params(
-    params: dict[str, Any], entries: list[object] | None = None
+    params: dict[str, Any],
+    entries: list[object] | None = None,
+    *,
+    entry_id: str | None = None,
+    created_at: str | None = None,
 ) -> dict[str, Any]:
     requested_entry_id = _optional_str(params.get("entry_id"))
     effective_params = dict(params)
     if requested_entry_id is not None and _optional_str(params.get("display_name")) is None:
         effective_params["display_name"] = requested_entry_id
-    entry_id = _entry_id_from_params(entries or [])
+    if created_at is not None:
+        effective_params.setdefault("created_at", created_at)
+    if entry_id is None:
+        entry_id = _entry_id_from_params(entries or [])
     now = _utc_now()
     source = str(effective_params.get("source") or "hf_repo")
     if source == "local_path":
@@ -1249,7 +1334,7 @@ def _hf_repo_entry_from_params(
         token_required = True
     entry: dict[str, Any] = {
         "entry_id": entry_id,
-        "display_name": _optional_str(params.get("display_name")) or entry_id,
+        "display_name": _optional_str(params.get("display_name")) or repo_id,
         "aliases": _model_aliases(params, entry_id),
         "source": "hf_repo",
         "repo_id": repo_id,

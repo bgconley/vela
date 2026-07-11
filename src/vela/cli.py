@@ -1005,6 +1005,13 @@ def model_pin(
         str | None,
         typer.Option("--notes", help="Operator notes."),
     ] = None,
+    new: Annotated[
+        bool,
+        typer.Option(
+            "--new",
+            help="Mint a new entry instead of upserting an existing repo-id pin.",
+        ),
+    ] = False,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
     json_output: Annotated[
         bool,
@@ -1042,6 +1049,8 @@ def model_pin(
         )
     if local_path is not None and url is None:
         params["source"] = "local_path"
+    if new:
+        params["new"] = "true"
     try:
         result = _agent_call("pin_model", params, target_name=target)
     except TargetCallError as exc:

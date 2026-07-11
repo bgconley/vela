@@ -6543,6 +6543,149 @@ async def test_agent_pin_model_ignores_caller_supplied_entry_id(tmp_path: Path) 
     json.dumps(listed)
 
 
+# --- M4 (bug-286): referenceable repo-id pins + pin upsert ---
+
+
+@pytest.mark.asyncio
+async def test_pin_model_defaults_hf_display_name_to_repo_id(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        pinned = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "aaa111"}
+        )
+    finally:
+        await client.disconnect()
+
+    # No entry_id and no display_name supplied → display_name defaults to the repo
+    # id (previously the minted ULID), so `model_ref: org/repo` resolves.
+    assert pinned["entry"]["display_name"] == "org/repo"
+
+
+@pytest.mark.asyncio
+async def test_entry_for_reference_resolves_unique_repo_id(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        # Explicit display_name so resolution can only succeed via the repo id.
+        pinned = await client.call(
+            "pin_model",
+            {"repo_id": "org/repo", "commit_sha": "aaa111", "display_name": "Custom"},
+        )
+        inspected = await client.call("inspect_model", {"model_ref": "org/repo"})
+    finally:
+        await client.disconnect()
+
+    assert inspected["entry"]["entry_id"] == pinned["entry"]["entry_id"]
+    assert inspected["entry"]["repo_id"] == "org/repo"
+
+
+@pytest.mark.asyncio
+async def test_entry_for_reference_repo_id_ambiguous_lists_candidates(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        first = await client.call(
+            "pin_model",
+            {"repo_id": "org/repo", "commit_sha": "aaa111", "display_name": "First"},
+        )
+        second = await client.call(
+            "pin_model",
+            {
+                "repo_id": "org/repo",
+                "commit_sha": "bbb222",
+                "display_name": "Second",
+                "new": "true",
+            },
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("inspect_model", {"model_ref": "org/repo"})
+    finally:
+        await client.disconnect()
+
+    assert "ambiguous" in exc_info.value.message
+    candidates = exc_info.value.details.get("candidates") or []
+    assert set(candidates) == {
+        first["entry"]["entry_id"],
+        second["entry"]["entry_id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_pin_model_upserts_same_repo_id_preserving_entry_id(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        first = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "aaa111"}
+        )
+        second = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "bbb222"}
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    # Re-pinning the same repo id updates the existing entry in place: same
+    # entry_id, refreshed commit sha, and no duplicate minted.
+    assert second["entry"]["entry_id"] == first["entry"]["entry_id"]
+    assert second["entry"]["commit_sha"] == "bbb222"
+    assert len(listed["models"]) == 1
+    assert listed["models"][0]["commit_sha"] == "bbb222"
+
+
+@pytest.mark.asyncio
+async def test_pin_model_new_flag_mints_second_entry(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        first = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "aaa111"}
+        )
+        second = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "bbb222", "new": "true"}
+        )
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    # --new escapes the upsert and mints a fresh entry.
+    assert second["entry"]["entry_id"] != first["entry"]["entry_id"]
+    assert len(listed["models"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_pin_model_multiple_existing_entries_for_repo_errors(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        first = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "aaa111", "new": "true"}
+        )
+        second = await client.call(
+            "pin_model", {"repo_id": "org/repo", "commit_sha": "bbb222", "new": "true"}
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call("pin_model", {"repo_id": "org/repo", "commit_sha": "ccc333"})
+        listed = await client.call("list_models")
+    finally:
+        await client.disconnect()
+
+    # Two entries already pin the repo → upsert refuses to guess and lists them.
+    message = exc_info.value.message
+    assert first["entry"]["entry_id"] in message
+    assert second["entry"]["entry_id"] in message
+    assert len(listed["models"]) == 2
+
+
 @pytest.mark.asyncio
 async def test_agent_pin_model_takes_registry_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

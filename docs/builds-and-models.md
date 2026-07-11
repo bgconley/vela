@@ -75,6 +75,19 @@ vela model verify tiny-llama --target blackbird --deep
 vela model remove tiny-llama --target blackbird
 ```
 
+A Hugging Face pin with no explicit `--display-name` defaults its display name
+to the repo id, and `model_ref` resolves against a **unique** repo id as well as
+the entry id, display name, and aliases (an ambiguous repo id lists the
+candidate entry ids so you can disambiguate). So `vela model pin org/repo`
+followed by `model_ref: org/repo` in a config just works.
+
+Re-pinning the same repo id (and revision) **upserts the existing entry in
+place** — it keeps the entry id and refreshes the commit sha and metadata
+instead of minting a duplicate — so the "re-pin the model" launch remediation
+repairs an existing config's `model_ref` rather than stranding it. Pass `--new`
+to force a fresh entry. If several entries already pin the repo, the pin refuses
+and lists them (no guessing) — remove the duplicates or use `--new`.
+
 For gated repos, accept the license upstream and set `HF_TOKEN` on the target
 host before pinning or downloading. The token is never stored in the registry
 and is scrubbed from job output.

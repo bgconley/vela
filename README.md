@@ -132,7 +132,7 @@ Common YAML fields:
 name: qwen-example
 target: gpu-node               # optional home target label
 model: Qwen/Qwen3.6-27B-FP8
-model_ref: pinned-qwen        # optional registry entry id/display name
+model_ref: pinned-qwen        # optional registry entry id, display name, or repo id
 revision: main               # optional model revision or commit
 command:
   entrypoint: serve
