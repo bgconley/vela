@@ -235,16 +235,14 @@ async def test_blank_name_uses_suggested_slug() -> None:
 
 @pytest.mark.asyncio
 async def test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select() -> None:
-    # bug-235: reopening the wizard with a restored draft goes through the
-    # constructor `initial=` path shared by every handoff round-trip and target
-    # switch (app._switch_new_deployment_target reopens with `initial=draft`,
-    # preserving the draft's own step_index). `_refresh_step` used to route mount
-    # focus through `_focus_current_step`, which mapped steps 1/2/3 straight to
-    # Select widgets — so a Runtime-step (step_index=1) restore landed focus on
-    # #new-deployment-runtime and Enter opened its dropdown overlay forever
-    # instead of advancing. Every mount must route through the Enter-safe
-    # `_focus_step_entry` (focus the step's first Input, else the inert step
-    # container) so the advertised Enter-walk survives a restore.
+    # bug-235 (+ follow-up): a restored draft reopens through the constructor
+    # `initial=` path shared by every handoff round-trip and target switch
+    # (app._switch_new_deployment_target reopens with `initial=draft`, preserving
+    # the draft's own step_index). Mount focus must route through the Enter-safe
+    # `_focus_step_entry` — the step's first effectively-visible Input, else the
+    # inert step container — AND land after disclosure settles which groups are
+    # hidden, so the advertised Enter-walk survives a restore and focus never
+    # lands on a widget a later disclosure pass hides.
     app = _Host()
     async with app.run_test() as pilot:
         draft = {
@@ -268,7 +266,14 @@ async def test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select() ->
         assert not isinstance(focused, Select)
         step_container = screen.query_one(NewDeploymentScreen.STEP_IDS[1])
         assert isinstance(focused, Input) or focused is step_container
-        # Enter now advances the wizard rather than expanding the runtime dropdown.
+        # The focused widget must be EFFECTIVELY visible, not one whose own
+        # .display/.visible read True while a disclosure-hidden ancestor keeps it
+        # out of the layout. A laid-out widget has a non-empty region; a widget
+        # under a display:none ancestor collapses to a zero-area region. Focus
+        # placement must therefore run AFTER the disclosure passes settle.
+        assert focused is not None
+        assert focused.region.area > 0
+        # Enter must advance, not expand the runtime dropdown.
         await pilot.press("enter")
         await pilot.pause()
         assert screen.step_index == 2

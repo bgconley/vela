@@ -435,11 +435,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         for selector in self.STEP_IDS:
             self.query_one(selector).can_focus = True
         self._apply_initial()
-        self._refresh_step()
         self._render_preset_help()
         self._apply_runtime_disclosure()
         self._apply_model_disclosure()
         self._apply_advanced_disclosure()
+        # Render + focus the step LAST: _focus_step_entry (inside _refresh_step)
+        # picks the step's first EFFECTIVELY-visible Input, so it must run AFTER
+        # the disclosure passes settle which groups are hidden — otherwise a
+        # restored draft focuses a widget (e.g. #new-deployment-image) that a
+        # later disclosure pass then hides, leaving focus on an invisible,
+        # zero-region widget (Enter-safe but invisible; bug-235 follow-up).
+        self._refresh_step()
         if self.error_message:
             self._render_wizard_error(self.error_message)
         self.call_later(self._queue_target_state_refresh)
