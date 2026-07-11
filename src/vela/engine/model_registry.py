@@ -169,12 +169,15 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
     # its entry_id) unless --new forces a fresh mint. Resolving the target is a
     # lock-free read; the write below still runs under the registry lock.
     upsert = None if _param_flag(params.get("new")) else _pin_upsert_target(params, path)
+    effective = params if upsert is None else _pin_params_seeded_from_entry(params, upsert)
     for _attempt in range(16):
         entry = _pin_entry_from_params(
-            params,
+            effective,
             entry_id=(_optional_str(upsert.get("entry_id")) if upsert else None),
             created_at=(_optional_str(upsert.get("created_at")) if upsert else None),
         )
+        if upsert is not None:
+            _preserve_upserted_entry_state(entry, upsert)
         entry_id = _required_str(entry, "entry_id", "new model entry")
         with _entry_lock(path, entry_id):
             with _registry_lock(path):
@@ -200,12 +203,82 @@ def _param_flag(value: object) -> bool:
     return str(value).strip().lower() in {"true", "1", "yes", "on"}
 
 
+def _pin_params_seeded_from_entry(
+    params: dict[str, Any], existing: dict[str, Any]
+) -> dict[str, Any]:
+    """Seed omitted pin params from the entry being upserted (M4 review fix).
+
+    The upsert rebuilds the entry from params; without seeding, a bare re-pin
+    would clobber ref-bearing metadata (a custom display_name strands existing
+    `model_ref` values) and operator metadata. Explicit params always win.
+    """
+    seeded = dict(params)
+    for field in ("display_name", "notes", "tokenizer", "quant_format", "last_used_at"):
+        if _optional_str(seeded.get(field)) is None:
+            value = _optional_str(existing.get(field))
+            if value is not None:
+                seeded[field] = value
+    for field in ("gated", "token_required"):
+        if field not in seeded and existing.get(field):
+            seeded[field] = True
+    return seeded
+
+
+def _preserve_upserted_entry_state(entry: dict[str, Any], existing: dict[str, Any]) -> None:
+    """Carry non-param state from the upserted entry onto its rebuilt form.
+
+    Aliases may be referenced by configs, so the existing ones are kept (union).
+    An unchanged commit sha means the cached weights are still the pinned ones,
+    so the cache scan state (cache_state/files/sizes) is preserved; a changed
+    sha resets it because the new revision has not been seen in the cache.
+    """
+    existing_aliases = [
+        alias
+        for alias in (existing.get("aliases") or [])
+        if isinstance(alias, str) and alias
+    ]
+    entry["aliases"] = list(dict.fromkeys([*existing_aliases, *entry.get("aliases", [])]))
+    new_sha = _optional_str(entry.get("commit_sha"))
+    if new_sha is not None and new_sha == _optional_str(existing.get("commit_sha")):
+        for field in (
+            "cache_state",
+            "files",
+            "size_bytes",
+            "unique_size_bytes",
+            "nominal_size_bytes",
+        ):
+            if field in existing:
+                entry[field] = existing[field]
+
+
+def _default_hf_revision() -> str:
+    """The Hugging Face default revision ("main"), matching snapshot/scan refs."""
+    try:
+        from huggingface_hub import constants
+    except Exception:  # pragma: no cover - keep pin usable without huggingface_hub
+        return "main"
+    return str(getattr(constants, "DEFAULT_REVISION", None) or "main")
+
+
+def _revision_intent(value: object) -> str:
+    """Normalize a pin revision intent: None means the HF default revision.
+
+    A bare pin records revision None, but download/refresh/verify backfill the
+    entry's revision to "main" from the HF cache scan
+    (_apply_cached_model_payload). Comparing normalized intents keeps a bare
+    re-pin upserting that entry instead of minting a duplicate; genuinely
+    divergent explicit revisions (tags/shas/non-main branches) still differ.
+    """
+    return _optional_str(value) or _default_hf_revision()
+
+
 def _pin_upsert_target(params: dict[str, Any], path: Path) -> dict[str, Any] | None:
     """Find the single existing hf_repo entry to update in place, or None to mint.
 
-    Matches on repo_id + revision intent. Multiple matches → refuse and list them
-    (no guessing). This is a lock-free read: the write still runs under the
-    registry lock, and a benign race at worst upserts or mints one extra entry.
+    Matches on repo_id + normalized revision intent (None ≡ the HF default
+    "main"). Multiple matches → refuse and list them (no guessing). This is a
+    lock-free read: the write still runs under the registry lock, and a benign
+    race at worst upserts or mints one extra entry.
     """
     source = _optional_str(params.get("source")) or "hf_repo"
     if source != "hf_repo":
@@ -213,7 +286,7 @@ def _pin_upsert_target(params: dict[str, Any], path: Path) -> dict[str, Any] | N
     repo_id = _optional_str(params.get("repo_id"))
     if repo_id is None:
         return None
-    revision = _optional_str(params.get("revision"))
+    revision = _revision_intent(params.get("revision"))
     registry = _load_registry_for_write(path)
     entries = registry.get("entries") or []
     if not isinstance(entries, list):
@@ -224,18 +297,17 @@ def _pin_upsert_target(params: dict[str, Any], path: Path) -> dict[str, Any] | N
         if isinstance(entry, dict)
         and entry.get("source") == "hf_repo"
         and _optional_str(entry.get("repo_id")) == repo_id
-        and _optional_str(entry.get("revision")) == revision
+        and _revision_intent(entry.get("revision")) == revision
     ]
     if not matches:
         return None
     if len(matches) == 1:
         return matches[0]
     entry_ids = [str(entry.get("entry_id") or "") for entry in matches]
-    revision_note = f" at revision {revision}" if revision else ""
     raise ModelRegistryError(
         "invalid-config",
         (
-            f"multiple registry entries already pin {repo_id}{revision_note}: "
+            f"multiple registry entries already pin {repo_id} at revision {revision}: "
             f"{', '.join(entry_ids)}; pass --new to add another or remove the duplicates"
         ),
         {

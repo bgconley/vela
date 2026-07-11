@@ -6686,6 +6686,159 @@ async def test_pin_model_multiple_existing_entries_for_repo_errors(tmp_path: Pat
     assert len(listed["models"]) == 2
 
 
+def test_pin_model_upserts_after_refresh_backfills_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    # 1. Bare pin (no --revision): the entry records revision None.
+    first = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "aaa111"}, registry_path
+    )
+    # 2. Download / post-READY refresh / verify backfill the entry's revision to
+    #    "main" from the HF cache scan (_apply_cached_model_payload) — persisted.
+    scan_entry = {
+        "entry_id": "org/repo@aaa111",
+        "display_name": "org/repo",
+        "source": "hf_repo",
+        "repo_id": "org/repo",
+        "revision": "main",
+        "commit_sha": "aaa111",
+        "local_path": None,
+        "url": None,
+        "quant_format": "none",
+        "tokenizer": None,
+        "files": {},
+        "size_bytes": 1,
+        "unique_size_bytes": 1,
+        "nominal_size_bytes": 1,
+        "cache_state": "cached",
+        "gated": False,
+        "token_required": False,
+        "created_at": "2026-01-01T00:00:00Z",
+        "last_used_at": None,
+        "notes": "",
+    }
+    monkeypatch.setattr(
+        model_registry_module,
+        "_cached_model_entries_from_hf_scan",
+        lambda: [scan_entry],
+    )
+    model_registry_module.refresh_models(registry_path)
+    stored = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
+    assert len(stored) == 1
+    assert stored[0]["revision"] == "main"
+
+    # 3. The launch remediation: a bare re-pin of the same repo id must still
+    #    upsert (None revision intent ≡ the HF default "main"), not mint a dup.
+    second = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "bbb222"}, registry_path
+    )
+
+    entries = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
+    assert second["entry"]["entry_id"] == first["entry"]["entry_id"]
+    assert len(entries) == 1
+    assert entries[0]["commit_sha"] == "bbb222"
+    # The sha changed, so the cached state is no longer known-good: reset.
+    assert entries[0]["cache_state"] == "remote_only"
+
+
+def test_pin_model_bare_repin_upserts_explicit_main_pin(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "aaa111", "revision": "main"},
+        registry_path,
+    )
+    second = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "bbb222"}, registry_path
+    )
+    entries = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
+    assert len(entries) == 1
+    assert second["entry"]["commit_sha"] == "bbb222"
+
+
+def test_model_ref_still_resolves_after_bare_repin_of_main_pin(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "aaa111", "revision": "main"},
+        registry_path,
+    )
+    model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "bbb222"}, registry_path
+    )
+    # End-to-end impact: `model_ref: org/repo` keeps resolving (no ambiguity
+    # from an accumulated duplicate).
+    inspected = model_registry_module.inspect_model("org/repo", registry_path)
+    assert inspected["entry"]["repo_id"] == "org/repo"
+
+
+def test_pin_model_upsert_preserves_ref_and_operator_metadata(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    model_registry_module.pin_model(
+        {
+            "repo_id": "org/repo",
+            "commit_sha": "aaa111",
+            "display_name": "Custom",
+            "notes": "operator note",
+            "tokenizer": "org/tokenizer",
+            "quant_format": "gguf",
+            "gated": True,
+            "token_required": True,
+        },
+        registry_path,
+    )
+    model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "bbb222"}, registry_path
+    )
+
+    entries = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
+    assert len(entries) == 1  # the upsert fired
+    entry = entries[0]
+    # A bare re-pin must not strand `model_ref: Custom` or wipe operator fields.
+    assert entry["display_name"] == "Custom"
+    assert entry["notes"] == "operator note"
+    assert entry["tokenizer"] == "org/tokenizer"
+    assert entry["quant_format"] == "gguf"
+    assert entry["gated"] is True
+    assert entry["token_required"] is True
+    assert entry["commit_sha"] == "bbb222"
+    inspected = model_registry_module.inspect_model("Custom", registry_path)
+    assert inspected["entry"]["repo_id"] == "org/repo"
+
+    # Explicit params still win over the seeded existing values.
+    renamed = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "bbb222", "display_name": "Renamed"},
+        registry_path,
+    )
+    assert renamed["entry"]["display_name"] == "Renamed"
+
+
+def test_pin_model_upsert_keeps_cache_state_when_sha_unchanged(tmp_path: Path) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    pinned = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "aaa111"}, registry_path
+    )
+    # The model gets downloaded: the registry learns cache_state=cached + sizes.
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry["entries"][0]["cache_state"] = "cached"
+    registry["entries"][0]["size_bytes"] = 123
+    registry["entries"][0]["nominal_size_bytes"] = 123
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    same = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "aaa111"}, registry_path
+    )
+    # Same immutable sha → the cached weights are still the pinned ones.
+    assert same["entry"]["entry_id"] == pinned["entry"]["entry_id"]
+    assert same["entry"]["cache_state"] == "cached"
+    assert same["entry"]["size_bytes"] == 123
+
+    changed = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "ccc333"}, registry_path
+    )
+    # A changed sha has not been verified in the cache → state resets.
+    assert changed["entry"]["cache_state"] == "remote_only"
+
+
 @pytest.mark.asyncio
 async def test_agent_pin_model_takes_registry_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

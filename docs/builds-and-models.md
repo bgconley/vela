@@ -81,12 +81,16 @@ the entry id, display name, and aliases (an ambiguous repo id lists the
 candidate entry ids so you can disambiguate). So `vela model pin org/repo`
 followed by `model_ref: org/repo` in a config just works.
 
-Re-pinning the same repo id (and revision) **upserts the existing entry in
-place** — it keeps the entry id and refreshes the commit sha and metadata
-instead of minting a duplicate — so the "re-pin the model" launch remediation
-repairs an existing config's `model_ref` rather than stranding it. Pass `--new`
-to force a fresh entry. If several entries already pin the repo, the pin refuses
-and lists them (no guessing) — remove the duplicates or use `--new`.
+Re-pinning the same repo id (and revision intent — a bare pin means the default
+`main`, so it matches an entry whose revision was backfilled from the cache
+scan) **upserts the existing entry in place** — it keeps the entry id, custom
+display name, aliases, and operator metadata, and refreshes the commit sha —
+so the "re-pin the model" launch remediation repairs an existing config's
+`model_ref` rather than stranding it. When the commit sha is unchanged the
+cached state is kept too; a changed sha resets it until the next
+download/refresh. Pass `--new` to force a fresh entry. If several entries
+already pin the repo at that revision, the pin refuses and lists them (no
+guessing) — remove the duplicates or use `--new`.
 
 For gated repos, accept the license upstream and set `HF_TOKEN` on the target
 host before pinning or downloading. The token is never stored in the registry
