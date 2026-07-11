@@ -1146,3 +1146,9 @@
 | 00:33 | Edited src/vela/tui/screens/new_deployment.py | inline fix | ~9 |
 | 00:39 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/partA_commit.txt | — | ~311 |
 | 00:50 | Phase-2 wizard state machine COMPLETE (Tasks 2.1-2.7): one focus path, download-now-obeys-source, empty-registry default, per-step validation, honest hints, referenceable-only model refs, gate | src/vela/tui/screens/new_deployment.py + tests + .wolf | commits c5f9ba5,e71e04c,1f19ccc,c809e93,187c4af,5f73ae6,c5bc948,fb5a455 (bug-235/236) + c793883,f43f6fc,e6beaeb (M3) + gate 69fd1d7 (A1-A4); ruff+mypy clean; full suite 1169 passed (from Phase-1 1146); flake test 3/3 green; buglog junk swept | ~2500 |
+| 01:03 | Edited tests/test_new_deployment_screen.py | modified test_restored_pin_hf_draft_does_not_re_fire_the_handoff() | ~869 |
+| 01:06 | Edited tests/test_tui_smoke.py | modified __init__() | ~3264 |
+| 01:07 | Edited src/vela/tui/screens/new_deployment.py | expanded (+6 lines) | ~264 |
+| 01:07 | Edited src/vela/tui/screens/new_deployment.py | modified _restored_model_mode() | ~419 |
+| 21:55 | Fable closing review Phase 2: verified 2.8 (RED-honesty revert proved loop: 4 fail pre-fix incl. assert 2==1 + _default screen; 33 screen / 247 smoke / ruff+mypy clean; restored byte-identical) + gate commits 69fd1d7 A1-A4 & c032872 .wolf-only; one pre-existing flake noted (adopt_venv smoke, load-dependent) | .wolf/memory.md | Phase 2 CLOSED | ~55k |
+| 05:40 | Phase 2 CLOSED: 13 commits (c5f9ba5..5cf4536+c032872), wizard state machine fixed (bug-235/236/250, M3), live visual QA (9 shots in .playwright-mcp/shots/after-phase2/) confirmed every fix incl. the cancel-loop; suite 1133→1169+ green | new_deployment.py, step_indicator.py, model_registry.py, app.py, tests | Fable closing review ✅; bug-250 cancel-loop found BY live QA and fixed same-phase | ~600k |

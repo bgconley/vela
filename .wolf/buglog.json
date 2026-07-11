@@ -4568,6 +4568,26 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-07-10T00:00:00Z"
+    },
+    {
+      "id": "bug-250",
+      "timestamp": "2026-07-11T00:00:00Z",
+      "error_message": "New Deployment wizard: cancelling the Pin HF repo / Adopt local path handoff (Esc on PinModelScreen) re-opened the pin screen immediately in an inescapable loop — Cancel could not return to the wizard; the only exits were pinning or killing the app, and a queued Enter landed on the re-opened pre-filled pin form and created an unwanted pin",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "The cancel resume path (_handle_new_deployment_pin_model_submission with params None) reopens the wizard with the RAW stashed draft, whose model_mode is still the handoff value 'pin_hf'/'adopt_local'. _apply_initial restored that verbatim into the model-source Select; the resulting Select.Changed is deferred and delivered AFTER the _applying_initial suppression flag clears, so on_select_changed re-hit the handoff branch and dismissed the just-restored wizard. The successful-pin resume avoided it only because _resume_new_deployment_with_model rewrites model_mode to 'existing' before reopening. The Runtime step's Create build / Adopt venv handoffs do NOT loop: _apply_initial only re-selects process/docker/build/executable, so a restored 'create_build'/'adopt_build' runtime is dropped and never re-fires",
+      "fix": "Screen-side coercion in _apply_initial (option b, covers ALL resume paths incl. crafted drafts): new _restored_model_mode(mode) maps a restored handoff model_mode onto a non-handoff Select value before _set_select_value — 'bare' when the draft carried a model id or the target has no pins, else 'existing' (mirrors _default_model_mode but keeps a typed bare model id visible). Non-handoff modes pass through untouched so the successful-pin resume is unaffected",
+      "tags": [
+        "tui",
+        "wizard",
+        "handoff",
+        "cancel-loop"
+      ],
+      "related_bugs": [
+        "bug-236",
+        "bug-235"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T00:00:00Z"
     }
   ]
 }
