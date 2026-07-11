@@ -18,6 +18,7 @@ from vela.tui.theme import (
     BORDER_SUBTLE,
     CYAN,
     GREEN,
+    MODAL_PANEL_CSS,
     RED,
     TEXT_FAINT,
     TEXT_PRIMARY,
@@ -1532,9 +1533,7 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     }}
 
     #new-deployment-review-panel {{
-        width: 92;
-        max-height: 90%;
-        overflow-y: auto;
+        {MODAL_PANEL_CSS}
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;

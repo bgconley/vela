@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 from textual.app import App
+from textual.css.scalar import Unit
 from textual.widgets import Checkbox, Input, Label, Select, Static
 
 from vela.tui.screens.new_deployment import NewDeploymentReviewScreen, NewDeploymentScreen
@@ -108,6 +109,40 @@ async def test_new_deployment_review_uses_step_indicator_and_preserves_panels() 
         assert "server.port" in derived
         assert "vllm serve org/m" in preview
         assert "no immutable commit sha" in warnings
+
+
+@pytest.mark.asyncio
+async def test_review_panel_uses_shared_frame_and_fits_at_80x24() -> None:
+    # Task 4.4 (bug-237): the review panel adopts the shared 4.1 modal frame in
+    # place of the fixed `width: 92` box that overflowed the 80-col screen. The
+    # wizard owns the content (contract-pinned) — this is width/frame only.
+    app = _Host()
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = NewDeploymentReviewScreen(
+            config={"name": "demo", "model": "org/m"},
+            preview="vllm serve org/m",
+            derived=[],
+            warnings=[],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        panel = screen.query_one("#new-deployment-review-panel")
+        # 4.1 idiom: percentage width/height, never fixed cells (Unit.WIDTH not CELLS).
+        assert panel.styles.width.unit == Unit.WIDTH
+        assert panel.styles.height.is_auto
+        assert panel.styles.max_height.unit == Unit.HEIGHT
+        assert panel.styles.overflow_y == "auto"
+        # The whole panel fits within the 80-col terminal, centered — a fixed
+        # width: 92 box overflows it (region.x == 0, right == 92).
+        assert panel.region.x > 0
+        assert panel.region.right <= 80
+        assert panel.region.width >= 0.9 * 80
+        # The KeyHintBar's last hint (Esc Cancel) is not clipped off the right edge.
+        actions = screen.query_one("#new-deployment-review-actions", KeyHintBar)
+        cancel = next(lab for lab in actions.query(Label) if str(lab.render()) == "Cancel")
+        assert panel.region.x <= cancel.region.x
+        assert cancel.region.right <= panel.region.right
 
 
 @pytest.mark.asyncio

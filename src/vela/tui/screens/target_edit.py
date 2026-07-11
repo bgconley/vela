@@ -10,7 +10,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from vela.config.targets import TargetConfig
-from vela.tui.theme import BAD, BG_BASE, BG_PANEL, BORDER_STRONG, TEXT
+from vela.tui.theme import BAD, BG_BASE, BG_PANEL, BORDER_STRONG, MODAL_PANEL_CSS, TEXT
 
 
 class TargetEditScreen(ModalScreen[TargetConfig | None]):
@@ -21,9 +21,7 @@ class TargetEditScreen(ModalScreen[TargetConfig | None]):
     }}
 
     #target-edit-panel {{
-        width: 96;
-        height: auto;
-        max-height: 80%;
+        {MODAL_PANEL_CSS}
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;
