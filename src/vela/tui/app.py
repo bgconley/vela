@@ -23,7 +23,7 @@ from rich.cells import cell_len
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult, ScreenStackError, SystemCommand
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.screen import Screen
@@ -147,6 +147,13 @@ PROGRESS_TRACK_WIDTH = 72
 # because 100/120/140 are all "wide" yet must behave differently.
 HEADER_URL_MIN_WIDTH = 112
 HEADER_CLOCK_MIN_WIDTH = 132
+# Sidebar vertical fit (bug-237). The sidebar cards hug their content inside a
+# VerticalScroll column, but a short terminal can still run out of rows. When the
+# terminal is shorter than this, drop the GPU monitor card first — mirroring the
+# way the compact WIDTH breakpoint sheds it — so the config and phase cards keep
+# their space. 24 rows is the classic VT100 minimum height; at or above it all
+# four cards render.
+SIDEBAR_GPU_MIN_HEIGHT = 24
 # Fixed cell cost of the status badge box around its label: solid border (1 each
 # side) + horizontal padding 0 1 (1 each side) + the width-3 status dot.
 HEADER_BADGE_CHROME_CELLS = 7
@@ -577,7 +584,7 @@ class VelaApp(App):
         content-align: left middle;
     }
     #body { height: 1fr; padding: 1 2; }
-    #sidebar { width: 34; min-width: 24; margin-right: 2; }
+    #sidebar { width: 34; min-width: 24; height: 1fr; margin-right: 2; }
     #main { width: 1fr; }
     #sidebar-overlay {
         height: 4;
@@ -586,10 +593,12 @@ class VelaApp(App):
         border: solid #274254;
         padding: 0 1;
     }
-    #config-panel { height: 7; }
-    #phase-panel { height: 11; }
-    #gpu-panel { height: 10; }
+    #sidebar { height: 1fr; }
+    #config-panel { height: auto; max-height: 9; }
+    #phase-panel { height: auto; max-height: 12; }
+    #gpu-panel { height: auto; max-height: 11; }
     .side-panel {
+        height: auto;
         background: #101923;
         border: solid #274254;
         padding: 0 1;
@@ -652,7 +661,7 @@ class VelaApp(App):
     }
     #status-badge.status--pulse { text-style: bold; }
     #status-strip {
-        height: 3;
+        height: auto;
         background: #101923;
         border: solid #274254;
         padding: 0 1;
@@ -862,7 +871,7 @@ class VelaApp(App):
                 yield Static("", id="server-url")
                 yield Static("", id="chrome-clock")
             with Horizontal(id="body"):
-                with Vertical(id="sidebar"):
+                with VerticalScroll(id="sidebar"):
                     with Vertical(id="config-panel", classes="side-panel"):
                         yield Static("Configs", id="configs-title")
                         yield Static("", id="configs")
@@ -907,7 +916,7 @@ class VelaApp(App):
         self.query_one("#configs", Static).update(self._render_config_summary())
         self._refresh_sidebar_overlay()
         self._refresh_dashboard_shell()
-        self._apply_responsive_layout(self.size.width)
+        self._apply_responsive_layout(self.size.width, self.size.height)
         self._clear_progress()
         self.run_worker(
             self._stream_gpu_panel(),
@@ -951,7 +960,7 @@ class VelaApp(App):
         )
 
     def on_resize(self, event: events.Resize) -> None:
-        self._apply_responsive_layout(event.size.width)
+        self._apply_responsive_layout(event.size.width, event.size.height)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state is not WorkerState.ERROR:
@@ -5313,7 +5322,9 @@ class VelaApp(App):
                 text.append("─", style=MUTED)
         return text
 
-    def _apply_responsive_layout(self, width: int) -> None:
+    def _apply_responsive_layout(self, width: int, height: int | None = None) -> None:
+        if height is None:
+            height = self.size.height
         previous_mode = self.responsive_mode
         if width < 60:
             self.responsive_mode = "compact"
@@ -5324,7 +5335,8 @@ class VelaApp(App):
         try:
             sidebar = self.query_one("#sidebar")
             sidebar_overlay = self.query_one("#sidebar-overlay")
-            gpu_panel = self.query_one("#gpu")
+            gpu_panel = self.query_one("#gpu-panel")
+            gpu = self.query_one("#gpu")
             log = self.query_one("#log", RichLog)
             server_url = self.query_one("#server-url", Static)
             clock = self.query_one("#chrome-clock", Static)
@@ -5332,7 +5344,14 @@ class VelaApp(App):
             return
         sidebar.display = self.responsive_mode == "wide"
         sidebar_overlay.display = self.responsive_mode != "wide"
-        gpu_panel.display = self.responsive_mode != "compact"
+        # The GPU monitor is the lowest-priority sidebar card: it sheds first when
+        # the WIDTH collapses to compact and, now, when the HEIGHT can no longer
+        # hold every card (bug-237) — the config and phase cards keep their rows.
+        # Toggle the whole bordered card (frees its rows) and the inner readout
+        # together so neither an empty border nor a stray readout is left behind.
+        gpu_visible = self.responsive_mode != "compact" and height >= SIDEBAR_GPU_MIN_HEIGHT
+        gpu_panel.display = gpu_visible
+        gpu.display = gpu_visible
         log.display = True
         # Top chrome collapses right-to-left: the two lowest-priority segments
         # (server URL, then clock) only appear once the terminal is wide enough

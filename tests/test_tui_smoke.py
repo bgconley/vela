@@ -16267,6 +16267,108 @@ async def test_top_chrome_priority_collapse_right_to_left(config_dir: Path) -> N
         assert re.match(r"\d\d:\d\d:\d\d", clock), f"clock not shown at 140: {clock!r}"
 
 
+# --- Task 4.6: sidebar vertical fit (bug-237) ---
+
+
+def _write_sidebar_config(config_dir: Path) -> None:
+    write_yaml(
+        config_dir / "sidebar-demo.yaml",
+        """
+        name: sidebar-demo
+        model: org/sidebar-demo
+        server:
+          host: 127.0.0.1
+          port: 8765
+        engine:
+          tensor_parallel_size: 2
+          kv_cache_dtype: fp8
+        """,
+    )
+
+
+_SIDEBAR_CARDS = ("#config-panel", "#phase-panel", "#gpu-panel", "#status-strip")
+
+
+@pytest.mark.asyncio
+async def test_sidebar_cards_fit_short_terminal(config_dir: Path) -> None:
+    # bug-237: at 100x30 the fixed-height cards overflowed — the GPU panel was
+    # clipped 5 rows and the status strip fell fully off-screen. Every card must
+    # now render at least its title + first content line inside the sidebar.
+    _write_sidebar_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        screen_h = app.size.height
+        sidebar = app.query_one("#sidebar").region
+        for selector in _SIDEBAR_CARDS:
+            card = app.query_one(selector)
+            assert card.display is True, f"{selector} hidden at 100x30"
+            region = card.region
+            assert region.height > 0, f"{selector} collapsed at 100x30"
+            # The card's top row (title + first content line) is inside the
+            # sidebar's visible region, so nothing renders off-screen.
+            assert sidebar.y <= region.y < sidebar.y + sidebar.height, (
+                f"{selector} top not in sidebar viewport: y={region.y} "
+                f"sidebar=[{sidebar.y},{sidebar.y + sidebar.height})"
+            )
+            assert region.y < screen_h, f"{selector} top off-screen at 100x30"
+
+        gpu = app.query_one("#gpu-panel").region
+        assert gpu.y + gpu.height <= screen_h, (
+            f"GPU panel clipped at 100x30: bottom={gpu.y + gpu.height} screen={screen_h}"
+        )
+        status = app.query_one("#status-strip").region
+        assert 0 <= status.y < screen_h, (
+            f"status strip off-screen at 100x30: y={status.y} screen={screen_h}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_sidebar_cards_hug_content_on_tall_terminal(config_dir: Path) -> None:
+    # bug-237: with fixed heights the Phases card reserved 11 rows for its single
+    # IDLE line and the status strip still fell past the fold at 38 rows. Auto
+    # heights must hug the real content and keep every card fully on-screen.
+    _write_sidebar_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(142, 38)) as pilot:
+        await pilot.pause()
+        screen_h = app.size.height
+        phase = app.query_one("#phase-panel").region
+        # One IDLE phase line ("Phases" + "○ IDLE --") in a bordered card is
+        # ~3-4 rows, never the old fixed 11.
+        assert phase.height <= 6, f"Phases card did not hug content: h={phase.height}"
+
+        status = app.query_one("#status-strip").region
+        assert status.height > 0
+        assert status.y + status.height <= screen_h, (
+            f"status strip off-screen at 142x38: bottom={status.y + status.height} "
+            f"screen={screen_h}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_sidebar_hides_gpu_panel_when_terminal_too_short(config_dir: Path) -> None:
+    # bug-237: _apply_responsive_layout must key on HEIGHT too — when the vertical
+    # budget can no longer hold every card, drop the GPU monitor first (mirroring
+    # the compact-width behaviour) while config/phase stay visible.
+    _write_sidebar_config(config_dir)
+    app = VelaApp(configs_dir=config_dir)
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        # 30 rows is enough for all four cards.
+        assert app.query_one("#gpu-panel").display is True
+
+        await pilot.resize_terminal(100, 22)
+        await pilot.pause()
+        # Too short now: GPU sheds first, config + phase remain.
+        assert app.query_one("#gpu-panel").display is False, "GPU not hidden at 100x22"
+        assert app.query_one("#config-panel").display is True
+        assert app.query_one("#phase-panel").display is True
+
+
 @pytest.mark.asyncio
 async def test_server_url_is_dim_until_ready_then_live(config_dir: Path) -> None:
     _write_header_config(config_dir)
