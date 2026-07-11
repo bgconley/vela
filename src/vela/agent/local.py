@@ -86,6 +86,7 @@ from vela.engine.model_registry import (
     refresh_models,
     remove_model,
     resolve_model_handoff,
+    revision_diverges_from_pin,
     verify_model,
 )
 from vela.engine.phases import ErrorKind, Phase, PhaseFSM
@@ -2991,7 +2992,12 @@ class LocalAgent:
             result.update(exc.details)
             return result
 
-        if verified.get("ok"):
+        entry = verified.get("entry") if isinstance(verified.get("entry"), dict) else {}
+        requested_revision = _optional_param_str(params.get("revision"))
+        # M2: honour an explicit differing revision instead of no-opping a cached
+        # pin. A bare download (revision None ≡ main) never counts as divergent.
+        revision_override = revision_diverges_from_pin(entry, requested_revision)
+        if verified.get("ok") and not revision_override:
             return {
                 "ok": True,
                 "detail": "model cached",
@@ -3000,7 +3006,6 @@ class LocalAgent:
                 "entry": verified.get("entry"),
             }
 
-        entry = verified.get("entry") if isinstance(verified.get("entry"), dict) else {}
         source = str(entry.get("source") or "")
         if source == "url":
             emit(
@@ -3027,21 +3032,24 @@ class LocalAgent:
             )
             allow_patterns = _optional_str_list(params.get("allow_patterns"))
             ignore_patterns = _optional_str_list(params.get("ignore_patterns"))
-            try:
-                mark_hf_model_partial(
-                    model_ref,
-                    self._models_registry_path,
-                    allow_patterns=allow_patterns,
-                    ignore_patterns=ignore_patterns,
-                )
-            except ModelRegistryError as exc:
-                result = {
-                    "ok": False,
-                    "error_kind": exc.code,
-                    "detail": exc.message,
-                }
-                result.update(exc.details)
-                return result
+            # A side download of a different revision must not mark the pin
+            # partial (M2); download_hf_model records last_download_* instead.
+            if not revision_override:
+                try:
+                    mark_hf_model_partial(
+                        model_ref,
+                        self._models_registry_path,
+                        allow_patterns=allow_patterns,
+                        ignore_patterns=ignore_patterns,
+                    )
+                except ModelRegistryError as exc:
+                    result = {
+                        "ok": False,
+                        "error_kind": exc.code,
+                        "detail": exc.message,
+                    }
+                    result.update(exc.details)
+                    return result
             download_log = LogSink(
                 _model_download_log_path(self._models_registry_path, entry_id),
                 secrets=_job_secret_values(params, _env_overrides(params.get("env"))),
@@ -5264,6 +5272,10 @@ def _docker_hf_cache_env_mismatch_descriptor(
         return None
     if _realpath(default_hf_hub_cache_dir()) == _realpath(default_hf_home_dir() / "hub"):
         return None
+    # An explicit volume that mounts the hub cache directly already covers the
+    # agent downloads, so it is not a mismatch (5.4 routed follow-up).
+    if _volume_covers_hf_hub_cache(docker.volumes):
+        return None
     if docker.hf_cache is not None and not _path_is_hf_home(docker.hf_cache):
         return None
     detail = (
@@ -5294,6 +5306,18 @@ def _volume_covers_hf_cache(volumes: list[str]) -> bool:
     for volume in volumes:
         source = volume.split(":", 1)[0].strip()
         if source and _realpath(source) in covering:
+            return True
+    return False
+
+
+def _volume_covers_hf_hub_cache(volumes: list[str]) -> bool:
+    # Specifically the hub cache (where downloads land): a volume mounting it
+    # means a relocated HF_HUB_CACHE is still visible to the container, so the
+    # env-mismatch warning must not fire.
+    hub = _realpath(default_hf_hub_cache_dir())
+    for volume in volumes:
+        source = volume.split(":", 1)[0].strip()
+        if source and _realpath(source) == hub:
             return True
     return False
 

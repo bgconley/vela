@@ -6206,6 +6206,52 @@ async def test_prepare_launch_warns_when_agent_hf_hub_cache_is_outside_hf_home(
 
 
 @pytest.mark.asyncio
+async def test_prepare_launch_no_env_mismatch_when_volume_covers_hub_cache(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    # H4 follow-up (5.4 routed): HF_HUB_CACHE is relocated outside HF_HOME, but an
+    # explicit volume mounts the hub cache directly, so the container CAN see the
+    # agent downloads — that is not a mismatch and must not warn.
+    home = tmp_path / "hf-home"
+    home.mkdir()
+    hub = tmp_path / "relocated-hub"
+    hub.mkdir()
+    monkeypatch.setattr(local_agent_module, "default_hf_home_dir", lambda: home)
+    monkeypatch.setattr(local_agent_module, "default_hf_hub_cache_dir", lambda: hub)
+    write_fake_docker_runtime(tmp_path / "docker")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "docker-hub-volume.yaml",
+            f"""
+            name: docker-hub-volume
+            model: meta-llama/Llama-3.1-8B-Instruct
+            command:
+              runtime: docker
+              docker:
+                image: vllm/vllm-openai@sha256:abc
+                volumes:
+                  - {hub}:/root/.cache/huggingface/hub
+            server:
+              port: {unused_tcp_port}
+            vllm:
+              version_profile: current
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "docker-hub-volume", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    # A hub-covering volume satisfies both the missing-mount and env-mismatch checks.
+    assert prepared["launch_warnings"] == []
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
 async def test_prepare_launch_no_hf_cache_warning_when_docker_mounts_cache(
     config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
 ) -> None:
@@ -6715,7 +6761,7 @@ async def test_pin_model_multiple_existing_entries_for_repo_errors(tmp_path: Pat
     assert len(listed["models"]) == 2
 
 
-def test_pin_model_upserts_after_refresh_backfills_revision(
+def test_pin_model_upserts_after_refresh_records_scanned_revision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
@@ -6723,8 +6769,9 @@ def test_pin_model_upserts_after_refresh_backfills_revision(
     first = model_registry_module.pin_model(
         {"repo_id": "org/repo", "commit_sha": "aaa111"}, registry_path
     )
-    # 2. Download / post-READY refresh / verify backfill the entry's revision to
-    #    "main" from the HF cache scan (_apply_cached_model_payload) — persisted.
+    # 2. Download / post-READY refresh / verify observe the cache scan's ref, but
+    #    that ref must NOT mutate the pinned revision intent (M2 containment): it
+    #    lands in a separate scanned_revision field.
     scan_entry = {
         "entry_id": "org/repo@aaa111",
         "display_name": "org/repo",
@@ -6755,7 +6802,9 @@ def test_pin_model_upserts_after_refresh_backfills_revision(
     model_registry_module.refresh_models(registry_path)
     stored = json.loads(registry_path.read_text(encoding="utf-8"))["entries"]
     assert len(stored) == 1
-    assert stored[0]["revision"] == "main"
+    # The pinned revision intent is untouched; the scan lands elsewhere.
+    assert stored[0]["revision"] is None
+    assert stored[0]["scanned_revision"] == "main"
 
     # 3. The launch remediation: a bare re-pin of the same repo id must still
     #    upsert (None revision intent ≡ the HF default "main"), not mint a dup.
@@ -6769,6 +6818,99 @@ def test_pin_model_upserts_after_refresh_backfills_revision(
     assert entries[0]["commit_sha"] == "bbb222"
     # The sha changed, so the cached state is no longer known-good: reset.
     assert entries[0]["cache_state"] == "remote_only"
+
+
+def _write_cached_pin_registry(registry_path: Path) -> None:
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01PIN",
+                        "display_name": "pinned-llama",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "org/repo",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 2,
+                            "total_bytes": 110,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 110,
+                        "cache_state": "cached",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_download_hf_model_divergent_revision_records_without_mutating_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_cached_pin_registry(registry_path)
+    snapshot_calls: list[dict[str, object]] = []
+
+    def fake_snapshot_download(**kwargs: object) -> str:
+        snapshot_calls.append(dict(kwargs))
+        return str(tmp_path / "snap")
+
+    fake_revision = SimpleNamespace(
+        commit_hash="def456",
+        size_on_disk=110,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+        ),
+        refs=("v2.0",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="org/repo", repo_type="model", revisions=(fake_revision,)
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module, "_snapshot_download", fake_snapshot_download, raising=False
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    result = model_registry_module.download_hf_model(
+        "01PIN", registry_path, revision="v2.0"
+    )
+
+    # The requested override was actually fetched, not short-circuited.
+    assert snapshot_calls[0]["revision"] == "v2.0"
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    # The pin's single source of truth is untouched.
+    assert entry["commit_sha"] == "abc123"
+    assert entry["revision"] == "main"
+    assert entry["cache_state"] == "cached"
+    # The divergent download is recorded separately and rides the wire payload.
+    assert entry["last_download_revision"] == "v2.0"
+    assert entry["last_download_sha"] == "def456"
+    assert result["entry"]["last_download_revision"] == "v2.0"
+    assert result["entry"]["last_download_sha"] == "def456"
 
 
 def test_pin_model_bare_repin_upserts_explicit_main_pin(tmp_path: Path) -> None:
@@ -7850,6 +7992,90 @@ async def test_agent_verify_presence_only_without_manifest(
     assert verified["cache_state"] == "cached"
     # A sha-only pin carries no upstream manifest, so verify is honest about it.
     assert verified["detail"] == "presence-only check (no manifest)"
+    json.dumps(verified)
+
+
+@pytest.mark.asyncio
+async def test_agent_verify_warns_when_last_download_diverges_from_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01PIN",
+                        "display_name": "pinned-llama",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "org/repo",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {
+                            "count": 2,
+                            "total_bytes": 110,
+                            "weights_format": "safetensors",
+                        },
+                        "size_bytes": 110,
+                        "last_download_revision": "v2.0",
+                        "last_download_sha": "def456",
+                        "cache_state": "cached",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-06-02T14:03:11Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=110,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+        ),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="org/repo", repo_type="model", revisions=(fake_revision,)
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        verified = await client.call("verify_model", {"model_ref": "01PIN"})
+    finally:
+        await client.disconnect()
+
+    # The pin still verifies, but verify flags the divergent last download.
+    assert verified["ok"] is True
+    warnings = verified.get("warnings") or []
+    assert any(w.get("kind") == "revision-divergence" for w in warnings)
+    detail = next(
+        w["detail"] for w in warnings if w.get("kind") == "revision-divergence"
+    )
+    assert "v2.0" in detail
+    assert "def456" in detail
+    assert "abc123" in detail
     json.dumps(verified)
 
 
@@ -12136,6 +12362,80 @@ async def test_agent_download_model_job_downloads_uncached_hf_entry(
     assert entry["files"]["total_bytes"] == 130
     json.dumps(progress)
     json.dumps(downloading)
+    json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_download_model_job_honors_divergent_revision_on_cached_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_cached_pin_registry(registry_path)
+    snapshot_calls: list[dict[str, object]] = []
+
+    def fake_snapshot_download(**kwargs: object) -> str:
+        snapshot_calls.append(dict(kwargs))
+        return str(tmp_path / "snap")
+
+    # The cache holds BOTH the pinned revision (so verify passes) and the
+    # override, so the only reason to download is the differing requested revision.
+    pinned_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=110,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+        ),
+        refs=("main",),
+    )
+    override_revision = SimpleNamespace(
+        commit_hash="def456",
+        size_on_disk=110,
+        files=(
+            SimpleNamespace(file_name="config.json", size_on_disk=10),
+            SimpleNamespace(file_name="model.safetensors", size_on_disk=100),
+        ),
+        refs=("v2.0",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="org/repo",
+        repo_type="model",
+        revisions=(pinned_revision, override_revision),
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module, "_snapshot_download", fake_snapshot_download, raising=False
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-divergent"], resume_from="live")
+    try:
+        await client.call(
+            "download_model",
+            {"job_id": "job-divergent", "model_ref": "01PIN", "revision": "v2.0"},
+        )
+        done = await _next_event(events, event_name="job_done")
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    # The cached short-circuit must NOT no-op an explicit differing revision.
+    assert done["ok"] is True
+    assert snapshot_calls and snapshot_calls[0]["revision"] == "v2.0"
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    # The pin is untouched; the side download is recorded.
+    assert entry["commit_sha"] == "abc123"
+    assert entry["revision"] == "main"
+    assert entry["cache_state"] == "cached"
+    assert entry["last_download_revision"] == "v2.0"
+    assert entry["last_download_sha"] == "def456"
     json.dumps(done)
 
 

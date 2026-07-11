@@ -157,3 +157,26 @@ full registry refresh (the same scan as `vela model refresh`) off its event
 loop, so the registry learns that vLLM has now cached the weights.
 Already-cached launches skip the refresh entirely. The refresh is best-effort: a
 slow or failing scan never disturbs the running server.
+
+### Revision single source of truth
+
+A model revision can be named in three places; they do not compete:
+
+- **The config's baked value wins at launch.** If a config carries a `revision`
+  (or a `commit_sha` on the pinned entry the composer resolves), that is what the
+  launch uses — the composer bakes it into the launch command. This is the only
+  value that determines which weights vLLM loads.
+- **The pin is the registry's record**, not a launch input. `vela model pin`
+  records `revision`/`commit_sha` for a repo; re-pinning updates that record in
+  place (see the upsert rules above). The pin is what `model_ref` resolves
+  against and what `verify` checks; it is never silently rewritten by a download.
+- **A download override is a side operation.** `vela model download X --revision
+  other` fetches `other` into the cache and records it as `last_download_revision`
+  / `last_download_sha` on the entry **without** touching the pin's
+  `commit_sha`/`revision` or its cache state. On a cached pin the download is no
+  longer a no-op: an explicitly different revision is actually fetched. `verify`
+  then warns while the last download diverges from the pin, so the divergence is
+  visible instead of silent.
+
+To change which revision a deployment launches, edit the config (or re-pin and
+regenerate it) — downloading a different revision never moves the launch target.

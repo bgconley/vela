@@ -96,6 +96,8 @@ MODEL_ENTRY_FIELDS = (
     "nominal_size_bytes",
     "expected_files",
     "expected_size",
+    "last_download_revision",
+    "last_download_sha",
     "cache_state",
     "gated",
     "token_required",
@@ -430,7 +432,14 @@ def download_hf_model(
         with _registry_lock(path):
             registry = _load_registry_for_write(path)
             entry = _entry_for_reference(registry, reference)
-            _apply_cached_model_payload(entry, cached)
+            override = _download_revision_override(entry, revision)
+            if override is not None:
+                # M2: a side download of a different revision records what it
+                # fetched WITHOUT rewriting the pin's commit_sha/revision/cache.
+                entry["last_download_revision"] = override
+                entry["last_download_sha"] = _optional_str(cached.get("commit_sha"))
+            else:
+                _apply_cached_model_payload(entry, cached)
             registry["schema_version"] = 1
             registry["default_cache"] = str(registry.get("default_cache") or "hf")
             registry.setdefault("app_download_dir", None)
@@ -440,8 +449,12 @@ def download_hf_model(
         return {
             "entry_id": entry_id,
             "ok": True,
-            "cache_state": "cached",
-            "detail": "model cached",
+            "cache_state": str(entry.get("cache_state") or "cached"),
+            "detail": (
+                f"downloaded revision {override}; pin unchanged"
+                if override is not None
+                else "model cached"
+            ),
             "snapshot_path": str(snapshot_path),
             "entry": entry_payload,
         }
@@ -486,12 +499,42 @@ def _prepare_hf_model_download(
     if progress_callback is not None:
         download_kwargs["tqdm_class"] = _snapshot_progress_tqdm_class(progress_callback)
 
-    entry["cache_state"] = "partial"
+    # A side download of a different revision (M2) must not touch the pin's
+    # cache state; only a download of the pinned revision marks it partial.
+    if _download_revision_override(entry, revision) is None:
+        entry["cache_state"] = "partial"
     registry["schema_version"] = 1
     registry["default_cache"] = str(registry.get("default_cache") or "hf")
     registry.setdefault("app_download_dir", None)
     _write_registry_atomic(path, registry)
     return download_kwargs, repo_id, selected_revision
+
+
+def _download_revision_override(entry: dict[str, Any], revision: str | None) -> str | None:
+    """The explicit download revision when it diverges from the pin, else None.
+
+    Downloading the pinned revision (or a bare download) updates the pin's cache
+    state as usual. An explicit *different* revision is a side download whose
+    result must not rewrite the pin's ``commit_sha``/``revision`` or cache_state.
+    """
+    override = _optional_str(revision)
+    if override is None:
+        return None
+    if override == _optional_str(entry.get("commit_sha")):
+        return None
+    if _revision_intent(override) == _revision_intent(entry.get("revision")):
+        return None
+    return override
+
+
+def revision_diverges_from_pin(entry: dict[str, Any], revision: str | None) -> bool:
+    """True when an explicit download revision differs from the entry's pin.
+
+    The cached-download short-circuit uses this to honour an explicit differing
+    revision instead of silently no-opping (M2). ``None`` normalises to the HF
+    default via _revision_intent, so a bare download never counts as divergent.
+    """
+    return _download_revision_override(entry, revision) is not None
 
 
 def mark_hf_model_partial(
@@ -858,8 +901,14 @@ def _apply_cached_model_payload(
     entry["nominal_size_bytes"] = int(payload.get("nominal_size_bytes") or 0)
     if payload.get("commit_sha"):
         entry["commit_sha"] = payload["commit_sha"]
-    if not entry.get("revision") and payload.get("revision"):
-        entry["revision"] = payload["revision"]
+    # M2 containment: the cache scan's ref is OBSERVED state, not pinned intent.
+    # Backfilling it into ``revision`` used to silently rewrite the pin (the root
+    # enabler of the 5.5 upsert defect), so record it separately instead. The
+    # pinned ``revision`` (None ≡ the HF default via _revision_intent) is left
+    # untouched, and re-pin matching keeps working off that intent.
+    scanned_revision = _optional_str(payload.get("revision"))
+    if scanned_revision is not None:
+        entry["scanned_revision"] = scanned_revision
 
 
 def _rescan_keeps_partial(
@@ -1692,6 +1741,27 @@ def _verified_local_model_path(value: str) -> Path:
     return path
 
 
+def _revision_divergence_warning(entry: dict[str, Any]) -> dict[str, str] | None:
+    """Warn when the last download fetched a revision other than the pinned one.
+
+    ``download --revision other`` records ``last_download_*`` without rewriting
+    the pin (M2). Verify surfaces the divergence so the operator knows the cache
+    holds a revision that is not the config's single source of truth.
+    """
+    last_sha = _optional_str(entry.get("last_download_sha"))
+    pinned_sha = _optional_str(entry.get("commit_sha"))
+    if last_sha is None or last_sha == pinned_sha:
+        return None
+    last_rev = _optional_str(entry.get("last_download_revision")) or last_sha
+    return {
+        "kind": "revision-divergence",
+        "detail": (
+            f"last download fetched revision {last_rev} ({last_sha}), which "
+            f"differs from the pinned commit {pinned_sha}"
+        ),
+    }
+
+
 _DEEP_BASELINE_DETAIL = "baseline established — rerun to compare"
 
 
@@ -1819,6 +1889,9 @@ def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -
                 payload.update(_deep_baseline_payload_fields())
             else:
                 payload["detail"] = "hf model deep verified"
+    divergence = _revision_divergence_warning(entry)
+    if divergence is not None:
+        payload.setdefault("warnings", []).append(divergence)
     if not status["ok"]:
         payload["reason"] = str(status["reason"])
     return payload
@@ -2292,6 +2365,9 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
         elif field == "expected_files":
             if isinstance(value, list) and value:
                 payload[field] = [str(item) for item in value if isinstance(item, str)]
+        elif field in {"last_download_revision", "last_download_sha"}:
+            if value is not None:
+                payload[field] = str(value)
         elif field in {"allow_patterns", "ignore_patterns"}:
             if isinstance(value, list):
                 payload[field] = [str(item) for item in value if isinstance(item, str)]
