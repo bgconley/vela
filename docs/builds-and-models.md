@@ -118,6 +118,8 @@ A bare `model:` config with no `model_ref` cannot be checked against the registr
 so `require_cached_models` only warns for unpinned models — it never fails them
 (an unpinned model is a deliberate escape hatch).
 
-When a launch reaches READY, the agent re-scans that model entry and updates its
-`cache_state`, so the registry learns that vLLM has now cached the weights. The
-re-scan is best-effort: a scan failure never disturbs the running server.
+When a launch whose pinned model was not cached reaches READY, the agent runs a
+full registry refresh (the same scan as `vela model refresh`) off its event
+loop, so the registry learns that vLLM has now cached the weights.
+Already-cached launches skip the refresh entirely. The refresh is best-effort: a
+slow or failing scan never disturbs the running server.

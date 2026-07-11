@@ -6068,45 +6068,68 @@ async def test_prepare_launch_warns_unpinned_model_only_when_require_cached(
     assert "not pinned" in warnings[0]["detail"]
 
 
+def _post_ready_probe_scaffold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, model_ref: str = "01CACHE"
+) -> None:
+    """Monkeypatch a detached run whose probe loop reports READY immediately."""
+    log_path = tmp_path / "run-1.run.log"
+    log_path.write_text("", encoding="utf-8")
+    manifest_path = tmp_path / "run-1.manifest.json"
+    manifest = Manifest.from_active_log(log_path)
+    sidecar_path = tmp_path / "run-1.json"
+    sidecar = Sidecar(
+        run_id="run-1",
+        config_name="detached",
+        command_argv=["vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct"],
+        command_hash="sha256:abc",
+        pid=123,
+        pgid=123,
+        process_create_time=1.0,
+        executable="/bin/vllm",
+        cwd=str(tmp_path),
+        launch_mode="detached",
+        host="127.0.0.1",
+        port=8123,
+        served_model_names=["served"],
+        exposure="local",
+        manifest_path=str(manifest_path),
+        config_snapshot={
+            "name": "detached",
+            "model": "meta-llama/Llama-3.1-8B-Instruct",
+            "model_ref": model_ref,
+            "server": {"host": "127.0.0.1", "port": 8123},
+            "launch": {"mode": "detached", "health": {"interval_seconds": 0.05}},
+        },
+    )
+
+    async def fake_probe_loop(cfg, *, emit, is_process_alive):
+        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
+
+    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
+    monkeypatch.setattr(
+        local_agent_module,
+        "discover_active_sidecars",
+        lambda runs_dirs: [sidecar_path],
+    )
+    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
+    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
+    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
+
+
+async def _probe_detached_run_until_ready(
+    client: InProcessTargetClient, tmp_path: Path
+) -> dict[str, object]:
+    await client.call("discover_detached", {"runs_dirs": [str(tmp_path)]})
+    await client.call("reattach_detached", {"run_id": "run-1"})
+    return await client.call("probe_until_ready", {"run_id": "run-1"})
+
+
 @pytest.mark.asyncio
 async def test_probe_until_ready_refreshes_model_registry_cache_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
-    registry_path.parent.mkdir(parents=True)
-    registry_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "default_cache": "hf",
-                "app_download_dir": None,
-                "entries": [
-                    {
-                        "entry_id": "01REMOTE",
-                        "display_name": "remote-llama",
-                        "aliases": [],
-                        "source": "hf_repo",
-                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
-                        "revision": "main",
-                        "commit_sha": "abc123",
-                        "local_path": None,
-                        "url": None,
-                        "quant_format": "none",
-                        "tokenizer": None,
-                        "files": {},
-                        "size_bytes": 0,
-                        "cache_state": "remote_only",
-                        "gated": False,
-                        "token_required": False,
-                        "created_at": "2026-06-02T14:03:11Z",
-                        "last_used_at": None,
-                        "notes": "",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_hf_model_registry(registry_path, cache_state="remote_only")
     snapshot_dir = tmp_path / "hf-cache" / "snapshots" / "abc123"
     snapshot_dir.mkdir(parents=True)
     weights = snapshot_dir / "model.safetensors"
@@ -6134,62 +6157,74 @@ async def test_probe_until_ready_refreshes_model_registry_cache_state(
         lambda: SimpleNamespace(repos=(fake_repo,)),
         raising=False,
     )
-
-    log_path = tmp_path / "run-1.run.log"
-    log_path.write_text("", encoding="utf-8")
-    manifest_path = tmp_path / "run-1.manifest.json"
-    manifest = Manifest.from_active_log(log_path)
-    sidecar_path = tmp_path / "run-1.json"
-    sidecar = Sidecar(
-        run_id="run-1",
-        config_name="detached",
-        command_argv=["vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct"],
-        command_hash="sha256:abc",
-        pid=123,
-        pgid=123,
-        process_create_time=1.0,
-        executable="/bin/vllm",
-        cwd=str(tmp_path),
-        launch_mode="detached",
-        host="127.0.0.1",
-        port=8123,
-        served_model_names=["served"],
-        exposure="local",
-        manifest_path=str(manifest_path),
-        config_snapshot={
-            "name": "detached",
-            "model": "meta-llama/Llama-3.1-8B-Instruct",
-            "model_ref": "01REMOTE",
-            "server": {"host": "127.0.0.1", "port": 8123},
-            "launch": {"mode": "detached", "health": {"interval_seconds": 0.05}},
-        },
-    )
-
-    async def fake_probe_loop(cfg, *, emit, is_process_alive):
-        emit(HealthEvent(ready=True, detail="ready", models=["served"]))
-
-    monkeypatch.setattr(local_agent_module, "verify_sidecar_from_system", lambda path: True)
-    monkeypatch.setattr(
-        local_agent_module,
-        "discover_active_sidecars",
-        lambda runs_dirs: [sidecar_path],
-    )
-    monkeypatch.setattr(local_agent_module, "load_sidecar", lambda path: sidecar)
-    monkeypatch.setattr(local_agent_module, "load_manifest", lambda path: manifest)
-    monkeypatch.setattr(local_agent_module, "probe_loop", fake_probe_loop)
-    agent = LocalAgent(models_registry_path=registry_path)
-    client = InProcessTargetClient(agent)
+    _post_ready_probe_scaffold(tmp_path, monkeypatch)
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
     await client.connect()
     try:
-        await client.call("discover_detached", {"runs_dirs": [str(tmp_path)]})
-        await client.call("reattach_detached", {"run_id": "run-1"})
-        result = await client.call("probe_until_ready", {"run_id": "run-1"})
+        result = await _probe_detached_run_until_ready(client, tmp_path)
     finally:
         await client.disconnect()
 
     assert result["ready"] is True
     refreshed = json.loads(registry_path.read_text(encoding="utf-8"))
     assert refreshed["entries"][0]["cache_state"] == "cached"
+
+
+@pytest.mark.asyncio
+async def test_probe_until_ready_skips_registry_refresh_when_model_already_cached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(registry_path, cache_state="cached")
+    refresh_calls: list[str] = []
+
+    def record_refresh(path: object) -> dict[str, object]:
+        refresh_calls.append(str(path))
+        return {}
+
+    monkeypatch.setattr(local_agent_module, "refresh_models", record_refresh)
+    _post_ready_probe_scaffold(tmp_path, monkeypatch)
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        result = await _probe_detached_run_until_ready(client, tmp_path)
+    finally:
+        await client.disconnect()
+
+    # Already cached: there is nothing to learn, so READY must not pay the
+    # full-scan-and-rewrite tax on every happy-path launch.
+    assert result["ready"] is True
+    assert refresh_calls == []
+
+
+@pytest.mark.asyncio
+async def test_post_ready_registry_refresh_runs_off_the_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(registry_path, cache_state="remote_only")
+    loop_thread = threading.get_ident()
+    seen: dict[str, object] = {}
+
+    def record_refresh_thread(path: object) -> dict[str, object]:
+        seen["thread"] = threading.get_ident()
+        return {}
+
+    monkeypatch.setattr(local_agent_module, "refresh_models", record_refresh_thread)
+    _post_ready_probe_scaffold(tmp_path, monkeypatch)
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        result = await _probe_detached_run_until_ready(client, tmp_path)
+    finally:
+        await client.disconnect()
+
+    # refresh_models is a blocking full HF-cache scan plus an atomic rewrite under
+    # an exclusive registry flock with no timeout; run inline on the event loop it
+    # freezes every RPC and all runs' probe loops at the READY moment.
+    assert result["ready"] is True
+    assert seen, "refresh was never invoked"
+    assert seen["thread"] != loop_thread
 
 
 @pytest.mark.asyncio

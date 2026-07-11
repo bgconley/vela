@@ -1635,15 +1635,15 @@ class LocalAgent:
             # exits on its own once the run's process is gone.
             self._track_post_ready_probe(run_id, probe_task)
             if fsm.phase is Phase.READY:
-                # H2: vLLM just downloaded the model to reach READY; re-scan so the
-                # registry learns the entry is now cached. Best-effort — a scan
-                # failure must never disturb the run.
-                self._refresh_model_registry_after_ready(run_id, run_config)
+                # H2: vLLM downloaded any missing weights to reach READY; re-scan
+                # so the registry learns the entry is now cached. Best-effort — a
+                # scan failure must never disturb the run.
+                await self._refresh_model_registry_after_ready(run_id, run_config)
         else:
             completed_task.cancel()
         return {"run_id": run_id, **last_event}
 
-    def _refresh_model_registry_after_ready(
+    async def _refresh_model_registry_after_ready(
         self, run_id: str, run_config: ModelConfig
     ) -> None:
         if run_id in self._post_ready_registry_refreshed:
@@ -1653,10 +1653,20 @@ class LocalAgent:
             return
         self._post_ready_registry_refreshed.add(run_id)
         try:
-            handoff = resolve_model_handoff(model_ref, self._models_registry_path)
+            # Registry helpers are blocking (file I/O; refresh_models is a full
+            # HF-cache walk plus an atomic rewrite under an exclusive flock with
+            # no timeout), so keep them off the event loop — the same dispatch
+            # the refresh_models RPC uses.
+            handoff = await asyncio.to_thread(
+                resolve_model_handoff, model_ref, self._models_registry_path
+            )
             if handoff is None or handoff.source != "hf_repo":
                 return
-            refresh_models(self._models_registry_path)
+            if (handoff.cache_state or "").lower() == "cached":
+                # Already cached: nothing to learn, and no full-scan tax on the
+                # happy path. H2 only cares about the uncached-to-cached move.
+                return
+            await asyncio.to_thread(refresh_models, self._models_registry_path)
         except Exception:
             # Best-effort registry learning: never let a scan failure disturb the run.
             self._post_ready_registry_refreshed.discard(run_id)
