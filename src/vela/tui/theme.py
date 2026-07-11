@@ -58,3 +58,47 @@ SURFACE_AMBER = "#2b2410"
 SURFACE_RED = "#2b1218"
 SURFACE_BLUE = "#0c2238"
 SURFACE_CYAN = "#0c2330"
+
+# ── Shared modal frame (bug-232 Flag Manager relayout — verified shipped) ────
+# Ready-to-interpolate CSS *declaration* blocks for the near-full-screen,
+# content-hugging modal frame that Tasks 4.2-4.4 apply to every manager/modal.
+# Consume them exactly like the hex tokens above: interpolate the constant into a
+# screen's f-string ``CSS`` (or ``DEFAULT_CSS``) INSIDE the panel's own selector
+# block, escaping the literal CSS braces as ``{{ }}``. For example:
+#
+#     CSS = f'''
+#     TargetManagerScreen #target-manager-panel {{
+#         {MODAL_PANEL_CSS}
+#         border: round {BORDER_STRONG};
+#         background: {BG_PANEL};
+#         padding: 1 2;
+#     }}
+#     TargetManagerScreen #target-manager-list-scroll {{
+#         {MODAL_LIST_CSS}
+#         max-height: 28;   /* screen-specific scroll cap */
+#     }}
+#     '''
+#
+# The constants carry NO braces, so they interpolate as plain string *values*
+# (f-string brace-escaping applies only to the literal braces the screen writes,
+# never to an interpolated value). That is why the frame is a declaration block,
+# not a full ``selector {{ ... }}`` rule — each screen keeps its own panel id.
+#
+# Every panel rule is load-bearing. Do NOT reintroduce a fixed pixel/col width;
+# that is exactly the bug-237 modal-clip regression this frame exists to prevent:
+#   * width: 96%       fits every terminal >= the modal minimum and is never wider
+#                      than the screen, so it cannot clip off the right edge.
+#   * height: auto     hug the content instead of a fixed row count, so a short
+#                      modal stays small and never leaves a mid-screen gap.
+#   * max-height: 96%  cap growth just under the viewport so a tall modal never
+#                      overflows past the top or bottom edge.
+#   * overflow-y: auto once content exceeds max-height, scroll INSIDE the panel
+#                      rather than pushing rows off-screen.
+MODAL_PANEL_CSS = "width: 96%; height: auto; max-height: 96%; overflow-y: auto;"
+
+# Companion rule for the long/variable list that lives in a ``VerticalScroll``
+# inside the panel: full-width and content-hugging (it grows), then the consuming
+# screen appends its own ``max-height: N`` so the list scrolls once it hits that
+# cap — the "grow, then scroll" half of the bug-232 relayout. Pair with
+# ``scroll.can_focus = False`` in ``on_mount`` so Tab still reaches the inputs.
+MODAL_LIST_CSS = "width: 1fr; height: auto;"

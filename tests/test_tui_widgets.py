@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
+from textual.css.scalar import Unit
+from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
 
 from vela.tui.theme import AMBER, CYAN, VIOLET
@@ -336,3 +340,78 @@ async def test_step_indicator_set_error_marks_step_and_clear_restores() -> None:
         content = str(si.content)
         assert "✗" not in content
         assert "✓ Target" in content
+
+
+# --- Task 4.1: shared modal frame tokens (bug-232 Flag Manager → bug-237 base) --
+# theme.py carries ready-to-interpolate CSS declaration blocks for the
+# near-full-screen, content-hugging modal frame that Tasks 4.2-4.4 apply to every
+# manager/modal. These structural tests pin the four load-bearing panel
+# properties so a future screen can't silently re-hardcode a fixed pixel/col
+# width (the bug-237 regression), and prove the constant drops into an f-string
+# CSS and resolves to real applied TCSS end-to-end.
+
+
+def test_modal_panel_css_encodes_the_four_load_bearing_frame_rules() -> None:
+    from vela.tui.theme import MODAL_PANEL_CSS
+
+    css = MODAL_PANEL_CSS
+    # The four properties the bug-232 relayout proved (content-hug, never clip).
+    assert "width: 96%" in css  # fits every terminal; never off the right edge
+    assert "height: auto" in css  # hug content; no fixed rows, no mid-screen gap
+    assert "max-height: 96%" in css  # cap under the viewport; never past top/bottom
+    assert "overflow-y: auto" in css  # scroll INSIDE the panel, never off-screen
+    # The panel width must stay the percentage — no re-hardcoded fixed col width.
+    assert re.search(r"width:\s*\d+\s*;", css) is None
+    # A bare declaration block (no selector/braces) so it interpolates as a plain
+    # f-string value exactly like the hex tokens — that is the whole mechanism.
+    assert "{" not in css and "}" not in css
+
+
+def test_modal_list_css_grows_then_scrolls() -> None:
+    from vela.tui.theme import MODAL_LIST_CSS
+
+    # Companion for the VerticalScroll list: full-width and content-hugging (grow);
+    # the consuming screen appends its own `max-height: N` scroll cap.
+    assert "width: 1fr" in MODAL_LIST_CSS
+    assert "height: auto" in MODAL_LIST_CSS
+    assert "{" not in MODAL_LIST_CSS and "}" not in MODAL_LIST_CSS
+
+
+@pytest.mark.asyncio
+async def test_modal_panel_css_interpolates_into_screen_css_end_to_end() -> None:
+    # Interpolation proving ground (the way flag_manager.py consumes theme tokens):
+    # drop MODAL_PANEL_CSS into a screen f-string CSS inside the panel's own
+    # selector block, escaping the literal braces as {{ }}, and confirm the frame
+    # resolves to real applied TCSS — a percentage, never a fixed width.
+    from vela.tui.theme import BG_PANEL, BORDER_STRONG, MODAL_PANEL_CSS
+
+    class _FrameModal(ModalScreen[None]):
+        CSS = f"""
+        _FrameModal #frame-panel {{
+            {MODAL_PANEL_CSS}
+            border: round {BORDER_STRONG};
+            background: {BG_PANEL};
+            padding: 1 2;
+        }}
+        """
+
+        def compose(self) -> ComposeResult:
+            with Vertical(id="frame-panel"):
+                yield Static("body", id="frame-body")
+
+    app = App()
+    async with app.run_test() as pilot:
+        screen = _FrameModal()
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        panel = screen.query_one("#frame-panel")
+        # width: 96% resolves to a width-relative percentage, never fixed cells
+        # (a hardcoded `width: 96` would be Unit.CELLS — the bug-237 regression).
+        assert panel.styles.width.value == 96.0
+        assert panel.styles.width.unit == Unit.WIDTH
+        # height hugs content; max-height caps at 96% of the viewport; scroll inside.
+        assert panel.styles.height.is_auto
+        assert panel.styles.max_height.value == 96.0
+        assert panel.styles.max_height.unit == Unit.HEIGHT
+        assert panel.styles.overflow_y == "auto"
