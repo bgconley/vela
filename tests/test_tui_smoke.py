@@ -5177,7 +5177,10 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
     async with app.run_test(size=(144, 45)) as pilot:
         await pilot.press("n")
         await _wait_for_condition(
-            lambda: app.screen.id == "new-deployment",
+            # Screen id registers before children mount on slow hosts
+            # (bug-207/209/248): gate on a child too, not the id alone.
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query("#new-deployment-name")),
             "new deployment screen did not open",
         )
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-adopted"
@@ -5185,7 +5188,8 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
         app.screen.query_one("#new-deployment-runtime", Select).value = "adopt_build"
 
         await _wait_for_condition(
-            lambda: app.screen.id == "adopt-build",
+            lambda: app.screen.id == "adopt-build"
+            and bool(app.screen.query("#adopt-build-label")),
             "adopt venv handoff did not open the adopt build flow",
         )
         app.screen.query_one("#adopt-build-label", Input).value = "external-nightly"
@@ -5196,7 +5200,11 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
         app.screen.query_one("#adopt-build-vllm-version-profile", Input).value = "0.11"
         await pilot.press("enter")
 
-        await _wait_for_condition(
+        # query_one inside the condition can raise NoMatches during the reopen's
+        # mount gap; the textual variant retries instead of propagating it
+        # (bare _wait_for_condition would fail the test on the first raise).
+        await _wait_for_textual_condition(
+            pilot,
             lambda: app.screen.id == "new-deployment"
             and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
             and app.screen.query_one("#new-deployment-build", Input).value
@@ -8936,7 +8944,9 @@ async def test_flag_manager_open_shows_busy_verb_loading_flags(
         )
         await pilot.press("F")
         # Mid-flight: list_presets is parked on the gate, so the busy verb holds.
-        await _wait_for_condition(
+        # The textual variant retries if a status widget query transiently raises.
+        await _wait_for_textual_condition(
+            pilot,
             lambda: app.query_one("#status-badge").has_class("status--pulse")
             and app.query_one("#status-label", Static).content.plain == "loading flags…",
             "busy verb did not appear while list_presets was gated",
@@ -8944,8 +8954,14 @@ async def test_flag_manager_open_shows_busy_verb_loading_flags(
         assert app.screen.id != "flag-manager"
 
         gate.set()
-        await _wait_for_condition(
-            lambda: app.screen.id == "flag-manager",
+        # The flag manager's #flag-manager-preset Select composes its
+        # SelectCurrent/SelectOverlay children AFTER the screen id registers; gate
+        # on the Select being fully composed so a mid-mount teardown cannot raise
+        # NoMatches: SelectOverlay (bug-209/248 class).
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: app.screen.id == "flag-manager"
+            and bool(app.screen.query("#flag-manager-preset SelectCurrent #label")),
             "flag manager did not open after list_presets released",
         )
         assert not app.query_one("#status-badge").has_class("status--pulse")
