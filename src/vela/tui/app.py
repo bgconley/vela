@@ -444,7 +444,35 @@ OPTIONAL_MONITOR_GROUP_LABELS = {
     "quit": "quit",
     "target-switch": "target switch",
     "reattach": "reattach",
+    # Task 1.2 carry-forward (Part B): the opener/verb/push worker groups. Each
+    # has at least one body that can raise an UNGUARDED non-TargetCallError (the
+    # shared connect-layer re-raise at minimum, plus concrete hazards like a
+    # malformed-payload KeyError in config-preview or a ModelConfig.model_validate
+    # ValidationError in a save path), so a failure must surface as a warning
+    # rather than being swallowed by exit_on_error=False. Groups whose every
+    # worker broad-guards live in SELF_REPORTING_WORKER_GROUPS instead.
+    "new-deployment": "new deployment",
+    "build-manager": "build manager",
+    "model-manager": "model manager",
+    "model-download": "model download",
+    "flag-manager": "flag manager",
+    "config-preview": "config preview",
+    "target-config-push": "config push",
+    "target-connection": "target connection",
+    "job-cancel": "job cancel",
+    "manager-reopen": "manager",
 }
+
+# Worker groups whose every spawned body fully self-guards (a broad try/except
+# that reports its own outcome) and so does NOT need the on_worker_state_changed
+# backstop. Kept EXPLICIT + separate from OPTIONAL_MONITOR_GROUP_LABELS so the
+# structural test forces every group to make the monitored-vs-self-reporting
+# choice consciously (Task 1.2 carry-forward, Part B).
+#   * detached-discovery: `_refresh_detached_runs` wraps its `discover_runs` RPC
+#     in `except Exception` and degrades to an empty run list by design — a
+#     best-effort background poll must not nag on a flaky link, so a monitor
+#     notification would be noise rather than signal.
+SELF_REPORTING_WORKER_GROUPS = frozenset({"detached-discovery"})
 
 ERROR_GUIDANCE = {
     ErrorKind.OOM: "Try lowering gpu_memory_utilization or max_model_len.",

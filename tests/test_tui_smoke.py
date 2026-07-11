@@ -13306,6 +13306,43 @@ def test_lifecycle_worker_groups_are_registered_as_optional_monitors() -> None:
         assert group in tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS
 
 
+def test_every_run_worker_group_is_monitored_or_self_reporting() -> None:
+    # Task 1.2 carry-forward (Part B): every group= used by a run_worker in
+    # app.py must be EITHER registered in OPTIONAL_MONITOR_GROUP_LABELS (so
+    # on_worker_state_changed surfaces its failure as a warning) OR listed in
+    # SELF_REPORTING_WORKER_GROUPS (its worker broad-guards and reports its own
+    # outcome). Crash-proofing (exit_on_error=False) without this leaves failures
+    # SILENT. Enforced structurally so every FUTURE group makes the choice
+    # consciously instead of regressing to a silent swallow.
+    source = inspect.getsource(tui_app_module)
+    used_groups: set[str] = set()
+    for match in re.finditer(r"run_worker\(", source):
+        depth = 1
+        index = match.end()
+        while index < len(source) and depth:
+            char = source[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            index += 1
+        call_text = source[match.start() : index]
+        group_match = re.search(r'group="([^"]+)"', call_text)
+        if group_match is not None:
+            used_groups.add(group_match.group(1))
+    # Sanity: the scanner actually found the known lifecycle groups.
+    assert {"engine", "new-deployment", "build-manager"} <= used_groups
+    registered = set(tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS) | set(
+        tui_app_module.SELF_REPORTING_WORKER_GROUPS
+    )
+    unclassified = sorted(used_groups - registered)
+    assert unclassified == [], (
+        "run_worker groups neither monitored nor self-reporting "
+        f"(add to OPTIONAL_MONITOR_GROUP_LABELS or SELF_REPORTING_WORKER_GROUPS): "
+        f"{unclassified}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_restart_monitor_failure_does_not_crash_app(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
