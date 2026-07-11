@@ -9592,6 +9592,39 @@ async def test_compose_review_shows_composing_busy_verb(config_dir: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_customize_review_shows_composing_busy_verb(config_dir: Path) -> None:
+    # A1 (bug-237): the wizard flag-customize validate+preview path had banners
+    # but no busy badge. It must paint the same "composing…" verb the plain
+    # compose/review path does, scoped to the RPCs (no nesting).
+    gate = asyncio.Event()
+    client = _GatedVerbClient(
+        gate,
+        "validate_config",
+        responses={
+            "validate_config": {"ok": True},
+            "preview": {"preview": "vllm serve org/m", "warnings": []},
+        },
+    )
+    app = _gated_verb_app(config_dir, client)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await _assert_busy_verb_during(
+            app,
+            pilot,
+            gate,
+            "composing…",
+            app._review_customized_new_deployment(
+                {"name": "demo", "model": "org/m"},
+                {"action": "customize", "engine": {}, "extra_args": []},
+                derived=[],
+                warnings=[],
+            ),
+        )
+        assert app.screen.id == "new-deployment-review"
+
+
+@pytest.mark.asyncio
 async def test_review_save_shows_saving_busy_verb(config_dir: Path) -> None:
     gate = asyncio.Event()
     client = _GatedVerbClient(

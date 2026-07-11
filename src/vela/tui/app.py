@@ -3614,22 +3614,25 @@ class VelaApp(App):
     ) -> None:
         try:
             updated_config = _draft_config_with_flag_updates(config, selection)
-            validation = await self._target_call(
-                "validate_config", {"config": updated_config}
-            )
-            if validation.get("ok") is not True:
-                self._set_error_text(
-                    _format_validation_errors(validation),
-                    style=f"bold {BAD}",
+            # Same "composing…" badge the plain compose/review path paints,
+            # scoped to the validate+preview RPCs only (no nesting) (bug-237).
+            with self._busy_badge("composing…"):
+                validation = await self._target_call(
+                    "validate_config", {"config": updated_config}
                 )
-                return
-            preview = await self._target_call(
-                "preview",
-                {
-                    "config": updated_config,
-                    **self._agent_params(configs_dir=self.configs_dir),
-                },
-            )
+                if validation.get("ok") is not True:
+                    self._set_error_text(
+                        _format_validation_errors(validation),
+                        style=f"bold {BAD}",
+                    )
+                    return
+                preview = await self._target_call(
+                    "preview",
+                    {
+                        "config": updated_config,
+                        **self._agent_params(configs_dir=self.configs_dir),
+                    },
+                )
         except TargetCallError as exc:
             self._set_error_text(f"Unable to review deployment: {exc}", style=f"bold {BAD}")
             return
