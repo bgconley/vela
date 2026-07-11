@@ -74,6 +74,7 @@ from vela.engine.log_sink import LogRecord, LogSink, level_for_line
 from vela.engine.model_registry import (
     ModelHandoff,
     ModelRegistryError,
+    default_hf_home_dir,
     default_models_registry_path,
     download_hf_model,
     inspect_model,
@@ -1306,6 +1307,10 @@ class LocalAgent:
             # Promote the human-readable form onto the command-builder warnings so
             # the TUI banner path (_record_warnings) renders it with no new plumbing.
             result = replace(result, warnings=[*result.warnings, cache["detail"]])
+        mount = _docker_missing_hf_cache_mount_descriptor(cfg, preparation.model_handoff)
+        if mount is not None:
+            launch_warnings.append(mount)
+            result = replace(result, warnings=[*result.warnings, mount["detail"]])
         return {
             "config": cfg.model_dump(mode="json"),
             "build": _build_payload(result),
@@ -5185,6 +5190,53 @@ def _model_not_cached_descriptor(
             "detail": detail,
         }
     return None
+
+
+def _docker_missing_hf_cache_mount_descriptor(
+    cfg: ModelConfig, handoff: ModelHandoff | None
+) -> dict[str, Any] | None:
+    """Warn when a docker + hf_repo launch has no HF cache mount (H3).
+
+    Registry downloads land in the agent's HF cache. A container with no
+    ``command.docker.hf_cache`` (and no volume already covering that cache)
+    cannot see it, so vLLM re-downloads the model into the container on every
+    fresh start and any pre-download was wasted. The composer sets the mount by
+    default; this catches hand-written YAML. Warning only (never a failure). The
+    detail names the model identity only — never an agent-local path (bug-225).
+    """
+    docker = cfg.command.docker
+    if cfg.command.runtime is not RuntimeKind.DOCKER or docker is None:
+        return None
+    if not _launch_uses_hf_repo(cfg, handoff):
+        return None
+    if docker.hf_cache is not None:
+        return None
+    if _volume_covers_hf_cache(docker.volumes):
+        return None
+    detail = (
+        f"docker deployment for Hugging Face model {cfg.model} has no HF cache "
+        "mount (command.docker.hf_cache is unset and no volume covers it), so the "
+        "container cannot see the target HF cache and vLLM will re-download the "
+        "model into the container on every fresh start. Set "
+        "command.docker.hf_cache to the target's HF cache (the composer sets it "
+        "by default)."
+    )
+    return {"kind": "docker-no-hf-cache-mount", "detail": detail}
+
+
+def _launch_uses_hf_repo(cfg: ModelConfig, handoff: ModelHandoff | None) -> bool:
+    if handoff is not None:
+        return handoff.source == "hf_repo"
+    return not is_local_model_reference(cfg.model) and "://" not in cfg.model
+
+
+def _volume_covers_hf_cache(volumes: list[str]) -> bool:
+    resolved = str(default_hf_home_dir())
+    for volume in volumes:
+        source = volume.split(":", 1)[0].strip()
+        if source and str(Path(source).expanduser()) == resolved:
+            return True
+    return False
 
 
 def _model_not_cached_wire(descriptor: dict[str, Any]) -> dict[str, Any]:

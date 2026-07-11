@@ -6068,6 +6068,168 @@ async def test_prepare_launch_warns_unpinned_model_only_when_require_cached(
     assert "not pinned" in warnings[0]["detail"]
 
 
+# --- H3 (bug-284): preflight warns when a docker hf_repo launch has no cache mount ---
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_warns_when_docker_hf_repo_pinned_has_no_hf_cache_mount(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    # cache_state=cached so the only launch warning is the missing HF cache mount.
+    _write_hf_model_registry(registry_path, cache_state="cached")
+    write_fake_docker_runtime(tmp_path / "docker")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "docker-nomount.yaml",
+            f"""
+            name: docker-nomount
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            command:
+              runtime: docker
+              docker:
+                image: vllm/vllm-openai@sha256:abc
+            server:
+              port: {unused_tcp_port}
+            vllm:
+              version_profile: current
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "docker-nomount", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    warnings = prepared["launch_warnings"]
+    assert isinstance(warnings, list) and len(warnings) == 1
+    warning = warnings[0]
+    assert warning["kind"] == "docker-no-hf-cache-mount"
+    assert "hf_cache" in warning["detail"]
+    assert "re-download" in warning["detail"]
+    assert "meta-llama/Llama-3.1-8B-Instruct" in warning["detail"]
+    # (bug-225 class) the structured warning must not leak an agent-local path.
+    assert str(Path.home()) not in warning["detail"]
+    # the human-readable form rides the command-builder warnings so the TUI
+    # banner renders it with no new plumbing.
+    assert any("hf_cache" in text for text in prepared["build"]["warnings"])
+    json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_warns_when_docker_bare_hf_repo_has_no_hf_cache_mount(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    write_fake_docker_runtime(tmp_path / "docker")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "docker-bare.yaml",
+            f"""
+            name: docker-bare
+            model: meta-llama/Llama-3.1-8B-Instruct
+            command:
+              runtime: docker
+              docker:
+                image: vllm/vllm-openai@sha256:abc
+            server:
+              port: {unused_tcp_port}
+            vllm:
+              version_profile: current
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "docker-bare", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    warnings = prepared["launch_warnings"]
+    assert [w["kind"] for w in warnings] == ["docker-no-hf-cache-mount"]
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_no_hf_cache_warning_when_docker_mounts_cache(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(registry_path, cache_state="cached")
+    write_fake_docker_runtime(tmp_path / "docker")
+    hf_cache = tmp_path / "hf-cache"
+    hf_cache.mkdir()
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "docker-mounted.yaml",
+            f"""
+            name: docker-mounted
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            command:
+              runtime: docker
+              docker:
+                image: vllm/vllm-openai@sha256:abc
+                hf_cache: {hf_cache}
+            server:
+              port: {unused_tcp_port}
+            vllm:
+              version_profile: current
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "docker-mounted", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    assert prepared["launch_warnings"] == []
+    assert not any("hf_cache" in text for text in prepared["build"]["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_no_hf_cache_warning_for_docker_local_path_model(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    # A local-path model needs no HF cache mount; the warning is hf_repo-gated.
+    model_dir = tmp_path / "local-model"
+    model_dir.mkdir()
+    write_fake_docker_runtime(tmp_path / "docker")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    client = InProcessTargetClient(LocalAgent())
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "docker-local.yaml",
+            f"""
+            name: docker-local
+            model: {model_dir}
+            command:
+              runtime: docker
+              docker:
+                image: vllm/vllm-openai@sha256:abc
+            server:
+              port: {unused_tcp_port}
+            vllm:
+              version_profile: current
+            """,
+        )
+        prepared = await client.call(
+            "prepare_launch", {"name": "docker-local", "configs_dir": str(config_dir)}
+        )
+    finally:
+        await client.disconnect()
+
+    assert prepared["launch_warnings"] == []
+
+
 def _post_ready_probe_scaffold(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, model_ref: str = "01CACHE"
 ) -> None:

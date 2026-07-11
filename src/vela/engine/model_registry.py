@@ -113,6 +113,36 @@ def default_models_registry_path() -> Path:
     return root / "vela" / "models" / "registry.json"
 
 
+def default_hf_hub_cache_dir() -> Path:
+    """The Hugging Face hub cache directory downloads and scans land in.
+
+    ``snapshot_download`` (called with no ``cache_dir``) and ``scan_cache_dir``
+    both operate on huggingface_hub's ``HF_HUB_CACHE``. Resolving it from the
+    same constants keeps the composer's default docker mount and the agent's own
+    downloads pointed at one location.
+    """
+    from huggingface_hub import constants
+
+    return Path(constants.HF_HUB_CACHE).expanduser()
+
+
+def default_hf_home_dir() -> Path:
+    """The ``HF_HOME`` root that contains :func:`default_hf_hub_cache_dir`.
+
+    This is the host directory to bind-mount into a container at
+    ``command.docker.hf_cache_target`` (default ``/root/.cache/huggingface``): a
+    container's default hub cache is ``HF_HOME/hub``, so mounting the host
+    ``HF_HOME`` makes the weights that ``snapshot_download`` cached under
+    ``HF_HUB_CACHE`` visible inside the container.
+    """
+    from huggingface_hub import constants
+
+    hf_home = getattr(constants, "HF_HOME", None)
+    if hf_home:
+        return Path(hf_home).expanduser()
+    return default_hf_hub_cache_dir().parent
+
+
 def resolve_model_handoff(
     reference: str | None, registry_path: str | Path | None = None
 ) -> ModelHandoff | None:

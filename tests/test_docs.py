@@ -72,6 +72,15 @@ def test_docs_cover_launch_cache_check_and_registry_learning() -> None:
     assert "learns" in text or "re-scans" in text
 
 
+def test_docs_cover_docker_hf_cache_default_mount() -> None:
+    docker_runtime = _read("docs/docker-runtime.md")
+    builds_models = _read("docs/builds-and-models.md")
+
+    assert "mounts the agent HF cache by default" in docker_runtime
+    assert "docker-no-hf-cache-mount" in docker_runtime
+    assert "mounts the agent HF cache by default" in builds_models
+
+
 def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     readme = _read("README.md")
     configuration = _read("docs/configuration.md")

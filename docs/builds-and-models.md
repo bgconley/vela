@@ -84,6 +84,13 @@ verify --deep` runs the registry's deep content verification path when the
 source supports it; shallow verification is still the default for quick health
 checks.
 
+Pre-downloading pays off for Docker deployments: a composed `runtime: docker`
+deployment of a Hugging Face model **mounts the agent HF cache by default**
+(`command.docker.hf_cache`), so the container reads the same cache
+`vela model download` fills instead of re-downloading the weights on first
+launch. A hand-written Docker config that omits the mount launches with a
+`docker-no-hf-cache-mount` warning (see `docs/docker-runtime.md`).
+
 Removal refuses live server usage and config pins. Actual reclaim for Hugging
 Face revisions is dedup-aware because the registry delegates to the HF cache
 APIs rather than deleting arbitrary files.

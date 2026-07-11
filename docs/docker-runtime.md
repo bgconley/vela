@@ -181,6 +181,26 @@ vela deploy create qwen36-fp8 \
   --dry-run
 ```
 
+### HF cache mount
+
+For a generic (non-recipe) Docker deployment of a Hugging Face repo model —
+whether pinned through `model_ref` or given as a bare `model:` repo id — the
+composer **mounts the agent HF cache by default**. It sets
+`command.docker.hf_cache` to the target's resolved Hugging Face cache directory
+(`HF_HOME`, the same tree `vela model download` and the registry scan use) so it
+is bind-mounted at `hf_cache_target` (`/root/.cache/huggingface`). Without the
+mount every fresh container re-downloads the model into its own filesystem and
+any pre-download is wasted disk. Local-path and URL models get no auto-mount
+(a local path has its own volume handling; a URL needs nothing), and an explicit
+`command.docker.hf_cache` — or a matched lab recipe's own cache mounts — always
+wins.
+
+Hand-written Docker YAML that omits the mount is not blocked. Launching a
+`runtime: docker` config whose model is a Hugging Face repo with no
+`command.docker.hf_cache` (and no volume covering that cache) surfaces a
+`docker-no-hf-cache-mount` launch warning explaining that the container will
+re-download the weights on every fresh start.
+
 ## Real-Hardware Proof
 
 Current maintainer-lab P620-to-Blackbird native-Docker validations:

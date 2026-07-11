@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from conftest import write_yaml
+from huggingface_hub import constants as hf_constants
 
 from vela.agent import local as local_agent_module
 from vela.agent.local import LocalAgent, TargetCallError
@@ -1541,3 +1542,192 @@ def test_compose_warns_when_world_size_exceeds_visible_gpus(
     )
     warnings = [str(w) for w in result.get("warnings", [])]
     assert any("exceeds 1 visible GPU" in w for w in warnings)
+
+
+# --- H3 (bug-284): docker composes mount the agent HF cache by default -------
+
+_AGENT_HF_HOME = str(Path(hf_constants.HF_HOME))
+
+
+def _write_source_registry(path: Path, *, source: str, tmp_path: Path) -> dict:
+    if source == "hf_repo":
+        specifics: dict[str, object] = {
+            "repo_id": "org/plain-llm",
+            "local_path": None,
+            "url": None,
+        }
+    elif source == "local_path":
+        model_dir = tmp_path / "local-model"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        specifics = {"repo_id": None, "local_path": str(model_dir), "url": None}
+    else:  # url
+        specifics = {
+            "repo_id": None,
+            "local_path": None,
+            "url": "https://example.com/model.gguf",
+        }
+    entry = {
+        "entry_id": "01SRC",
+        "display_name": f"{source}-model",
+        "aliases": [source],
+        "source": source,
+        "revision": "main",
+        "commit_sha": "abc123",
+        "quant_format": "none",
+        "tokenizer": None,
+        "files": {},
+        "size_bytes": 0,
+        "cache_state": "cached",
+        "gated": False,
+        "token_required": False,
+        "created_at": "2026-07-11T00:00:00Z",
+        "last_used_at": None,
+        "notes": "",
+        **specifics,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [entry],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return entry
+
+
+def test_generic_docker_pinned_hf_repo_mounts_agent_hf_cache_by_default(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_source_registry(registry_path, source="hf_repo", tmp_path=tmp_path)
+    monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_a, **_k: {})
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "plain-docker",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model_ref": "01SRC",
+        },
+    )
+
+    docker = result["config"]["command"]["docker"]
+    assert docker["hf_cache"] == _AGENT_HF_HOME
+
+
+def test_generic_docker_bare_hf_repo_model_mounts_agent_hf_cache_by_default(
+    config_dir: Path,
+) -> None:
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "bare-docker",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model": "Qwen/Qwen3-8B",
+        },
+    )
+
+    docker = result["config"]["command"]["docker"]
+    assert docker["hf_cache"] == _AGENT_HF_HOME
+
+
+def test_generic_docker_bare_local_path_model_has_no_auto_hf_cache_mount(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    # A local-path model gets its own volume handling; the composer must not
+    # auto-mount the agent HF cache for it.
+    model_dir = tmp_path / "local-model"
+    model_dir.mkdir()
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "local-docker",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model": str(model_dir),
+        },
+    )
+
+    assert result["config"]["command"]["docker"]["hf_cache"] is None
+
+
+def test_generic_docker_url_model_ref_has_no_auto_hf_cache_mount(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_source_registry(registry_path, source="url", tmp_path=tmp_path)
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "url-docker",
+            "runtime": {"kind": "docker", "image": "vllm/vllm-openai@sha256:abc"},
+            "model_ref": "01SRC",
+        },
+    )
+
+    assert result["config"]["command"]["docker"]["hf_cache"] is None
+
+
+def test_fp8_recipe_docker_keeps_recipe_hf_cache_over_agent_default(
+    config_dir: Path,
+) -> None:
+    # Explicit/recipe value always wins: the FP8 recipe's own hf_cache mount is
+    # preserved byte-identically and the agent default is NOT substituted.
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B-FP8",
+        },
+    )
+
+    docker = result["config"]["command"]["docker"]
+    assert docker["hf_cache"] == "/home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache"
+    assert docker["hf_cache"] != _AGENT_HF_HOME
+
+
+def test_bf16_recipe_docker_does_not_inject_agent_hf_cache_default(
+    config_dir: Path,
+) -> None:
+    # The BF16 recipe mounts the cache through env + a root volume, not hf_cache;
+    # a matched recipe must stay byte-identical (no agent default injected).
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-bf16-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker"},
+            "model": "Qwen/Qwen3.6-27B",
+        },
+    )
+
+    assert result["config"]["command"]["docker"]["hf_cache"] is None
