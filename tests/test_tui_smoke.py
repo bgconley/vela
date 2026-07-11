@@ -5447,7 +5447,7 @@ async def test_new_deployment_review_blocks_download_now_without_pin(
 ) -> None:
     # bug-236 regression pin for the review-time gate the wizard-side fix must
     # NOT remove: source=Existing pin + Download-now checked + pinned Select
-    # left at "Custom model" (no pin selected) → _collect_spec emits
+    # left at its no-pins placeholder (no pin selected) → _collect_spec emits
     # download_now=True with no model_ref → _review_new_deployment must block
     # before composing and reopen the wizard with the pinned-model error.
     class ComposerClient:
@@ -5519,7 +5519,10 @@ async def test_new_deployment_review_blocks_download_now_without_pin(
     async with app.run_test(size=(144, 48)) as pilot:
         await pilot.press("n")
         await _wait_for_condition(
-            lambda: app.screen.id == "new-deployment",
+            # Screen id registers before children mount on slow hosts
+            # (bug-207/209/248): gate on a child too, not the id alone.
+            lambda: app.screen.id == "new-deployment"
+            and bool(app.screen.query("#new-deployment-name")),
             "new deployment screen did not open",
         )
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-nopin"
@@ -5539,7 +5542,11 @@ async def test_new_deployment_review_blocks_download_now_without_pin(
         app.screen.query_one("#new-deployment-download-now", Checkbox).value = True
         await pilot.press("ctrl+s")
 
-        await _wait_for_condition(
+        # query_one inside the condition can raise NoMatches during the reopen's
+        # mount gap; the textual variant retries instead of propagating it
+        # (bare _wait_for_condition would fail the test on the first raise).
+        await _wait_for_textual_condition(
+            pilot,
             lambda: app.screen.id == "new-deployment"
             and "Download now requires a pinned model"
             in str(app.screen.query_one("#new-deployment-error", Static).content),

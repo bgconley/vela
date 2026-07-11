@@ -156,7 +156,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     # fresh HF pin ("pin_hf") resolves to an immutable revision the agent can
     # pre-fetch; a bare repo id or an adopted local path cannot, so the box is
     # hidden and reset for those (bug-236).
-    _DOWNLOAD_MODES = frozenset({"existing", "pin_hf"})
+    _PREDOWNLOADABLE_MODEL_SOURCES = frozenset({"existing", "pin_hf"})
 
     # Per-step validation (bug-236c). Steps with an advance gate also carry a
     # step-adjacent .step-error Static so the message renders next to the
@@ -524,11 +524,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             mode = str(event.value or "")
             if mode in {"pin_hf", "adopt_local"}:
                 event.stop()
-                if mode not in self._DOWNLOAD_MODES:
-                    # Adopt local path is unpinnable — clear a stale download-now
-                    # before capturing the draft so it never carries forward and
-                    # dead-ends Review after the handoff returns (bug-236).
-                    self.query_one("#new-deployment-download-now", Checkbox).value = False
+                # Hide/reset download-now for unpinnable sources before capturing
+                # the draft so a stale check can't carry forward and dead-end
+                # Review after the handoff returns (bug-236). Delegated to the
+                # single disclosure path so the reset rule lives in one place.
+                self._apply_model_disclosure()
                 self.dismiss(
                     {
                         "action": "pin_model",
@@ -691,8 +691,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         if step_index is not None:
             self.query_one("#new-deployment-steps", StepIndicator).set_error(step_index)
             if step_index < self.step_index:
-                # The owning step is behind us — Ctrl+B walks straight back to it.
-                message = f"{message} — Ctrl+B to {self.STEP_TITLES[step_index]}"
+                # The owning step is behind us — Ctrl+B steps back toward it (one
+                # step per press; the owning step may be several presses away).
+                message = f"{message} — Ctrl+B back to {self.STEP_TITLES[step_index]}"
             elif step_index > self.step_index:
                 # The owning step is ahead — Ctrl+B is the wrong direction, so
                 # point at it without prescribing a key that walks away from it.
@@ -1125,7 +1126,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         # Review with "Download now requires a pinned model" (bug-236). Computed
         # before the handoff early-return so a restored bare draft resets too.
         download = self.query_one("#new-deployment-download-now", Checkbox)
-        download_visible = mode in self._DOWNLOAD_MODES
+        download_visible = mode in self._PREDOWNLOADABLE_MODEL_SOURCES
         download.display = download_visible
         if not download_visible:
             download.value = False

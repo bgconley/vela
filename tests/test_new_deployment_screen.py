@@ -580,7 +580,7 @@ async def test_reopened_review_error_marks_owning_step_and_offers_ctrl_b() -> No
     # bug-236c bullet 2: when review-time compose fails with an error we can
     # attribute to a wizard step, the reopened wizard marks that step ✗ in the
     # breadcrumb (instead of a dishonest ✓) and the panel error offers the way
-    # back: "… — Ctrl+B to Model".
+    # back: "… — Ctrl+B back to Model".
     app = _Host()
     async with app.run_test() as pilot:
         draft = {
@@ -606,7 +606,7 @@ async def test_reopened_review_error_marks_owning_step_and_offers_ctrl_b() -> No
         assert "Download now requires a pinned model" in error_text
         assert "Pin the HF repo or choose an existing pin" in error_text
         # … and the honest navigation affordance is appended.
-        assert error_text.endswith("— Ctrl+B to Model")
+        assert error_text.endswith("— Ctrl+B back to Model")
         steps = screen.query_one("#new-deployment-steps", StepIndicator)
         assert "✗ Model" in str(steps.content)  # honest, not ✓
         assert "✓ Model" not in str(steps.content)
