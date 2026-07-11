@@ -4393,17 +4393,19 @@
       "error_message": "New Deployment Enter-walk breaks after every handoff round-trip: focus lands on a Select and Enter opens the dropdown forever (probe-verified)",
       "file": "src/vela/tui/screens/new_deployment.py:1144-1156",
       "root_cause": "_refresh_step -> _focus_current_step maps steps 1-3 to Select widgets; the Enter-safe _focus_step_entry (507-519) is only used by next/previous actions. Also no visible focus indicator on Selects/Checkbox when reached via Tab (observed live).",
-      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "fix": "_refresh_step now routes focus through the Enter-safe _focus_step_entry (focus the step first visible Input, else the inert step container) and the dead _focus_current_step (mapped steps 1/2/3 to Selects) is deleted. Every mount/restore + next/previous now shares one Enter-safe focus path, so a restored draft at a Select-mapped step (target switch / handoff round-trip) no longer traps Enter in the runtime dropdown. Behavior-only: ids, dismiss payloads, rendered substrings unchanged. TDD: test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select (test_new_deployment_screen.py). Commit c5f9ba5 on remediate/2026-07-09-review. FOLLOW-UP (commit c5bc948): a restored draft at a Select-mapped step could land focus on an Enter-safe but INVISIBLE zero-region widget when a later disclosure pass hid its group after focus was set; on_mount now runs the disclosure passes BEFORE _refresh_step so focus lands on an effectively-visible Input. bug-235 fully resolved (c5f9ba5 + c5bc948).",
       "tags": [
-        "tui",
-        "wizard",
+        "bug-235",
+        "enter",
+        "fixed",
         "focus",
         "select",
-        "enter"
+        "tui",
+        "wizard"
       ],
       "related_bugs": [],
       "occurrences": 1,
-      "last_seen": "2026-07-09T06:05:00Z"
+      "last_seen": "2026-07-11"
     },
     {
       "id": "bug-236",
@@ -4411,7 +4413,7 @@
       "error_message": "Wizard Model step dead-ends: empty registry defaults to Existing pin + 'Custom model' with no model-id input; 'Download now' stays enabled+checked in Bare-repo-id mode and then hard-blocks Review; stray debug text 'sources configured_ports, defaults' rendered; 'Model is required' shows while breadcrumb marks Model as done (all observed live)",
       "file": "src/vela/tui/screens/new_deployment.py",
       "root_cause": "Model-source/checkbox visibility state machine incomplete: checkbox not hidden/reset per source; default source not switched when registry empty; validation only runs at review-compose and reports at panel bottom without stepping back.",
-      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "fix": "236a DONE (Task 2.2): Download-now now obeys the model source. Added _DOWNLOAD_MODES={existing,pin_hf}; _apply_model_disclosure hides the #new-deployment-download-now Checkbox AND resets .value=False for bare/adopt_local (computed before the handoff early-return so a restored bare draft resets too); the adopt_local handoff branch in on_select_changed also clears the box before capturing the draft. existing/pin_hf keep it visible + independent (hiding resets, re-showing does not re-check). The app.py:3198 'Download now requires a pinned model' gate is untouched and still fires for existing+checked+no-pin. _collect_spec/_draft_state payloads unchanged. TDD in test_new_deployment_screen.py; the review-time gate itself is pinned app-level by test_tui_smoke.py::test_new_deployment_review_blocks_download_now_without_pin (red-proven by inverting the model_ref check). 236b DONE (Task 2.3): empty registry now defaults the Model source to \"Bare repo id\" (NewDeploymentScreen._default_model_mode returns bare when _pinned_model_options() is empty) so the Model input is immediately visible; the pinned-model Select shows an honest placeholder row No pins on this target — pick \"Pin HF repo →\" (keeps the __custom__ no-op value, so _selected_model_ref()->None and the review gate still blocks) instead of the phantom Custom model. Restored drafts carrying model_mode win via _apply_initial. Scoped to the zero-pins branch; >=1-pin behavior byte-for-byte unchanged. TDD in test_new_deployment_screen.py (+4 tests); touched test_tui_smoke.py 236a gate (now switches to existing explicitly) and the build+pin+smoke acceptance flow (checks Download-now after the pin). Commit c809e93. 236c DONE (Task 2.4, commit 187c4af): a per-step _validate_step advance gate plus StepIndicator amber ✗ error state, so Ctrl+N can't walk past an unresolvable Model step and the breadcrumb never shows a dishonest ✓ on a failed step. 236d DONE (Task 2.5, commits 5f73ae6 + fb5a455): removed the 'sources ... defaults' debug leak, fixed hint casing, added the Enter-advance hint, made the review-error nav hint direction-aware (owning<current → back-suffix, owning>current → neutral 'see <Step>', owning==current → none), bound the mapped review prefixes as module constants, and cleared stale panel errors on step-fix. M3 (Task 2.6, commits c793883/f43f6fc/e6beaeb): list_models rows carry an additive derived `pinned` field and the wizard only offers model refs compose can resolve, with invariant docs. Phase-2 gate (Task 2.7, commit 69fd1d7) softened the behind-branch hint to '— Ctrl+B back to <Step>'. bug-236 fully resolved.",
       "tags": [
         "tui",
         "wizard",
@@ -4422,7 +4424,7 @@
       ],
       "related_bugs": [],
       "occurrences": 1,
-      "last_seen": "2026-07-09T06:05:00Z"
+      "last_seen": "2026-07-11"
     },
     {
       "id": "bug-237",
@@ -4522,6 +4524,50 @@
       ],
       "occurrences": 1,
       "last_seen": "2026-07-09T08:13:37Z"
+    },
+    {
+      "id": "bug-248",
+      "timestamp": "2026-07-10T00:00:00-04:00",
+      "error_message": "test_new_deployment_adopt_venv_handoff_pins_adopted_build failed once with NoMatches (textual dom.py query) during a `pytest tests/ -k new_deployment` batch run; passed in isolation and in two full-cluster reruns",
+      "file": "tests/test_tui_smoke.py",
+      "root_cause": "Pre-existing bug-207/bug-209 class flake, not the reviewed commit (1f19ccc is tests-only and its new test sits AFTER the victim at line 5103 vs 5445). The test waits on app.screen.id alone ('new-deployment' / 'adopt-build') then immediately query_one's child widgets; under load the screen registers before children finish mounting.",
+      "fix": "No code change in the reviewed slice (out of its scope); recorded the occurrence. Hardening path is the bug-209 fix: strengthen the wait to include child presence (query() truthiness) or use _wait_for_textual_condition, which retries when the condition raises (bare _wait_for_condition propagates NoMatches raised inside the lambda). PARTIAL (Phase-2 gate, commit 69fd1d7): the two waits in test_new_deployment_review_blocks_download_now_without_pin were hardened per this path — the screen-open wait now also gates on a #new-deployment-name child via query() truthiness, and the reopen wait moved to _wait_for_textual_condition (retries NoMatches instead of propagating it). Entry stays OPEN: the file-wide sweep of the remaining id-only / query_one-in-_wait_for_condition waits across test_tui_smoke.py is still pending.",
+      "tags": [
+        "test",
+        "tui",
+        "flake",
+        "new-deployment",
+        "adopt-build",
+        "mount-gap",
+        "NoMatches"
+      ],
+      "related_bugs": [
+        "bug-207",
+        "bug-209"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11"
+    },
+    {
+      "id": "bug-249",
+      "timestamp": "2026-07-10T00:00:00Z",
+      "error_message": "bug-236c: wizard let Ctrl+N walk past an unresolvable Model step, and the breadcrumb showed a dishonest green ✓ on steps whose fields failed review-time validation",
+      "file": "src/vela/tui/screens/new_deployment.py",
+      "root_cause": "action_next_step advanced unconditionally (no per-step validation) and StepIndicator had no error state, so review failures rendered only at the panel bottom while the failed step stayed ✓",
+      "fix": "Added _validate_step advance gate (Model rule: no pinned ref + empty bare id + non-handoff source blocks with step-adjacent #new-deployment-model-error Static), StepIndicator.set_error/clear_error/clear_errors amber ✗ state, and _render_wizard_error mapping known review errors (Model is required / Download now requires a pinned model) to the owning step with a '— Ctrl+B to <Step>' suffix; unmapped errors unchanged",
+      "tags": [
+        "tui",
+        "wizard",
+        "new-deployment",
+        "validation",
+        "step-indicator",
+        "bug-236"
+      ],
+      "related_bugs": [
+        "bug-236"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T00:00:00Z"
     }
   ]
 }

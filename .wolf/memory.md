@@ -1045,3 +1045,104 @@
 | 02:58 | Edited src/vela/tui/screens/confirm.py | modified action_cancel() | ~152 |
 | 03:08 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/fix_buglog.py | — | ~657 |
 | 03:10 | Phase 1 complete: bug-233/234 + worker crash-proofing (4 commits + tidy-up) | app.py, confirm.py, test_tui_smoke.py | full suite 1146 green | ~140k |
+| 03:33 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_focus.py | — | ~788 |
+| 03:36 | Edited tests/test_new_deployment_screen.py | modified test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select() | ~600 |
+| 03:36 | Edited src/vela/tui/screens/new_deployment.py | reduced (-10 lines) | ~159 |
+| 03:46 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_focus_v2.py | — | ~481 |
+| 16:42 | Edited tests/test_new_deployment_screen.py | inline fix | ~17 |
+| 16:42 | Edited tests/test_new_deployment_screen.py | modified test_download_now_hidden_and_reset_for_bare_source() | ~1364 |
+| 16:46 | Edited tests/test_new_deployment_screen.py | modified test_restored_bare_draft_resets_download_now() | ~685 |
+| 16:46 | Edited src/vela/tui/screens/new_deployment.py | modified __init__() | ~127 |
+| 16:46 | Edited src/vela/tui/screens/new_deployment.py | modified _apply_model_disclosure() | ~274 |
+| 16:46 | Edited src/vela/tui/screens/new_deployment.py | 14→19 lines | ~259 |
+| 16:50 | Task 2.2 (bug-236a): Download-now hides+resets for unpinnable model sources (bare/adopt_local); existing/pin_hf keep it, independent; app.py pinned-model gate untouched | src/vela/tui/screens/new_deployment.py, tests/test_new_deployment_screen.py | 16 screen + 28 smoke + 243 full green; ruff+mypy clean | ~600 |
+| 19:01 | Session end: 62 writes across 15 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 95 reads | ~534122 tok |
+| 19:11 | Edited tests/test_tui_smoke.py | modified test_new_deployment_review_blocks_download_now_without_pin() | ~1520 |
+| 19:11 | Edited src/vela/tui/app.py | 6→6 lines | ~80 |
+| 19:11 | Edited src/vela/tui/app.py | 6→6 lines | ~69 |
+| 19:12 | Edited tests/test_new_deployment_screen.py | 3→4 lines | ~88 |
+| 19:12 | Edited tests/test_new_deployment_screen.py | 3→3 lines | ~63 |
+| 17:20 | Task 2.2 follow-up (review verdict): app-level regression pin test_new_deployment_review_blocks_download_now_without_pin (existing+checked+no-pin blocks review before compose/download; red-proven by inverting the model_ref gate); tightened 2 over-promising screen-test comments | tests/test_tui_smoke.py, tests/test_new_deployment_screen.py | 1+16+29 green; ruff+mypy clean; commit 1f19ccc | ~250 |
+| 19:15 | Session end: 67 writes across 15 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 95 reads | ~537348 tok |
+| 09:05 | Re-review of 1f19ccc (bug-236 gate pin): verified real ctrl+s→_review_new_deployment path, sound no-agent-work assertions, comments fixed; cluster 45 green (29 smoke) x2, ruff clean; witnessed 1 pre-existing adopt_venv mount-gap flake → bug-248 | tests/test_tui_smoke.py, .wolf/buglog.json | verdict: unqualified Yes | ~120 |
+| 20:40 | Edited tests/test_new_deployment_screen.py | modified _Host() | ~95 |
+| 20:41 | Edited tests/test_new_deployment_screen.py | modified test_empty_registry_defaults_to_bare_repo_source() | ~1409 |
+| 20:41 | Edited src/vela/tui/screens/new_deployment.py | modified _connection_dot() | ~188 |
+| 20:41 | Edited src/vela/tui/screens/new_deployment.py | 11→11 lines | ~131 |
+| 20:42 | Edited src/vela/tui/screens/new_deployment.py | modified _pinned_model_options() | ~422 |
+| 20:43 | Edited tests/test_new_deployment_screen.py | expanded (+7 lines) | ~187 |
+| 20:43 | Edited tests/test_new_deployment_screen.py | expanded (+7 lines) | ~184 |
+| 20:43 | Edited tests/test_new_deployment_screen.py | expanded (+7 lines) | ~204 |
+| 20:44 | Edited tests/test_tui_smoke.py | 12→16 lines | ~271 |
+| 20:46 | Edited tests/test_tui_smoke.py | 5→4 lines | ~100 |
+| 20:46 | Edited tests/test_tui_smoke.py | 12→16 lines | ~221 |
+| 21:30 | Task 2.3 (bug-236b): empty-registry wizard defaults Model source to bare-repo + honest no-pins placeholder | src/vela/tui/screens/new_deployment.py, tests/test_new_deployment_screen.py (+4), tests/test_tui_smoke.py (2 arrangements) | commit c809e93; focused 20✓, smoke 244✓, ruff+mypy clean; stripped 4 auto-junk buglog entries (242/243/244/246) | ~48000 |
+| 21:14 | Session end: 78 writes across 15 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 95 reads | ~542816 tok |
+| 21:19 | Edited src/vela/tui/widgets/step_indicator.py | modified __init__() | ~638 |
+| 21:21 | Edited src/vela/tui/screens/new_deployment.py | 3→4 lines | ~48 |
+| 21:21 | Edited src/vela/tui/screens/new_deployment.py | expanded (+13 lines) | ~310 |
+| 21:21 | Edited src/vela/tui/screens/new_deployment.py | modified message() | ~145 |
+| 21:21 | Edited src/vela/tui/screens/new_deployment.py | added 1 condition(s) | ~726 |
+| 21:22 | Edited src/vela/tui/screens/new_deployment.py | 2→2 lines | ~26 |
+| 21:22 | Edited src/vela/tui/screens/new_deployment.py | modified action_submit() | ~331 |
+| 2026-07-10 | Task 2.4 bug-236c: StepIndicator set_error/clear_error(s) amber ✗ state (red-green in test_tui_widgets) | src/vela/tui/widgets/step_indicator.py, tests/test_tui_widgets.py | 17 widget tests green | ~8k |
+| 2026-07-10 | Task 2.4 bug-236c: per-step advance gate (_validate_step, Model rule) + step-adjacent #new-deployment-model-error + _render_wizard_error step mapping with Ctrl+B suffix | src/vela/tui/screens/new_deployment.py, tests/test_new_deployment_screen.py | 24 screen tests green, smoke cluster 29 green, ruff+mypy clean | ~30k |
+| 21:50 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_visible.py | — | ~582 |
+| 21:52 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/probe_hints.py | — | ~636 |
+| 21:53 | Edited tests/test_new_deployment_screen.py | modified _hint_pairs() | ~258 |
+| 21:53 | Edited tests/test_new_deployment_screen.py | modified test_model_step_suggestions_drop_sources_debug_line() | ~1122 |
+| 21:54 | Edited src/vela/tui/screens/new_deployment.py | 7→8 lines | ~135 |
+| 21:54 | Edited src/vela/tui/screens/new_deployment.py | 9→10 lines | ~92 |
+| 21:54 | Edited src/vela/tui/screens/new_deployment.py | 10→13 lines | ~161 |
+| 21:54 | Edited src/vela/tui/app.py | "INFO   ⏎  review · S save" → "INFO   ⏎  review · s save" | ~22 |
+| 21:55 | Edited tests/test_new_deployment_screen.py | inline fix | ~14 |
+| 21:56 | Edited tests/test_new_deployment_screen.py | expanded (+7 lines) | ~271 |
+| 21:56 | Edited src/vela/tui/screens/new_deployment.py | expanded (+6 lines) | ~248 |
+| 21:57 | Edited tests/test_new_deployment_screen.py | step() → 235() | ~174 |
+| 21:59 | Edited tests/test_new_deployment_screen.py | modified test_shared_error_constants_bind_the_mapped_prefixes() | ~366 |
+| 21:59 | Edited src/vela/tui/screens/new_deployment.py | modified NewDeploymentScreen() | ~176 |
+| 22:00 | Edited src/vela/tui/screens/new_deployment.py | 7→8 lines | ~128 |
+| 22:00 | Edited src/vela/tui/screens/new_deployment.py | 4→4 lines | ~42 |
+| 22:00 | Edited src/vela/tui/screens/new_deployment.py | 2→2 lines | ~27 |
+| 22:00 | Edited src/vela/tui/app.py | 4→5 lines | ~38 |
+| 22:00 | Edited src/vela/tui/app.py | 6→6 lines | ~67 |
+| 22:01 | Edited tests/test_new_deployment_screen.py | error() → step() | ~316 |
+| 22:01 | Edited src/vela/tui/screens/new_deployment.py | modified _error_step_for() | ~522 |
+| 22:02 | Edited tests/test_new_deployment_screen.py | modified test_advancing_past_fixed_step_clears_stale_panel_error() | ~555 |
+| 22:02 | Edited src/vela/tui/screens/new_deployment.py | modified _clear_step_error() | ~231 |
+| 22:10 | Session end: 108 writes across 18 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 95 reads | ~557200 tok |
+| 09:55 | Task 2.5 spec review of 187c4af..HEAD (A–H): compliant; RED-verified D+H on parent; suites 29/17/244, ruff+mypy clean | review-only | ✅ | ~30k |
+| 22:36 | Edited tests/test_agent_client.py | modified pin() | ~132 |
+| 22:36 | Edited tests/test_agent_client.py | 10→13 lines | ~138 |
+| 22:36 | Edited tests/test_agent_client.py | 6→11 lines | ~192 |
+| 22:36 | Edited tests/test_agent_client.py | 2→5 lines | ~96 |
+| 22:37 | Edited src/vela/engine/model_registry.py | modified marker() | ~242 |
+| 22:39 | Edited tests/test_new_deployment_screen.py | modified test_model_step_offers_only_pinned_refs_and_flags_cached_scans() | ~1205 |
+| 22:40 | Edited src/vela/tui/screens/new_deployment.py | modified Vertical() | ~305 |
+| 22:40 | Edited src/vela/tui/screens/new_deployment.py | modified _pinned_model_options() | ~512 |
+| 22:40 | Edited src/vela/tui/screens/new_deployment.py | modified _model_reference() | ~171 |
+| 22:40 | Edited src/vela/tui/screens/new_deployment.py | 3→4 lines | ~46 |
+| 23:10 | Session end: 118 writes across 20 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 98 reads | ~733750 tok |
+| 23:11 | Edited tests/test_new_deployment_screen.py | 5→6 lines | ~82 |
+| 23:11 | Edited tests/test_new_deployment_screen.py | 4→4 lines | ~75 |
+| 23:12 | Edited src/vela/tui/screens/new_deployment.py | modified update() | ~120 |
+| 23:12 | Edited src/vela/tui/screens/new_deployment.py | modified signpost() | ~114 |
+| 23:12 | Edited src/vela/tui/screens/new_deployment.py | added error handling | ~198 |
+| 23:12 | Edited src/vela/engine/model_registry.py | modified NOTE() | ~125 |
+| -- | User directive: reviewers now Fable 5 max (implementers stay Opus 4.8 max) — applied from Task 2.6 fix re-review onward | workflow | recorded in cerebrum + personal memory | ~1k |
+| 23:13 | Created ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/memory/subagent-model-split.md | — | ~239 |
+| 23:55 | Final review Task 2.6 fix commit e6beaeb: adjudicated MODEL_ENTRY_FIELDS comment dispute (implementer correct — scan rows DO go through _model_payload, model_registry.py:613), verified pluralization+comments, 31+4 tests green, ruff/mypy clean, 3 files+trailer | model_registry.py, new_deployment.py, test_new_deployment_screen.py | Task 2.6 closed pending full-suite confirm | ~14k |
+| 23:20 | Session end: 125 writes across 21 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 98 reads | ~734951 tok |
+| 23:43 | Session end: 125 writes across 21 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 98 reads | ~734951 tok |
+| 23:45 | Session end: 125 writes across 21 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 98 reads | ~734951 tok |
+| 00:23 | Session end: 125 writes across 21 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 98 reads | ~734951 tok |
+| 00:32 | Edited tests/test_new_deployment_screen.py | "— Ctrl+B to Model" → "— Ctrl+B back to Model" | ~18 |
+| 00:32 | Edited src/vela/tui/screens/new_deployment.py | 3→4 lines | ~84 |
+| 00:32 | Edited tests/test_new_deployment_screen.py | "… — Ctrl+B to Model" → "… — Ctrl+B back to Model" | ~12 |
+| 00:33 | Edited tests/test_tui_smoke.py | 2→2 lines | ~44 |
+| 00:33 | Edited tests/test_tui_smoke.py | modified _wait_for_condition() | ~134 |
+| 00:33 | Edited tests/test_tui_smoke.py | _wait_for_condition() → _wait_for_textual_condition() | ~165 |
+| 00:33 | Edited src/vela/tui/screens/new_deployment.py | query_one() → _apply_model_disclosure() | ~136 |
+| 00:33 | Edited src/vela/tui/screens/new_deployment.py | inline fix | ~9 |
+| 00:39 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/partA_commit.txt | — | ~311 |
+| 00:50 | Phase-2 wizard state machine COMPLETE (Tasks 2.1-2.7): one focus path, download-now-obeys-source, empty-registry default, per-step validation, honest hints, referenceable-only model refs, gate | src/vela/tui/screens/new_deployment.py + tests + .wolf | commits c5f9ba5,e71e04c,1f19ccc,c809e93,187c4af,5f73ae6,c5bc948,fb5a455 (bug-235/236) + c793883,f43f6fc,e6beaeb (M3) + gate 69fd1d7 (A1-A4); ruff+mypy clean; full suite 1169 passed (from Phase-1 1146); flake test 3/3 green; buglog junk swept | ~2500 |
