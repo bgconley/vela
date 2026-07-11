@@ -6088,6 +6088,270 @@ async def test_new_deployment_adopt_local_model_path_handoff_pins_model_ref(
     assert client.compose_params["model"] == "/agent/models/qwen"
 
 
+class _CancelHandoffComposerClient:
+    # Minimal composer for the handoff-cancel loop regressions (bug-250): a
+    # cancel never reaches compose/validate/preview, so only the wizard-open
+    # queries plus the handoff RPCs are stubbed. The pin/create/adopt RPCs
+    # track calls (and must stay empty) so a cancel that wrongly triggered a
+    # side effect fails loudly.
+    connected = False
+
+    def __init__(self) -> None:
+        self.pin_calls: list[dict[str, object]] = []
+        self.create_calls: list[dict[str, object]] = []
+        self.adopt_calls: list[dict[str, object]] = []
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def disconnect(self) -> None:
+        self.connected = False
+
+    async def call(self, method: str, params):
+        if method == "list_configs":
+            return {"valid": [], "invalid": []}
+        if method == "list_presets":
+            return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+        if method == "list_deployment_recipes":
+            return {"recipes": []}
+        if method == "list_builds":
+            return {"builds": [], "skipped": []}
+        if method == "list_models":
+            return {"models": []}
+        if method == "check_build_prerequisites":
+            return {"ok": True, "method": params.get("method"), "uv_available": True}
+        if method == "pin_model":
+            self.pin_calls.append(dict(params))
+            return {"entry": {}}
+        if method == "create_build":
+            self.create_calls.append(dict(params))
+            return {"job_id": params.get("job_id"), "kind": "create_build", "status": "running"}
+        if method == "adopt_build":
+            self.adopt_calls.append(dict(params))
+            return {"build_id": "adopted"}
+        if method == "discover_runs":
+            return {"runs": []}
+        if method in {"gpu", "sample_gpus"}:
+            return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+        raise AssertionError(f"unexpected target client call: {method}")
+
+    def subscribe(self, *_args, **_kwargs):
+        raise AssertionError("a cancelled handoff should not subscribe")
+
+
+async def _settle(pilot, cycles: int = 12) -> None:
+    # Pump the message pump long enough for the deferred Select.Changed on a
+    # freshly-restored draft to fire (or, on fixed code, to prove it does not).
+    for _ in range(cycles):
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_pin_hf_cancel_resumes_once_without_re_firing(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # bug-250: choosing "Pin HF repo →" stashes model_mode="pin_hf" and opens the
+    # dedicated pin screen. Cancelling it reopens the wizard with the raw draft;
+    # before the fix the restored handoff mode re-fired the deferred
+    # Select.Changed and re-dismissed the wizard straight back to the pin screen
+    # in an inescapable loop. A cancel must reopen the wizard exactly ONCE, at
+    # the Model step, with the draft intact, a NON-handoff model_mode, no
+    # re-dismissal, and NO pin side effect.
+    client = _CancelHandoffComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    pin_opens: list[object] = []
+    real_pin = tui_app_module.PinModelScreen
+
+    def _counting_pin(*args, **kwargs):
+        screen = real_pin(*args, **kwargs)
+        pin_opens.append(screen)
+        return screen
+
+    monkeypatch.setattr(tui_app_module, "PinModelScreen", _counting_pin)
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        # Walk to the Model step so the stashed draft's step_index is the Model
+        # step — the real scenario the loop was observed in.
+        await pilot.press("ctrl+n")  # Target → Runtime
+        await pilot.press("ctrl+n")  # Runtime → Model
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "Model"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "wizard did not reach the Model step",
+        )
+        app.screen.query_one("#new-deployment-model-mode", Select).value = "pin_hf"
+        await _wait_for_condition(
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
+            "pin-HF handoff did not open the pin model flow",
+        )
+        assert len(pin_opens) == 1
+        # Cancel the pin flow — the wizard reopens with the stashed draft.
+        await pilot.press("escape")
+        # On pre-fix code the reopened wizard re-fires the handoff and the pin
+        # screen opens a SECOND time; wait for the dust to settle either way.
+        await _wait_for_condition(
+            lambda: len(pin_opens) >= 2 or app.screen.id == "new-deployment",
+            "wizard did not reopen after cancelling the pin handoff",
+        )
+        await _settle(pilot)
+        assert len(pin_opens) == 1, (
+            f"cancelling the pin handoff re-opened the pin screen "
+            f"{len(pin_opens)} times (cancel loop)"
+        )
+        assert app.screen.id == "new-deployment"
+        assert "Model" in str(
+            app.screen.query_one("#new-deployment-current-step", Static).content
+        )
+        mode = app.screen.query_one("#new-deployment-model-mode", Select).value
+        assert mode not in {"pin_hf", "adopt_local"}
+        assert app.screen.query_one("#new-deployment-model", Input).value == "Qwen/Qwen3-32B"
+    assert client.pin_calls == []
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_adopt_local_cancel_resumes_once_without_re_firing(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # bug-250 sibling: the Adopt local path handoff stashes model_mode=
+    # "adopt_local" and must resume once without re-firing, exactly like pin_hf.
+    client = _CancelHandoffComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    pin_opens: list[object] = []
+    real_pin = tui_app_module.PinModelScreen
+
+    def _counting_pin(*args, **kwargs):
+        screen = real_pin(*args, **kwargs)
+        pin_opens.append(screen)
+        return screen
+
+    monkeypatch.setattr(tui_app_module, "PinModelScreen", _counting_pin)
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        app.screen.query_one("#new-deployment-model", Input).value = "/agent/models/qwen"
+        await pilot.press("ctrl+n")  # Target → Runtime
+        await pilot.press("ctrl+n")  # Runtime → Model
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "Model"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "wizard did not reach the Model step",
+        )
+        app.screen.query_one("#new-deployment-model-mode", Select).value = "adopt_local"
+        await _wait_for_condition(
+            lambda: app.screen.id == "pin-model" and bool(app.screen.query(Input)),
+            "adopt-local handoff did not open the pin model flow",
+        )
+        assert len(pin_opens) == 1
+        await pilot.press("escape")
+        await _wait_for_condition(
+            lambda: len(pin_opens) >= 2 or app.screen.id == "new-deployment",
+            "wizard did not reopen after cancelling the adopt-local handoff",
+        )
+        await _settle(pilot)
+        assert len(pin_opens) == 1, (
+            f"cancelling the adopt-local handoff re-opened the pin screen "
+            f"{len(pin_opens)} times (cancel loop)"
+        )
+        assert app.screen.id == "new-deployment"
+        mode = app.screen.query_one("#new-deployment-model-mode", Select).value
+        assert mode not in {"pin_hf", "adopt_local"}
+        assert (
+            app.screen.query_one("#new-deployment-model", Input).value
+            == "/agent/models/qwen"
+        )
+    assert client.pin_calls == []
+
+
+@pytest.mark.asyncio
+async def test_new_deployment_create_build_cancel_resumes_without_re_firing(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # bug-250 companion: the Runtime step's "Create build →" handoff must not
+    # loop on cancel either. Its restore path already drops handoff runtime
+    # values (only process/docker/build/executable are re-selected), so the
+    # deferred Select.Changed never re-fires — this pins that non-looping
+    # behavior (reopens once, no re-dismissal, no build side effect).
+    client = _CancelHandoffComposerClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    build_opens: list[object] = []
+    real_build = tui_app_module.CreateBuildScreen
+
+    def _counting_build(*args, **kwargs):
+        screen = real_build(*args, **kwargs)
+        build_opens.append(screen)
+        return screen
+
+    monkeypatch.setattr(tui_app_module, "CreateBuildScreen", _counting_build)
+
+    async with app.run_test(size=(144, 48)) as pilot:
+        await pilot.press("n")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "new deployment screen did not open",
+        )
+        await pilot.press("ctrl+n")  # Target → Runtime
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "Runtime"
+            in str(app.screen.query_one("#new-deployment-current-step", Static).content),
+            "wizard did not reach the Runtime step",
+        )
+        app.screen.query_one("#new-deployment-runtime", Select).value = "create_build"
+        await _wait_for_condition(
+            lambda: app.screen.id == "create-build" and bool(app.screen.query(Input)),
+            "create-build handoff did not open",
+        )
+        assert len(build_opens) == 1
+        await pilot.press("escape")
+        await _wait_for_condition(
+            lambda: len(build_opens) >= 2 or app.screen.id == "new-deployment",
+            "wizard did not reopen after cancelling the create-build handoff",
+        )
+        await _settle(pilot)
+        assert len(build_opens) == 1, (
+            f"cancelling the create-build handoff re-opened the build screen "
+            f"{len(build_opens)} times (cancel loop)"
+        )
+        assert app.screen.id == "new-deployment"
+        runtime = app.screen.query_one("#new-deployment-runtime", Select).value
+        assert runtime not in {"create_build", "adopt_build"}
+    assert client.create_calls == []
+    assert client.adopt_calls == []
+
+
 @pytest.mark.asyncio
 async def test_new_deployment_model_picker_shows_cache_and_gated_state(
     config_dir: Path,

@@ -280,6 +280,73 @@ async def test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select() ->
 
 
 @pytest.mark.asyncio
+async def test_restored_pin_hf_draft_does_not_re_fire_the_handoff() -> None:
+    # bug-250: Cancelling the Pin HF / Adopt local handoff reopens the wizard
+    # with the RAW stashed draft, whose model_mode is still the handoff value.
+    # _apply_initial restores it into the model-source Select and the deferred
+    # Select.Changed fires AFTER _applying_initial clears — re-hitting the
+    # handoff branch and dismissing the just-restored wizard (the cancel loop).
+    # The restore must coerce a handoff mode to a real Model source so the
+    # wizard settles instead of bouncing straight back out to the pin screen.
+    app = _Host()
+    async with app.run_test() as pilot:
+        draft = {
+            "step_index": 2,  # Model step
+            "model_mode": "pin_hf",
+            "model": "Qwen/Qwen3-32B",
+            "selected_target": "gpu-node",
+            "preset": "balanced",
+        }
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            initial=draft,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        # Let the deferred Select.Changed (posted while _applying_initial was
+        # True, delivered after it cleared) run its full course.
+        for _ in range(6):
+            await pilot.pause()
+        # The wizard is still up — the restored handoff mode did not self-dismiss.
+        assert app.screen is screen
+        mode = screen.query_one("#new-deployment-model-mode", Select).value
+        assert mode not in {"pin_hf", "adopt_local"}
+        # The draft's other fields survived the coercion.
+        assert screen.query_one("#new-deployment-model", Input).value == "Qwen/Qwen3-32B"
+
+
+@pytest.mark.asyncio
+async def test_restored_adopt_local_draft_does_not_re_fire_the_handoff() -> None:
+    # bug-250 sibling: the Adopt local path handoff restores model_mode=
+    # "adopt_local", which must be coerced on restore the same way pin_hf is.
+    app = _Host()
+    async with app.run_test() as pilot:
+        draft = {
+            "step_index": 2,
+            "model_mode": "adopt_local",
+            "model": "/agent/models/qwen",
+            "selected_target": "gpu-node",
+            "preset": "balanced",
+        }
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            initial=draft,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.pause()
+        assert app.screen is screen
+        mode = screen.query_one("#new-deployment-model-mode", Select).value
+        assert mode not in {"pin_hf", "adopt_local"}
+        assert (
+            screen.query_one("#new-deployment-model", Input).value == "/agent/models/qwen"
+        )
+
+
+@pytest.mark.asyncio
 async def test_customize_advanced_group_overrides_derived_fields() -> None:
     # J28: served_model_name / runs_dir / container_name editable behind Ctrl+R.
     app = _Host()

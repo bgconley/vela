@@ -876,8 +876,14 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 ("#new-deployment-exposure", "exposure"),
             ):
                 value = str(initial.get(key) or "").strip()
-                if value:
-                    self._set_select_value(selector, value)
+                if not value:
+                    continue
+                if key == "model_mode":
+                    # Never restore a raw handoff mode into the Select — its
+                    # deferred Select.Changed would re-fire the dismissal after
+                    # _applying_initial clears (bug-250; see _restored_model_mode).
+                    value = self._restored_model_mode(value)
+                self._set_select_value(selector, value)
             try:
                 step_index = int(initial.get("step_index", 0))
             except (TypeError, ValueError):
@@ -1069,6 +1075,26 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         # (bug-236b). A restored draft's model_mode overrides this in
         # _apply_initial, so this only governs the first, draft-less open.
         return "existing" if self._pinned_model_options() else "bare"
+
+    def _restored_model_mode(self, mode: str) -> str:
+        # Map a restored draft's model_mode onto a Select value that will NOT
+        # re-fire the pin/adopt handoff. A raw handoff draft (Cancel of the Pin
+        # HF / Adopt local screen, or any crafted resume) carries model_mode
+        # "pin_hf"/"adopt_local"; restoring that into the model-source Select
+        # posts a deferred Select.Changed that lands AFTER _applying_initial
+        # clears, so on_select_changed re-hits the handoff branch and dismisses
+        # the just-restored wizard — Cancel becomes an inescapable reopen→
+        # re-dismiss loop (bug-250). Coerce it to a real Model source (mirrors
+        # _default_model_mode, but keeps a typed bare model id visible): "bare"
+        # when the draft carried a model id or the target has no pins, else
+        # "existing". Non-handoff modes pass through untouched, so the
+        # successful-pin resume (model_mode already "existing") is unaffected.
+        if mode not in {"pin_hf", "adopt_local"}:
+            return mode
+        has_bare_model = bool(str(self.initial.get("model") or "").strip())
+        if has_bare_model or not self._pinned_model_options():
+            return "bare"
+        return "existing"
 
     def _build_options(self) -> list[tuple[str, str]]:
         options = [("Custom build", "__custom__")]
