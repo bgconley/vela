@@ -223,6 +223,16 @@ The `vllm/vllm-openai` image entrypoint already runs `vllm serve`, so Vela
 strips the leading `serve` token from the generated process argv and passes the
 model positionally after the image.
 
+`command.docker.pull` is the pull policy: `never` (the default the shipped
+recipes use — the image must already be present), `missing` (pull only when
+absent), or `always`. When Vela does pull a real ~10GB image, the pull streams
+its progress into the run log and is bounded by the target-agent environment
+variable `VELA_DOCKER_PULL_TIMEOUT_SECONDS` (default `1800` seconds; `0` or
+negative disables the limit). Quick docker commands such as `docker image
+inspect` keep a short 10-second timeout. A pull that exceeds the limit is
+recorded as a classified `image-pull-timeout` failure rather than crashing the
+launch. See `docs/docker-runtime.md` for the full pull semantics.
+
 ## Server Exposure
 
 `server.exposure` is the operator acknowledgement for where vLLM will be

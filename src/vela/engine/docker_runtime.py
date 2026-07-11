@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from vela.config.schema import ModelConfig
+
+DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS = 10
+DEFAULT_DOCKER_PULL_TIMEOUT_SECONDS = 1800
+DOCKER_PULL_TIMEOUT_ENV = "VELA_DOCKER_PULL_TIMEOUT_SECONDS"
 
 
 @dataclass(frozen=True)
@@ -21,6 +27,7 @@ class DockerRunCommand:
 class DockerErrorKind(str, Enum):
     IMAGE_NOT_FOUND = "image-not-found"
     IMAGE_PULL_FAILED = "image-pull-failed"
+    IMAGE_PULL_TIMEOUT = "image-pull-timeout"
     DAEMON_UNREACHABLE = "daemon-unreachable"
     NAME_CONFLICT = "name-conflict"
     OCI_RUNTIME_ERROR = "oci-runtime-error"
@@ -142,10 +149,11 @@ def prepare_docker_image(
     *,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    progress: Callable[[bytes], None] | None = None,
 ) -> DockerImageInspection:
     policy = pull_policy if pull_policy in {"never", "missing", "always"} else "never"
     if policy == "always":
-        pull_docker_image(docker_binary, image, cwd=cwd, env=env)
+        pull_docker_image(docker_binary, image, cwd=cwd, env=env, progress=progress)
         return inspect_docker_image(docker_binary, image, cwd=cwd, env=env)
     if policy == "missing":
         try:
@@ -153,7 +161,7 @@ def prepare_docker_image(
         except DockerCommandError as exc:
             if exc.kind is not DockerErrorKind.IMAGE_NOT_FOUND:
                 raise
-        pull_docker_image(docker_binary, image, cwd=cwd, env=env)
+        pull_docker_image(docker_binary, image, cwd=cwd, env=env, progress=progress)
         return inspect_docker_image(docker_binary, image, cwd=cwd, env=env)
     return inspect_docker_image(docker_binary, image, cwd=cwd, env=env)
 
@@ -164,17 +172,98 @@ def pull_docker_image(
     *,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    progress: Callable[[bytes], None] | None = None,
 ) -> None:
-    result = _run_docker(
+    """Pull ``image``, streaming progress to ``progress`` and enforcing a timeout.
+
+    A real vLLM image is ~10 GB, so the pull runs under
+    ``VELA_DOCKER_PULL_TIMEOUT_SECONDS`` (default 1800, ``<=0`` disables it) —
+    not the 10 s used for quick inspect/stop commands. A timeout is mapped to a
+    classified :class:`DockerCommandError` (``image-pull-timeout``) rather than
+    an uncaught ``subprocess.TimeoutExpired`` so the supervisor can record a
+    real failure (bug-240). ``docker pull`` writes phase/progress lines to
+    stdout; each chunk is forwarded to ``progress`` so the TUI shows the
+    download instead of a silent multi-minute hang.
+    """
+    timeout = _pull_timeout_seconds()
+    proc = subprocess.Popen(
         [docker_binary, "pull", image],
         cwd=cwd,
-        env=env,
+        env={**os.environ, **dict(env or {})},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
     )
-    if result.returncode == 0:
+    captured = bytearray()
+
+    def _read_output() -> None:
+        stream = proc.stdout
+        if stream is None:
+            return
+        try:
+            while True:
+                chunk = stream.read(4096)
+                if not chunk:
+                    break
+                captured.extend(chunk)
+                if progress is not None:
+                    try:
+                        progress(chunk)
+                    except Exception:
+                        # Progress is best-effort; a sink failure must never
+                        # abort the pull itself.
+                        pass
+        finally:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+    reader = threading.Thread(target=_read_output, daemon=True)
+    reader.start()
+    try:
+        returncode = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        reader.join(timeout=5)
+        raise DockerCommandError(
+            DockerErrorKind.IMAGE_PULL_TIMEOUT,
+            _pull_timeout_detail(image, timeout),
+            returncode=124,
+        ) from exc
+    reader.join(timeout=5)
+    if returncode == 0:
         return
-    detail = _docker_result_detail(result)
+    detail = bytes(captured).decode("utf-8", errors="replace").strip() or "docker pull failed"
     kind = classify_docker_error(detail, default=DockerErrorKind.IMAGE_PULL_FAILED)
-    raise DockerCommandError(kind, detail, returncode=int(result.returncode))
+    raise DockerCommandError(kind, detail, returncode=int(returncode))
+
+
+def _pull_timeout_seconds() -> float | None:
+    raw = os.environ.get(DOCKER_PULL_TIMEOUT_ENV)
+    if raw is None or not raw.strip():
+        return float(DEFAULT_DOCKER_PULL_TIMEOUT_SECONDS)
+    try:
+        value = float(raw)
+    except ValueError:
+        return float(DEFAULT_DOCKER_PULL_TIMEOUT_SECONDS)
+    if value <= 0:
+        # An explicit non-positive value opts out of the timeout entirely and
+        # relies on the supervisor's own lifecycle to cancel a stuck pull.
+        return None
+    return value
+
+
+def _pull_timeout_detail(image: str, timeout: float | None) -> str:
+    limit = "no limit" if timeout is None else f"{timeout:g}s"
+    return (
+        f"docker pull for {image} exceeded {limit}; "
+        f"raise {DOCKER_PULL_TIMEOUT_ENV} or pre-pull the image on the target"
+    )
 
 
 def inspect_docker_image(
@@ -235,6 +324,7 @@ def _run_docker(
     *,
     cwd: str | None,
     env: dict[str, str] | None,
+    timeout: float | None = DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         argv,
@@ -242,7 +332,7 @@ def _run_docker(
         env={**os.environ, **dict(env or {})},
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=timeout,
         check=False,
     )
 

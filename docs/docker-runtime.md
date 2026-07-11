@@ -96,6 +96,31 @@ is enabled, but still emits an explicit `command.docker.shm_size` such as the
 Blackbird recipes' `32g`. This preserves the validated lab launch shape for
 these configs without adding noisy defaults elsewhere.
 
+## Image Pull
+
+`command.docker.pull` selects the pull policy the target agent applies before it
+starts the container:
+
+- `never` (what every shipped Blackbird recipe uses): the image must already be
+  present on the target; the agent only runs `docker image inspect`.
+- `missing`: inspect first, and pull only when the image is absent.
+- `always`: pull on every launch.
+
+A real vLLM image is on the order of 10 GB, so `missing`/`always` pulls are
+bounded by `VELA_DOCKER_PULL_TIMEOUT_SECONDS` (target-agent environment,
+default `1800`, i.e. 30 minutes; set it to `0` or a negative value to disable
+the limit and let a long pull run unbounded). Quick commands such as
+`docker image inspect` keep their short 10-second timeout.
+
+`docker pull` progress (the `Pulling from …` / `Downloading …` phase lines) is
+streamed through the same scrubbed log sink as container logs, so the TUI shows
+the download instead of a silent hang. A pull that exceeds the timeout is
+recorded as a classified `image-pull-timeout` failure in the run log and
+exit-status file — it never crashes the supervisor, and because no container
+has been created yet there is nothing to orphan. For very large images, prefer
+pre-pulling on the target (or keep `pull: never` with a pinned digest) rather
+than raising the timeout.
+
 ## Preview, Smoke, And Export
 
 Render the exact masked Docker command:

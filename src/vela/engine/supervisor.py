@@ -17,6 +17,7 @@ import psutil
 
 from vela.engine.docker_runtime import (
     DockerCommandError,
+    DockerErrorKind,
     classify_docker_error,
     prepare_docker_image,
 )
@@ -179,6 +180,34 @@ def _run_docker_supervisor(
 ) -> int:
     docker = payload.get("docker") if isinstance(payload.get("docker"), dict) else {}
     docker_binary = str(docker.get("binary") or argv[0])
+
+    # Open the sink BEFORE image preparation so `docker pull` progress streams
+    # through the scrubbed log/event sink (a real ~10GB vLLM image is otherwise
+    # a silent multi-minute hang), and so any pre-run failure is recorded via
+    # the same sink rather than a throwaway one (bug-240).
+    event_spool = _EventSpool(_event_log_path(payload))
+    sink, durable_log_available = _open_log_sink(
+        log_path,
+        secrets,
+        emit=event_spool.emit,
+    )
+    manifest_path = Path(payload["manifest_path"])
+    manifest: Manifest | None = None
+    rotate_bytes = _log_rotate_bytes(payload)
+    rotation_index = 0
+
+    def _finish_failure(*, label: str, detail: str, returncode: int, kind: str) -> int:
+        line = f"ERROR {label} ({kind}, exit {returncode}): {detail or 'no output'}"
+        try:
+            sink.feed((line + "\n").encode("utf-8", errors="replace"))
+        finally:
+            try:
+                sink.close()
+            finally:
+                event_spool.close()
+        _write_exit_status(payload, returncode)
+        return int(returncode)
+
     _evict_docker_containers(
         docker_binary,
         docker.get("evict"),
@@ -192,20 +221,27 @@ def _run_docker_supervisor(
             str(docker.get("pull") or "never"),
             cwd=cwd,
             env=env,
+            progress=sink.feed,
         )
         docker["image_digest"] = image_info.digest
     except DockerCommandError as exc:
-        _write_docker_failure_log(
-            payload,
-            log_path,
-            secrets,
+        return _finish_failure(
             label="docker image preparation failed",
             detail=exc.detail,
             returncode=exc.returncode,
             kind=exc.kind.value,
         )
-        _write_exit_status(payload, exc.returncode)
-        return int(exc.returncode)
+    except subprocess.TimeoutExpired as exc:
+        # The pull path classifies its own timeout; this covers a quick prep
+        # command (docker image inspect) that blows its short timeout on a
+        # wedged daemon, so the supervisor records a classified failure +
+        # exit-status instead of crashing untracked (bug-240).
+        return _finish_failure(
+            label="docker image preparation timed out",
+            detail=_timeout_detail(exc),
+            returncode=124,
+            kind=DockerErrorKind.DAEMON_UNREACHABLE.value,
+        )
     run = subprocess.run(
         argv,
         cwd=cwd,
@@ -215,32 +251,21 @@ def _run_docker_supervisor(
     )
     if run.returncode != 0:
         detail = _docker_result_text(run)
-        _write_docker_failure_log(
-            payload,
-            log_path,
-            secrets,
+        return _finish_failure(
             label="docker run failed",
             detail=detail,
             returncode=int(run.returncode),
             kind=classify_docker_error(detail).value,
         )
-        _write_exit_status(payload, run.returncode)
-        return int(run.returncode)
     container_id = _container_id_from_run_stdout(run.stdout)
     if not container_id:
-        _write_exit_status(payload, 1)
-        return 1
+        return _finish_failure(
+            label="docker run produced no container id",
+            detail="",
+            returncode=1,
+            kind=DockerErrorKind.OCI_RUNTIME_ERROR.value,
+        )
 
-    event_spool = _EventSpool(_event_log_path(payload))
-    sink, durable_log_available = _open_log_sink(
-        log_path,
-        secrets,
-        emit=event_spool.emit,
-    )
-    manifest_path = Path(payload["manifest_path"])
-    manifest: Manifest | None = None
-    rotate_bytes = _log_rotate_bytes(payload)
-    rotation_index = 0
     if durable_log_available:
         try:
             manifest = _write_docker_run_artifacts(payload, container_id, log_path)
@@ -322,30 +347,13 @@ def _run_docker_supervisor(
     return returncode
 
 
-def _write_docker_failure_log(
-    payload: dict,
-    log_path: Path,
-    secrets: list[str],
-    *,
-    label: str,
-    detail: str,
-    returncode: int,
-    kind: str,
-) -> None:
-    event_spool = _EventSpool(_event_log_path(payload))
-    sink, _durable_log_available = _open_log_sink(
-        log_path,
-        secrets,
-        emit=event_spool.emit,
-    )
-    try:
-        line = f"ERROR {label} ({kind}, exit {returncode}): {detail or 'no output'}"
-        sink.feed((line + "\n").encode("utf-8", errors="replace"))
-    finally:
-        try:
-            sink.close()
-        finally:
-            event_spool.close()
+def _timeout_detail(exc: subprocess.TimeoutExpired) -> str:
+    cmd = exc.cmd
+    if isinstance(cmd, (list, tuple)):
+        rendered = " ".join(str(part) for part in cmd)
+    else:
+        rendered = str(cmd)
+    return f"{rendered} timed out after {exc.timeout}s"
 
 
 def _docker_result_text(result: subprocess.CompletedProcess[bytes]) -> str:

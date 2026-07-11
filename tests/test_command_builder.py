@@ -15,7 +15,12 @@ from vela.engine.command_builder import (
     render_preview,
     render_standalone_docker_script,
 )
-from vela.engine.docker_runtime import DockerErrorKind, classify_docker_error
+from vela.engine.docker_runtime import (
+    DockerCommandError,
+    DockerErrorKind,
+    classify_docker_error,
+    pull_docker_image,
+)
 from vela.engine.profile import bundled_profile
 
 
@@ -95,6 +100,44 @@ def test_docker_error_classifier_covers_named_runtime_failures(
     detail: str, expected: DockerErrorKind
 ) -> None:
     assert classify_docker_error(detail) is expected
+
+
+def _write_pull_docker(path: Path, *, sleep_seconds: float) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import sys, time",
+                "args = sys.argv[1:]",
+                "if args[:1] == ['pull']:",
+                "    print('Pulling from library/' + args[-1], flush=True)",
+                f"    time.sleep({sleep_seconds})",
+                "    print('Status: Downloaded newer image for ' + args[-1])",
+                "    raise SystemExit(0)",
+                "raise SystemExit(0)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def test_docker_pull_timeout_is_classified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A docker pull that outlives VELA_DOCKER_PULL_TIMEOUT_SECONDS must surface a
+    # classified DockerCommandError, never an uncaught subprocess.TimeoutExpired
+    # (bug-240): the supervisor only catches DockerCommandError.
+    docker = tmp_path / "docker"
+    _write_pull_docker(docker, sleep_seconds=5)
+    monkeypatch.setenv("VELA_DOCKER_PULL_TIMEOUT_SECONDS", "0.5")
+
+    with pytest.raises(DockerCommandError) as excinfo:
+        pull_docker_image(str(docker), "vllm/vllm-openai:latest")
+
+    assert excinfo.value.kind is DockerErrorKind.IMAGE_PULL_TIMEOUT
+    assert excinfo.value.returncode == 124
 
 
 def test_command_cwd_controls_preview_and_result(tmp_path: Path) -> None:

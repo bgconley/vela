@@ -88,6 +88,15 @@ def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     assert "run_id=<run_id>" in gpu_workflow
 
 
+def test_docs_cover_docker_pull_timeout_and_progress() -> None:
+    docker_runtime = _read("docs/docker-runtime.md")
+    configuration = _read("docs/configuration.md")
+
+    assert "VELA_DOCKER_PULL_TIMEOUT_SECONDS" in docker_runtime
+    assert "VELA_DOCKER_PULL_TIMEOUT_SECONDS" in configuration
+    assert "image-pull-timeout" in docker_runtime
+
+
 def test_lab_topology_docs_use_current_repo_and_venv_paths() -> None:
     for path in (
         "README.md",
