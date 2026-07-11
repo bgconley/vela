@@ -1,16 +1,25 @@
-"""Headless tests for the refactored BuildManagerScreen (Phase 6 consistency pass).
+"""Headless tests for the rebuilt BuildManagerScreen (Task 4.4, bug-237).
 
-Brings the screen into the shared master-detail language (MasterDetail + Rich Text
-color + KeyHintBar) while preserving the list/detail substring contract.
+Task 4.4 rebuilds the manager the way 4.2/4.3 rebuilt Target/Model: the two-pane
+``MasterDetail`` squeezed into a fixed ``width: 96`` box (clipped past 80 cols, and
+whose single-row footer clipped its own last hint to ``Esc Clos``) is replaced by
+the shared 4.1 modal frame + a full-width list-in-a-``VerticalScroll`` STACKED ABOVE
+the detail, with the footer packed into as many rows as fit (``pack_hint_rows``) and
+docked so its last hint always renders inside the panel. The empty state now
+advertises only the applicable verbs (``n New  a Adopt  Esc Close``). The list-row
+and detail ``key: value`` substring contract the smoke suite relies on is preserved
+verbatim — only the layout changed.
 """
 
 from __future__ import annotations
 
 import pytest
 from textual.app import App
-from textual.widgets import Static
+from textual.containers import VerticalScroll
+from textual.css.scalar import Unit
+from textual.widgets import Label, Static
 
-from vela.tui.screens.build_manager import BuildManagerScreen
+from vela.tui.screens.build_manager import _FOOTER_HINTS, BuildManagerScreen
 from vela.tui.widgets import KeyHintBar, MasterDetail
 
 
@@ -39,15 +48,102 @@ def _make_screen() -> BuildManagerScreen:
     )
 
 
+# ── Layout rebuild ──────────────────────────────────────────────────────────
+
+
 @pytest.mark.asyncio
-async def test_build_manager_uses_master_detail_and_footer() -> None:
+async def test_build_manager_uses_stacked_full_width_layout_and_footer() -> None:
+    # Task 4.4 DROPS the side-by-side MasterDetail for a full-width
+    # list-in-a-VerticalScroll stacked above the detail. The pinned
+    # #build-manager-list / -detail Statics + KeyHintBar footer(s) survive.
     app = _Host()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 24)) as pilot:
         screen = _make_screen()
         await app.push_screen(screen)
         await pilot.pause()
-        assert len(screen.query(MasterDetail)) == 1
-        assert len(screen.query(KeyHintBar)) == 1
+        assert len(screen.query(MasterDetail)) == 0  # the cramped two-pane is gone
+        assert len(screen.query(VerticalScroll)) == 1  # list scroll region
+        assert len(screen.query(KeyHintBar)) >= 1  # footer keybar(s)
+        assert screen.query_one("#build-manager-list", Static)
+        assert screen.query_one("#build-manager-detail", Static)
+
+
+@pytest.mark.asyncio
+async def test_build_manager_panel_uses_shared_frame_and_stacks_list() -> None:
+    # The panel uses the 4.1 frame (percentage width, height auto, percentage
+    # max-height, scroll) and the list is a VerticalScroll stacked ABOVE the
+    # detail with the scroll kept out of the Tab order.
+    app = _Host()
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        panel = screen.query_one("#build-manager-panel")
+        # 4.1 idiom: NEVER is_percent (False on resolved styles) — check units.
+        assert panel.styles.width.unit == Unit.WIDTH
+        assert panel.styles.height.is_auto
+        assert panel.styles.max_height.unit == Unit.HEIGHT
+        assert panel.styles.overflow_y == "auto"
+        scroll = screen.query_one("#build-manager-list-scroll", VerticalScroll)
+        detail = screen.query_one("#build-manager-detail", Static)
+        assert scroll.region.y < detail.region.y  # list STACKED ABOVE detail
+        assert scroll.can_focus is False  # out of the Tab order (on_mount)
+
+
+@pytest.mark.asyncio
+async def test_build_manager_fits_without_clipping_at_80x24() -> None:
+    # bug-237: at 80x24 nothing clips — the panel is >=90% of the terminal width
+    # and the footer's LAST hint (Esc Close) renders inside the panel region
+    # (docked so it survives a long, scrolling detail). The old single-row
+    # footer clipped this very hint to "Esc Clos".
+    app = _Host()
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = _make_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        panel = screen.query_one("#build-manager-panel")
+        # The whole panel fits within the 80-col terminal — a fixed `width: 96`
+        # box overflows the screen (bug-237), the percentage frame never does.
+        assert panel.region.x >= 0
+        assert panel.region.right <= 80
+        assert panel.region.width >= 0.9 * 80  # still near-full-width
+        footer = screen.query_one("#build-manager-footer")
+        close = next(lab for lab in footer.query(Label) if str(lab.render()) == "Close")
+        region = close.region
+        assert panel.region.x <= region.x and region.right <= panel.region.right
+        assert panel.region.y <= region.y and region.bottom <= panel.region.bottom
+
+
+@pytest.mark.asyncio
+async def test_build_manager_empty_state_footer_shows_only_applicable_hints() -> None:
+    # bug-237: with no builds you cannot Select/Verify/Repair/Pin/Remove anything,
+    # so the footer advertises only n New / a Adopt / Esc Close. A populated
+    # manager keeps the full verb set.
+    app = _Host()
+    async with app.run_test(size=(80, 24)) as pilot:
+        empty = BuildManagerScreen({"builds": []})
+        await app.push_screen(empty)
+        await pilot.pause()
+        empty_hints = [pair for bar in empty.query(KeyHintBar) for pair in bar._hints]
+        assert empty_hints == [("n", "New"), ("a", "Adopt"), ("Esc", "Close")]
+        assert ("v", "Verify") not in empty_hints
+        assert ("x", "Remove") not in empty_hints
+
+    app2 = _Host()
+    async with app2.run_test(size=(80, 24)) as pilot:
+        full = _make_screen()
+        await app2.push_screen(full)
+        await pilot.pause()
+        full_hints = [pair for bar in full.query(KeyHintBar) for pair in bar._hints]
+        assert full_hints == _FOOTER_HINTS  # full set, order preserved across rows
+        assert ("v", "Verify") in full_hints
+        assert ("x", "Remove") in full_hints
+        assert ("Esc", "Close") in full_hints
+
+
+# ── Preserved list / detail contract (pinned, unchanged rows) ───────────────
 
 
 @pytest.mark.asyncio
@@ -93,8 +189,8 @@ async def test_build_manager_explains_select_semantics() -> None:
 
 @pytest.mark.asyncio
 async def test_build_manager_active_build_names_unpinned_default() -> None:
-    # J8: the active build's detail states it is the default for every
-    # config without a pin — not just the explicitly pinned ones.
+    # J8: the active build's detail states it is the default for every config
+    # without a pin — not just the explicitly pinned ones.
     app = _Host()
     async with app.run_test() as pilot:
         screen = _make_screen()

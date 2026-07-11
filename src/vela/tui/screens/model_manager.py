@@ -439,7 +439,20 @@ def _revision_detail(model: dict[str, Any]) -> str:
 def _sha8(model: dict[str, Any]) -> str:
     # Short 8-char identity for the row; the full sha stays in the detail pane.
     sha = str(model.get("commit_sha") or model.get("revision") or "").strip()
-    return sha[:8] if sha else "—"
+    if not sha:
+        return "—"
+    if cell_len(sha) <= 8:
+        return sha
+    if _is_hex_sha(sha):
+        return sha[:8]  # conventional short-sha prefix (01234567)
+    # A non-sha ref longer than 8 cells (a branch/tag like release-candidate)
+    # ellipsizes to a whole word — release… — instead of a bare chop that leaves
+    # a dangling separator (release-).
+    return _truncate_cells(sha, 8)
+
+
+def _is_hex_sha(value: str) -> bool:
+    return all(char in "0123456789abcdefABCDEF" for char in value)
 
 
 def _model_status_dot(model: dict[str, Any]) -> str:

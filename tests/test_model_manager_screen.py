@@ -336,6 +336,8 @@ async def test_model_manager_preserves_detail_contract_and_adds_pinned() -> None
         assert "files: 7 safetensors" in detail
         # The 2.6 pinned field is user-relevant here.
         assert "pinned: yes" in detail
+        # Carry-forward (4.3 review): the quant detail line had no pin.
+        assert "quant: awq" in detail
 
 
 @pytest.mark.asyncio
@@ -349,6 +351,37 @@ async def test_model_manager_detail_marks_unpinned_cache_scan() -> None:
         await pilot.pause()
         detail = str(screen.query_one("#model-manager-detail", Static).content)
         assert "pinned: no" in detail
+
+
+@pytest.mark.asyncio
+async def test_model_manager_row_ellipsizes_non_sha_revision() -> None:
+    # Carry-forward (4.3 review): _sha8 must ellipsize a non-sha ref longer than
+    # 8 cells (release-candidate -> release…), not bare-chop it to a dangling
+    # "release-". Real hex shas keep the conventional 8-char prefix (tested via
+    # the fixture's 0123456789abcdef -> 01234567 in the layout tests).
+    app = _Host()
+    async with app.run_test(size=(140, 40)) as pilot:
+        screen = ModelManagerScreen(
+            {
+                "models": [
+                    {
+                        "entry_id": "rc",
+                        "display_name": "rc-model",
+                        "source": "hf_repo",
+                        "pinned": True,
+                        "cache_state": "cached",
+                        "revision": "release-candidate",
+                        "commit_sha": None,
+                        "files": {"count": 1, "weights_format": "safetensors"},
+                    }
+                ]
+            }
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        model_list = str(screen.query_one("#model-manager-list", Static).content)
+        assert "release…" in model_list  # ellipsized whole word
+        assert "release-" not in model_list  # not the bare 8-char chop
 
 
 @pytest.mark.asyncio

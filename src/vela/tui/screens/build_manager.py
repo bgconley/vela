@@ -4,6 +4,7 @@ from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
@@ -14,32 +15,71 @@ from vela.tui.theme import (
     BORDER_STRONG,
     CYAN,
     GREEN,
+    MODAL_LIST_CSS,
+    MODAL_PANEL_CSS,
     RED,
     TEXT_FAINT,
     TEXT_PRIMARY,
 )
-from vela.tui.widgets import KeyHintBar, MasterDetail
+from vela.tui.widgets import KeyHintBar, pack_hint_rows
+
+_FOOTER_HINTS = [
+    ("⏎", "Select"),
+    ("n", "New"),
+    ("a", "Adopt"),
+    ("v", "Verify"),
+    ("r", "Repair"),
+    ("P", "Pin to config"),
+    ("F", "Flags"),
+    ("x", "Remove"),
+    ("Esc", "Close"),
+]
 
 
 class BuildManagerScreen(ModalScreen):
+    # Full-width STACKED rebuild (bug-237): the shared 4.1 modal frame
+    # (MODAL_PANEL_CSS / MODAL_LIST_CSS) replaces the old fixed ``width: 96`` box
+    # that clipped past 80 cols, and the two-pane MasterDetail is dropped for a
+    # full-width list-in-a-VerticalScroll STACKED ABOVE the detail (the Target
+    # Manager 4.2 precedent). The footer is packed into as many rows as fit and
+    # docked, so its own last hint no longer clips to ``Esc Clos``.
     CSS = f"""
     BuildManagerScreen {{
         align: center middle;
         background: {BG_BASE};
     }}
 
-    #build-manager-panel {{
-        width: 96;
-        max-height: 90%;
-        overflow-y: auto;
+    BuildManagerScreen #build-manager-panel {{
+        {MODAL_PANEL_CSS}
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #build-manager-list {{ width: 42; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
-    #build-manager-detail {{ width: 1fr; height: auto; max-height: 24; color: {TEXT_PRIMARY}; }}
-    #build-manager-footer {{ margin-top: 1; }}
+    BuildManagerScreen #build-manager-list-scroll {{
+        {MODAL_LIST_CSS}
+        max-height: 16;
+        margin-bottom: 1;
+    }}
+
+    BuildManagerScreen #build-manager-list {{
+        width: 1fr;
+        height: auto;
+        color: {TEXT_PRIMARY};
+    }}
+
+    BuildManagerScreen #build-manager-detail {{
+        width: 1fr;
+        height: auto;
+        color: {TEXT_PRIMARY};
+    }}
+
+    BuildManagerScreen #build-manager-footer {{
+        dock: bottom;
+        height: auto;
+        margin-top: 1;
+        background: {BG_PANEL};
+    }}
     """
 
     BINDINGS = [
@@ -65,28 +105,31 @@ class BuildManagerScreen(ModalScreen):
         self.selected_index = self._focus_index(focus_build)
 
     def compose(self) -> ComposeResult:
-        yield MasterDetail(
-            Static(id="build-manager-list"),
-            Static(id="build-manager-detail"),
-            footer=KeyHintBar(
-                [
-                    ("⏎", "Select"),
-                    ("n", "New"),
-                    ("a", "Adopt"),
-                    ("v", "Verify"),
-                    ("r", "Repair"),
-                    ("P", "Pin to config"),
-                    ("F", "Flags"),
-                    ("x", "Remove"),
-                    ("Esc", "Close"),
-                ],
-                id="build-manager-footer",
-            ),
-            id="build-manager-panel",
-        )
+        with Vertical(id="build-manager-panel"):
+            with VerticalScroll(id="build-manager-list-scroll"):
+                yield Static(id="build-manager-list")
+            yield Static(id="build-manager-detail")
+            with Vertical(id="build-manager-footer"):
+                for index, row in enumerate(pack_hint_rows(self._footer_hints())):
+                    yield KeyHintBar(row, id=f"build-manager-footer-row-{index}")
 
     def on_mount(self) -> None:
+        # Keep the list scroll out of the Tab order so key bindings (↑↓ etc.)
+        # reach the screen instead of scrolling the region (the manager has no
+        # focusable inputs to Tab into).
+        try:
+            self.query_one("#build-manager-list-scroll").can_focus = False
+        except Exception:
+            pass
         self._refresh()
+
+    def _footer_hints(self) -> list[tuple[str, str]]:
+        # bug-237: an empty manager can only create or adopt — advertise just the
+        # verbs that do something, not the full Select/Verify/Repair/Pin/Remove
+        # set that needs a build to act on.
+        if not self.builds:
+            return [("n", "New"), ("a", "Adopt"), ("Esc", "Close")]
+        return list(_FOOTER_HINTS)
 
     def action_previous(self) -> None:
         if self.builds:
