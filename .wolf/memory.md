@@ -1238,3 +1238,6 @@
 | 05:26 | Edited src/vela/tui/app.py | 2→7 lines | ~82 |
 | 05:26 | Edited src/vela/tui/app.py | 2→7 lines | ~82 |
 | 14:35 | Phase-3 gate (Task 3.5): hardened 2 flaky mount-gap waits (bug-248); keepalive survives R + drops/recovery render offline card now (bug-253, A4+A5); section-failure debug breadcrumbs (A2); 12 wizard walks on clean path (A3) | tests/test_tui_smoke.py, src/vela/tui/app.py | commits 8c292cd,b442dfd,4a1c4ab; ruff+mypy clean; full suite 1201 x2 | ~52000 |
+| 05:57 | Edited src/vela/tui/app.py | 6→7 lines | ~83 |
+| 06:05 | Fable closing review Phase 3: verified tail (f661885 stale-premise+deferred-reopen test, 8c292cd 3x-stable, b442dfd race/flip/refresh analysis + RED replay 5/5, 4a1c4ab breadcrumbs+12 fixtures); mutation-replayed f661885 (build-manager!=_default) and b442dfd (all 5 claimed failures); app.py restored byte-identical c056f603 | src/vela/tui/app.py, tests/test_tui_smoke.py | full suite 1201 passed; ruff+mypy clean; group coverage uncovered=[] overlap=[]; VERDICT: Phase 3 CLOSED | ~95000 |
+| 10:05 | Phase 3 CLOSED: 9 commits (9434758..1dd5ab3), busy/feedback convention app-wide, honest offline states, keepalive bug-253 fixed, suite 1195→1201; Fable close review hard-verified connection machinery; live shot confirms offline card | app.py, new_deployment.py, test files | phase-4 routings recorded in tracker | ~700k |
