@@ -2600,6 +2600,14 @@ class VelaApp(App):
         except Exception:
             pass
         await self._ensure_target_client_connected()
+        # A restored link must restore the honest card: reload the registry and
+        # re-render so a successful reconnect clears the "target unreachable" state
+        # on the dashboard instead of leaving the offline copy frozen (bug-252).
+        self.registry = await self._load_registry_from_agent()
+        if self.current_config is None and self.registry.valid:
+            self.current_config = self.registry.valid[0].config
+            await self._refresh_selected_config_preview()
+        self._refresh_target_backed_views()
 
     async def _switch_target(self, target_name: str) -> None:
         try:
@@ -4220,9 +4228,11 @@ class VelaApp(App):
             first_error, *remaining_errors = item.errors or ["invalid config"]
             lines.append(f"⚠ {item.path.name}: {first_error}")
             lines.extend(f"  {error}" for error in remaining_errors)
-        return "\n".join(lines) if lines else (
-            "No configs yet — press n to create your first deployment · ? help"
-        )
+        if lines:
+            return "\n".join(lines)
+        if self.target_connection_state != "connected":
+            return "target unreachable — configs unknown · R reconnect"
+        return "No configs yet — press n to create your first deployment · ? help"
 
     def _render_config_summary(self) -> Text:
         text = Text()
@@ -4268,10 +4278,19 @@ class VelaApp(App):
                     text.append("\n")
                 text.append("\n")
         if not text.plain:
-            text.append(
-                "No configs yet — press n to create your first deployment · ? help",
-                style=MUTED,
-            )
+            if self.target_connection_state != "connected":
+                # Offline with nothing cached: say so honestly instead of the
+                # first-run "No configs yet" copy, which reads as "your configs
+                # were deleted" when the target is merely unreachable (bug-252).
+                text.append(
+                    "target unreachable — configs unknown · R reconnect",
+                    style=WARN,
+                )
+            else:
+                text.append(
+                    "No configs yet — press n to create your first deployment · ? help",
+                    style=MUTED,
+                )
         text.rstrip()
         # Long config names truncate with an ellipsis instead of wrapping
         # mid-word in the narrow sidebar (screenshot-#1 fix).
@@ -4289,9 +4308,18 @@ class VelaApp(App):
         ]
 
     def _render_configs_title(self) -> Text:
+        text = Text("Configs", style=f"bold {ACCENT}")
+        if self.target_connection_state != "connected":
+            # Offline: the live counts are unknown (or stale, if cached), so
+            # replace the confident count badges with an honest connection marker
+            # rather than a tally that reads as authoritative (bug-252).
+            text.append(
+                "  target unreachable",
+                style=f"bold {WARN} on {WARN_SURFACE}",
+            )
+            return text
         valid_count = len(self.registry.valid)
         invalid_count = len(self.registry.invalid)
-        text = Text("Configs", style=f"bold {ACCENT}")
         if valid_count:
             text.append(
                 f"  {valid_count} valid",

@@ -12109,6 +12109,193 @@ async def test_configs_title_does_not_duplicate_selected_line(config_dir: Path) 
 
 
 @pytest.mark.asyncio
+async def test_configs_card_reports_target_unreachable_when_disconnected_and_empty(
+    config_dir: Path,
+) -> None:
+    # bug-252 (bullet 1): an unreachable target with no cached configs must NOT
+    # render the first-run "No configs yet" empty state — that reads as "your
+    # configs were deleted". The card must state the target is unreachable and
+    # offer reconnect.
+    class UnreachableTargetClient:
+        connected = False
+
+        async def connect(self):
+            self.connected = True
+            return None
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise RuntimeError("no stream in unreachable test")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=UnreachableTargetClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # The registry genuinely failed to load (stays empty), so the card renders
+        # from the offline state. Assert on the CARD, not target_connection_state —
+        # a post-mount gpu worker can reset the state var, but it does not re-render
+        # the configs card (the card was rendered during on_mount while offline).
+        body = app.query_one("#configs", Static).content
+        title = app.query_one("#configs-title", Static).content
+        assert isinstance(body, Text)
+        assert isinstance(title, Text)
+        assert "target unreachable — configs unknown · R reconnect" in body.plain
+        assert "No configs yet" not in body.plain
+        assert _text_uses_style(body, tui_app_module.WARN)
+        # The (unknown) count line is replaced by an honest connection marker.
+        assert "target unreachable" in title.plain
+
+
+@pytest.mark.asyncio
+async def test_configs_card_keeps_first_run_copy_when_connected_and_empty(
+    config_dir: Path,
+) -> None:
+    # bug-252 guard (bullet 2): a genuinely-connected target with an empty
+    # registry keeps the first-run onboarding copy UNCHANGED — only the offline
+    # state gets the new honesty treatment.
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert app.target_connection_state == "connected"
+        body = app.query_one("#configs", Static).content
+        title = app.query_one("#configs-title", Static).content
+        assert isinstance(body, Text)
+        assert (
+            "No configs yet — press n to create your first deployment · ? help"
+            in body.plain
+        )
+        assert "target unreachable" not in body.plain
+        assert "target unreachable" not in title.plain
+
+
+@pytest.mark.asyncio
+async def test_configs_card_keeps_cached_entries_and_flags_unreachable_when_disconnected(
+    config_dir: Path,
+) -> None:
+    # bug-252 (bullet 3): a drop AFTER configs were cached must keep showing the
+    # cached entries (they are not gone) but replace the confident count line with
+    # an honest "target unreachable" marker.
+    write_yaml(config_dir / "solo.yaml", "name: solo\nmodel: org/solo-model")
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Connected baseline: entry visible, confident count line present.
+        assert app.target_connection_state == "connected"
+        baseline_title = app.query_one("#configs-title", Static).content
+        assert "1 valid" in baseline_title.plain
+
+        # Simulate the link dropping after configs were cached, then re-render the
+        # card. Synchronous set + render + read (no await) so nothing races.
+        app.target_connection_state = "unreachable"
+        app._refresh_target_backed_views()
+
+        body = app.query_one("#configs", Static).content
+        title = app.query_one("#configs-title", Static).content
+        assert isinstance(body, Text)
+        assert isinstance(title, Text)
+        # Cached entries are still shown — the configs are not gone.
+        assert "solo" in body.plain
+        # ...but the count line is replaced by the honest unreachable marker.
+        assert "target unreachable" in title.plain
+        assert "1 valid" not in title.plain
+        assert _text_uses_style(title, tui_app_module.WARN)
+        # The body did NOT fall back to the empty "configs unknown" copy.
+        assert "configs unknown" not in body.plain
+
+
+@pytest.mark.asyncio
+async def test_reconnect_restores_normal_configs_card(config_dir: Path) -> None:
+    # bug-252 (bullet 4): pressing R to reconnect a restored target must reload the
+    # registry and re-render the normal card, not leave the "target unreachable"
+    # copy frozen on screen.
+    class FlakyTargetClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.reachable = False
+
+        async def connect(self):
+            self.connected = True
+            return None
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                if not self.reachable:
+                    raise TargetCallError("agent-unreachable", "target unreachable")
+                return {
+                    "valid": [
+                        {
+                            "path": "/tmp/solo.yaml",
+                            "config": {"name": "solo", "model": "org/solo-model"},
+                            "warnings": [],
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method == "preview":
+                return {"preview": "solo preview", "metadata": {}}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise RuntimeError("no stream in flaky test")
+
+    target_client = FlakyTargetClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=target_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Disconnected + empty on mount → the honest unreachable card.
+        body = app.query_one("#configs", Static).content
+        assert "target unreachable — configs unknown · R reconnect" in body.plain
+
+        # Target comes back; the operator presses R (action_reconnect).
+        target_client.reachable = True
+        app.action_reconnect()
+
+        await _wait_for_condition(
+            lambda: "solo" in str(app.query_one("#configs", Static).content),
+            "reconnect did not restore the normal configs card",
+        )
+        body = app.query_one("#configs", Static).content
+        title = app.query_one("#configs-title", Static).content
+        assert "solo" in body.plain
+        assert "target unreachable" not in body.plain
+        assert "target unreachable" not in title.plain
+        assert "1 valid" in title.plain
+
+
+@pytest.mark.asyncio
 async def test_figma_dashboard_pills_and_selection_use_surface_styles(
     config_dir: Path,
 ) -> None:
