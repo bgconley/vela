@@ -9053,6 +9053,77 @@ async def test_verify_model_banner_on_failure_keeps_state_sane(
         assert not app.query_one("#status-badge").has_class("status--pulse")
 
 
+@pytest.mark.asyncio
+async def test_verify_build_banner_on_failure_keeps_state_sane(
+    config_dir: Path,
+) -> None:
+    # Symmetry with test_verify_model_banner_on_failure_keeps_state_sane (bug-254):
+    # a failed verify VERB banners-and-aborts and never reopens the manager, so the
+    # two verbs behave identically on the failure path (neither reopens after a
+    # TargetCallError; both stay on the dashboard). This is the inverse of
+    # test_verify_build_reopens_manager_focused, so it counts list_builds to catch a
+    # *deferred* reopen too (the realistic regression: adding _reopen_manager_later to
+    # the failure branch). list_builds is only issued when the manager (re)opens.
+    class FailingVerifyClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.list_builds_calls = 0
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_builds":
+                self.list_builds_calls += 1
+                return {
+                    "builds": [
+                        {"build_id": "01STABLE", "label": "stable-cu124",
+                         "status": "ready", "default": True},
+                    ],
+                    "skipped": [],
+                }
+            if method == "verify_build":
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("verify build should not subscribe")
+
+    client = FailingVerifyClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await app._verify_build("stable-cu124")
+        # Give any (buggy) deferred _reopen_manager_later a fair chance to fire: the
+        # reopen defers 0.05s via set_timer, so 0.2s is a comfortable margin.
+        await pilot.pause(0.2)
+        # Unified remediation banner; app stays alive.
+        assert "AGENT_UNREACHABLE" in app.error_text
+        assert "target unreachable" in app.error_text
+        assert app.is_running
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+        # The symmetric failure contract: the manager never (re)opened — still on the
+        # dashboard and list_builds was never issued (not even by a deferred reopen).
+        assert app.screen.id == "_default"
+        assert client.list_builds_calls == 0
+
+
 class _NewDeploymentSectionsClient:
     """Fake serving all four new-deployment RPCs; individual sections can fail."""
 
