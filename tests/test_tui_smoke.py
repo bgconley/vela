@@ -13725,6 +13725,116 @@ async def test_progress_still_streams_for_active_job_after_ready(config_dir: Pat
 
 
 @pytest.mark.asyncio
+async def test_progress_panel_hides_when_job_ends_while_ready(config_dir: Path) -> None:
+    # A2 (bug-237): a background job that finishes while the server is READY
+    # must not leave its last streamed percent frozen in the transient panel.
+    # The job-final "Job complete" ProgressUpdated is pumped AFTER
+    # _run_target_job clears _active_job_id, so the READY suppression gate drops
+    # it — the panel must be cleared on job end instead of retaining the stale
+    # percent.
+    class _GatedJobEvents:
+        def __init__(self, job_id: str) -> None:
+            self.job_id = job_id
+            self.release_done = asyncio.Event()
+            self.closed = False
+            self._stage = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._stage == 0:
+                self._stage = 1
+                return {
+                    "event": "job_progress",
+                    "job_id": self.job_id,
+                    "kind": "transient",
+                    "text": "Downloading model: 87% 7/8",
+                }
+            if self._stage == 1:
+                self._stage = 2
+                await self.release_done.wait()
+                return {
+                    "event": "job_done",
+                    "job_id": self.job_id,
+                    "ok": True,
+                    "detail": "Job complete",
+                }
+            raise StopAsyncIteration
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class _IdleEvents:
+        # The mount-time `__agent__` subscription must not consume the job's
+        # events — park it forever instead.
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.Event().wait()
+            raise StopAsyncIteration
+
+        async def aclose(self) -> None:
+            pass
+
+    class JobClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.events = _GatedJobEvents("job-dl")
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method == "download_model":
+                return {"job_id": params["job_id"], "status": "running"}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            if "job-dl" in run_ids:
+                return self.events
+            return _IdleEvents()
+
+    client = JobClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._set_phase(Phase.READY)
+        task = asyncio.ensure_future(
+            app._run_target_job(
+                "download_model",
+                {"job_id": "job-dl", "model_ref": "org/m"},
+                error_action="download model",
+                incomplete_label="Model download",
+            )
+        )
+        # The live streamed progress renders while the job runs (active job).
+        await _wait_for_condition(
+            lambda: "87%" in app.progress_text
+            and app.query_one("#progress-panel").display is True,
+            "job progress did not render while READY",
+        )
+        # Finish the job. Its "Job complete" ProgressUpdated is suppressed by the
+        # READY gate, so on job end the panel must be cleared — not left frozen.
+        client.events.release_done.set()
+        await task
+        await pilot.pause()
+        assert app.progress_text == ""
+        assert app.query_one("#progress-panel").display is False
+
+
+@pytest.mark.asyncio
 async def test_tui_consumes_canonical_textual_messages(config_dir: Path) -> None:
     write_yaml(
         config_dir / "messages.yaml",

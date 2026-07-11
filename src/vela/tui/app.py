@@ -2655,6 +2655,13 @@ class VelaApp(App):
             if self._active_job_id == job_id:
                 self._active_job_id = None
                 self._active_job_label = ""
+                # bug-237/A2: the job-final "Job complete"/"Job cancelled"
+                # ProgressUpdated is pumped AFTER this clears _active_job_id, so
+                # the READY/DEGRADED/terminal suppression gate in _update_progress
+                # drops it. Clear the transient panel here instead of leaving the
+                # last streamed percent frozen over a settled (READY/…) server.
+                if self.phase in PROGRESS_SUPPRESSED_PHASES:
+                    self._clear_progress()
             aclose = getattr(events, "aclose", None)
             if aclose is not None:
                 await aclose()
