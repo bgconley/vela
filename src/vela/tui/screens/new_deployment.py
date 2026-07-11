@@ -327,7 +327,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     # Cached-but-unpinned signpost (M3): filled + display-toggled
                     # by _render_model_scan_help when the target has HF-cache-scan
                     # rows the picker excluded. Bare Static (no wrapper container)
-                    # per the step's helper convention.
+                    # per the step's helper convention; living inside
+                    # #nd-group-pinned means the mode disclosure gates it too.
                     model_scan_help = Static(
                         "",
                         id="new-deployment-model-scan-help",
@@ -1043,8 +1044,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         count = sum(1 for model in self.models if not _is_pinned_entry(model))
         helper = self.query_one("#new-deployment-model-scan-help", Static)
         if count:
+            noun = "model" if count == 1 else "models"
             helper.update(
-                f"{count} cached (unpinned) models on this target — "
+                f"{count} cached (unpinned) {noun} on this target — "
                 '"Pin HF repo →" to use one'
             )
         helper.display = bool(count)
@@ -1363,6 +1365,9 @@ def _is_pinned_entry(model: dict[str, Any]) -> bool:
     # pinned=True; synthetic HF-cache-scan rows are pinned=False (M3). A row
     # WITHOUT the field (older/simple test fixtures) is treated as pinned=True —
     # compatible-by-default so bare {"entry_id": ...} dicts still qualify.
+    # Tradeoff: that default fails OPEN — an engine regression that dropped the
+    # field would re-offer scan rows (M3 recurring) rather than hide real pins;
+    # the agent-side exact-payload tests pin the field to catch that.
     value = model.get("pinned")
     if value is None:
         return True

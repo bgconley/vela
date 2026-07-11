@@ -72,6 +72,11 @@ class ModelHandoff:
         return env
 
 
+# NOTE(M3): "pinned" is intentionally excluded — it is DERIVED (registry pin vs
+# HF-cache-scan row), not stored entry data; list_models' post-merge loop is its
+# sole writer. Adding it here would make every other _model_payload emitter
+# (pin/download/remove/inspect results) carry a meaningless stored-or-None value
+# that masks the derived marker and would reintroduce the unresolvable-rows bug.
 MODEL_ENTRY_FIELDS = (
     "entry_id",
     "display_name",

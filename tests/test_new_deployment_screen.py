@@ -790,10 +790,11 @@ def test_shared_error_constants_bind_the_mapped_prefixes() -> None:
     assert prefixes[DOWNLOAD_NEEDS_PIN_ERROR] == model_step
 
 
-# The exact honest cached-scan helper line, count 1 (M3). Hard-coded here (not
-# built from a screen constant) so the test pins the literal contract string.
+# The exact honest cached-scan helper line, count 1 (M3) — singular "model".
+# Hard-coded here (not built from a screen constant) so the test pins the
+# literal contract string.
 _EXPECTED_SCAN_HELPER_ONE = (
-    '1 cached (unpinned) models on this target — "Pin HF repo →" to use one'
+    '1 cached (unpinned) model on this target — "Pin HF repo →" to use one'
 )
 
 
@@ -863,7 +864,7 @@ async def test_scan_only_registry_defaults_to_bare_and_flags_cached_scans() -> N
         await pilot.pause()
         assert screen.query_one("#nd-group-pinned").display is True
         assert screen._model_options() == [(_EXPECTED_NO_PINS_PLACEHOLDER, "__custom__")]
-        # … and the cached-scan helper line renders alongside it.
+        # … and the cached-scan helper line renders alongside it (singular).
         helper = screen.query_one("#new-deployment-model-scan-help", Static)
         assert helper.display is True
-        assert "1 cached (unpinned) models" in str(helper.content)
+        assert "1 cached (unpinned) model on" in str(helper.content)
