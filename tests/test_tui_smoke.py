@@ -1787,6 +1787,139 @@ async def test_tui_keepalive_timeout_marks_target_disconnected(
         assert "ping timeout" in app.target_connection_detail
 
 
+@pytest.mark.asyncio
+async def test_keepalive_survives_reconnect_and_still_detects_drops(
+    config_dir: Path,
+) -> None:
+    # bug-253: action_reconnect used to spawn its worker in the SAME exclusive
+    # "target-connection" group as the keepalive loop, so the first R press
+    # CANCELLED keepalive and killed automatic drop detection for the rest of the
+    # session. Keepalive now runs in its own group and must survive a reconnect:
+    # a drop staged AFTER R is still detected.
+    class ReconnectKeepaliveClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.fail_ping = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self):
+            if self.fail_ping:
+                raise ConnectionError("link down")
+            return {"ok": True}
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive should not subscribe")
+
+    client = ReconnectKeepaliveClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=client,
+        target_ping_interval_seconds=0.05,
+        target_ping_timeout_seconds=0.05,
+    )
+
+    async with app.run_test() as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        # Press R: under the bug this cancels keepalive (shared exclusive group).
+        app.action_reconnect()
+        await pilot.pause()
+        await _wait_for_target_connection_state(app, "connected")
+        # Stage a drop — only a surviving keepalive can notice it.
+        client.fail_ping = True
+        await _wait_for_target_connection_state(app, "disconnected")
+
+
+@pytest.mark.asyncio
+async def test_keepalive_recovery_transition_reloads_registry(
+    config_dir: Path,
+) -> None:
+    # bug-253: on a non-connected -> connected keepalive flip the loop only
+    # refreshed chrome; it must ALSO reload the registry so a config set that
+    # changed while the link was down is picked up (a bare chrome refresh would
+    # leave the stale offline view frozen). Transition-guarded: only on the flip.
+    def _entry(name: str) -> dict[str, object]:
+        return {
+            "path": f"/agent/configs/{name}.yaml",
+            "name": name,
+            "model": "org/model",
+            "warnings": [],
+            "config": {"name": name, "model": "org/model"},
+        }
+
+    class RecoveringClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.fail_ping = False
+            self.valid = [_entry("one")]
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self):
+            if self.fail_ping:
+                raise ConnectionError("link down")
+            return {"ok": True}
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": self.valid, "invalid": []}
+            if method == "preview":
+                return {"preview": "vllm serve org/model", "warnings": [], "metadata": {}}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("recovery test should not subscribe")
+
+    client = RecoveringClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=client,
+        target_ping_interval_seconds=0.05,
+        target_ping_timeout_seconds=0.05,
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_condition(
+            lambda: len(app.registry.valid) == 1,
+            "registry did not load the initial config set",
+        )
+        # Link drops; keepalive marks disconnected.
+        client.fail_ping = True
+        await _wait_for_target_connection_state(app, "disconnected")
+        # The agent's config set grows while we were away, then the link recovers.
+        client.valid = [_entry("one"), _entry("two")]
+        client.fail_ping = False
+        await _wait_for_target_connection_state(app, "connected")
+        # The recovery flip reloaded the registry (2 now); a bare chrome refresh
+        # would have left it at the stale 1.
+        await _wait_for_condition(
+            lambda: len(app.registry.valid) == 2,
+            "recovery transition did not reload the registry",
+        )
+
+
 def test_target_keepalive_uses_exponential_reconnect_backoff(
     config_dir: Path,
 ) -> None:
@@ -9023,6 +9156,65 @@ async def test_verify_model_shows_busy_verb_then_restores(
 
 
 @pytest.mark.asyncio
+async def test_refresh_models_shows_busy_verb_refreshing_models(
+    config_dir: Path,
+) -> None:
+    # A5(ii): the model-manager Refresh verb was the one RPC 3.2 missed — it did
+    # bespoke error handling instead of funnelling through _with_agent_busy, so it
+    # never painted the busy badge. It must show "refreshing models…" while the
+    # refresh_models RPC runs, then restore the live phase.
+    gate = asyncio.Event()
+
+    class GatedRefreshClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "refresh_models":
+                await gate.wait()
+                return {"refreshed": 3, "models": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("refresh models should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=GatedRefreshClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        task = asyncio.ensure_future(app._refresh_models())
+        # Mid-flight: refresh_models is parked on the gate, so the busy verb holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain
+            == "refreshing models…",
+            "busy verb did not appear while refresh_models was gated",
+        )
+        gate.set()
+        await task
+        await pilot.pause()
+        # Badge restored to the live (idle) phase after success.
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
 async def test_verify_model_banner_on_failure_keeps_state_sane(
     config_dir: Path,
 ) -> None:
@@ -12311,6 +12503,54 @@ async def test_configs_card_keeps_cached_entries_and_flags_unreachable_when_disc
 
 
 @pytest.mark.asyncio
+async def test_mark_target_disconnected_renders_offline_card_immediately(
+    config_dir: Path,
+) -> None:
+    # bug-253: a mid-session drop detected by keepalive must re-render the Configs
+    # card at once. _mark_target_disconnected only refreshed chrome (which does not
+    # touch #configs), so the card kept showing the stale connected copy until the
+    # next manual refresh.
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Connected + empty baseline: first-run onboarding copy.
+        assert app.target_connection_state == "connected"
+        body = app.query_one("#configs", Static).content
+        assert "No configs yet" in body.plain
+
+        await app._mark_target_disconnected("link down")
+
+        body = app.query_one("#configs", Static).content
+        assert isinstance(body, Text)
+        assert "target unreachable — configs unknown · R reconnect" in body.plain
+        assert "No configs yet" not in body.plain
+
+
+@pytest.mark.asyncio
+async def test_mark_target_connection_error_renders_offline_card_immediately(
+    config_dir: Path,
+) -> None:
+    # bug-253 sibling: a TargetCallError surfaced by _mark_target_connection_error
+    # must also re-render the Configs card so the offline state is visible at once.
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.target_connection_state == "connected"
+        body = app.query_one("#configs", Static).content
+        assert "No configs yet" in body.plain
+
+        app._mark_target_connection_error(
+            TargetCallError("agent-unreachable", "target unreachable")
+        )
+
+        body = app.query_one("#configs", Static).content
+        assert isinstance(body, Text)
+        assert "target unreachable — configs unknown · R reconnect" in body.plain
+
+
+@pytest.mark.asyncio
 async def test_reconnect_restores_normal_configs_card(config_dir: Path) -> None:
     # bug-252 (bullet 4): pressing R to reconnect a restored target must reload the
     # registry and re-render the normal card, not leave the "target unreachable"
@@ -13614,6 +13854,17 @@ def test_every_run_worker_group_is_monitored_or_self_reporting() -> None:
         "run_worker groups neither monitored nor self-reporting "
         f"(add to OPTIONAL_MONITOR_GROUP_LABELS or SELF_REPORTING_WORKER_GROUPS): "
         f"{unclassified}"
+    )
+    # A5(i): a group makes ONE choice, never both. A group in BOTH sets is a
+    # contradiction (monitored AND self-reporting) and almost certainly a
+    # copy-paste slip — keep the two sets disjoint.
+    both = sorted(
+        set(tui_app_module.OPTIONAL_MONITOR_GROUP_LABELS)
+        & set(tui_app_module.SELF_REPORTING_WORKER_GROUPS)
+    )
+    assert both == [], (
+        "worker groups must be EITHER monitored OR self-reporting, never both: "
+        f"{both}"
     )
 
 

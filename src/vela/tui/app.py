@@ -459,6 +459,15 @@ OPTIONAL_MONITOR_GROUP_LABELS = {
     "config-preview": "config preview",
     "target-config-push": "config push",
     "target-connection": "target connection",
+    # The keepalive loop is a persistent drop-detection monitor in its OWN group
+    # so an exclusive reconnect (group "target-connection") can't cancel it
+    # (bug-253). Its per-ping link failures are caught inside _target_keepalive_once
+    # and routed to connection-state chrome, but the loop body ALSO reloads the
+    # registry + refreshes target-backed views on a recovery flip and calls
+    # _refresh_chrome outside the guarded ping — none of that self-guards, so a
+    # truly-unexpected fault must surface as a warning here rather than silently
+    # killing drop detection.
+    "target-keepalive": "target keepalive",
     "job-cancel": "job cancel",
     "manager-reopen": "manager",
 }
@@ -897,7 +906,7 @@ class VelaApp(App):
         self.run_worker(
             self._poll_target_keepalive(),
             name="target-keepalive",
-            group="target-connection",
+            group="target-keepalive",
             exclusive=True,
             exit_on_error=False,
         )
@@ -2368,10 +2377,14 @@ class VelaApp(App):
                 await self._open_model_manager()
 
     async def _refresh_models(self) -> None:
-        try:
-            result = await self._target_call("refresh_models", {})
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to refresh models: {exc}", style=f"bold {BAD}")
+        # Funnel the refresh verb through the shared busy convention (paints
+        # "refreshing models…"; TargetCallError -> unified remediation banner +
+        # None sentinel). This was the one RPC verb 3.2 missed (A5 ii).
+        result = await self._with_agent_busy(
+            "refreshing models…",
+            self._target_call("refresh_models", {}),
+        )
+        if result is None:
             return
         try:
             refreshed = int(result.get("refreshed") or 0)
@@ -4471,7 +4484,10 @@ class VelaApp(App):
         else:
             self.target_connection_state = "disconnected"
         self.target_connection_detail = str(exc)
-        self._refresh_chrome()
+        # Re-render the whole target-backed dashboard (not just chrome) so the
+        # Configs card flips to the offline state at once when an RPC surfaces a
+        # connection error (bug-253).
+        self._refresh_target_backed_views()
         self._set_error_text(
             self._render_target_connection_banner(
                 exc.code,
@@ -4569,6 +4585,10 @@ class VelaApp(App):
         )
 
     async def _target_keepalive_once(self) -> None:
+        # Capture the state BEFORE _ensure_target_client_connected, which sets it
+        # to "connected" on a successful reconnect — so the else-branch can still
+        # tell a non-connected -> connected FLIP from a steady-state ping.
+        was_connected = self.target_connection_state == "connected"
         try:
             await self._ensure_target_client_connected()
             ping = await asyncio.wait_for(
@@ -4584,12 +4604,26 @@ class VelaApp(App):
                 self._target_last_seen_at = _target_seen_timestamp(ping)
             self.target_connection_state = "connected"
             self.target_connection_detail = ""
-            self._refresh_chrome()
+            if not was_connected:
+                # Recovery flip: reload the registry (the config set may have
+                # changed while the link was down) and re-render the target-backed
+                # views so a frozen offline card is replaced, not just chrome
+                # (bug-253). _load_registry_from_agent self-guards TargetCallError.
+                self.registry = await self._load_registry_from_agent()
+                if self.current_config is None and self.registry.valid:
+                    self.current_config = self.registry.valid[0].config
+                    await self._refresh_selected_config_preview()
+                self._refresh_target_backed_views()
+            else:
+                self._refresh_chrome()
 
     async def _mark_target_disconnected(self, detail: str) -> None:
         self.target_connection_state = "disconnected"
         self.target_connection_detail = detail
-        self._refresh_chrome()
+        # Re-render the whole target-backed dashboard (not just chrome) so the
+        # Configs card flips to the offline state at once on a mid-session drop
+        # (bug-253).
+        self._refresh_target_backed_views()
         try:
             await self._target_client.disconnect()
         except Exception:
