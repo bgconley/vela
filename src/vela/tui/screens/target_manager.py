@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
@@ -15,12 +16,14 @@ from vela.tui.theme import (
     BORDER_STRONG,
     CYAN,
     GREEN,
+    MODAL_LIST_CSS,
+    MODAL_PANEL_CSS,
     RED,
     TEXT_FAINT,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
-from vela.tui.widgets import KeyHintBar, MasterDetail, summarize_capabilities
+from vela.tui.widgets import KeyHintBar, summarize_capabilities
 
 _FOOTER_HINTS = [
     ("↑↓", "Select"),
@@ -31,6 +34,7 @@ _FOOTER_HINTS = [
     ("p", "Push"),
     ("R", "Reconnect"),
     ("x", "Remove"),
+    ("v", "view all"),
     ("Esc", "Close"),
 ]
 
@@ -42,34 +46,49 @@ class TargetManagerRequest:
 
 
 class TargetManagerScreen(ModalScreen):
+    # Full-width STACKED rebuild (bug-237): the shared modal frame (Task 4.1
+    # MODAL_PANEL_CSS / MODAL_LIST_CSS) replaces the old fixed `width: 100` box
+    # that clipped past 80 cols, and the two-pane MasterDetail is dropped for a
+    # full-width list-in-a-VerticalScroll STACKED ABOVE the detail (the Flag
+    # Manager precedent). The frame's `max-height: 96%` bounds the panel so
+    # arrowing between targets can no longer resize/jump the modal.
     CSS = f"""
     TargetManagerScreen {{
         align: center middle;
         background: {BG_BASE};
     }}
 
-    #target-manager-panel {{
-        width: 100;
-        max-height: 90%;
-        overflow-y: auto;
+    TargetManagerScreen #target-manager-panel {{
+        {MODAL_PANEL_CSS}
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #target-manager-list {{
-        width: 40;
-        height: auto;
-        color: {TEXT_PRIMARY};
+    TargetManagerScreen #target-manager-list-scroll {{
+        {MODAL_LIST_CSS}
+        max-height: 16;
+        margin-bottom: 1;
     }}
 
-    #target-manager-detail {{
+    TargetManagerScreen #target-manager-list {{
         width: 1fr;
         height: auto;
         color: {TEXT_PRIMARY};
     }}
 
-    #target-manager-footer {{ margin-top: 1; }}
+    TargetManagerScreen #target-manager-detail {{
+        width: 1fr;
+        height: auto;
+        color: {TEXT_PRIMARY};
+    }}
+
+    TargetManagerScreen #target-manager-footer {{
+        dock: bottom;
+        height: auto;
+        margin-top: 1;
+        background: {BG_PANEL};
+    }}
     """
 
     BINDINGS = [
@@ -111,14 +130,22 @@ class TargetManagerScreen(ModalScreen):
         self._show_all_capabilities = False
 
     def compose(self) -> ComposeResult:
-        yield MasterDetail(
-            Static(id="target-manager-list"),
-            Static(id="target-manager-detail"),
-            footer=KeyHintBar(_FOOTER_HINTS, id="target-manager-footer"),
-            id="target-manager-panel",
-        )
+        with Vertical(id="target-manager-panel"):
+            with VerticalScroll(id="target-manager-list-scroll"):
+                yield Static(id="target-manager-list")
+            yield Static(id="target-manager-detail")
+            with Vertical(id="target-manager-footer"):
+                for index, row in enumerate(_pack_hint_rows(_FOOTER_HINTS)):
+                    yield KeyHintBar(row, id=f"target-manager-footer-row-{index}")
 
     def on_mount(self) -> None:
+        # Keep the list scroll out of the Tab order so key bindings (↑↓ etc.)
+        # reach the screen instead of scrolling the region (the manager has no
+        # focusable inputs to Tab into).
+        try:
+            self.query_one("#target-manager-list-scroll").can_focus = False
+        except Exception:
+            pass
         self._refresh()
 
     def action_previous(self) -> None:
@@ -142,7 +169,45 @@ class TargetManagerScreen(ModalScreen):
         self.dismiss(None)
 
     def action_reconnect(self) -> None:
+        # Optimistic feedback (bug-237): render `reconnecting…` in the detail's
+        # connection row immediately, BEFORE the app's reconnect worker resolves.
+        # The app's reconnect-completion path calls `refresh_target_state` to
+        # replace it with the real live state once the worker finishes.
+        self.connection_state = "reconnecting"
+        self._refresh()
         self.app.action_reconnect()  # type: ignore[attr-defined]
+
+    def refresh_target_state(self, payload: dict[str, object]) -> None:
+        """Re-render the detail (and the active target's list dot) from a fresh
+        live-state payload while the manager stays open.
+
+        The app calls this when a `Reconnect` worker completes and the manager
+        is still the top screen, so a restored link flips the frozen snapshot to
+        the honest connected state without closing the modal (bug-237). Only the
+        keys present in ``payload`` are applied, mirroring the constructor.
+        """
+        if "active_target" in payload:
+            self.active_target = str(payload["active_target"])
+        if "connection_state" in payload:
+            self.connection_state = str(payload["connection_state"])
+        if "connection_detail" in payload:
+            self.connection_detail = str(payload["connection_detail"] or "")
+        if "agent_info" in payload:
+            info = payload["agent_info"]
+            self.agent_info = dict(info) if isinstance(info, dict) else {}
+        if "last_seen" in payload:
+            seen = payload["last_seen"]
+            self.last_seen = str(seen) if seen else None
+        if "active_runs" in payload:
+            runs = payload["active_runs"]
+            self.active_runs = (
+                [dict(run) for run in runs if isinstance(run, dict)]
+                if isinstance(runs, list)
+                else []
+            )
+        if "gpu_summary" in payload:
+            gpu = payload["gpu_summary"]
+            self.gpu_summary = str(gpu) if gpu is not None else None
         self._refresh()
 
     def action_new(self) -> None:
@@ -216,15 +281,16 @@ class TargetManagerScreen(ModalScreen):
             return Text("No target selected", style=TEXT_FAINT)
         active = target.name == self.active_target
         state = self.connection_state if active else "inactive"
+        state_label = _connection_label(state)
         text = Text()
         # Header: target name + connection state.
         text.append(target.name, style=f"bold {TEXT_PRIMARY}")
         text.append("  ")
-        text.append(f"{_connection_dot(state)} {state}", style=_connection_color(state))
+        text.append(f"{_connection_dot(state)} {state_label}", style=_connection_color(state))
         text.append("\n")
         # CONNECTION.
         self._section(text, "CONNECTION")
-        self._kv(text, "connection", state)
+        self._kv(text, "connection", state_label)
         if active and self.connection_detail:
             self._kv(text, "detail", self.connection_detail)
         self._kv(text, "transport", target.transport.value)
@@ -282,6 +348,45 @@ class TargetManagerScreen(ModalScreen):
             if target.name == self.active_target:
                 return index
         return 0
+
+
+def _connection_label(state: str) -> str:
+    # Transitional states read as in-progress; the trailing ellipsis is the
+    # optimistic `reconnecting…` feedback the detail shows the instant `R` is
+    # pressed, before the app's reconnect worker resolves (bug-237).
+    if state in ("connecting", "reconnecting"):
+        return f"{state}…"
+    return state
+
+
+def _hint_row_width(hint: tuple[str, str]) -> int:
+    # Rendered width of one KeyHintBar pair: key + 1-col gap + label + the
+    # widget's 2-col right margin. Matches the KeyHintBar TCSS so the packer can
+    # keep every row inside the panel.
+    key, label = hint
+    return len(key) + 1 + len(label) + 2
+
+
+def _pack_hint_rows(
+    hints: list[tuple[str, str]], *, max_width: int = 68
+) -> list[list[tuple[str, str]]]:
+    # Pack the footer hints into as few rows as fit within ``max_width`` so the
+    # full verb set (incl. `v view all` and `Esc Close`) always renders without
+    # clipping at 80 cols — the stacked layout gives the vertical room for a
+    # second row (bug-237). The default cap fits the 80-col panel content region.
+    rows: list[list[tuple[str, str]]] = []
+    row: list[tuple[str, str]] = []
+    used = 0
+    for hint in hints:
+        width = _hint_row_width(hint)
+        if row and used + width > max_width:
+            rows.append(row)
+            row, used = [], 0
+        row.append(hint)
+        used += width
+    if row:
+        rows.append(row)
+    return rows
 
 
 def _connection_dot(state: str) -> str:

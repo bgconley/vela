@@ -596,6 +596,121 @@ async def test_target_manager_screen_opens_from_binding(
 
 
 @pytest.mark.asyncio
+async def test_target_manager_live_refreshes_on_reconnect_while_open(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Task 4.2 / bug-237: a Reconnect fired from the OPEN manager must flip its
+    # frozen constructor snapshot to the honest live state in place — the detail
+    # shows `reconnecting…` immediately, then the app's reconnect-completion path
+    # calls refresh_target_state so the manager reflects the reconnected agent
+    # WITHOUT the modal closing. Event-gated so both moments are observable.
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+        workdir=Path("/tank/repos/vela"),
+        venv=Path("/tank/venvs/vela"),
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            if name == "local":
+                return TargetConfig(name="local")
+            raise KeyError(name)
+
+    gate = asyncio.Event()
+
+    class GatedReconnectClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.connects = 0
+
+        async def connect(self) -> dict[str, object]:
+            self.connects += 1
+            if self.connects >= 2:
+                # The reconnect blocks here so the `reconnecting…` moment is
+                # observable; it returns an UPDATED agent version to prove the
+                # manager re-rendered from fresh state, not the stale snapshot.
+                await gate.wait()
+            self.connected = True
+            version = "1.0.0-agent" if self.connects >= 2 else "0.9.0-agent"
+            return {
+                "agent_version": version,
+                "controller_version": "0.9.0-controller",
+                "agent_protocol_version": 1,
+                "protocol_version": 1,
+                "target": "blackbird",
+                "daemon_start_ts": "2026-06-03T00:00:00Z",
+                "capabilities": ["list_configs", "preview", "gpu", "health"],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target manager should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=GatedReconnectClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("t")
+        await pilot.pause()
+        assert app.screen.id == "target-manager"
+        detail = str(app.screen.query_one("#target-manager-detail", Static).content)
+        assert "agent: 0.9.0-agent" in detail  # the initial snapshot
+
+        # Fire the app's reconnect from the open manager (what `R` delegates to).
+        app.screen.action_reconnect()
+        await pilot.pause()
+        # Moment 1: optimistic reconnecting… while the worker is gated, still open.
+        detail = str(app.screen.query_one("#target-manager-detail", Static).content)
+        assert "connection: reconnecting…" in detail
+        assert app.screen.id == "target-manager"
+
+        # Release the gated reconnect; the completion path live-refreshes in place.
+        gate.set()
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_textual_condition(
+            pilot,
+            lambda: "agent: 1.0.0-agent"
+            in str(app.screen.query_one("#target-manager-detail", Static).content),
+            "target manager did not live-refresh after reconnect",
+        )
+        # Moment 2: the reconnected agent shows, and the modal never closed.
+        assert app.screen.id == "target-manager"
+        detail = str(app.screen.query_one("#target-manager-detail", Static).content)
+        assert "connection: connected" in detail
+        assert "agent: 1.0.0-agent" in detail
+
+
+@pytest.mark.asyncio
 async def test_target_manager_selection_switches_target_and_refreshes_configs(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

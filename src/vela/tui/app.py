@@ -2621,6 +2621,30 @@ class VelaApp(App):
             self.current_config = self.registry.valid[0].config
             await self._refresh_selected_config_preview()
         self._refresh_target_backed_views()
+        # If the Target Manager is still open on top of the stack, push the fresh
+        # live state into it so a successful reconnect flips its frozen snapshot
+        # (and the `reconnecting…` feedback) to the honest connected card without
+        # closing the modal (bug-237).
+        self._refresh_open_target_manager()
+
+    def _target_manager_state_payload(self) -> dict[str, object]:
+        return {
+            "active_target": self.target_name,
+            "connection_state": self.target_connection_state,
+            "connection_detail": self.target_connection_detail,
+            "agent_info": dict(self._target_agent_info),
+            "last_seen": self._target_last_seen_at,
+            "active_runs": list(self.detached_run_summaries),
+            "gpu_summary": self.gpu_panel_text,
+        }
+
+    def _refresh_open_target_manager(self) -> None:
+        try:
+            screen = self.screen
+        except Exception:
+            return
+        if isinstance(screen, TargetManagerScreen):
+            screen.refresh_target_state(self._target_manager_state_payload())
 
     async def _switch_target(self, target_name: str) -> None:
         try:
