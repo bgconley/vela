@@ -8189,6 +8189,111 @@ async def test_config_picker_uses_agent_preview_without_controller_profile(
 
 
 @pytest.mark.asyncio
+async def test_config_picker_panel_hugs_content_with_shared_frame(config_dir: Path) -> None:
+    # bug-237: the picker panel must hug its content (height: auto via the
+    # shared modal frame), not fill a fixed-height mostly-empty box.
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await pilot.press("c")
+        await pilot.pause()
+        panel = app.screen.query_one("#config-picker-panel")
+        assert panel.styles.height.is_auto
+        # one config -> hug a handful of rows, nowhere near the old fixed
+        # max-height (32) or the 40-row terminal.
+        assert panel.region.height < 20
+        assert panel.region.x > 0
+        assert panel.region.right <= 80
+
+
+@pytest.mark.asyncio
+async def test_config_picker_keeps_selection_in_view_when_scrolling(config_dir: Path) -> None:
+    # bug-237: arrowing past the fold must scroll the list so the '>' marker
+    # stays visible instead of being lost below the fold.
+    for index in range(30):
+        write_yaml(
+            config_dir / f"cfg{index:02d}.yaml",
+            f"name: cfg{index:02d}\nmodel: org/cfg{index:02d}",
+        )
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("c")
+        await pilot.pause()
+        scroll = app.screen.query_one("#config-picker-scroll")
+
+        def marker_visible() -> bool:
+            line = app.screen._selected_line
+            top = scroll.scroll_offset.y
+            return line is not None and top <= line < top + scroll.size.height
+
+        assert marker_visible()
+        for _ in range(29):
+            await pilot.press("down")
+        await pilot.pause()
+        # selection is at the bottom: the scroller moved past the fold AND the
+        # marker is still on screen.
+        assert scroll.scroll_offset.y > 0
+        assert marker_visible()
+        for _ in range(29):
+            await pilot.press("up")
+        await pilot.pause()
+        assert marker_visible()
+
+
+@pytest.mark.asyncio
+async def test_config_picker_enter_with_no_matches_stays_open(config_dir: Path) -> None:
+    # bug-237: Enter with a filter that matches nothing must NOT silently
+    # dismiss the picker; it stays open with an Esc hint.
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.press("c")
+        await pilot.press("z", "z", "z", "z")
+        await pilot.pause()
+        assert "no match — Esc to close" in app.screen.summary
+        await pilot.press("enter")
+        await pilot.pause()
+        # Enter with zero matches keeps the picker open instead of vanishing.
+        assert app.screen.id == "config-picker"
+
+
+@pytest.mark.asyncio
+async def test_config_picker_empty_state_tells_you_to_close_first(config_dir: Path) -> None:
+    # bug-237: the focused filter Input eats 'n', so the first-run empty copy
+    # must tell the user to close the picker before pressing n on the dashboard.
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        assert app.screen.id == "config-picker"
+        assert "press n on the dashboard" in app.screen.summary
+        assert "close" in app.screen.summary.lower()
+
+
+@pytest.mark.asyncio
+async def test_config_picker_offline_empty_state_is_amber_and_honest(config_dir: Path) -> None:
+    # bug-237 / bug-252 carry-forward: offline with nothing cached must say the
+    # target is unreachable (amber), not the first-run "No configs yet" copy.
+    app = VelaApp(configs_dir=config_dir)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(
+            config_picker_module.ConfigPickerScreen(
+                app.registry, connection_state="disconnected"
+            )
+        )
+        await pilot.pause()
+        assert app.screen.id == "config-picker"
+        summary = app.screen.summary
+        assert "target unreachable — configs unknown" in summary
+        assert "No configs yet" not in summary
+        content = app.screen.query_one("#config-picker-list", Static).content
+        assert isinstance(content, Text)
+        assert _text_uses_style(content, tui_app_module.WARN)
+
+
+@pytest.mark.asyncio
 async def test_selected_config_preview_masks_secrets_before_launch(config_dir: Path) -> None:
     write_yaml(
         config_dir / "preview.yaml",

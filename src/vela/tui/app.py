@@ -2981,6 +2981,7 @@ class VelaApp(App):
             ConfigPickerScreen(
                 self.registry,
                 preview_cache=self._config_preview_cache,
+                connection_state=self.target_connection_state,
             )
         )
 

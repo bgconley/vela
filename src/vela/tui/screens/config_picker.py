@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from vela.config.loader import ConfigRegistry, ValidConfig
-from vela.tui.theme import BG_BASE, BG_PANEL, BORDER_STRONG
+from vela.tui.theme import (
+    ACCENT,
+    AMBER,
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
+    MODAL_LIST_CSS,
+    MODAL_PANEL_CSS,
+    MUTED,
+    WARN,
+)
 
 
 class ConfigPickerScreen(ModalScreen):
@@ -16,22 +27,25 @@ class ConfigPickerScreen(ModalScreen):
         background: {BG_BASE};
     }}
 
-    #config-picker-panel {{
-        width: 72;
-        max-height: 32;
+    ConfigPickerScreen #config-picker-panel {{
+        {MODAL_PANEL_CSS}
         border: round {BORDER_STRONG};
         background: {BG_PANEL};
         padding: 1 2;
     }}
 
-    #config-picker-filter {{
+    ConfigPickerScreen #config-picker-filter {{
         margin-bottom: 1;
     }}
 
-    #config-picker-list {{
+    ConfigPickerScreen #config-picker-scroll {{
+        {MODAL_LIST_CSS}
+        max-height: 16;
+    }}
+
+    ConfigPickerScreen #config-picker-list {{
+        width: 1fr;
         height: auto;
-        max-height: 26;
-        overflow-y: auto;
     }}
     """
 
@@ -44,21 +58,34 @@ class ConfigPickerScreen(ModalScreen):
     ]
 
     def __init__(
-        self, registry: ConfigRegistry, preview_cache: dict[str, str] | None = None
+        self,
+        registry: ConfigRegistry,
+        preview_cache: dict[str, str] | None = None,
+        *,
+        connection_state: str = "connected",
     ) -> None:
         super().__init__(id="config-picker")
         self.registry = registry
         self.preview_cache = {} if preview_cache is None else preview_cache
+        self.connection_state = connection_state
         self.selected_index = 0
         self.summary = ""
         self.filter_text = ""
+        self._selected_line: int | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="config-picker-panel"):
             yield Input(placeholder="Filter configs", id="config-picker-filter")
-            yield Static("", id="config-picker-list")
+            with VerticalScroll(id="config-picker-scroll"):
+                yield Static("", id="config-picker-list")
 
     def on_mount(self) -> None:
+        # Keep the scroll region out of the Tab order so the filter Input holds
+        # focus and ↑/↓/Enter reach the screen bindings.
+        try:
+            self.query_one("#config-picker-scroll").can_focus = False
+        except Exception:
+            pass
         self.query_one("#config-picker-filter", Input).focus()
         self._refresh()
 
@@ -84,7 +111,9 @@ class ConfigPickerScreen(ModalScreen):
     def action_accept(self) -> None:
         configs = self._filtered_valid()
         if not configs:
-            self.app.pop_screen()
+            # bug-237: never silently dismiss on Enter when there is nothing to
+            # select — the list already carries an "Esc to close" hint, so keep
+            # the picker open instead of vanishing.
             return
         config = configs[self.selected_index].config
         self.app.select_config(config.name)
@@ -103,29 +132,79 @@ class ConfigPickerScreen(ModalScreen):
         self.app.push_config_affordance()
 
     def _refresh(self) -> None:
-        lines = ["Config Picker", ""]
+        rows: list[tuple[str, str | None]] = [
+            ("Config Picker", f"bold {ACCENT}"),
+            ("", None),
+        ]
         configs = self._filtered_valid()
         if self.filter_text:
-            lines.append(f"Filter: {self.filter_text}")
+            rows.append((f"Filter: {self.filter_text}", MUTED))
+        self._selected_line = None
+        header_offset = len(rows)
         for index, item in enumerate(configs):
-            marker = ">" if index == self.selected_index else " "
-            lines.append(f"{marker} {item.config.name}  {item.config.model}")
+            selected = index == self.selected_index
+            marker = ">" if selected else " "
+            line = f"{marker} {item.config.name}  {item.config.model}"
+            rows.append((line, f"bold {ACCENT}" if selected else None))
+            if selected:
+                self._selected_line = header_offset + index
         if self.registry.valid and not configs:
-            lines.append("No matching configs")
+            rows.append(("no match — Esc to close", AMBER))
         if not self.registry.valid and not self.registry.invalid:
-            lines.append("No configs yet — press n (New deployment) to create one")
+            if self.connection_state != "connected":
+                # bug-252 carry-forward: offline with nothing cached is not the
+                # first-run empty state — say the target is unreachable, not that
+                # the user has no configs.
+                rows.append(("target unreachable — configs unknown", AMBER))
+            else:
+                # The focused filter Input eats 'n', so the empty copy has to
+                # tell the user to close the picker before pressing n.
+                rows.append(
+                    ("No configs yet — Esc to close, then press n on the dashboard", MUTED)
+                )
         if self.registry.invalid:
-            lines.append("")
-            lines.append("Invalid configs")
+            rows.append(("", None))
+            rows.append(("Invalid configs", f"bold {WARN}"))
             for item in self.registry.invalid:
                 first_error, *remaining_errors = item.errors or ["invalid config"]
-                lines.append(f"⚠ {item.path.name}: {first_error}")
-                lines.extend(f"  {error}" for error in remaining_errors)
+                rows.append((f"⚠ {item.path.name}: {first_error}", WARN))
+                rows.extend((f"  {error}", MUTED) for error in remaining_errors)
         preview = self._selected_preview()
         if preview:
-            lines.extend(["", "Resolved command", preview])
-        self.summary = "\n".join(lines)
-        self.query_one("#config-picker-list", Static).update(self.summary)
+            rows.append(("", None))
+            rows.append(("Resolved command", MUTED))
+            rows.append((preview, None))
+        self.summary = "\n".join(text for text, _ in rows)
+        self._render_rows(rows)
+        # Layout must settle before the scroll offset is meaningful; scroll the
+        # marker into view after the next refresh (bug-237).
+        self.call_after_refresh(self._scroll_selection_into_view)
+
+    def _render_rows(self, rows: list[tuple[str, str | None]]) -> None:
+        text = Text()
+        last = len(rows) - 1
+        for index, (line, style) in enumerate(rows):
+            text.append(line, style=style)
+            if index != last:
+                text.append("\n")
+        self.query_one("#config-picker-list", Static).update(text)
+
+    def _scroll_selection_into_view(self) -> None:
+        line = self._selected_line
+        if line is None:
+            return
+        try:
+            scroll = self.query_one("#config-picker-scroll", VerticalScroll)
+        except Exception:
+            return
+        view_height = scroll.size.height
+        if view_height <= 0:
+            return
+        top = scroll.scroll_offset.y
+        if line < top:
+            scroll.scroll_to(y=line, animate=False)
+        elif line >= top + view_height:
+            scroll.scroll_to(y=line - view_height + 1, animate=False)
 
     def _selected_preview(self) -> str:
         configs = self._filtered_valid()
