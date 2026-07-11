@@ -8,10 +8,10 @@ import re
 import shlex
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
 # The canonical Figma screens depend on truecolor hex tokens. Textual reads this
@@ -146,6 +146,13 @@ LOADING_PHASES = {
     Phase.CAPTURING_GRAPHS,
     Phase.SERVER_STARTING,
 }
+# The agent-busy overlay borrows the loading-phase chrome (amber pulse) so a
+# transient RPC verb reads exactly like a run loading state without being bound
+# to any real run phase.
+BUSY_BADGE_PHASE = Phase.STARTING
+
+# Result type for the shared _with_agent_busy RPC wrapper.
+_T = TypeVar("_T")
 WORKFLOW_PHASES = (
     Phase.STARTING,
     Phase.RESOLVING_MODEL,
@@ -2176,12 +2183,11 @@ class VelaApp(App):
         )
 
     async def _open_model_manager(self, *, focus_model: str | None = None) -> None:
-        try:
-            result = await self._target_call(
-                "list_models", {"configs_dir": str(self.configs_dir)}
-            )
-        except TargetCallError as exc:
-            self._set_error_text(f"Unable to list models: {exc}", style=f"bold {BAD}")
+        result = await self._with_agent_busy(
+            "loading models…",
+            self._target_call("list_models", {"configs_dir": str(self.configs_dir)}),
+        )
+        if result is None:
             return
         models = result.get("models")
         # Kept for the remove-confirm's reclaim estimate (J17).
@@ -4356,6 +4362,46 @@ class VelaApp(App):
         await self._ensure_target_client_connected()
         return await self._target_client.call(method, params)
 
+    async def _with_agent_busy(self, verb: str, awaitable: Awaitable[_T]) -> _T | None:
+        """Run an agent RPC (or compound coroutine) behind the busy badge.
+
+        Sets the status badge to the pulsing loading state labelled ``verb``
+        (e.g. ``loading models…``, ``composing…``) while ``awaitable`` runs, then
+        restores the badge to the live phase — on success OR failure. This is the
+        shared convention every RPC opener/verb funnels through (Task 3.2).
+
+        Return contract (chosen for 3.2 ergonomics — one uniform shape at every
+        call site):
+          * success -> the awaited result.
+          * ``TargetCallError`` -> renders the unified remediation banner via
+            ``_mark_target_connection_error`` and returns ``None`` so the caller
+            aborts opening a screen with a plain ``if result is None: return``.
+            ``_target_call`` never resolves to ``None``, so the sentinel is
+            unambiguous.
+          * any other exception -> propagates unchanged. Workers are
+            ``exit_on_error=False`` + labelled since Phase 1, so real bugs surface
+            in ``on_worker_state_changed`` rather than being masked here.
+
+        Restore reads the CURRENT ``self.phase`` in the ``finally``: a run-phase
+        transition that lands from a worker during the busy window is preserved
+        (last-writer-wins). The overlay is transient chrome and never mutates
+        ``self.phase``.
+        """
+        try:
+            self._paint_status_badge_busy(verb)
+        except WIDGET_MISSING_EXCEPTIONS:
+            pass
+        try:
+            return await awaitable
+        except TargetCallError as exc:
+            self._mark_target_connection_error(exc)
+            return None
+        finally:
+            try:
+                self._paint_status_badge(self.phase)
+            except WIDGET_MISSING_EXCEPTIONS:
+                pass
+
     async def _poll_target_keepalive(self) -> None:
         interval = self._target_ping_interval_seconds
         ping = getattr(self._target_client, "ping", None)
@@ -5273,17 +5319,43 @@ class VelaApp(App):
         self.phase_timeline_text = timeline.plain
         self._debug_event("phase.changed", phase=phase.value, status=self.status_text)
         try:
-            status_badge = self.query_one("#status-badge")
-            self._apply_status_classes(status_badge, phase)
-            self.query_one("#status-dot", Static).update(self._render_status_dot(phase))
-            self.query_one("#status-label", Static).update(
-                self._render_status_label(phase)
-            )
+            self._paint_status_badge(phase)
             self.query_one("#phases", Static).update(timeline)
         except WIDGET_MISSING_EXCEPTIONS:
             return
         self._refresh_sidebar_overlay()
         self._refresh_chrome()
+
+    def _paint_status_badge(self, phase: Phase) -> None:
+        """Paint the status badge (classes + dot + label) for ``phase``.
+
+        Extracted from ``_set_phase`` so the agent-busy overlay can restore the
+        badge to the live phase without re-running phase-time bookkeeping. Lets
+        ``WIDGET_MISSING_EXCEPTIONS`` propagate; callers wrap it in their own
+        guard (``_set_phase`` and ``_with_agent_busy`` both do).
+        """
+        status_badge = self.query_one("#status-badge")
+        self._apply_status_classes(status_badge, phase)
+        self.query_one("#status-dot", Static).update(self._render_status_dot(phase))
+        self.query_one("#status-label", Static).update(self._render_status_label(phase))
+
+    def _paint_status_badge_busy(self, verb: str) -> None:
+        """Overlay the pulsing loading badge with an in-flight agent verb.
+
+        Reuses the loading-phase chrome (amber ``status--loading`` + pulse, dot,
+        surface) and only swaps the label for ``verb`` so a busy RPC reads like a
+        loading state while naming what is running (e.g. ``loading models…``).
+        """
+        status_badge = self.query_one("#status-badge")
+        self._apply_status_classes(status_badge, BUSY_BADGE_PHASE)
+        self.query_one("#status-dot", Static).update(
+            self._render_status_dot(BUSY_BADGE_PHASE)
+        )
+        style = self._status_style_for_phase(BUSY_BADGE_PHASE)
+        surface = self._status_surface_for_phase(BUSY_BADGE_PHASE)
+        self.query_one("#status-label", Static).update(
+            Text(verb, style=f"{style} on {surface}")
+        )
 
     def _track_phase_time(self, phase: Phase, *, agent_mono: float | None = None) -> None:
         now = agent_mono if agent_mono is not None else self._clock()

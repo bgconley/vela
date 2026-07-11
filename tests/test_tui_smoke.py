@@ -8552,6 +8552,208 @@ async def test_status_badge_uses_icons_and_phase_color_classes(config_dir: Path)
 
 
 @pytest.mark.asyncio
+async def test_with_agent_busy_shows_pulsing_verb_then_restores(
+    config_dir: Path,
+) -> None:
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        badge = app.query_one("#status-badge")
+        status_label = app.query_one("#status-label", Static)
+        assert app.phase is Phase.IDLE
+        assert status_label.content.plain == "IDLE"
+
+        gate = asyncio.Event()
+
+        async def gated_rpc() -> dict[str, str]:
+            await gate.wait()
+            return {"models": "ok"}
+
+        task = asyncio.ensure_future(
+            app._with_agent_busy("loading models…", gated_rpc())
+        )
+        # Mid-flight: the RPC is parked on the gate, so the busy overlay holds.
+        await pilot.pause()
+        assert badge.has_class("status--loading")
+        assert badge.has_class("status--pulse")
+        assert status_label.content.plain == "loading models…"
+
+        gate.set()
+        result = await task
+        await pilot.pause()
+
+        assert result == {"models": "ok"}
+        # Restored to the live (idle) phase after success.
+        assert not badge.has_class("status--pulse")
+        assert badge.has_class("status--idle")
+        assert status_label.content.plain == "IDLE"
+
+
+@pytest.mark.asyncio
+async def test_with_agent_busy_renders_banner_and_returns_none_on_target_error(
+    config_dir: Path,
+) -> None:
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        badge = app.query_one("#status-badge")
+        status_label = app.query_one("#status-label", Static)
+
+        async def failing_rpc() -> dict[str, str]:
+            raise TargetCallError("agent-unreachable", "target unreachable")
+
+        result = await app._with_agent_busy("loading models…", failing_rpc())
+        await pilot.pause()
+
+        # Sentinel None so callers abort opening a screen without crashing.
+        assert result is None
+        # Standard remediation banner via the unified _mark_target_connection_error path.
+        assert "AGENT_UNREACHABLE" in app.error_text
+        assert "target unreachable" in app.error_text
+        assert app.target_connection_state == "unreachable"
+        # Badge restored despite the failure (exception-safe restore).
+        assert not badge.has_class("status--pulse")
+        assert status_label.content.plain == "IDLE"
+
+
+@pytest.mark.asyncio
+async def test_with_agent_busy_propagates_non_target_errors(
+    config_dir: Path,
+) -> None:
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        badge = app.query_one("#status-badge")
+
+        async def boom_rpc() -> dict[str, str]:
+            raise RuntimeError("boom")
+
+        # Non-TargetCallError bugs must not be masked by the busy convention.
+        with pytest.raises(RuntimeError, match="boom"):
+            await app._with_agent_busy("loading models…", boom_rpc())
+
+        # Badge still restored even though the error propagated.
+        assert not badge.has_class("status--pulse")
+        assert badge.has_class("status--idle")
+
+
+@pytest.mark.asyncio
+async def test_model_manager_open_shows_busy_verb_then_opens(
+    config_dir: Path,
+) -> None:
+    class GatedModelClient:
+        def __init__(self, gate: asyncio.Event) -> None:
+            self.connected = False
+            self._gate = gate
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_models":
+                await self._gate.wait()
+                return {
+                    "models": [],
+                    "default_cache": "hf",
+                    "app_download_dir": None,
+                    "skipped": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model manager should not subscribe")
+
+    gate = asyncio.Event()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=GatedModelClient(gate),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        # Mid-flight: list_models is parked on the gate, so the busy verb holds.
+        await _wait_for_condition(
+            lambda: app.query_one("#status-badge").has_class("status--pulse")
+            and app.query_one("#status-label", Static).content.plain == "loading models…",
+            "busy verb did not appear while list_models was gated",
+        )
+        assert app.screen.id != "model-manager"
+
+        gate.set()
+        await _wait_for_condition(
+            lambda: app.screen.id == "model-manager",
+            "model manager did not open after list_models released",
+        )
+        # Badge restored to the live phase once the RPC completed.
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
+async def test_model_manager_open_banner_keeps_dashboard_when_list_models_fails(
+    config_dir: Path,
+) -> None:
+    class FailingModelClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_models":
+                raise TargetCallError("agent-unreachable", "target unreachable")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("model manager should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_name="blackbird",
+        target_client=FailingModelClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        await pilot.press("m")
+        # The busy helper routes the TargetCallError through the unified banner.
+        await _wait_for_condition(
+            lambda: "AGENT_UNREACHABLE" in app.error_text,
+            "unified remediation banner was not rendered on list_models failure",
+        )
+        # Stayed on the dashboard; the manager never opened.
+        assert app.screen.id == "_default"
+        assert "target unreachable" in app.error_text
+        # Badge not stuck pulsing after the failed RPC.
+        assert not app.query_one("#status-badge").has_class("status--pulse")
+
+
+@pytest.mark.asyncio
 async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
     config_dir: Path,
 ) -> None:
