@@ -2993,6 +2993,14 @@ class VelaApp(App):
             return
         self._set_phase(Phase.STARTING)
         params = self._restart_agent_params(run_id=run_id, name=cfg.name)
+        # A3/bug-237: re-point current_run_id BEFORE the restart RPC so the OLD
+        # attached monitor's `current_run_id != run_id` guard fires
+        # deterministically. Otherwise, if that monitor's exit-event drain
+        # finishes before the restart RESPONSE re-points current_run_id, its
+        # terminal path announces a spurious "Stopped <old-id>" operator-closure
+        # toast mid-restart. _monitor_restart_result re-points it to the
+        # replacement run.
+        self.current_run_id = None
         try:
             result = await self._target_call("restart", params)
         except TargetCallError as exc:

@@ -16285,6 +16285,128 @@ async def test_restart_stops_running_attached_server_and_starts_same_config(
 
 
 @pytest.mark.asyncio
+async def test_restart_never_announces_operator_stop_for_the_old_run(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A3 (bug-237): restart immunity must be DETERMINISTIC. The old attached
+    # monitor's terminal path fires the "Stopped <id>" operator-closure toast
+    # only if current_run_id still points at the old run at its guard. Formerly
+    # immunity rested on the restart RESPONSE re-pointing current_run_id before
+    # the old monitor's exit-event drain finished (racy). The fix re-points
+    # current_run_id BEFORE the restart RPC, so the guard fires no matter how
+    # the drain and the response interleave — never a spurious mid-restart toast.
+    #
+    # This forces the losing interleave on purpose: the gated restart RPC lets
+    # the OLD monitor run all the way to its terminal guard BEFORE it returns
+    # the replacement run. Under the old code current_run_id would still be
+    # "run-1" at that guard (RED); the fix has already nulled it (GREEN).
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha\n")
+
+    old_wait_gate = asyncio.Event()
+    old_monitor_done = asyncio.Event()
+
+    class _ParkedEvents:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.Event().wait()
+            raise StopAsyncIteration
+
+        async def aclose(self) -> None:
+            pass
+
+    class RestartRaceClient:
+        def __init__(self, agent) -> None:
+            self.agent = agent
+            self.connected = False
+            self.calls: list[tuple[str, dict]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method in _TARGET_CONFIG_METHODS:
+                return _delegate_config_target_call(self.agent, method, params)
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            if method == "probe_until_ready":
+                return {"ready": False, "detail": "", "models": []}
+            if method == "wait":
+                if params.get("run_id") == "run-1":
+                    await old_wait_gate.wait()
+                    return {"intentional": True, "phase": "STOPPED"}
+                await asyncio.Event().wait()  # the replacement run never exits
+            if method == "restart":
+                # Release the old run's wait and block until the OLD monitor has
+                # finished its terminal path — the losing interleave, on purpose.
+                old_wait_gate.set()
+                await old_monitor_done.wait()
+                return {
+                    "run_id": params["run_id"],
+                    "new_run_id": params["new_run_id"],
+                    "launch": {
+                        "run_id": params["new_run_id"],
+                        "launch_mode": "attached",
+                    },
+                }
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            return _ParkedEvents()
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=RestartRaceClient(RecordingConfigAgent()),
+        target_ping_interval_seconds=None,
+    )
+    app._target_exit_event_drain_timeout_seconds = 0.01
+    announced: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "_announce_operator_shutdown",
+        lambda run_id, verb: announced.append(run_id),
+    )
+
+    # Keep the test on the OLD monitor: don't spin up a replacement-run monitor.
+    async def fake_monitor_restart_result(cfg, result, *, fallback_run_id):
+        return None
+
+    monkeypatch.setattr(app, "_monitor_restart_result", fake_monitor_restart_result)
+
+    async with app.run_test() as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        app.current_config = load_registry(config_dir).by_name("alpha")
+
+        # Bring up the OLD attached monitor for run-1 and let it park on wait().
+        old_task = asyncio.ensure_future(
+            app._monitor_attached_run(app.current_config, "run-1")
+        )
+        old_task.add_done_callback(lambda _t: old_monitor_done.set())
+        await _wait_for_condition(
+            lambda: any(
+                method == "wait" and params.get("run_id") == "run-1"
+                for method, params in app._target_client.calls
+            ),
+            "old attached monitor never reached its wait()",
+        )
+        assert app.current_run_id == "run-1"
+
+        await app._restart_attached_run("run-1")
+        await old_task
+        await pilot.pause()
+
+    # No operator-closure toast for the old run may fire during a restart.
+    assert announced == []
+
+
+@pytest.mark.asyncio
 async def test_non_local_bind_warning_is_visible_in_tui(config_dir: Path) -> None:
     port = _free_port()
     script = Path.cwd() / "scripts" / "fake_vllm_child.py"
