@@ -1496,3 +1496,256 @@
 | 14:20 | Task 4.11 Phase-4 GATE closed: A1 customize-review `composing…` badge (0c4577e), A2 clear stale progress panel on job-end while READY (667dc66), A3 deterministic restart immunity — re-point current_run_id before restart RPC (a3493d7); 3 red-green tests; ruff+mypy clean, full suite 1272, smoke+flag 322; closed bug-237/256/264/279, opened 280/281/282, bug-248 stays open; stripped Phase-4 buglog auto-junk; staged .wolf + uv.lock | src/vela/tui/app.py, tests/test_tui_smoke.py, .wolf/* | ok | ~60k |
 | 18:05 | Phase 4 visual QA PASSED at 142/100/80 cols (8 shots in .playwright-mcp/shots/after-phase4/): header in-flow+honest, sidebar hugs, footer contextual w/ Help+Quit at 80, Model Manager scannable vs real cache, run separator + STOPPED-by-operator closure + terminal stepper row all live | dashboard, managers | before/after vs 2026-07-09 shots is night-and-day | ~30k |
 | 14:30 | Fable closing review Phase 4: A1/A2/A3 gate commits RED-reproduced+GREEN, A3 tradeoff ruled acceptable, 5 bug-237 symptom pins spot-run, buglog+.wolf coherence verified, 1272 passed + ruff + mypy clean, 2 QA shots match | src/vela/tui/app.py, tests/, .wolf/buglog.json | Phase 4 CLOSED | ~55k |
+| 14:30 | Edited tests/test_command_builder.py | 1→6 lines | ~40 |
+| 14:31 | Edited tests/test_command_builder.py | modified _write_pull_docker() | ~418 |
+| 14:31 | Edited src/vela/engine/docker_runtime.py | expanded (+6 lines) | ~114 |
+| 14:31 | Edited src/vela/engine/docker_runtime.py | modified DockerErrorKind() | ~60 |
+| 14:31 | Edited src/vela/engine/docker_runtime.py | modified prepare_docker_image() | ~1285 |
+| 14:31 | Edited src/vela/engine/docker_runtime.py | modified _run_docker() | ~117 |
+| 14:33 | Edited tests/fakes/fake_docker.py | 6→11 lines | ~209 |
+| 14:33 | Edited tests/test_docker_supervisor.py | modified _docker_payload() | ~308 |
+| 14:34 | Edited tests/test_docker_supervisor.py | modified test_docker_supervisor_classifies_pull_timeout_and_streams_progress() | ~1239 |
+| 14:35 | Edited src/vela/engine/supervisor.py | 5→6 lines | ~40 |
+| 14:35 | Edited src/vela/engine/supervisor.py | modified _finish_failure() | ~966 |
+| 14:36 | Edited src/vela/engine/supervisor.py | modified _timeout_detail() | ~98 |
+| 14:36 | Edited tests/test_docs.py | modified test_docs_cover_docker_pull_timeout_and_progress() | ~120 |
+| 14:37 | Edited docs/docker-runtime.md | expanded (+25 lines) | ~368 |
+| 14:37 | Edited docs/configuration.md | expanded (+10 lines) | ~237 |
+| 14:37 | Edited tests/fakes/fake_docker.py | 2→3 lines | ~54 |
+| 14:42 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/update_bug240.py | — | ~713 |
+| 14:42 | Task 5.1 bug-240: docker pull real timeout + classified image-pull-timeout + streamed progress | docker_runtime.py, supervisor.py, fake_docker.py, test_command_builder.py, test_docker_supervisor.py, docs, test_docs.py | 1277 pass, ruff+mypy clean | ~6k |
+| 14:55 | Edited src/vela/engine/docker_runtime.py | removed 6 lines | ~13 |
+| 14:55 | Edited src/vela/engine/supervisor.py | removed 11 lines | ~15 |
+| 14:57 | Fable-5 review Task 5.1 (bug-240 pull timeout): APPROVED — pull proc kill/reap verified, 2 RED checks, suite 1277+ruff+mypy green, restores byte-identical | src/vela/engine/{docker_runtime,supervisor}.py | approved | ~30k |
+| 15:13 | Edited tests/test_config_loader.py | modified test_launch_require_cached_models_defaults_false() | ~227 |
+| 15:13 | Edited src/vela/config/schema.py | added 1 import(s) | ~68 |
+| 15:16 | Edited tests/test_agent_client.py | modified _pin_hf_model_for_launch() | ~3407 |
+| 15:16 | Edited src/vela/engine/phases.py | 2→3 lines | ~33 |
+| 15:16 | Edited src/vela/engine/model_registry.py | modified metadata() | ~50 |
+| 15:16 | Edited src/vela/engine/model_registry.py | modified _handoff_size_bytes() | ~180 |
+| 15:16 | Edited src/vela/agent/local.py | 6→7 lines | ~50 |
+| 15:16 | Edited src/vela/agent/local.py | inline fix | ~17 |
+| 15:17 | Edited src/vela/agent/local.py | 4→5 lines | ~48 |
+| 15:17 | Edited src/vela/agent/local.py | 1→5 lines | ~46 |
+| 15:17 | Edited src/vela/agent/local.py | added 1 condition(s) | ~782 |
+| 15:17 | Edited src/vela/agent/local.py | expanded (+14 lines) | ~371 |
+| 15:17 | Edited src/vela/agent/local.py | 9→10 lines | ~167 |
+| 15:17 | Edited src/vela/agent/local.py | 7→12 lines | ~186 |
+| 15:18 | Edited src/vela/agent/local.py | 1→2 lines | ~37 |
+| 15:18 | Edited src/vela/agent/local.py | modified _refresh_model_registry_after_ready() | ~422 |
+| 15:19 | Edited tests/test_agent_client.py | modified _write_hf_model_registry() | ~476 |
+| 15:19 | Edited tests/test_agent_client.py | _pin_hf_model_for_launch() → _write_hf_model_registry() | ~92 |
+| 15:19 | Edited tests/test_agent_client.py | _pin_hf_model_for_launch() → _write_hf_model_registry() | ~93 |
+| 15:19 | Edited tests/test_agent_client.py | _pin_hf_model_for_launch() → _write_hf_model_registry() | ~96 |
+| 15:20 | Edited tests/test_cli_run.py | modified __init__() | ~699 |
+| 15:21 | Edited src/vela/cli.py | added 2 import(s) | ~215 |
+| 15:21 | Edited src/vela/cli.py | expanded (+9 lines) | ~353 |
+| 15:21 | Edited src/vela/cli.py | expanded (+9 lines) | ~250 |
+| 15:21 | Edited src/vela/cli.py | expanded (+9 lines) | ~247 |
+| 15:22 | Edited tests/test_docs.py | modified test_docs_cover_launch_cache_check_and_registry_learning() | ~103 |
+| 15:22 | Edited docs/builds-and-models.md | expanded (+21 lines) | ~407 |
+| 15:22 | Edited src/vela/tui/app.py | 2→6 lines | ~111 |
+| 15:26 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/append_bug283.py | — | ~666 |
+
+## Task 5.2 — Prelaunch cache check + post-READY registry refresh (H2, D1, bug-283)
+| 00:00 | schema.launch.require_cached_models: bool=False | src/vela/config/schema.py | GREEN | ~200 |
+| 00:00 | ErrorKind.MODEL_NOT_CACHED="model-not-cached" | src/vela/engine/phases.py | GREEN | ~60 |
+| 00:00 | ModelHandoff.size_bytes + _handoff_size_bytes | src/vela/engine/model_registry.py | GREEN | ~250 |
+| 00:00 | _model_not_cached_descriptor + prepare/preflight gate+warning; launch_warnings additive field; string promoted onto build.warnings for TUI banner; post-READY refresh_models (best-effort) | src/vela/agent/local.py | GREEN | ~1200 |
+| 00:00 | --require-cached on run/smoke/smoke-tui; echo launch_warnings to stderr | src/vela/cli.py | GREEN | ~400 |
+| 00:00 | ERROR_GUIDANCE[MODEL_NOT_CACHED] | src/vela/tui/app.py | GREEN | ~120 |
+| 00:00 | docs Launch Composition cache-check + registry-learning | docs/builds-and-models.md | GREEN | ~300 |
+| 00:00 | 12 tests (config_loader 3, agent 6, cli 2, docs 1); full suite 1277->1289; ruff+mypy clean | tests/* | GREEN | ~2500 |
+| 5.2-review | Fable review of a21567b (H2/D1 cache gate): spec+tests+gates verified green (1289/ruff/mypy, RED spot-checks clean); found 1 required fix — post-READY refresh_models runs sync on agent event loop in _probe_until_ready (local.py:1659) + refreshes even when already cached | src/vela/agent/local.py | issues-filed | ~55k |
+| 15:47 | Session end: 472 writes across 89 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 141 reads | ~991038 tok |
+| 15:51 | Edited tests/test_agent_client.py | modified _post_ready_probe_scaffold() | ~1738 |
+| 15:52 | Edited src/vela/agent/local.py | added 1 condition(s) | ~540 |
+| 15:53 | Edited docs/builds-and-models.md | 3→5 lines | ~96 |
+| 15:54 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/dedupe_buglog.py | — | ~528 |
+| 00:00 | Review fix: post-READY refresh off-loop (to_thread) + skip-when-cached; docs wording (full refresh, only-when-uncached); buglog deduped (256/257/264 later copies removed) | src/vela/agent/local.py, docs/builds-and-models.md, tests/test_agent_client.py, .wolf/buglog.json | GREEN | ~900 |
+| 16:01 | Session end: 476 writes across 90 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 141 reads | ~997798 tok |
+| 5.2-rereview | Fable re-review of 2287e3b: off-loop refresh + cached-skip verified (RED-proved both new tests vs a21567b, restored byte-identical; CancelledError propagation confirmed — except Exception excludes BaseException; re-resolve judged correct: reattach path has no prepare handoff + READY-time state is the right skip input); 1291/ruff/mypy green | src/vela/agent/local.py, tests/test_agent_client.py | Task 5.2 CLOSED | ~25k |
+| 16:20 | Edited tests/test_deployment_composer.py | added 1 import(s) | ~32 |
+| 16:21 | Edited tests/test_deployment_composer.py | modified _write_source_registry() | ~1698 |
+| 16:22 | Edited tests/test_deployment_composer.py | modified test_generic_docker_bare_local_path_model_has_no_auto_hf_cache_mount() | ~197 |
+| 16:22 | Edited src/vela/engine/model_registry.py | modified default_models_registry_path() | ~401 |
+| 16:22 | Edited src/vela/engine/composer.py | 2→6 lines | ~55 |
+| 16:22 | Edited src/vela/engine/composer.py | inline fix | ~23 |
+| 16:23 | Edited src/vela/engine/composer.py | modified _runtime_command() | ~553 |
+| 16:24 | Edited tests/test_agent_client.py | modified test_prepare_launch_warns_when_docker_hf_repo_pinned_has_no_hf_cache_mount() | ~1749 |
+| 16:24 | Edited src/vela/agent/local.py | 4→5 lines | ~41 |
+| 16:24 | Edited src/vela/agent/local.py | 12→16 lines | ~242 |
+| 16:25 | Edited src/vela/agent/local.py | added error handling | ~595 |
+| 16:25 | Edited tests/test_docs.py | modified test_docs_cover_docker_hf_cache_default_mount() | ~124 |
+| 16:26 | Edited docs/docker-runtime.md | expanded (+20 lines) | ~349 |
+| 16:26 | Edited docs/builds-and-models.md | expanded (+7 lines) | ~180 |
+| 16:32 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/append_bug284.py | — | ~922 |
+| 16:33 | Task 5.3 done (H3, bug-284): docker composes mount agent HF cache by default + docker-no-hf-cache-mount preflight warning + docs | composer.py, model_registry.py, local.py, docs x2, tests x3 | 1302 pass, ruff+mypy clean | ~600 |
+| 5.3-review | Fable review Task 5.3 (H3 hf-cache mount): RED-checked composer default + preflight wiring, full suite 1302 + ruff + mypy green, APPROVED; ruled HF_HUB_CACHE-outside-HF_HOME edge accept-with-limitation, env-mismatch warning REQUIRED in 5.4 | src/vela/engine/composer.py, src/vela/agent/local.py | approved | ~30k |
+| 17:04 | Edited tests/test_cli_run.py | modified _deploy_create_client_with_preflight() | ~1786 |
+| 17:04 | Edited src/vela/cli.py | 8→12 lines | ~120 |
+| 17:04 | Edited src/vela/cli.py | expanded (+6 lines) | ~420 |
+| 17:05 | Edited src/vela/cli.py | modified get() | ~196 |
+| 17:05 | Edited src/vela/cli.py | modified _warning_text() | ~151 |
+| 17:08 | Edited tests/test_agent_client.py | modified test_prepare_launch_warns_when_agent_hf_hub_cache_is_outside_hf_home() | ~653 |
+| 17:09 | Edited src/vela/agent/local.py | 5→6 lines | ~49 |
+| 17:09 | Edited src/vela/agent/local.py | modified _docker_hf_cache_env_mismatch_descriptor() | ~598 |
+| 17:10 | Edited src/vela/agent/local.py | _docker_missing_hf_cache_mount_descriptor() → _docker_launch_warnings() | ~232 |
+| 17:10 | Edited src/vela/agent/local.py | expanded (+7 lines) | ~287 |
+| 17:10 | Edited src/vela/agent/local.py | modified _docker_launch_warnings() | ~186 |
+| 17:10 | Edited tests/test_agent_client.py | inline fix | ~19 |
+| 17:11 | Edited docs/docker-runtime.md | expanded (+8 lines) | ~224 |
+| 17:18 | Edited tests/test_agent_client.py | modified test_pin_model_defaults_hf_display_name_to_repo_id() | ~1645 |
+| 17:19 | Edited src/vela/engine/model_registry.py | modified isinstance() | ~207 |
+| 17:19 | Edited src/vela/engine/model_registry.py | expanded (+15 lines) | ~286 |
+| 17:19 | Edited src/vela/engine/model_registry.py | 6→6 lines | ~71 |
+| 17:19 | Edited src/vela/engine/model_registry.py | modified _pin_entry_from_params() | ~184 |
+| 17:20 | Edited src/vela/engine/model_registry.py | modified _param_flag() | ~937 |
+| 17:20 | Edited src/vela/cli.py | expanded (+7 lines) | ~158 |
+| 17:20 | Edited src/vela/cli.py | 4→6 lines | ~60 |
+| 17:21 | Edited tests/test_cli_run.py | modified test_cli_model_pin_new_flag_threads_new_param() | ~334 |
+| 17:21 | Edited README.md | inline fix | ~23 |
+| 17:21 | Edited docs/builds-and-models.md | expanded (+13 lines) | ~270 |
+| 22:15 | Task 5.4 H4: deploy create fails loudly on failed preflight (+HF env-mismatch warning, _volume_covers realpath) | cli.py, agent/local.py, docker-runtime.md, tests | commit 5902647, 1307 pass, bug-285 | ~9k |
+| 22:20 | Task 5.5 M4: model_ref resolves unique repo_id; pin upserts in place (--new escape) | model_registry.py, cli.py, README, builds-and-models.md, tests | commit 3398c0a, 1314 pass, bug-286 | ~9k |
+| 17:39 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/test_review_upsert_repro.py | — | ~1378 |
+| 17:46 | Fable-5 review Tasks 5.4+5.5 (be284fa..3398c0a): H4 deploy-create gate + env-mismatch VERIFIED (RED-checked, restored byte-identical); M4 upsert REJECTED — revision-intent None vs backfilled 'main' (_apply_cached_model_payload via download/refresh/verify) mints duplicates on the common pin→cache→re-pin path and upsert rebuild clobbers display_name/aliases/notes (repro'd); 1314 passed, ruff+mypy clean | src/vela/engine/model_registry.py, src/vela/cli.py | ❌ fixes required | ~60k |
+| 17:48 | Session end: 516 writes across 95 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 145 reads | ~1039161 tok |
+| 17:54 | Edited tests/test_agent_client.py | modified test_pin_model_upserts_after_refresh_backfills_revision() | ~1897 |
+| 17:54 | Edited src/vela/engine/model_registry.py | modified _default_hf_revision() | ~752 |
+| 17:54 | Edited src/vela/engine/model_registry.py | modified range() | ~243 |
+| 17:55 | Edited src/vela/engine/model_registry.py | modified _param_flag() | ~602 |
+| 17:55 | Edited docs/builds-and-models.md | 6→10 lines | ~193 |
+| 23:30 | 5.5 review fixes: revision-intent normalization (None==main) + upsert seeds/preserves ref metadata | model_registry.py, builds-and-models.md, test_agent_client.py | reviewer repro 4/4 green, bug-286 updated | ~6k |
+| 18:02 | Session end: 521 writes across 95 files (probe_tui.py, probe_flag2.py, probe_wizard.py, probe_chrome.py, probe_sidebar.py) | 145 reads | ~1045626 tok |
+| 18:08 | Fable-5 re-review 9b6eafa (M4 round 2): _revision_intent normalization + seed/preserve helpers verified; original repro 4/4 unmodified; 5 adopted tests RED on 3398c0a, restore byte-identical; 1319 passed, ruff+mypy clean | src/vela/engine/model_registry.py | ✅ Tasks 5.4+5.5 CLOSED | ~15k |
+
+## Session: 2026-07-11 18:13
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 18:36 | Edited tests/test_agent_client.py | modified _fake_model_info_with_siblings() | ~880 |
+| 18:36 | Edited tests/test_agent_client.py | modified _fake_model_info_with_siblings() | ~244 |
+| 18:36 | Edited tests/test_agent_client.py | 8→8 lines | ~109 |
+| 18:37 | Edited src/vela/engine/model_registry.py | 4→4 lines | ~52 |
+| 18:37 | Edited src/vela/engine/model_registry.py | modified _weights_format_from_names() | ~438 |
+| 18:37 | Edited src/vela/engine/model_registry.py | 7→12 lines | ~141 |
+| 18:37 | Edited src/vela/engine/model_registry.py | 13→15 lines | ~81 |
+| 18:38 | Edited src/vela/engine/model_registry.py | 5→8 lines | ~122 |
+| 18:38 | Edited src/vela/engine/model_registry.py | modified in() | ~130 |
+| 18:39 | Edited tests/test_agent_client.py | modified _write_manifest_registry() | ~1622 |
+| 18:40 | Edited src/vela/engine/model_registry.py | modified _hf_manifest_from_siblings() | ~439 |
+| 18:40 | Edited src/vela/engine/model_registry.py | modified _verify_hf_model_status() | ~1134 |
+| 18:41 | Edited tests/test_agent_client.py | 16→17 lines | ~223 |
+| 18:42 | Edited tests/test_agent_client.py | modified _write_partial_entry_registry() | ~1566 |
+| 18:42 | Edited src/vela/engine/model_registry.py | modified _apply_cached_model_payload() | ~540 |
+| 18:43 | Edited src/vela/engine/model_registry.py | 8→10 lines | ~139 |
+| 18:43 | Edited src/vela/engine/model_registry.py | modified _rescan_keeps_partial() | ~167 |
+| 18:44 | Edited tests/test_agent_client.py | modified test_agent_deep_verify_baseline_then_compare_surfaces_caveat() | ~953 |
+| 18:45 | Edited src/vela/engine/model_registry.py | modified _deep_baseline_payload_fields() | ~201 |
+| 18:45 | Edited src/vela/engine/model_registry.py | modified _verify_metadata_model_entry() | ~128 |
+| 18:45 | Edited src/vela/engine/model_registry.py | 47→52 lines | ~643 |
+| 18:45 | Edited tests/test_agent_client.py | 4→5 lines | ~78 |
+| 18:45 | Edited tests/test_agent_client.py | 5→7 lines | ~105 |
+| 18:46 | Edited tests/test_cli_run.py | modified test_cli_model_verify_echoes_baseline_warning() | ~384 |
+| 18:46 | Edited src/vela/cli.py | 14→15 lines | ~124 |
+| 18:47 | Edited tests/test_agent_client.py | 11→13 lines | ~134 |
+| 18:47 | Edited tests/test_agent_client.py | 10→11 lines | ~104 |
+| 18:47 | Edited src/vela/agent/local.py | 13→15 lines | ~164 |
+| 18:48 | Edited tests/test_agent_client.py | modified test_entry_for_reference_display_name_ambiguous_lists_candidates() | ~398 |
+| 18:48 | Edited src/vela/engine/model_registry.py | 8→13 lines | ~131 |
+| 18:49 | Edited docs/builds-and-models.md | expanded (+10 lines) | ~233 |
+| 18:50 | Edited src/vela/engine/model_registry.py | modified _file_inventory_count() | ~72 |
+| 18:56 | Task 5.6 (M1, bug-287): verify checks inventory vs upstream manifest; partial stays partial; deep baseline honesty | model_registry.py, local.py, cli.py, docs/builds-and-models.md, test_agent_client.py, test_cli_run.py | 11 new tests, full suite 1330 green, ruff+mypy clean | ~9000 |
+| 18:57 | Edited tests/test_agent_client.py | modified test_pin_model_upserts_after_refresh_records_scanned_revision() | ~176 |
+| 18:57 | Edited tests/test_agent_client.py | 7→9 lines | ~139 |
+| 18:58 | Edited src/vela/engine/model_registry.py | modified _rescan_keeps_partial() | ~187 |
+| 19:00 | Edited tests/test_agent_client.py | modified _write_cached_pin_registry() | ~1068 |
+| 19:01 | Edited src/vela/engine/model_registry.py | modified _registry_lock() | ~386 |
+| 19:01 | Edited src/vela/engine/model_registry.py | modified _download_revision_override() | ~348 |
+| 19:01 | Edited src/vela/engine/model_registry.py | 5→7 lines | ~44 |
+| 19:01 | Edited src/vela/engine/model_registry.py | 3→6 lines | ~94 |
+| 19:02 | Edited tests/test_agent_client.py | modified test_agent_verify_warns_when_last_download_diverges_from_pin() | ~974 |
+| 19:02 | Edited src/vela/engine/model_registry.py | modified _revision_divergence_warning() | ~275 |
+| 19:02 | Edited src/vela/engine/model_registry.py | 10→13 lines | ~151 |
+| 19:03 | Edited tests/test_agent_client.py | modified test_agent_download_model_job_honors_divergent_revision_on_cached_pin() | ~752 |
+| 19:05 | Edited tests/test_agent_client.py | expanded (+13 lines) | ~410 |
+| 19:06 | Edited src/vela/engine/model_registry.py | modified revision_diverges_from_pin() | ~218 |
+| 19:06 | Edited src/vela/agent/local.py | 6→7 lines | ~38 |
+| 19:06 | Edited src/vela/agent/local.py | 11→15 lines | ~223 |
+| 19:06 | Edited src/vela/agent/local.py | 15→20 lines | ~272 |
+| 19:07 | Edited src/vela/agent/local.py | 11→9 lines | ~101 |
+| 19:08 | Edited tests/test_agent_client.py | modified test_prepare_launch_no_env_mismatch_when_volume_covers_hub_cache() | ~578 |
+| 19:08 | Edited src/vela/agent/local.py | modified _launch_uses_hf_repo() | ~212 |
+| 19:08 | Edited src/vela/agent/local.py | modified _volume_covers_hf_cache() | ~272 |
+| 19:09 | Edited tests/test_agent_client.py | modified test_prepare_launch_no_env_mismatch_when_volume_covers_hub_cache() | ~169 |
+| 19:09 | Edited tests/test_agent_client.py | 6→3 lines | ~45 |
+| 19:10 | Edited docs/builds-and-models.md | expanded (+23 lines) | ~464 |
+| 19:14 | Task 5.7 (M2, bug-288): download --revision honored + never rewrites pin; scanned_revision containment; verify warns on divergence; docker env-mismatch skips hub-covering volume | model_registry.py, local.py, docs/builds-and-models.md, test_agent_client.py | 4 new tests + 1 renamed, ruff+mypy clean | ~7000 |
+| 19:31 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/reviewer_56_57_repro.py | — | ~6058 |
+| 19:39 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_review_56_57.py | — | ~1745 |
+| 23:59 | Task 5.6+5.7 REVIEW (Fable 5 senior reviewer): APPROVED WITH NOTES — 16 independent repros green at HEAD + 12 RED at parent; shipped 15 new tests RED-verified per commit (15 fail @9b6eafa, 5 fail @15d536b); ruff+mypy clean; full suite 1334 passed in 229.82s (no flake fired). Carry-forwards -> bug-289 (divergent-download CLI detail says 'model cached'; sha-less pin adopts side download via refresh; stale last_download_* warning; inspect lacks last_download_* fields) | review only, no src changes | approved | ~90000 |
+| 19:53 | Edited tests/test_agent_client.py | modified test_pin_model_with_commit_sha_still_detects_gating() | ~394 |
+| 19:54 | Edited src/vela/engine/model_registry.py | 14→19 lines | ~269 |
+| 19:54 | Edited src/vela/engine/model_registry.py | modified _resolved_hf_model_info() | ~218 |
+| 19:54 | Edited tests/test_agent_client.py | 2→3 lines | ~72 |
+| 19:55 | Edited tests/test_agent_client.py | modified test_pin_model_offline_skips_resolution_and_marks_unvalidated() | ~575 |
+| 19:55 | Edited src/vela/engine/model_registry.py | expanded (+7 lines) | ~330 |
+| 19:55 | Edited src/vela/engine/model_registry.py | 7→11 lines | ~140 |
+| 19:55 | Edited src/vela/engine/model_registry.py | 4→5 lines | ~26 |
+| 19:56 | Edited src/vela/engine/model_registry.py | 2→5 lines | ~59 |
+| 19:56 | Edited tests/test_agent_client.py | modified test_refresh_keeps_diverged_sha_less_pin_unadopted() | ~1019 |
+| 19:56 | Edited src/vela/engine/model_registry.py | modified _has_recorded_download_divergence() | ~371 |
+| 19:57 | Edited src/vela/cli.py | expanded (+10 lines) | ~166 |
+| 19:57 | Edited src/vela/cli.py | 8→9 lines | ~92 |
+| 20:06 | Edited tests/test_agent_client.py | modified test_agent_prepare_launch_rechecks_default_build_integrity() | ~767 |
+| 20:06 | Edited src/vela/engine/build_registry.py | modified active_build_id() | ~218 |
+| 20:06 | Edited src/vela/agent/local.py | modified _check_build_launch_integrity() | ~161 |
+| 20:06 | Edited src/vela/agent/local.py | 3→4 lines | ~29 |
+| 20:12 | Edited tests/test_agent_client.py | modified test_download_hf_model_blocks_when_disk_short_for_expected_size() | ~862 |
+| 20:12 | Edited src/vela/engine/preflight.py | modified hf_cache_download_disk_detail() | ~341 |
+| 20:13 | Edited src/vela/engine/model_registry.py | modified _expected_download_size() | ~553 |
+| 20:14 | Edited tests/test_agent_client.py | modified test_prepare_launch_blocks_uncached_model_when_disk_short() | ~584 |
+| 20:14 | Edited src/vela/engine/preflight.py | modified check_launch_preflight() | ~384 |
+| 20:15 | Edited src/vela/agent/local.py | modified _resolved_hf_cache_dir() | ~299 |
+| 20:15 | Edited src/vela/agent/local.py | 7→11 lines | ~114 |
+| 20:15 | Edited src/vela/agent/local.py | 5→7 lines | ~88 |
+| 20:18 | Edited tests/test_agent_client.py | modified test_verify_url_model_reports_launch_time_source() | ~289 |
+| 20:18 | Edited src/vela/engine/model_registry.py | modified _verify_metadata_model_entry() | ~214 |
+| 20:19 | Edited src/vela/agent/local.py | 31→34 lines | ~456 |
+| 20:20 | Edited tests/test_command_builder.py | modified test_docker_runtime_profile_skips_host_help_flag_filtering() | ~383 |
+| 20:21 | Edited src/vela/engine/profile.py | inline fix | ~20 |
+| 20:21 | Edited src/vela/engine/profile.py | modified select_profile_for_config() | ~211 |
+| 20:23 | Edited src/vela/engine/supervisor.py | 6→7 lines | ~53 |
+| 20:23 | Edited src/vela/engine/supervisor.py | modified in() | ~192 |
+| 20:25 | Edited tests/test_agent_client.py | modified test_download_hf_model_clears_stale_last_download_on_matching_download() | ~861 |
+| 20:25 | Edited tests/test_cli_run.py | modified test_cli_model_inspect_shows_last_download_divergence() | ~422 |
+| 20:25 | Edited tests/test_agent_client.py | modified test_agent_download_model_job_surfaces_divergent_revision_detail() | ~567 |
+| 20:26 | Edited src/vela/agent/local.py | 8→10 lines | ~166 |
+| 20:26 | Edited src/vela/engine/model_registry.py | 7→11 lines | ~197 |
+| 20:26 | Edited src/vela/cli.py | 17→19 lines | ~97 |
+| 20:27 | Edited tests/test_command_builder.py | 3→4 lines | ~87 |
+| 20:27 | Edited pyproject.toml | 3→2 lines | ~14 |
+| 20:28 | Edited pyproject.toml | 2→3 lines | ~21 |
+| 20:33 | Edited tests/test_docs.py | modified test_docs_cover_offline_pins_and_disk_prechecks() | ~230 |
+| 20:34 | Edited docs/builds-and-models.md | expanded (+9 lines) | ~213 |
+| 20:34 | Edited docs/builds-and-models.md | expanded (+11 lines) | ~264 |
+| 20:34 | Edited docs/builds-and-models.md | 4→8 lines | ~151 |
+| 20:34 | Edited docs/docker-runtime.md | 3→6 lines | ~104 |
+| 20:34 | Edited docs/docker-runtime.md | expanded (+7 lines) | ~198 |
+| 20:34 | Edited docs/configuration.md | expanded (+7 lines) | ~190 |
+
+## Session summary — Tasks 5.8/5.9/5.10 (Phase-5 tail + gate)
+- Commit 1 `3e959f0` (5.8, M5, bug-290): `--commit-sha` pins still run model_info best-effort for gating (gated repo -> token_required, HF_TOKEN reaches containers) while trusting the supplied sha; new `--offline` pin flag records `validated: false`; `_matching_hf_payload_for_entry` both-None fallback withheld when last_download_* present (closes bug-289 item 2).
+- Commit 2 `ac9fd27` (5.9, bug-291): M6 default/active-build integrity via `active_build_id`; M7 disk-headroom precheck (free > size×1.1, wire-scrubbed) on launch preflight + download path; L2 docker configs skip host `vllm --help` filtering; L3 url verify -> ok; `_evict_docker_containers` 10s per-command timeout; job-runner honest detail; clear stale last_download_* on matching download; MODEL_INSPECT_FIELDS gains last_download_*.
+- Commit 3 `2d4da3c` (5.10 gate): docs (builds-and-models/docker-runtime/configuration) cover offline/validated + disk prechecks + docker profile; test_docs pin added.
+- Optional mypy peel of vela.engine.supervisor SKIPPED (14 errors: dict inference, LogSink|_DrainOnlySink Protocol, 10 payload.get narrowing failures — 30+ min in security-sensitive code).
+- Buglog (unstaged): bug-240 + bug-283..288 closure notes; bug-289 marked closed; bug-208/210/211 deduped (junk auto-hook same-id twins merged into canonical, occurrences bumped).
+| 20:42 | Edited tests/test_agent_client.py | modified test_check_build_launch_integrity_skips_docker_runtime() | ~681 |
+| 20:42 | Edited src/vela/agent/local.py | modified _check_build_launch_integrity() | ~159 |
+| 20:48 | Session end: 109 writes across 17 files (test_agent_client.py, model_registry.py, test_cli_run.py, cli.py, local.py) | 20 reads | ~412253 tok |
+| 21:02 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m5_sha_pin_gating.py | — | ~2447 |
+| 21:02 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py | — | ~1937 |
+| 21:03 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py | inline fix | ~19 |
+| 21:15 | Fable review 5.8-5.10: 2 independent repros green, RED-revert 14/15 fail at b84a0d4 + boundary check at 3e959f0, full gate 1349 pass/ruff/mypy clean; verdict APPROVED WITH NOTES (validated missing from MODEL_INSPECT_FIELDS vs docs claim; M7 expected_size launch fallback carried) | review only, no repo edits | done | ~52k |
+| 21:16 | Phase 5 gate CLOSED by Fable review (5.1-5.10 approved; notes: validated-inspect gap, expected_size launch fallback, buglog hook ids, 2 coverage nits routed to P6/P8/debt) | .wolf | ok | ~1k |

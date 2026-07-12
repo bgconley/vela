@@ -1,17 +1,20 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T17:51:14.122Z
-> Files: 285 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-12T01:03:55.307Z
+> Files: 294 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/
 
 - `append_bug254.py` — Append bug-254 to .wolf/buglog.json (idempotent, preserves top-level keys). (~1113 tok)
+- `append_bug283.py` (~666 tok)
+- `append_bug284.py` (~922 tok)
 - `append_wolf_notes.py` — Append Task 3.4 session notes to .wolf/memory.md and .wolf/cerebrum.md (unstaged). (~930 tok)
 - `commit_4_1.txt` (~262 tok)
 - `commit_msg.txt` (~340 tok)
 - `commit_s1.txt` (~273 tok)
 - `commit_s2.txt` (~325 tok)
 - `dbg_a2.py` — _GatedJobEvents: aclose, connect, disconnect, call + 2 more (~855 tok)
+- `dedupe_buglog.py` — Dedupe .wolf/buglog.json (reviewer follow-up, Task 5.2). (~528 tok)
 - `edit_buglog.py` — find, close_prefix (~2478 tok)
 - `extend_bug237.py` — Idempotently extend bug-237 notes with Task 4.6 + 4.7 (unstaged .wolf edit). (~1081 tok)
 - `fix_buglog.py` (~657 tok)
@@ -37,15 +40,21 @@
 - `probe_width.py` — Measure, in the real stacked modal layout I plan for Task 4.3, the width (~738 tok)
 - `probe_wizard.py` — Harness: scenario, enter_walk, main (~537 tok)
 - `prove_comment_example.py` — Reconstruct the theme.py comment's interpolation example VERBATIM and prove (~322 tok)
+- `repro_m5_sha_pin_gating.py` — Independent repro for M5 (5.8): --commit-sha pins still detect gating; sha is trusted. (~2447 tok)
+- `repro_m6_active_build_integrity.py` — Independent repro for M6 (5.9): tampered ACTIVE build blocks venv launches, not docker. (~1940 tok)
 - `reviewer_45_probe.py` — Reviewer probe (Task 4.5): header invariants at boundary widths + busy-verb transient. (~994 tok)
+- `reviewer_56_57_repro.py` — Reviewer independent repros for Tasks 5.6 (M1) + 5.7 (M2). (~6058 tok)
 - `test_444_probes.py` — Reviewer probes for Task 4.4 (not part of the repo suite). (~1058 tok)
 - `test_parent_reds.py` — Behavioral RED reproduction against the PARENT (8c278ed) screen classes. (~869 tok)
 - `test_probe_failed_reconnect.py` — Probe (review Task 4.2): does a FAILED reconnect leave the open Target (~1434 tok)
 - `test_probe_footer_dock.py` — Probe (review Task 4.2): footer `dock: bottom` inside the scrollable panel — (~1085 tok)
 - `test_restart_announce_probe.py` — Reviewer probe: does an attached restart fire the operator-stop announce (~1306 tok)
+- `test_review_upsert_repro.py` — Reviewer repro: does the common pin -> cache-refresh -> re-pin flow upsert or mint? (~1378 tok)
+- `update_bug240.py` — Idempotently finalize bug-240 (docker pull timeout) in .wolf/buglog.json. (~713 tok)
 - `vela-review.template.html` — Vela — Repo & TUI Review · 2026-07-09 (~9979 tok)
 - `wolf_bookkeeping_48.py` — Task 4.8 buglog bookkeeping (unstaged .wolf edit): (~1621 tok)
 - `wolf_bookkeeping_49_410.py` — Tasks 4.9 + 4.10 bookkeeping (unstaged .wolf edits, idempotent). (~837 tok)
+- `wolf_review_56_57.py` — Reviewer bookkeeping for Tasks 5.6+5.7 review (idempotent, unstaged .wolf edits). (~1745 tok)
 
 ## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/memory/
 
@@ -58,8 +67,8 @@
 - `CHANGELOG.md` — Change log (~455 tok)
 - `CLAUDE.md` — OpenWolf (~57 tok)
 - `LICENSE` — Project license (~286 tok)
-- `pyproject.toml` — Python project configuration (~528 tok)
-- `README.md` — Project documentation (~2219 tok)
+- `pyproject.toml` — Vela is a phase-aware terminal TUI for launching vLLM servers from named configs. (~514 tok)
+- `README.md` — Project documentation (~2531 tok)
 - `vela-deployment-composer-implementation-plan-v1.md` — Vela — Deployment Composer + Docker Runtime — Implementation Plan (v1) (~3549 tok)
 - `vela-deployment-composer-spec-v1.md` — Vela — Deployment Composer — Feature Specification & Implementation Plan (v1) (~4930 tok)
 - `vela-deployment-composer-user-stories-v1.md` — Vela — Deployment Composer & Docker Runtime — User Stories (v1) (~2600 tok)
@@ -173,10 +182,10 @@
 ## docs/
 
 - `agent-rpc.md` — Agent RPC (~1080 tok)
-- `builds-and-models.md` — Builds And Models (~1070 tok)
-- `configuration.md` — Configuration (~2824 tok)
+- `builds-and-models.md` — Builds And Models (~2681 tok)
+- `configuration.md` — Configuration (~3093 tok)
 - `deployments.md` — Deployments (~554 tok)
-- `docker-runtime.md` — Docker Runtime (~1627 tok)
+- `docker-runtime.md` — Docker Runtime (~2515 tok)
 - `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4080 tok)
 
 ## docs/plans/
@@ -209,7 +218,7 @@
 
 - `__init__.py` — Vela package. (~23 tok)
 - `__main__.py` (~29 tok)
-- `cli.py` — API router (~33687 tok)
+- `cli.py` — API router (~34542 tok)
 - `fake_child.py` — Handler: do_GET, log_message, main, print_help + 1 more (~1146 tok)
 - `messages.py` — from: from_log_record (~592 tok)
 - `remediation.py` — from: remediation_for_error (~924 tok)
@@ -219,7 +228,7 @@
 - `__init__.py` — Agent-side execution surfaces. (~11 tok)
 - `auth.py` — AgentTokenError: configured_agent_token, agent_token_required, default_agent_token_file, install_age (~958 tok)
 - `daemon.py` — URL configuration (~3008 tok)
-- `local.py` — BuildInstallRequest: handle (~58776 tok)
+- `local.py` — BuildInstallRequest: handle (~62803 tok)
 - `socket.py` — serve_unix_socket_agent, handle_connection, verify_same_user_peer, bridge_stdio_to_unix_socket (~1392 tok)
 - `stdio.py` — _ConnectionAuthState: serve_stdio_agent, serve_agent_stream, write_frame, load + 3 more (~3542 tok)
 
@@ -227,28 +236,28 @@
 
 - `__init__.py` — Configuration loading and validation. (~13 tok)
 - `loader.py` — ValidConfig: by_name, discover_config_dirs, load_registry, first_existing_dir + 1 more (~1153 tok)
-- `schema.py` — Pydantic: DockerConfig (~2224 tok)
+- `schema.py` — Pydantic: DockerConfig (~2235 tok)
 - `targets.py` — URL configuration (~2041 tok)
 
 ## src/vela/engine/
 
 - `__init__.py` — Engine, process, log, and vLLM-version adapter code. (~17 tok)
-- `build_registry.py` — from: payload, default_builds_root, resolve_build_handoff, check_build_launch_integrity + 7 more (~12279 tok)
+- `build_registry.py` — from: payload, default_builds_root, active_build_id, resolve_build_handoff + 8 more (~12423 tok)
 - `command_builder.py` — CommandBuildResult: build_command, is_local_model_reference, mask_preview_value, render_preview + 1 more (~2518 tok)
-- `composer.py` — ModelContext: list_presets, list_deployment_recipes (~13177 tok)
-- `docker_runtime.py` — DockerRunCommand: build_docker_run, prepare_docker_image, pull_docker_image, inspect_docker_image + 1 more (~2504 tok)
+- `composer.py` — ModelContext: list_presets, list_deployment_recipes (~13469 tok)
+- `docker_runtime.py` — DockerRunCommand: build_docker_run, prepare_docker_image, pull_docker_image, inspect_docker_image + (~3429 tok)
 - `ids.py` — mint_ulid (~132 tok)
 - `job_phases.py` — Declares import (~126 tok)
 - `log_sink.py` — from: feed, close, rotate_to, scrub + 5 more (~1715 tok)
-- `model_registry.py` — from: metadata, env_contribution, default_models_registry_path, resolve_model_handoff + 4 more (~19853 tok)
-- `phases.py` — Phase: feed_line, health_ready, health_failed, health_error + 2 more (~1192 tok)
-- `preflight.py` — URL configuration (~2310 tok)
+- `model_registry.py` — from: metadata, env_contribution, default_models_registry_path, default_hf_hub_cache_dir + 3 more (~26273 tok)
+- `phases.py` — Phase: feed_line, health_ready, health_failed, health_error + 2 more (~1204 tok)
+- `preflight.py` — from: check_launch_preflight, missing_local_model_path, parallel_world_size_mismatch, occupied_port_ (~2762 tok)
 - `process_manager.py` — from: read_loop, stop, kill, start_attached + 1 more (~3673 tok)
-- `profile.py` — VllmDefaults: flag_for, without_flags, soft_validate, bundled_profile + 6 more (~3015 tok)
+- `profile.py` — VllmDefaults: flag_for, without_flags, soft_validate, bundled_profile + 6 more (~3120 tok)
 - `redaction.py` — scrub_text (~153 tok)
 - `run_pruning.py` — Retention for flat-file run records under runs directories. (~1220 tok)
 - `sidecar.py` — TrackedProcessMismatch: from_active_log, rotate_to, write_atomic, to_json + 12 more (~4720 tok)
-- `supervisor.py` — _DrainOnlySink: feed, close, rotate_to, emit + 5 more (~6094 tok)
+- `supervisor.py` — _DrainOnlySink: feed, close, rotate_to, emit + 4 more (~6427 tok)
 
 ## src/vela/monitoring/
 
@@ -273,7 +282,7 @@
 ## src/vela/tui/
 
 - `__init__.py` — Textual user interface. (~9 tok)
-- `app.py` — Declares for (~73534 tok)
+- `app.py` — Declares for (~73592 tok)
 - `cells.py` — Cell-aware text helpers shared across the TUI (bug-237). (~409 tok)
 - `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~1164 tok)
 
@@ -313,20 +322,20 @@
 - `.DS_Store` (~1640 tok)
 - `conftest.py` — scaled_timeout, isolated_vela_state, config_dir, write_yaml (~1095 tok)
 - `test_adopt_build_screen.py` — Headless tests for the refactored AdoptBuildScreen (Mac-safe; no GPU/vLLM). (~1793 tok)
-- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~114764 tok)
+- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~138747 tok)
 - `test_agent_daemon.py` — URL configuration (~4386 tok)
 - `test_agent_socket.py` — FakeWriter: get_extra_info, test_same_user_peer_check_accepts_current_uid, test_same_user_peer_check (~600 tok)
 - `test_blackbird_config.py` — Tests: blackbird_qwen36_fp8_config_uses_native_docker_runtime, blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins, tiny_blackbird_res... (~1321 tok)
 - `test_branding.py` — URL configuration (~880 tok)
 - `test_build_manager_screen.py` — Headless tests for the rebuilt BuildManagerScreen (Task 4.4, bug-237). (~2678 tok)
 - `test_build_registry.py` — Engine-level tests for build_registry venv inspection (Mac-safe; no GPU/vLLM). (~1095 tok)
-- `test_cli_run.py` — FakeTargetsRegistry: test_debug_mode_enables_textual_debug_and_devtools, test_cli_root_version_optio (~53435 tok)
-- `test_command_builder.py` — Tests: exact_argv_env_for_serve_entrypoint, revision_pin_is_emitted_for_standalone_model_handoff, docker_error_classifier_covers_named_runtime_fail... (~5213 tok)
-- `test_config_loader.py` — test_valid_config_loads, test_invalid_yaml_or_schema_error_is_retained, test_duplicate_names_are_det (~2413 tok)
+- `test_cli_run.py` — FakeTargetsRegistry: test_debug_mode_enables_textual_debug_and_devtools, test_cli_root_version_optio (~56787 tok)
+- `test_command_builder.py` — cfg, test_exact_argv_env_for_serve_entrypoint, test_revision_pin_is_emitted_for_standalone_model_han (~5970 tok)
+- `test_config_loader.py` — test_valid_config_loads, test_invalid_yaml_or_schema_error_is_retained, test_duplicate_names_are_det (~2624 tok)
 - `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~1812 tok)
-- `test_deployment_composer.py` — Tests: agent_composes_docker_deployment_draft_for_tui, agent_composes_generic_docker_with_fresh_container_name_from_docker_ps, agent_composer_skips... (~14207 tok)
-- `test_docker_supervisor.py` — test_docker_supervisor_writes_scrubbed_run_stderr_to_log, test_docker_supervisor_scrubs_container_lo (~2163 tok)
-- `test_docs.py` — Tests: readme_covers_new_contributor_v1_paths, user_docs_cover_schema_artifacts_and_rpc, build_model_docs_cover_operational_cli_surfaces, v15_docs_... (~1380 tok)
+- `test_deployment_composer.py` — test_agent_composes_docker_deployment_draft_for_tui, test_agent_composes_generic_docker_with_fresh_c (~15884 tok)
+- `test_docker_supervisor.py` — test_docker_supervisor_writes_scrubbed_run_stderr_to_log, test_docker_supervisor_scrubs_container_lo (~3536 tok)
+- `test_docs.py` — test_readme_covers_new_contributor_v1_paths, test_user_docs_cover_schema_artifacts_and_rpc, test_bui (~1919 tok)
 - `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~1779 tok)
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
 - `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2779 tok)
@@ -360,7 +369,7 @@
 ## tests/fakes/
 
 - `__init__.py` — Reusable test fakes. (~8 tok)
-- `fake_docker.py` — write_fake_docker_runtime, write_state, read_state (~1339 tok)
+- `fake_docker.py` — write_fake_docker_runtime, write_state, read_state (~1463 tok)
 - `fake_ssh.py` — write_fake_ssh_runtime, getenv, truthy, split_remote + 6 more (~5779 tok)
 
 ## tests/fixtures/docker_logs/
