@@ -1508,7 +1508,10 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
 
 
 def _handoff_size_bytes(entry: dict[str, Any]) -> int | None:
-    for key in ("nominal_size_bytes", "size_bytes", "unique_size_bytes"):
+    # ``expected_size`` is the LAST fallback (upstream manifest total, 5.6): a
+    # freshly pinned, never-scanned model has only this, but must still be disk-
+    # gated at launch preflight, not only at download.
+    for key in ("nominal_size_bytes", "size_bytes", "unique_size_bytes", "expected_size"):
         raw = entry.get(key)
         try:
             value = int(raw) if raw is not None else 0

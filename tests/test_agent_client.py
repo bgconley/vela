@@ -5968,6 +5968,7 @@ def _write_hf_model_registry(
     *,
     cache_state: str,
     nominal_size_bytes: int = 0,
+    expected_size: int = 0,
 ) -> dict[str, object]:
     entry: dict[str, object] = {
         "entry_id": "01CACHE",
@@ -5991,6 +5992,8 @@ def _write_hf_model_registry(
         "last_used_at": None,
         "notes": "",
     }
+    if expected_size:
+        entry["expected_size"] = expected_size
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
         json.dumps(
@@ -6096,6 +6099,50 @@ async def test_prepare_launch_blocks_uncached_model_when_disk_short(
     import vela.engine.model_registry as _mr
 
     assert str(_mr.default_hf_hub_cache_dir()) not in detail
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_blocks_uncached_model_with_only_expected_size(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    # Phase-5 follow-up: a freshly pinned, never-scanned model records only
+    # expected_size (the upstream manifest total, 5.6) — no nominal/size/unique.
+    # It must still disk-gate the launch preflight, so expected_size is the last
+    # handoff-size fallback.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(
+        registry_path, cache_state="remote_only", expected_size=50_000_000_000
+    )
+    import vela.engine.preflight as preflight_module
+
+    monkeypatch.setattr(
+        preflight_module.shutil,
+        "disk_usage",
+        lambda _p: SimpleNamespace(total=100_000_000_000, used=95_000_000_000, free=5_000_000_000),
+    )
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "expected-only.yaml",
+            f"""
+            name: expected-only
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            server:
+              port: {unused_tcp_port}
+            """,
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch", {"name": "expected-only", "configs_dir": str(config_dir)}
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "preflight-failed"
+    assert exc_info.value.details["kind"] == "DISK_FULL"
+    assert "insufficient disk" in exc_info.value.details["detail"]
 
 
 @pytest.mark.asyncio
@@ -7557,6 +7604,51 @@ def test_pin_model_offline_allows_sha_less_pin(
     assert entry["revision"] is None
     assert entry["validated"] is False
     assert entry["cache_state"] == "remote_only"
+
+
+def test_pin_model_with_commit_sha_network_error_keeps_sha_unvalidated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Phase-5 follow-up (coverage): a --commit-sha pin whose best-effort model_info
+    # hits a network error keeps the operator-supplied sha, records validated=False,
+    # and surfaces ONLY a network warning (remote-only-unresolved fires only for a
+    # sha-less pin, where commit_sha is None).
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def network_boom(repo_id: str, revision: str | None = None) -> object:
+        raise RuntimeError("ConnectTimeout: network timed out")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", network_boom)
+    pinned = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "pinned123"}, registry_path
+    )
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert entry["commit_sha"] == "pinned123"
+    assert entry["validated"] is False
+    assert len(pinned["warnings"]) == 1
+    assert pinned["warnings"][0]["kind"] == "network"
+    assert "org/repo" in pinned["warnings"][0]["detail"]
+
+
+def test_pin_model_with_commit_sha_gated_repo_without_token_raises_gated_auth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Phase-5 follow-up (coverage): even with a trusted --commit-sha, a gated repo
+    # with no token still surfaces a loud gated-auth error naming HF_TOKEN.
+    # model_info runs best-effort for gating detection, and a non-network
+    # ModelRegistryError is re-raised (only "network" is downgraded to a warning).
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def gated_boom(repo_id: str, revision: str | None = None) -> object:
+        raise RuntimeError("GatedRepoError: Cannot access gated repo; 403 Client Error")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", gated_boom)
+    with pytest.raises(model_registry_module.ModelRegistryError) as exc_info:
+        model_registry_module.pin_model(
+            {"repo_id": "org/gated", "commit_sha": "pinned123"}, registry_path
+        )
+    assert exc_info.value.code == "gated-auth"
+    assert "HF_TOKEN" in exc_info.value.message
 
 
 def _write_partial_entry_registry(

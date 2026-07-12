@@ -1576,6 +1576,39 @@ def test_cli_model_inspect_shows_last_download_divergence(
     assert "last_download_sha\tdef456" in result.output.splitlines()
 
 
+def test_cli_model_inspect_shows_validated_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Phase-5 follow-up: text `model inspect` must surface validated when the pin
+    # was taken on faith (--offline / a network failure at pin time). Only the
+    # False value is ever recorded on the entry, so that is what must render;
+    # docs/builds-and-models.md already claims this field is shown.
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+                "repo_id": "org/repo",
+                "commit_sha": "abc123",
+                "validated": False,
+                "cache_state": "remote_only",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["model", "inspect", "llama-pin"])
+
+    assert result.exit_code == 0, result.output
+    assert "validated\tFalse" in result.output.splitlines()
+
+
 def test_cli_model_adopt_uses_verified_local_pin_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
