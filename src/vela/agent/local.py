@@ -37,6 +37,7 @@ from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind, default_run
 from vela.engine.build_registry import (
     BuildHandoff,
     BuildRegistryError,
+    active_build_id,
     adopt_build,
     build_reference_aliases,
     check_build_launch_integrity,
@@ -1296,7 +1297,11 @@ class LocalAgent:
                 cache["detail"],
                 {"kind": cache["kind"], "detail": cache["detail"]},
             )
-        failure = check_launch_preflight(preparation.preflight_config, cwd=result.cwd)
+        failure = check_launch_preflight(
+            preparation.preflight_config,
+            cwd=result.cwd,
+            **self._hf_download_disk_kwargs(cfg, cache),
+        )
         if failure is not None:
             raise TargetCallError(
                 "preflight-failed",
@@ -1363,7 +1368,9 @@ class LocalAgent:
                 # as preflight warnings so `deploy create` prints them without blocking.
                 warnings.append(_model_not_cached_wire(cache))
         failure = check_launch_preflight(
-            preparation.preflight_config, cwd=preparation.result.cwd
+            preparation.preflight_config,
+            cwd=preparation.result.cwd,
+            **self._hf_download_disk_kwargs(cfg, cache),
         )
         if failure is not None:
             failures.append({"kind": failure.kind.value, "detail": failure.detail})
@@ -1424,13 +1431,40 @@ class LocalAgent:
         return self._prepare_command_for_config(cfg).result
 
     def _check_build_launch_integrity(self, cfg: ModelConfig) -> None:
-        build_ref = cfg.command.build
+        # A docker-runtime config launches from the image, not a managed venv build,
+        # so it must not be gated on the resolved active/default venv build's integrity.
+        if cfg.command.runtime is RuntimeKind.DOCKER:
+            return
+        # M6: a build-less config launches the ACTIVE/default build, so recheck the
+        # build that will actually run — not only an explicit command.build.
+        build_ref = cfg.command.build or active_build_id(self._builds_root)
         if build_ref is None:
             return
         try:
             check_build_launch_integrity(build_ref, self._builds_root)
         except BuildRegistryError as exc:
             raise TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    def _resolved_hf_cache_dir(self, cfg: ModelConfig) -> Path:
+        """The host dir a launch download lands in: the docker mount, else HF hub."""
+        docker = cfg.command.docker
+        if docker is not None and docker.hf_cache:
+            return Path(docker.hf_cache).expanduser()
+        return default_hf_hub_cache_dir()
+
+    def _hf_download_disk_kwargs(
+        self, cfg: ModelConfig, cache: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Disk-precheck kwargs for check_launch_preflight when a download is expected."""
+        if cache is None:
+            return {}
+        size = cache.get("size_bytes")
+        if not isinstance(size, int) or size <= 0:
+            return {}
+        return {
+            "hf_cache_dir": self._resolved_hf_cache_dir(cfg),
+            "expected_download_bytes": size,
+        }
 
     def _prepare_command_for_config(
         self, cfg: ModelConfig, *, validate_model_handoff: bool = False
@@ -2993,20 +3027,10 @@ class LocalAgent:
             return result
 
         entry = verified.get("entry") if isinstance(verified.get("entry"), dict) else {}
-        requested_revision = _optional_param_str(params.get("revision"))
-        # M2: honour an explicit differing revision instead of no-opping a cached
-        # pin. A bare download (revision None ≡ main) never counts as divergent.
-        revision_override = revision_diverges_from_pin(entry, requested_revision)
-        if verified.get("ok") and not revision_override:
-            return {
-                "ok": True,
-                "detail": "model cached",
-                "entry_id": verified.get("entry_id"),
-                "cache_state": verified.get("cache_state"),
-                "entry": verified.get("entry"),
-            }
-
         source = str(entry.get("source") or "")
+        # L3: a URL model is launch-time-only. Verify now reports ok for it, so this
+        # must be handled BEFORE the cached short-circuit — otherwise a URL entry
+        # would report the misleading "model cached" instead of its own wording.
         if source == "url":
             emit(
                 {
@@ -3022,6 +3046,19 @@ class LocalAgent:
                 "entry_id": verified.get("entry_id"),
                 "cache_state": "remote_only",
                 "entry": entry,
+            }
+
+        requested_revision = _optional_param_str(params.get("revision"))
+        # M2: honour an explicit differing revision instead of no-opping a cached
+        # pin. A bare download (revision None ≡ main) never counts as divergent.
+        revision_override = revision_diverges_from_pin(entry, requested_revision)
+        if verified.get("ok") and not revision_override:
+            return {
+                "ok": True,
+                "detail": "model cached",
+                "entry_id": verified.get("entry_id"),
+                "cache_state": verified.get("cache_state"),
+                "entry": verified.get("entry"),
             }
         if source == "hf_repo":
             repo_id = str(entry.get("repo_id") or model_ref)
@@ -3133,7 +3170,9 @@ class LocalAgent:
                 )
                 return {
                     "ok": True,
-                    "detail": "model cached",
+                    # 6a: surface download_hf_model's honest detail (e.g. a divergent
+                    # "downloaded revision X; pin unchanged"), not a fixed "model cached".
+                    "detail": str(downloaded.get("detail") or "model cached"),
                     "entry_id": downloaded.get("entry_id"),
                     "cache_state": downloaded.get("cache_state"),
                     "entry": downloaded.get("entry"),

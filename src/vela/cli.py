@@ -82,6 +82,8 @@ MODEL_INSPECT_FIELDS = (
     "repo_id",
     "revision",
     "commit_sha",
+    "last_download_revision",
+    "last_download_sha",
     "local_path",
     "url",
     "quant_format",

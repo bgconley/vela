@@ -51,6 +51,17 @@ def default_builds_root() -> Path:
     return root / "vela" / "builds"
 
 
+def active_build_id(root: str | Path | None = None) -> str | None:
+    """The id of the active/default build, or None when none is set.
+
+    Mirrors the ``reference or _active_build_id(...)`` resolution used by
+    :func:`resolve_build_handoff` so callers (e.g. the prelaunch integrity check)
+    can name the build that a build-less config will actually launch.
+    """
+    builds_root = Path(root).expanduser() if root is not None else default_builds_root()
+    return _active_build_id(builds_root)
+
+
 def resolve_build_handoff(
     reference: str | None, root: str | Path | None = None
 ) -> BuildHandoff | None:

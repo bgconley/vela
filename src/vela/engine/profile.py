@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from shutil import which
 
-from vela.config.schema import EntryPoint, ModelConfig
+from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,11 @@ def select_profile(version_profile: str | None = None, executable: str = "vllm")
 
 
 def select_profile_for_config(cfg: ModelConfig) -> VllmProfile:
+    if cfg.command.runtime is RuntimeKind.DOCKER:
+        # L2: vLLM runs inside the container, so the host `vllm --help` says nothing
+        # about the flags the container's vLLM accepts. Use the bundled profile map
+        # as-is instead of filtering to host-collected help flags.
+        return bundled_profile(cfg.vllm.version_profile or "current")
     executable = "vllm"
     if (
         cfg.command.entrypoint is EntryPoint.SERVE

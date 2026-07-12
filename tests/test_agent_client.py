@@ -5358,6 +5358,128 @@ async def test_agent_prepare_launch_rechecks_build_executable_integrity(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_rechecks_default_build_integrity(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    # M6: a config with no explicit command.build launches the ACTIVE/default build,
+    # so its prelaunch integrity must be rechecked too — not only explicit builds.
+    builds_root = tmp_path / "data" / "vela" / "builds"
+    build_dir = builds_root / "01ACTIVEBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    vllm_bin = bin_dir / "vllm"
+    python_bin = bin_dir / "python"
+    original_vllm = b"#!/bin/sh\necho 'vLLM 0.11.2'\n"
+    vllm_bin.write_bytes(original_vllm)
+    python_bin.write_text("#!/bin/sh\necho '0.11.2'\n", encoding="utf-8")
+    vllm_bin.chmod(0o755)
+    python_bin.chmod(0o755)
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01ACTIVEBUILD",
+                "label": "active-build",
+                "status": "ready",
+                "integrity": {
+                    "strategy": "executable_sha256",
+                    "executable_sha256": _sha256_uri(original_vllm),
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (builds_root / "active.json").write_text(
+        json.dumps({"schema_version": 1, "build_id": "01ACTIVEBUILD", "label": "active-build"}),
+        encoding="utf-8",
+    )
+    # Tamper the active build's executable after it was recorded.
+    vllm_bin.write_text("#!/bin/sh\necho 'vLLM 0.11.3'\n", encoding="utf-8")
+    write_yaml(
+        config_dir / "default-build.yaml",
+        """
+        name: default-build
+        model: org/model
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(builds_root=builds_root))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "default-build", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "build-integrity-failed"
+    assert exc_info.value.details["reason"] == "executable-integrity-mismatch"
+    assert exc_info.value.details["build_id"] == "01ACTIVEBUILD"
+
+
+def test_check_build_launch_integrity_skips_docker_runtime(tmp_path: Path) -> None:
+    # M6 guard: a docker-runtime config launches from the image, not a managed venv
+    # build, so the resolved ACTIVE venv build must NOT be integrity-checked (and a
+    # tampered/missing active build must not block a docker launch).
+    builds_root = tmp_path / "data" / "vela" / "builds"
+    build_dir = builds_root / "01ACTIVEBUILD"
+    bin_dir = build_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    original_vllm = b"#!/bin/sh\necho 'vLLM 0.11.2'\n"
+    (bin_dir / "vllm").write_bytes(original_vllm)
+    (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build_dir / "build.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "build_id": "01ACTIVEBUILD",
+                "label": "active-build",
+                "status": "ready",
+                "integrity": {
+                    "strategy": "executable_sha256",
+                    "executable_sha256": _sha256_uri(original_vllm),
+                },
+                "paths": {
+                    "root": str(build_dir),
+                    "venv": "venv",
+                    "executable": "bin/vllm",
+                    "python": "bin/python",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (builds_root / "active.json").write_text(
+        json.dumps({"schema_version": 1, "build_id": "01ACTIVEBUILD", "label": "active-build"}),
+        encoding="utf-8",
+    )
+    # Tamper the active build's executable.
+    (bin_dir / "vllm").write_text("#!/bin/sh\necho 'vLLM 0.11.3'\n", encoding="utf-8")
+
+    agent = LocalAgent(builds_root=builds_root)
+    docker_cfg = ModelConfig.model_validate(
+        {
+            "name": "docker-cfg",
+            "model": "org/model",
+            "command": {
+                "runtime": "docker",
+                "docker": {"image": "vllm/vllm-openai:latest"},
+            },
+        }
+    )
+    # Must not raise: docker does not use the venv build.
+    agent._check_build_launch_integrity(docker_cfg)
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_uses_request_build_id_override(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
@@ -5925,6 +6047,55 @@ async def test_prepare_launch_warns_when_hf_repo_model_not_cached(
     # so the TUI banner renders it with no new plumbing.
     assert any("not cached" in text for text in prepared["build"]["warnings"])
     json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_prepare_launch_blocks_uncached_model_when_disk_short(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    # M7: an uncached pinned model whose known size needs more than the resolved HF
+    # cache dir's free × (1/1.1) fails launch preflight with a wire-scrubbed detail.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_hf_model_registry(
+        registry_path, cache_state="remote_only", nominal_size_bytes=50_000_000_000
+    )
+    import vela.engine.preflight as preflight_module
+
+    # 5 GB free: above the flat 1 GiB minimum (so only the size × 1.1 check fires),
+    # far below the 55 GB needed for a 50 GB download.
+    monkeypatch.setattr(
+        preflight_module.shutil,
+        "disk_usage",
+        lambda _p: SimpleNamespace(total=100_000_000_000, used=95_000_000_000, free=5_000_000_000),
+    )
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        write_yaml(
+            config_dir / "uncached-disk.yaml",
+            f"""
+            name: uncached-disk
+            model: meta-llama/Llama-3.1-8B-Instruct
+            model_ref: cache-llama
+            server:
+              port: {unused_tcp_port}
+            """,
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch", {"name": "uncached-disk", "configs_dir": str(config_dir)}
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "preflight-failed"
+    assert exc_info.value.details["kind"] == "DISK_FULL"
+    detail = exc_info.value.details["detail"]
+    assert "free" in detail
+    # Wire-scrub (bug-225): the resolved cache path is not named in the detail.
+    import vela.engine.model_registry as _mr
+
+    assert str(_mr.default_hf_hub_cache_dir()) not in detail
 
 
 @pytest.mark.asyncio
@@ -6995,6 +7166,167 @@ def test_download_hf_model_divergent_revision_records_without_mutating_pin(
     assert entry["last_download_sha"] == "def456"
     assert result["entry"]["last_download_revision"] == "v2.0"
     assert result["entry"]["last_download_sha"] == "def456"
+
+
+def test_download_hf_model_blocks_when_disk_short_for_expected_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # M7: a download whose expected size needs more than free×(1/1.1) is blocked
+    # BEFORE the snapshot fetch, with a wire-scrubbed detail (sizes/%, no host path).
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01BIG",
+                        "display_name": "org/big",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "org/big",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {},
+                        "size_bytes": 0,
+                        "expected_size": 100_000_000_000,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    import vela.engine.preflight as preflight_module
+
+    monkeypatch.setattr(
+        preflight_module.shutil,
+        "disk_usage",
+        lambda _p: SimpleNamespace(total=10_000_000_000, used=9_000_000_000, free=1_000_000_000),
+    )
+    snapshot_calls: list[object] = []
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        lambda **k: snapshot_calls.append(k) or "snap",
+        raising=False,
+    )
+
+    with pytest.raises(model_registry_module.ModelRegistryError) as exc:
+        model_registry_module.download_hf_model("01BIG", registry_path)
+
+    assert exc.value.code == "insufficient-disk"
+    # The precheck blocked BEFORE any snapshot fetch.
+    assert snapshot_calls == []
+    detail = exc.value.message
+    assert "free" in detail
+    # Wire-scrub: no host path (bug-225) — the resolved cache dir is not named.
+    assert str(model_registry_module.default_hf_hub_cache_dir()) not in detail
+    # The pin was not flipped to partial (no download happened).
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert entry["cache_state"] == "remote_only"
+
+
+def test_verify_url_model_reports_launch_time_source(tmp_path: Path) -> None:
+    # L3: a URL entry has nothing to fetch/verify — verify must report ok, not the
+    # misleading "model is remote_only" it inherited from the hf_repo status path.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    model_registry_module.pin_model(
+        {
+            "source": "url",
+            "url": "https://models.example/Qwen/example-q4.gguf",
+            "display_name": "url-gguf",
+        },
+        registry_path,
+    )
+    verified = model_registry_module.verify_model("url-gguf", registry_path)
+    assert verified["ok"] is True
+    assert verified["detail"] == "ok (launch-time source; nothing to verify)"
+
+
+def test_download_hf_model_clears_stale_last_download_on_matching_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 6b (bug-289 item c): a later NON-divergent (pin-matching) download must clear
+    # stale last_download_* so verify's divergence warning cannot go stale.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01PIN",
+                        "display_name": "org/repo",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "org/repo",
+                        "revision": "main",
+                        "commit_sha": "abc123",
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {},
+                        "size_bytes": 0,
+                        "cache_state": "cached",
+                        "gated": False,
+                        "token_required": False,
+                        "last_download_revision": "v2.0",
+                        "last_download_sha": "def456",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_revision = SimpleNamespace(
+        commit_hash="abc123",
+        size_on_disk=110,
+        files=(SimpleNamespace(file_name="model.safetensors", size_on_disk=110),),
+        refs=("main",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="org/repo", repo_type="model", revisions=(fake_revision,)
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        lambda **_k: str(tmp_path / "snap"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    # A bare download matches the pin (non-override) → clears the stale markers.
+    model_registry_module.download_hf_model("01PIN", registry_path)
+
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert "last_download_revision" not in entry
+    assert "last_download_sha" not in entry
 
 
 def test_pin_model_bare_repin_upserts_explicit_main_pin(tmp_path: Path) -> None:
@@ -12280,6 +12612,58 @@ async def test_agent_download_url_model_reports_launch_time_only(tmp_path: Path)
     assert done["cache_state"] == "remote_only"
     assert done["entry"]["source"] == "url"
     json.dumps(done)
+
+
+@pytest.mark.asyncio
+async def test_agent_download_model_job_surfaces_divergent_revision_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 6a (bug-289 item a): the download job must surface download_hf_model's honest
+    # "downloaded revision X; pin unchanged" detail, not a hardcoded "model cached".
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_cached_pin_registry(registry_path)
+    fake_revision = SimpleNamespace(
+        commit_hash="def456",
+        size_on_disk=110,
+        files=(SimpleNamespace(file_name="model.safetensors", size_on_disk=110),),
+        refs=("v2.0",),
+    )
+    fake_repo = SimpleNamespace(
+        repo_id="org/repo", repo_type="model", revisions=(fake_revision,)
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        model_registry_module,
+        "_snapshot_download",
+        lambda **_k: str(tmp_path / "snap"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        model_registry_module,
+        "_scan_hf_cache_info",
+        lambda: SimpleNamespace(repos=(fake_repo,)),
+        raising=False,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    events = client.subscribe(["job-diverge"], resume_from="live")
+    try:
+        await client.call(
+            "download_model",
+            {"job_id": "job-diverge", "model_ref": "01PIN", "revision": "v2.0"},
+        )
+        while True:
+            event = await anext(events)
+            if event.get("event") == "job_done":
+                done = event
+                break
+    finally:
+        await events.aclose()
+        await client.disconnect()
+
+    assert done["ok"] is True
+    assert done["detail"] == "downloaded revision v2.0; pin unchanged"
 
 
 @pytest.mark.asyncio

@@ -441,6 +441,10 @@ def download_hf_model(
                 entry["last_download_sha"] = _optional_str(cached.get("commit_sha"))
             else:
                 _apply_cached_model_payload(entry, cached)
+                # 6b: a pin-matching (non-override) download makes any recorded
+                # divergence stale — clear it so verify's warning can't misfire.
+                entry.pop("last_download_revision", None)
+                entry.pop("last_download_sha", None)
             registry["schema_version"] = 1
             registry["default_cache"] = str(registry.get("default_cache") or "hf")
             registry.setdefault("app_download_dir", None)
@@ -459,6 +463,35 @@ def download_hf_model(
             "snapshot_path": str(snapshot_path),
             "entry": entry_payload,
         }
+
+
+def _expected_download_size(entry: dict[str, Any]) -> int:
+    """Best-known download size for an hf_repo entry (0 when unknown).
+
+    ``expected_size`` is the upstream manifest total (persisted at pin time, 5.6);
+    the scanned sizes are fallbacks for entries pinned before manifests existed.
+    """
+    for field in ("expected_size", "nominal_size_bytes", "size_bytes"):
+        value = _safe_int(entry.get(field))
+        if value > 0:
+            return value
+    return 0
+
+
+def _check_hf_download_disk(reference: str, repo_id: str, entry: dict[str, Any]) -> None:
+    """Raise before a download when the HF cache disk lacks size × 1.1 headroom (M7)."""
+    from vela.engine.preflight import hf_cache_download_disk_detail
+
+    detail = hf_cache_download_disk_detail(
+        default_hf_hub_cache_dir(), _expected_download_size(entry)
+    )
+    if detail is not None:
+        # Wire-scrub: detail names sizes/percentages only, never the cache path.
+        raise ModelRegistryError(
+            "insufficient-disk",
+            detail,
+            {"model_ref": reference, "repo_id": repo_id, "reason": "insufficient-disk"},
+        )
 
 
 def _prepare_hf_model_download(
@@ -480,6 +513,7 @@ def _prepare_hf_model_download(
         )
 
     repo_id = _required_str(entry, "repo_id", reference)
+    _check_hf_download_disk(reference, repo_id, entry)
     selected_revision = (
         _optional_str(revision)
         or _optional_str(entry.get("commit_sha"))
@@ -1872,6 +1906,19 @@ def _verify_local_model_entry(entry: dict[str, Any], *, deep: bool = False) -> d
 
 def _verify_metadata_model_entry(entry: dict[str, Any], *, deep: bool = False) -> dict[str, Any]:
     entry_id = str(entry.get("entry_id") or "")
+    if entry.get("source") == "url":
+        # L3: a URL model is fetched by vLLM at launch — there is nothing local to
+        # verify, so report ok instead of the misleading hf_repo "remote_only" status.
+        payload = {
+            "entry_id": entry_id,
+            "ok": True,
+            "cache_state": str(entry.get("cache_state") or "remote_only"),
+            "detail": "ok (launch-time source; nothing to verify)",
+            "entry": _model_payload(entry),
+        }
+        if deep:
+            payload["deep"] = True
+        return payload
     status = _verify_hf_model_status(entry)
     entry["cache_state"] = status["cache_state"]
     baseline_established = False

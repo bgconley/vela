@@ -25,7 +25,11 @@ class LaunchPreflightFailure:
 
 
 def check_launch_preflight(
-    cfg: ModelConfig, *, cwd: Path | None = None
+    cfg: ModelConfig,
+    *,
+    cwd: Path | None = None,
+    hf_cache_dir: Path | None = None,
+    expected_download_bytes: int | None = None,
 ) -> LaunchPreflightFailure | None:
     cwd = cwd or Path.cwd()
     if missing_model_path := missing_local_model_path(cfg, cwd=cwd):
@@ -40,6 +44,11 @@ def check_launch_preflight(
         return docker_image_failure
     if low_disk := low_disk_space_detail(cfg, cwd=cwd):
         return LaunchPreflightFailure(ErrorKind.DISK_FULL, low_disk)
+    # M7: when a download is expected (uncached pinned model of known size), the
+    # resolved HF cache dir must fit the weights plus 10% staging headroom.
+    if hf_cache_dir is not None and expected_download_bytes:
+        if detail := hf_cache_download_disk_detail(hf_cache_dir, expected_download_bytes):
+            return LaunchPreflightFailure(ErrorKind.DISK_FULL, detail)
     return None
 
 
@@ -214,6 +223,34 @@ def _docker_volume_source(volume: str) -> str | None:
         return None
     source = volume.split(":", 1)[0].strip()
     return source or None
+
+
+def hf_cache_download_disk_detail(cache_dir: Path, size_bytes: int) -> str | None:
+    """Scrubbed detail when ``cache_dir`` lacks ``size_bytes`` × 1.1 headroom (M7).
+
+    A download of a known-size model needs the weights plus a little slack for
+    incomplete-file staging. The detail names sizes and a percentage only — never
+    the host cache path (bug-225 wire-scrub) — so it is safe to relay to the
+    controller. Returns ``None`` when the size is unknown or disk is sufficient.
+    """
+    if size_bytes <= 0:
+        return None
+    probe = _existing_disk_probe_path(cache_dir)
+    if probe is None:
+        return None
+    try:
+        usage = shutil.disk_usage(probe)
+    except OSError:
+        return None
+    required = size_bytes + size_bytes // 10  # size × 1.1
+    if usage.free >= required:
+        return None
+    pct = usage.free * 100 // required if required else 0
+    return (
+        f"insufficient disk for model download: need ~{_format_bytes(required)} "
+        f"(download size + 10% headroom) but only {_format_bytes(usage.free)} free "
+        f"({pct}% of required)"
+    )
 
 
 def _format_bytes(value: int) -> str:

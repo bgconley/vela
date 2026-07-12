@@ -1542,6 +1542,40 @@ def test_cli_model_inspect_prints_entry_details(
     ]
 
 
+def test_cli_model_inspect_shows_last_download_divergence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 6c (bug-289 item d): text `model inspect` must surface last_download_* so an
+    # operator can see the cache holds a revision other than the pinned one.
+    def fake_agent_call(
+        method: str,
+        params: dict[str, str] | None = None,
+        *,
+        target_name: str = "local",
+    ):
+        return {
+            "entry": {
+                "entry_id": "01MODEL",
+                "display_name": "llama-pin",
+                "source": "hf_repo",
+                "repo_id": "org/repo",
+                "revision": "main",
+                "commit_sha": "abc123",
+                "last_download_revision": "v2.0",
+                "last_download_sha": "def456",
+                "cache_state": "cached",
+            }
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["model", "inspect", "llama-pin"])
+
+    assert result.exit_code == 0, result.output
+    assert "last_download_revision\tv2.0" in result.output.splitlines()
+    assert "last_download_sha\tdef456" in result.output.splitlines()
+
+
 def test_cli_model_adopt_uses_verified_local_pin_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

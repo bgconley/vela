@@ -16,6 +16,7 @@ from pathlib import Path
 import psutil
 
 from vela.engine.docker_runtime import (
+    DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS,
     DockerCommandError,
     DockerErrorKind,
     classify_docker_error,
@@ -394,8 +395,11 @@ def _evict_docker_containers(
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=False,
+                    # 5.1 per-command bound: a wedged docker daemon must not hang the
+                    # supervisor. Eviction is best-effort, so a timeout is swallowed.
+                    timeout=DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS,
                 )
-            except OSError:
+            except (OSError, subprocess.TimeoutExpired):
                 continue
 
 

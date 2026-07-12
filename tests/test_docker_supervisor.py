@@ -355,3 +355,27 @@ def test_docker_supervisor_survives_a_prepare_timeout(
     assert exit_status["returncode"] == 124
     commands = cmd_log.read_text(encoding="utf-8") if cmd_log.exists() else ""
     assert "run -d" not in commands
+
+
+def test_evict_docker_containers_bounds_each_command_and_survives_hang(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 5.1 follow-up: `docker stop`/`docker rm` during eviction had no timeout, so a
+    # wedged docker daemon hung the supervisor. Both commands must carry the 10s
+    # per-command bound and a timeout must be swallowed, not propagated.
+    calls: list[tuple[list[str], object]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> object:
+        calls.append((list(argv), kwargs.get("timeout")))
+        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(supervisor_module.subprocess, "run", fake_run)
+
+    # Must not raise even though every eviction command "hangs".
+    supervisor_module._evict_docker_containers("docker", ["c1"], cwd=None, env={})
+
+    assert [call[0][:3] for call in calls] == [
+        ["docker", "stop", "c1"],
+        ["docker", "rm", "c1"],
+    ]
+    assert all(timeout == 10 for _, timeout in calls)

@@ -126,9 +126,10 @@ def _write_pull_docker(path: Path, *, sleep_seconds: float) -> None:
 def test_docker_pull_timeout_is_classified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A docker pull that outlives VELA_DOCKER_PULL_TIMEOUT_SECONDS must surface a
-    # classified DockerCommandError, never an uncaught subprocess.TimeoutExpired
-    # (bug-240): the supervisor only catches DockerCommandError.
+    # A docker pull that outlives VELA_DOCKER_PULL_TIMEOUT_SECONDS must classify its
+    # own timeout into a DockerCommandError (kind IMAGE_PULL_TIMEOUT, exit 124) so the
+    # supervisor records a classified failure + exit-status instead of crashing on a
+    # raw subprocess.TimeoutExpired (bug-240).
     docker = tmp_path / "docker"
     _write_pull_docker(docker, sleep_seconds=5)
     monkeypatch.setenv("VELA_DOCKER_PULL_TIMEOUT_SECONDS", "0.5")
@@ -250,6 +251,36 @@ def test_select_profile_ignores_summary_only_help_that_omits_serve_flags(
     assert "--host" in result.argv
     assert "--port" in result.argv
     assert "--disable-log-requests" in selected.known_flags
+
+
+def test_docker_runtime_profile_skips_host_help_flag_filtering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # L2: vLLM runs inside the container, so the HOST `vllm --help` is irrelevant.
+    # A docker-runtime config must use the bundled profile map as-is, never filtered
+    # down to whatever flags a host vllm (possibly a different version) advertises.
+    from vela.engine import profile as profile_module
+
+    calls: list[str] = []
+
+    def fake_help(executable: str = "vllm") -> str:
+        calls.append(executable)
+        # Truncated help that omits most flags — a process config would filter to it.
+        return "usage: vllm serve\n  --host TEXT\n  --port INTEGER\n"
+
+    monkeypatch.setattr(profile_module, "collect_serve_help", fake_help)
+    docker_cfg = cfg(
+        {
+            "command": {
+                "runtime": "docker",
+                "docker": {"image": "vllm/vllm-openai:latest"},
+            }
+        }
+    )
+    selected = profile_module.select_profile_for_config(docker_cfg)
+
+    assert calls == []
+    assert selected.flag_map == profile_module.bundled_profile("current").flag_map
 
 
 def test_profile_detection_refreshes_when_executable_path_changes(tmp_path: Path) -> None:
