@@ -29,6 +29,49 @@ def test_tui_doc_matches_bindings() -> None:
     )
 
 
+def test_troubleshooting_doc_covers_every_remediation_kind() -> None:
+    # 8.3: docs/troubleshooting.md must carry a section for every remediation kind the
+    # code can emit. Extract the kind labels straight from remediation.py's source so a
+    # new ErrorRemediation(label=...) without a matching doc section fails here.
+    import re
+
+    source = _read("src/vela/remediation.py")
+    labels = set(re.findall(r'label="([A-Z_]+)"', source))
+    assert labels, "no remediation labels found — the label= regex drifted from the source"
+
+    doc = _read("docs/troubleshooting.md")
+    missing = sorted(label for label in labels if label not in doc)
+    assert not missing, f"docs/troubleshooting.md is missing remediation kinds: {missing}"
+
+
+def test_troubleshooting_doc_covers_launch_lifecycle_surfaces() -> None:
+    # 8.3: the doc is also the canonical operator answer for the Phase-5/6/7 launch and
+    # discovery surfaces, quoted verbatim from the code.
+    doc = _read("docs/troubleshooting.md")
+
+    for phrase in (
+        # Prelaunch cache gate (5.2).
+        "model-not-cached",
+        "require_cached_models",
+        "--require-cached",
+        # Docker pull timeout (5.1).
+        "VELA_DOCKER_PULL_TIMEOUT_SECONDS",
+        "image-pull-timeout",
+        # Disk-headroom precheck (5.9).
+        "insufficient-disk",
+        "insufficient disk for model download",
+        # Gated model auth.
+        "HF_TOKEN",
+        # Daemon start log (6.4) + unknown-config searched dirs / daemon cwd (6.3).
+        "agent-start.err",
+        "Unknown config",
+        # The CLI's remediation banner shape.
+        "vela targets bootstrap",
+        "vela agent gen-token --install",
+    ):
+        assert phrase in doc, f"docs/troubleshooting.md missing surface: {phrase!r}"
+
+
 def test_readme_covers_new_contributor_v1_paths() -> None:
     text = _read("README.md")
 
