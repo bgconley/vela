@@ -300,7 +300,7 @@ def test_blackwell_docs_treat_local_recipes_as_runtime_truth() -> None:
 
 
 def test_docker_examples_doc_matches_native_docker_cutover() -> None:
-    text = _read("vela-docker-runtime-examples-v1.md")
+    text = _read("docs/specs/vela-docker-runtime-examples-v1.md")
 
     assert "runtime has shipped" in text
     assert "configs/qwen36-27b-fp8-kvfp8-rp6000-blackbird.yaml" in text
