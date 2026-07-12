@@ -1881,3 +1881,37 @@
 | 01:40 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_review_p7.py | — | ~1602 |
 | 01:41 | Phase-7 GATE REVIEW (Fable senior): repros green (keepalive both modes, VELA_TARGET chain, runs scrub), RED honesty verified (full revert 35F+1E, logs-only 3F, 7.3 boundary 4F+1E), sweep audit 39/39 once-each, buglog 291-294 intact + 295-300 accurate; 2 open findings logged (bug-301 keepalive reload window, bug-302 registry-miss false I/O) | .wolf/buglog.json | APPROVED WITH NOTES | ~0 |
 | 01:45 | Phase 7 gate CLOSED (8 commits, suite 1406; reviewer refuted 7.5 registry-miss mootness -> bug-302; bug-301 keepalive reload window; daemon-leak-per-test-run found; deploy-list alias divergence) | .wolf | ok | ~1k |
+| 01:53 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_daemon_leak.py | — | ~1090 |
+| 02:05 | Edited tests/test_tui_smoke.py | added error handling | ~958 |
+| 02:05 | Edited src/vela/tui/app.py | added error handling | ~350 |
+| 02:08 | Edited tests/test_agent_client.py | modified test_model_registry_reads_treat_missing_file_as_empty() | ~455 |
+| 02:08 | Edited tests/test_cli_run.py | modified test_cli_model_inspect_fresh_box_has_no_registry_file() | ~468 |
+| 02:09 | Edited src/vela/engine/model_registry.py | modified _empty_registry() | ~423 |
+| 02:09 | Edited src/vela/engine/model_registry.py | modified _load_registry_for_write() | ~34 |
+| 02:10 | Edited tests/test_cli_run.py | modified test_cli_list_supports_json() | ~507 |
+| 02:11 | Edited src/vela/cli.py | modified list_configs() | ~390 |
+| 02:11 | Edited src/vela/cli.py | reduced (-13 lines) | ~136 |
+| 02:12 | Edited tests/test_agent_daemon.py | modified test_agent_stop_kills_daemon_that_unlinks_identity_then_lingers() | ~1052 |
+| 02:13 | Edited src/vela/agent/daemon.py | modified _identity_matches_live_process() | ~414 |
+| 02:21 | Edited tests/test_docs.py | modified test_readme_covers_new_contributor_v1_paths() | ~377 |
+| 02:22 | Edited README.md | modified checks() | ~488 |
+| 02:22 | Edited README.md | 46→46 lines | ~407 |
+| 02:22 | Edited README.md | 7→10 lines | ~147 |
+| 02:22 | Edited README.md | 3→3 lines | ~46 |
+| 02:26 | Created scripts/gen_tui_docs.py | — | ~1342 |
+| 02:26 | Edited tests/test_docs.py | modified _read() | ~302 |
+| 02:33 | Edited tests/test_docs.py | modified test_troubleshooting_doc_covers_every_remediation_kind() | ~526 |
+| 02:34 | Created docs/troubleshooting.md | — | ~2452 |
+| 02:35 | Edited docs/builds-and-models.md | 3→3 lines | ~55 |
+
+## Session 2026-07-12 (Phase 8 — Docs & README golden paths)
+| 02:42 | Commit 0 (8464add): bug-301 keepalive reload guard, bug-302 fresh-box registry miss, deploy-list --json+delegate, bug-303 daemon leak | src/vela/tui/app.py, engine/model_registry.py, cli.py, agent/daemon.py + 4 test files | 6 new tests, full suite 1412, ZERO leaked daemons | ~40k |
+| 02:42 | Commit 1 (9b32a5b): README two golden-path quickstarts (installed tool / cloned repo), bootstrap remote path, configs/ subdir + XDG_CONFIG_HOME, loader-prose fix | README.md, tests/test_docs.py | pins updated; demo verified from repo root | ~12k |
+| 02:42 | Commit 2 (16a6153): scripts/gen_tui_docs.py + docs/tui.md (Dashboard+15 screens) + drift-proof test | scripts/gen_tui_docs.py, docs/tui.md, tests/test_docs.py | deterministic, full suite 1413 | ~10k |
+| 02:42 | Commit 3 (d1e14e5): docs/troubleshooting.md — one section per remediation kind + Phase-5/6/7 surfaces, verbatim error strings + 2 pins | docs/troubleshooting.md, tests/test_docs.py | 16 test_docs pass | ~10k |
+| 02:42 | Commit 4 (79e9f98): Phase-8 gate — builds-and-models.md loader-prose fix; full suite 1415, ruff+mypy clean, ZERO leaked daemons | docs/builds-and-models.md | gate green | ~8k |
+| 02:48 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p8_daemon_escalation.py | — | ~1341 |
+| 02:50 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p8_freshbox.sh | — | ~444 |
+| 02:53 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p8_readme_audit.sh | — | ~885 |
+| 03:06 | Phase-8 GATE REVIEW (Fable senior): fresh-box walk (model list/inspect ghost/run model_ref=ghost all honest, no I/O claim, hermetic daemon stopped), daemon escalation both directions (laggard SIGKILLed dead, clean stop 0.05s; e99c492 impl leaks live child with false "stopped"), tui.md determinism + 3-screen hand-check exact, README audit all commands/flags/RPCs exist + smoke fake-child READY, troubleshooting 11+ strings verbatim, RED 10/10 right-reason fails at e99c492 + boundary check at 9b32a5b, suite 1406→1415, ruff+mypy clean, ZERO leaked daemons, buglog 295-304 intact | review only, tree pristine | VERDICT: APPROVED (notes routed to Phase 9) | ~55k |
+| 03:07 | Phase 8 gate CLOSED (5 commits, suite 1415; daemon-leak fixed+verified both directions; README audit clean; routed: docs index links, runs-list N+1, buglog junk dedupe, gen_tui_docs argv, PresetChips scope) | .wolf | ok | ~1k |
