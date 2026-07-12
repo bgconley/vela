@@ -50,7 +50,11 @@ def discover_config_dirs(
     env_dir = os.environ.get("VELA_CONFIGS")
     if env_dir:
         return [Path(env_dir).expanduser()]
-    return [cwd_path / "configs", home_path / ".config" / "vela" / "configs"]
+    # $XDG_CONFIG_HOME wins over ~/.config (docs/configuration.md already promises
+    # this); the /vela/configs suffix is unchanged.
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    config_base = Path(config_home).expanduser() if config_home else home_path / ".config"
+    return [cwd_path / "configs", config_base / "vela" / "configs"]
 
 
 def load_registry(configs_dir: str | Path | None = None) -> ConfigRegistry:

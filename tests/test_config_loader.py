@@ -274,3 +274,23 @@ def test_discovery_precedence(config_dir: Path, monkeypatch) -> None:
 
     assert discover_config_dirs(configs_dir=cli_dir, cwd=config_dir)[0] == cli_dir
     assert discover_config_dirs(cwd=config_dir)[0] == env_dir
+
+
+def test_discovery_honors_xdg_config_home(config_dir: Path, monkeypatch) -> None:
+    # docs/configuration.md already promises XDG_CONFIG_HOME support; discovery
+    # must honor it (the home-based fallback dir moves under $XDG_CONFIG_HOME/vela).
+    xdg = config_dir / "xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+
+    dirs = discover_config_dirs(cwd=config_dir, home=config_dir / "home")
+
+    assert dirs[-1] == xdg / "vela" / "configs"
+
+
+def test_discovery_falls_back_to_home_config_without_xdg(config_dir: Path, monkeypatch) -> None:
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    home = config_dir / "home"
+
+    dirs = discover_config_dirs(cwd=config_dir, home=home)
+
+    assert dirs[-1] == home / ".config" / "vela" / "configs"

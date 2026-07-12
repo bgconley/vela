@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,12 @@ def test_project_is_branded_as_vela() -> None:
     assert "Vela" in project["description"]
 
 
-def test_default_product_paths_and_agent_command_use_vela() -> None:
+def test_default_product_paths_and_agent_command_use_vela(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Discovery now honors $XDG_CONFIG_HOME over ~/.config (bug-238), so clear it to
+    # assert the injected-home fallback deterministically.
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     from vela.agent.daemon import default_agent_socket_path
     from vela.config.loader import discover_config_dirs
     from vela.config.schema import default_run_artifacts_dir
