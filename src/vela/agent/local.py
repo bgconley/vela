@@ -32,7 +32,13 @@ from vela.agent.auth import (
     default_agent_token_file,
     install_agent_token,
 )
-from vela.config.loader import ConfigRegistry, InvalidConfig, ValidConfig, load_registry
+from vela.config.loader import (
+    ConfigRegistry,
+    InvalidConfig,
+    ValidConfig,
+    discover_config_dirs,
+    load_registry,
+)
 from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind, default_run_artifacts_dir
 from vela.engine.build_registry import (
     BuildHandoff,
@@ -1203,7 +1209,9 @@ class LocalAgent:
             name = _config_name_param(params, method="export_config")
             registry = load_registry(_configs_dir(params))
             self._remember_registry_runs_dirs(registry)
-            cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+            cfg = self._config_with_request_overrides(
+                _config_by_name(registry, name, configs_dir=_configs_dir(params)), params
+            )
         if cfg.command.runtime is not RuntimeKind.DOCKER:
             raise TargetCallError(
                 "invalid-config",
@@ -1272,7 +1280,9 @@ class LocalAgent:
             name = _config_name_param(params, method="preview")
             registry = load_registry(_configs_dir(params))
             self._remember_registry_runs_dirs(registry)
-            cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+            cfg = self._config_with_request_overrides(
+                _config_by_name(registry, name, configs_dir=_configs_dir(params)), params
+            )
         try:
             result = self._build_command_for_config(cfg)
         except VllmProfileError as exc:
@@ -1287,7 +1297,9 @@ class LocalAgent:
         name = _config_name_param(params, method="prepare_launch")
         registry = load_registry(_configs_dir(params))
         self._remember_registry_runs_dirs(registry)
-        cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+        cfg = self._config_with_request_overrides(
+            _config_by_name(registry, name, configs_dir=_configs_dir(params)), params
+        )
         self._remember_run_config(cfg)
         self._check_build_launch_integrity(cfg)
         try:
@@ -1339,7 +1351,9 @@ class LocalAgent:
             name = _config_name_param(params, method="preflight")
             registry = load_registry(_configs_dir(params))
             self._remember_registry_runs_dirs(registry)
-            cfg = self._config_with_request_overrides(_config_by_name(registry, name), params)
+            cfg = self._config_with_request_overrides(
+                _config_by_name(registry, name, configs_dir=_configs_dir(params)), params
+            )
         self._remember_run_config(cfg)
         self._check_build_launch_integrity(cfg)
         try:
@@ -5841,7 +5855,9 @@ def _reachable_url(cfg: ModelConfig) -> str:
     return f"http://{probe_host_for(cfg.server)}:{cfg.server.port}"
 
 
-def _valid_config_item_by_name(registry: ConfigRegistry, name: str) -> ValidConfig:
+def _valid_config_item_by_name(
+    registry: ConfigRegistry, name: str, *, configs_dir: str | Path | None = None
+) -> ValidConfig:
     for item in registry.valid:
         if item.config.name == name:
             return item
@@ -5863,21 +5879,48 @@ def _valid_config_item_by_name(registry: ConfigRegistry, name: str) -> ValidConf
                 errors,
                 {"name": name, "matches": matches},
             ) from exc
-        available = [item.config.name for item in registry.valid]
-        raise TargetCallError(
-            "unknown-config",
-            f"unknown config: {name}",
-            {"name": name, "available": available},
-        ) from exc
-    raise TargetCallError(
+        raise _unknown_config_error(name, registry, configs_dir) from exc
+    raise _unknown_config_error(name, registry, configs_dir)
+
+
+def _unknown_config_error(
+    name: str, registry: ConfigRegistry, configs_dir: str | Path | None
+) -> TargetCallError:
+    # PLAN-MANDATED bug-225 exception (bug-238): searched_dirs + the agent cwd are
+    # intentional diagnostic surface in the unknown-config ERROR payload — the
+    # daemon keeps its first working directory, so naming what it searched (and from
+    # where) is the difference between "config not found" and a debuggable message.
+    searched = discover_config_dirs(configs_dir)
+    return TargetCallError(
         "unknown-config",
         f"unknown config: {name}",
-        {"name": name, "available": [item.config.name for item in registry.valid]},
+        {
+            "name": name,
+            "available": [item.config.name for item in registry.valid],
+            "searched_dirs": [_home_relative(str(path)) for path in searched],
+            "cwd": os.getcwd(),
+        },
     )
 
 
-def _config_by_name(registry: ConfigRegistry, name: str) -> ModelConfig:
-    return _valid_config_item_by_name(registry, name).config
+def _home_relative(path: str) -> str:
+    """Collapse a home-prefixed path to ``~/…`` for display (best-effort)."""
+    try:
+        home = str(Path.home())
+    except (OSError, RuntimeError):
+        return path
+    if path == home:
+        return "~"
+    prefix = home.rstrip("/") + "/"
+    if path.startswith(prefix):
+        return "~/" + path[len(prefix) :]
+    return path
+
+
+def _config_by_name(
+    registry: ConfigRegistry, name: str, *, configs_dir: str | Path | None = None
+) -> ModelConfig:
+    return _valid_config_item_by_name(registry, name, configs_dir=configs_dir).config
 
 
 def _valid_config_payload(item: ValidConfig) -> dict[str, Any]:

@@ -5029,6 +5029,42 @@ def test_cli_reports_unknown_config_name_without_traceback(config_dir: Path, com
     assert "KeyError" not in proc.stderr
 
 
+def test_cli_unknown_config_names_searched_dirs_and_daemon_cwd_hint(config_dir: Path) -> None:
+    # bug-238: an unknown-config error names the dirs the agent searched + its cwd,
+    # and hints that the local daemon keeps its first working directory. This is a
+    # plan-mandated exception to the bug-225 wire-scrub (diagnostic surface).
+    write_yaml(
+        config_dir / "known.yaml",
+        """
+        name: known
+        model: fake/model
+        """,
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vela.cli",
+            "run",
+            "nope",
+            "--configs-dir",
+            str(config_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert proc.returncode != 0
+    assert "Unknown config: nope" in proc.stderr
+    assert "Searched (agent 'local', cwd " in proc.stderr
+    assert str(config_dir) in proc.stderr
+    assert "keeps its first working directory" in proc.stderr
+    assert "vela agent restart" in proc.stderr
+    assert "Available configs: known" in proc.stderr
+
+
 @pytest.mark.parametrize("command", ["preview", "run"])
 def test_cli_reports_invalid_named_config_without_traceback(config_dir: Path, command: str) -> None:
     write_yaml(

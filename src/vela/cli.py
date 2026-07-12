@@ -2819,6 +2819,21 @@ def _echo_target_error_or_exit(
         name = str(exc.details.get("name") or fallback_name or "unknown")
         available = ", ".join(str(item) for item in exc.details.get("available", [])) or "none"
         typer.echo(f"ERROR: Unknown config: {name}", err=True)
+        searched = exc.details.get("searched_dirs")
+        if isinstance(searched, list) and searched:
+            location = f"agent '{target_name or 'local'}'"
+            cwd = str(exc.details.get("cwd") or "")
+            if cwd:
+                location += f", cwd {cwd}"
+            typer.echo(
+                f"Searched ({location}): {', '.join(str(item) for item in searched)}",
+                err=True,
+            )
+            typer.echo(
+                "Hint: the local agent keeps its first working directory — "
+                "`vela agent restart` if you launched it elsewhere.",
+                err=True,
+            )
         typer.echo(f"Available configs: {available}", err=True)
         raise typer.Exit(2) from exc
     if exc.code == "invalid-config":
