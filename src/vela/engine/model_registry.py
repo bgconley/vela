@@ -101,6 +101,7 @@ MODEL_ENTRY_FIELDS = (
     "cache_state",
     "gated",
     "token_required",
+    "validated",
     "fingerprint",
     "integrity",
     "allow_patterns",
@@ -887,7 +888,21 @@ def _matching_hf_payload_for_entry(
             return payload
         if revision is not None and payload.get("revision") == revision:
             return payload
-    return fallback if commit_sha is None and revision is None else None
+    # A sha-less+revision-less pin normally adopts whatever snapshot of the repo is
+    # cached. But once a divergent side download has been recorded (last_download_*
+    # present), adopting the first cached snapshot would write that side download's
+    # sha into commit_sha and self-disarm the 5.7 divergence warning. Withhold the
+    # fallback so the pin stays sha-less and the divergence signal survives (M5).
+    if commit_sha is None and revision is None and not _has_recorded_download_divergence(entry):
+        return fallback
+    return None
+
+
+def _has_recorded_download_divergence(entry: dict[str, Any]) -> bool:
+    return (
+        _optional_str(entry.get("last_download_sha")) is not None
+        or _optional_str(entry.get("last_download_revision")) is not None
+    )
 
 
 def _apply_cached_model_payload(
@@ -1505,19 +1520,31 @@ def _hf_repo_entry_from_params(
 ) -> dict[str, Any]:
     repo_id = _required_param(params, "repo_id")
     revision = _optional_str(params.get("revision"))
-    commit_sha = _optional_str(params.get("commit_sha"))
+    given_sha = _optional_str(params.get("commit_sha"))
+    commit_sha = given_sha
+    offline = _param_flag(params.get("offline"))
     warnings: list[dict[str, str]] = []
-    try:
-        info = _resolved_hf_model_info(params, entry_id, repo_id, revision, commit_sha)
-    except ModelRegistryError as exc:
-        if exc.code != "network":
-            raise
-        warnings.append({"kind": exc.code, "detail": exc.message})
-        info = None
-    if info is not None:
+    info: object | None = None
+    validated = True
+    # M5: model_info still runs best-effort for gating/existence detection even
+    # when a --commit-sha is supplied, so a gated repo gets token_required=True
+    # (HF_TOKEN reaches the container). The supplied sha is TRUSTED — model_info's
+    # own sha is only adopted when the operator gave none. --offline skips the call
+    # entirely and records validated=False (the pin is taken on faith).
+    if offline:
+        validated = False
+    else:
+        try:
+            info = _resolved_hf_model_info(params, entry_id, repo_id, revision)
+        except ModelRegistryError as exc:
+            if exc.code != "network":
+                raise
+            warnings.append({"kind": exc.code, "detail": exc.message})
+            validated = False
+    if info is not None and given_sha is None:
         commit_sha = _optional_str(getattr(info, "sha", None)) or commit_sha
     if commit_sha is None:
-        if warnings:
+        if warnings or offline:
             warnings.append(
                 {
                     "kind": "remote-only-unresolved",
@@ -1568,11 +1595,18 @@ def _hf_repo_entry_from_params(
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
     }
-    if info is not None:
+    if info is not None and given_sha is None:
+        # The manifest describes ``revision`` — only harvest it when that is what
+        # the sha resolves from. A supplied sha may name a different revision, so
+        # recording model_info's siblings against it would be wrong.
         expected_files, expected_size = _hf_manifest_from_siblings(info)
         if expected_files:
             entry["expected_files"] = expected_files
             entry["expected_size"] = expected_size
+    if not validated:
+        # Only recorded when the pin was NOT validated online (--offline or a
+        # network failure); absence means the entry was resolved against HF.
+        entry["validated"] = False
     if warnings:
         entry["_warnings"] = warnings
     return entry
@@ -1583,10 +1617,7 @@ def _resolved_hf_model_info(
     entry_id: str,
     repo_id: str,
     revision: str | None,
-    commit_sha: str | None,
 ) -> object | None:
-    if commit_sha is not None:
-        return None
     model_ref = _optional_str(params.get("entry_id")) or entry_id
     try:
         return _hf_model_info(repo_id, revision)
@@ -2357,6 +2388,9 @@ def _model_payload(entry: dict[str, Any]) -> dict[str, Any]:
                 payload[field] = []
         elif field in {"gated", "token_required"}:
             payload[field] = bool(value)
+        elif field == "validated":
+            if value is not None:
+                payload[field] = bool(value)
         elif field == "size_bytes":
             payload[field] = int(value or 0)
         elif field in {"unique_size_bytes", "nominal_size_bytes", "expected_size"}:

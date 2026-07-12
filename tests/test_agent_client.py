@@ -6820,6 +6820,90 @@ def test_pin_model_upserts_after_refresh_records_scanned_revision(
     assert entries[0]["cache_state"] == "remote_only"
 
 
+def test_refresh_keeps_diverged_sha_less_pin_unadopted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A sha-less pin (commit_sha None + revision None) that recorded a divergent
+    # side download must NOT have that side snapshot silently adopted by the next
+    # refresh_models scan: adoption would set commit_sha == last_download_sha and
+    # self-disarm the 5.7 revision-divergence warning (bug-289 item 2 / M5).
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": [
+                    {
+                        "entry_id": "01BARE",
+                        "display_name": "org/repo",
+                        "aliases": [],
+                        "source": "hf_repo",
+                        "repo_id": "org/repo",
+                        "revision": None,
+                        "commit_sha": None,
+                        "local_path": None,
+                        "url": None,
+                        "quant_format": "none",
+                        "tokenizer": None,
+                        "files": {},
+                        "size_bytes": 0,
+                        "cache_state": "remote_only",
+                        "gated": False,
+                        "token_required": False,
+                        "last_download_revision": "other",
+                        "last_download_sha": "sideSHA",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "last_used_at": None,
+                        "notes": "",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    side_snapshot = {
+        "entry_id": "org/repo@sideSHA",
+        "display_name": "org/repo",
+        "source": "hf_repo",
+        "repo_id": "org/repo",
+        "revision": "other",
+        "commit_sha": "sideSHA",
+        "local_path": None,
+        "url": None,
+        "quant_format": "none",
+        "tokenizer": None,
+        "files": {"count": 3, "total_bytes": 9, "weights_format": "safetensors"},
+        "size_bytes": 9,
+        "unique_size_bytes": 9,
+        "nominal_size_bytes": 9,
+        "cache_state": "cached",
+        "gated": False,
+        "token_required": False,
+        "created_at": "2026-01-01T00:00:00Z",
+        "last_used_at": None,
+        "notes": "",
+    }
+    monkeypatch.setattr(
+        model_registry_module,
+        "_cached_model_entries_from_hf_scan",
+        lambda: [side_snapshot],
+    )
+    model_registry_module.refresh_models(registry_path)
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    # The side download's sha is NOT adopted; the pin stays sha-less/remote_only.
+    assert entry["commit_sha"] is None
+    assert entry["cache_state"] == "remote_only"
+    assert entry["last_download_sha"] == "sideSHA"
+    # The divergence warning still fires because commit_sha != last_download_sha.
+    verified = model_registry_module.verify_model("org/repo", registry_path)
+    assert any(
+        w.get("kind") == "revision-divergence" for w in (verified.get("warnings") or [])
+    )
+
+
 def _write_cached_pin_registry(registry_path: Path) -> None:
     registry_path.parent.mkdir(parents=True)
     registry_path.write_text(
@@ -7059,8 +7143,9 @@ def test_pin_model_upsert_preserves_expected_manifest_when_sha_unchanged(
     model_registry_module.pin_model(
         {"repo_id": "org/repo", "revision": "main"}, registry_path
     )
-    # Re-pin with the SAME sha but supplying commit_sha directly, so model_info is
-    # not re-resolved and the rebuilt entry carries no fresh manifest.
+    # Re-pin with the SAME sha but supplying commit_sha directly: model_info still
+    # runs for gating (M5) but the supplied sha is trusted (not re-resolved) and no
+    # fresh manifest is harvested, so the unchanged-sha upsert preserves the old one.
     model_registry_module.pin_model(
         {"repo_id": "org/repo", "revision": "main", "commit_sha": "abc123"},
         registry_path,
@@ -7074,6 +7159,72 @@ def test_pin_model_upsert_preserves_expected_manifest_when_sha_unchanged(
         "model-00002-of-00002.safetensors",
     ]
     assert entries[0]["expected_size"] == 220
+
+
+def test_pin_model_with_commit_sha_still_detects_gating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # M5: a --commit-sha pin still runs model_info best-effort for gating/existence
+    # detection so a gated repo gets token_required=True (HF_TOKEN reaches docker),
+    # yet the supplied sha is TRUSTED and never re-resolved to model_info's sha.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    calls: list[dict[str, str | None]] = []
+
+    def gated_info(repo_id: str, revision: str | None = None) -> object:
+        calls.append({"repo_id": repo_id, "revision": revision})
+        return SimpleNamespace(sha="resolved999", gated=True)
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", gated_info)
+    pinned = model_registry_module.pin_model(
+        {"repo_id": "org/gated", "commit_sha": "pinned123"}, registry_path
+    )
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert entry["gated"] is True
+    assert entry["token_required"] is True
+    # The operator-supplied sha wins; model_info's "resolved999" is ignored.
+    assert entry["commit_sha"] == "pinned123"
+    assert calls == [{"repo_id": "org/gated", "revision": None}]
+    assert pinned["entry"]["token_required"] is True
+
+
+def test_pin_model_offline_skips_resolution_and_marks_unvalidated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # --offline pins skip the model_info call entirely and record validated=False.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def boom(repo_id: str, revision: str | None = None) -> object:
+        raise AssertionError("model_info must not be called for an --offline pin")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", boom)
+    pinned = model_registry_module.pin_model(
+        {"repo_id": "org/repo", "commit_sha": "pinned123", "offline": "true"},
+        registry_path,
+    )
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert entry["commit_sha"] == "pinned123"
+    assert entry["validated"] is False
+    assert pinned["entry"]["validated"] is False
+
+
+def test_pin_model_offline_allows_sha_less_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An --offline pin with neither commit_sha nor revision is allowed (it does not
+    # raise model-unavailable): it records a sha-less remote_only entry flagged
+    # validated=False so launch gating still knows it was never resolved online.
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def boom(repo_id: str, revision: str | None = None) -> object:
+        raise AssertionError("offline pin must not resolve")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", boom)
+    model_registry_module.pin_model({"repo_id": "org/repo", "offline": "true"}, registry_path)
+    entry = json.loads(registry_path.read_text(encoding="utf-8"))["entries"][0]
+    assert entry["commit_sha"] is None
+    assert entry["revision"] is None
+    assert entry["validated"] is False
+    assert entry["cache_state"] == "remote_only"
 
 
 def _write_partial_entry_registry(

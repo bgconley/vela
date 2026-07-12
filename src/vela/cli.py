@@ -1012,6 +1012,16 @@ def model_pin(
             help="Mint a new entry instead of upserting an existing repo-id pin.",
         ),
     ] = False,
+    offline: Annotated[
+        bool,
+        typer.Option(
+            "--offline",
+            help=(
+                "Skip the Hugging Face metadata lookup; trust the supplied fields "
+                "and record the pin as unvalidated (validated: false)."
+            ),
+        ),
+    ] = False,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
     json_output: Annotated[
         bool,
@@ -1046,6 +1056,7 @@ def model_pin(
             gated="true" if gated else None,
             token_required="true" if token_required else None,
             notes=notes,
+            offline="true" if offline else None,
         )
     if local_path is not None and url is None:
         params["source"] = "local_path"
