@@ -198,6 +198,7 @@ def doctor(
         typer.Option("--json", help="Emit machine-readable setup checks."),
     ] = False,
 ) -> None:
+    """Check controller and target setup, and print fixes."""
     payload = _doctor_payload(target_name=target)
     if json_output:
         _echo_json(payload)
@@ -213,6 +214,7 @@ def doctor(
 
 @targets_app.command("list")
 def targets_list() -> None:
+    """List configured targets."""
     registry = _load_targets_or_exit()
     for target in registry.targets:
         typer.echo(f"{target.name}\t{target.transport.value}\t{target.host or '-'}")
@@ -247,6 +249,7 @@ def targets_add(
         typer.Option("--ssh-opts-env", help="Environment variable with SSH options."),
     ] = None,
 ) -> None:
+    """Add or update a target in the controller registry."""
     try:
         target = TargetConfig(
             name=name,
@@ -306,6 +309,7 @@ def targets_bootstrap(
         typer.Option("--build", help="Create a default pip build from this package spec."),
     ] = None,
 ) -> None:
+    """Provision a target over SSH: discover or install its agent, then register it."""
     try:
         target = TargetConfig(
             name=name,
@@ -361,6 +365,7 @@ def targets_bootstrap(
 def targets_remove(
     name: Annotated[str, typer.Argument(help="Target name to remove.")],
 ) -> None:
+    """Remove a target from the registry."""
     try:
         remove_target_file(name)
     except ValueError as exc:
@@ -373,6 +378,7 @@ def targets_remove(
 def targets_test(
     name: Annotated[str, typer.Argument(help="Target name to test.")] = "local",
 ) -> None:
+    """Handshake with a target's agent to check it is reachable."""
     target = _target_config_for_name_or_exit(name)
     target = _discover_agent_command_for_target_or_exit(target, persist=True)
     client = _target_client_for_config_or_exit(target)
@@ -401,6 +407,7 @@ def targets_setup_ssh(
         typer.Option("--identity", "-i", help="SSH public/private key path for ssh-copy-id."),
     ] = None,
 ) -> None:
+    """Copy your SSH key to a target with ssh-copy-id."""
     target = _target_config_for_name_or_exit(name)
     try:
         result = setup_ssh_key(target, identity_file=identity_file)
@@ -422,6 +429,7 @@ def build_list(
         typer.Option("--json", help="Emit machine-readable build list."),
     ] = False,
 ) -> None:
+    """List target-local vLLM builds."""
     try:
         result = _agent_call("list_builds", target_name=target)
     except TargetCallError as exc:
@@ -455,6 +463,7 @@ def build_doctor(
         typer.Option("--json", help="Emit machine-readable build readiness."),
     ] = False,
 ) -> None:
+    """Check the target's build toolchain (uv, compiler, CUDA)."""
     checks: list[dict[str, Any]] = []
     uv_available: bool | None = None
     for method in BUILD_DOCTOR_METHODS:
@@ -548,6 +557,7 @@ def build_add(
     ] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
+    """Build a new target-local vLLM from source or a wheel."""
     client = _target_client_for_name_or_exit(target)
     params: dict[str, Any] = {
         "job_id": uuid.uuid4().hex,
@@ -580,6 +590,7 @@ def build_inspect(
         typer.Option("--json", help="Emit machine-readable build detail."),
     ] = False,
 ) -> None:
+    """Show one build's metadata and integrity."""
     try:
         result = _agent_call(
             "inspect_build",
@@ -628,6 +639,7 @@ def build_adopt(
         typer.Option("--json", help="Emit machine-readable adoption result."),
     ] = False,
 ) -> None:
+    """Register an existing venv as a build."""
     del build_id
     params = _agent_params(
         label=label,
@@ -658,6 +670,7 @@ def build_select(
         typer.Option("--json", help="Emit machine-readable selection result."),
     ] = False,
 ) -> None:
+    """Mark a build as the active one for launches."""
     try:
         result = _agent_call(
             "select_build",
@@ -683,6 +696,7 @@ def build_verify(
         typer.Option("--json", help="Emit machine-readable verification result."),
     ] = False,
 ) -> None:
+    """Re-verify a build's recorded files against disk."""
     try:
         result = _agent_call(
             "verify_build",
@@ -718,6 +732,7 @@ def build_repair(
         typer.Option("--json", help="Emit machine-readable repair result."),
     ] = False,
 ) -> None:
+    """Repair a broken build in place."""
     try:
         result = _agent_call(
             "repair_build",
@@ -751,6 +766,7 @@ def build_run(
     build: Annotated[str, typer.Argument(help="Build id or label to run.")],
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
+    """Launch a config against a specific build."""
     argv = list(ctx.args)
     if argv and argv[0] == "--":
         argv = argv[1:]
@@ -783,6 +799,7 @@ def build_remove(
         typer.Option("--json", help="Emit machine-readable removal result."),
     ] = False,
 ) -> None:
+    """Delete a build record (and optionally its venv)."""
     if not yes:
         typer.echo("ERROR: use --yes to remove a build", err=True)
         raise typer.Exit(2)
@@ -818,6 +835,7 @@ def model_list(
         typer.Option("--json", help="Emit machine-readable model list."),
     ] = False,
 ) -> None:
+    """List models known to the target registry."""
     params = _agent_params(
         cached_only="true" if cached_only else None,
         pinned_only="true" if pinned_only else None,
@@ -854,6 +872,7 @@ def model_refresh(
         typer.Option("--json", help="Emit machine-readable refresh result."),
     ] = False,
 ) -> None:
+    """Rescan the Hugging Face cache and refresh the model registry."""
     try:
         result = _agent_call("refresh_models", target_name=target)
     except TargetCallError as exc:
@@ -888,6 +907,7 @@ def model_inspect(
         typer.Option("--json", help="Emit machine-readable model detail."),
     ] = False,
 ) -> None:
+    """Show one model entry's metadata and cache state."""
     try:
         result = _agent_call(
             "inspect_model",
@@ -934,6 +954,7 @@ def model_adopt(
         typer.Option("--json", help="Emit machine-readable adoption result."),
     ] = False,
 ) -> None:
+    """Register an on-disk model directory as an entry."""
     del entry_id
     params = _agent_params(
         display_name=display_name,
@@ -1033,6 +1054,7 @@ def model_pin(
         typer.Option("--json", help="Emit machine-readable pin result."),
     ] = False,
 ) -> None:
+    """Pin a Hugging Face repo as a referenceable model entry."""
     del entry_id
     if url is not None:
         params = _agent_params(
@@ -1094,6 +1116,7 @@ def model_verify(
         typer.Option("--json", help="Emit machine-readable verification result."),
     ] = False,
 ) -> None:
+    """Verify a pinned model's files are fully cached."""
     params = _agent_params(model_ref=model_ref, deep="true" if deep else None)
     try:
         result = _agent_call(
@@ -1141,6 +1164,7 @@ def model_download(
         typer.Option("--json", help="Emit final job result as machine-readable JSON."),
     ] = False,
 ) -> None:
+    """Download a pinned model into the target's Hugging Face cache."""
     client = _target_client_for_name_or_exit(target)
     params: dict[str, object] = {
         "job_id": uuid.uuid4().hex,
@@ -1185,6 +1209,7 @@ def model_remove(
         typer.Option("--json", help="Emit machine-readable removal result."),
     ] = False,
 ) -> None:
+    """Delete a model entry from the registry."""
     if not yes:
         typer.echo("ERROR: use --yes to remove model metadata", err=True)
         raise typer.Exit(2)
@@ -1231,6 +1256,7 @@ def config_push(
         typer.Option("--json", help="Emit machine-readable push result."),
     ] = False,
 ) -> None:
+    """Copy a local config file to the target."""
     try:
         yaml_text = file.read_text(encoding="utf-8")
     except OSError as exc:
@@ -1269,6 +1295,7 @@ def config_pull(
         typer.Option("--json", help="Emit machine-readable pull result."),
     ] = False,
 ) -> None:
+    """Copy a config file from the target to local."""
     params: dict[str, Any] = {"name": name}
     if configs_dir is not None:
         params["configs_dir"] = str(configs_dir)
@@ -1297,6 +1324,7 @@ def config_lint(
         typer.Option("--json", help="Emit machine-readable lint result."),
     ] = False,
 ) -> None:
+    """Validate a config file without launching."""
     try:
         yaml_text = file.read_text(encoding="utf-8")
     except OSError as exc:
@@ -1328,6 +1356,7 @@ def config_edit(
         typer.Option("--json", help="Emit machine-readable edit result."),
     ] = False,
 ) -> None:
+    """Open a config in $EDITOR."""
     pull_params: dict[str, Any] = {"name": name}
     if configs_dir is not None:
         pull_params["configs_dir"] = str(configs_dir)
@@ -1462,6 +1491,7 @@ def deploy_create(
         typer.Option("--json", help="Emit machine-readable compose result."),
     ] = False,
 ) -> None:
+    """Create a new deployment config, interactively or via --set."""
     if model is None and model_ref is None:
         typer.echo("ERROR: provide --model or --model-ref", err=True)
         raise typer.Exit(2)
@@ -1609,6 +1639,7 @@ def deploy_edit(
         typer.Option("--json", help="Emit machine-readable edit result."),
     ] = False,
 ) -> None:
+    """Set deployment fields non-interactively (--set)."""
     try:
         overrides = _deploy_overrides(
             port=port,
@@ -1649,6 +1680,7 @@ def deploy_list(
         typer.Option("--json", help="Emit machine-readable deployment list."),
     ] = False,
 ) -> None:
+    """List deployments on the target."""
     try:
         result = _agent_call(
             "list_configs",
@@ -1698,6 +1730,7 @@ def deploy_clone(
         typer.Option("--json", help="Emit machine-readable clone result."),
     ] = False,
 ) -> None:
+    """Copy an existing deployment under a new name."""
     try:
         overrides = _deploy_overrides(
             port=None,
@@ -1754,6 +1787,7 @@ def deploy_from_wrapper(
         typer.Option("--json", help="Emit machine-readable migration result."),
     ] = False,
 ) -> None:
+    """Import a deployment from a shell wrapper script."""
     params: dict[str, Any] = {"src_name": src_name}
     if new_name is not None:
         params["new_name"] = new_name
@@ -1792,6 +1826,7 @@ def deploy_delete(
         typer.Option("--json", help="Emit machine-readable delete result."),
     ] = False,
 ) -> None:
+    """Delete a deployment config."""
     if not yes:
         typer.echo("ERROR: use --yes to delete a deployment", err=True)
         raise typer.Exit(2)
@@ -1830,6 +1865,7 @@ def deploy_export(
         typer.Option("--json", help="Emit machine-readable export result."),
     ] = False,
 ) -> None:
+    """Export a deployment config to a shell wrapper script."""
     params: dict[str, Any] = {"name": name}
     if configs_dir is not None:
         params["configs_dir"] = str(configs_dir)
@@ -1857,6 +1893,7 @@ def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
     target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
 ) -> None:
+    """List valid and invalid configs on the target."""
     try:
         result = _agent_call(
             "list_configs",
@@ -1889,6 +1926,7 @@ def preview(
         typer.Option("--revision", help="Model revision override."),
     ] = None,
 ) -> None:
+    """Print the resolved vLLM command for a config, without launching."""
     try:
         result = _agent_call(
             "preview",
@@ -1935,6 +1973,7 @@ def run_config(
         ),
     ] = False,
 ) -> None:
+    """Launch a config on the target (or --preview to just print it)."""
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
         build_id=build_id,
@@ -1996,6 +2035,7 @@ def smoke_config(
         ),
     ] = False,
 ) -> None:
+    """Launch, wait for READY, verify /v1/models, then stop — agent-side"""
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
         build_id=build_id,
@@ -2040,6 +2080,7 @@ def smoke_tui_config(
         ),
     ] = False,
 ) -> None:
+    """Same gate driven through the real TUI headlessly"""
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
         build_id=build_id,
@@ -3359,6 +3400,7 @@ async def _wait_target_until_ready_or_exit(
 
 @app.command("version")
 def version() -> None:
+    """Print the Vela version."""
     typer.echo(__version__)
 
 
@@ -3369,6 +3411,7 @@ def agent_connect(
         typer.Option("--socket", help="Connect stdio to an existing agent socket."),
     ] = None,
 ) -> None:
+    """Serve the agent over stdio (used by SSH targets)."""
     if socket_path is not None:
         from vela.agent.daemon import start_agent_daemon_process
         from vela.agent.socket import bridge_stdio_to_unix_socket
@@ -3415,6 +3458,7 @@ def agent_gen_token(
         typer.Option("--target", help="Also install the token on a configured target."),
     ] = None,
 ) -> None:
+    """Generate a capability token for authenticating to the agent."""
     if target_name is not None and not install:
         typer.echo("ERROR: --target requires --install", err=True)
         raise typer.Exit(2)
@@ -3461,6 +3505,7 @@ def agent_run(
         ),
     ] = None,
 ) -> None:
+    """Run the agent daemon in the foreground on a Unix socket."""
     from vela.agent.daemon import run_agent_daemon
 
     asyncio.run(run_agent_daemon(socket_path=socket_path, idle_timeout_seconds=idle_timeout))
@@ -3477,6 +3522,7 @@ def agent_start(
         typer.Option("--json", help="Emit machine-readable daemon start result."),
     ] = False,
 ) -> None:
+    """Start the background agent daemon."""
     import json
 
     from vela.agent.daemon import start_agent_daemon_process
@@ -3505,6 +3551,7 @@ def agent_status(
         typer.Option("--json", help="Emit machine-readable daemon status."),
     ] = False,
 ) -> None:
+    """Show whether the agent daemon is running."""
     import json
 
     from vela.agent.daemon import inspect_agent_daemon
@@ -3539,6 +3586,7 @@ def agent_stop(
         typer.Option("--json", help="Emit machine-readable daemon stop result."),
     ] = False,
 ) -> None:
+    """Stop the background agent daemon."""
     import json
 
     from vela.agent.daemon import stop_agent_daemon
@@ -3563,6 +3611,7 @@ def agent_restart(
         typer.Option("--json", help="Emit machine-readable daemon restart result."),
     ] = False,
 ) -> None:
+    """Restart the background agent daemon."""
     import json
 
     from vela.agent.daemon import restart_agent_daemon_process

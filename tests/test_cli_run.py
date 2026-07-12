@@ -38,6 +38,33 @@ def test_debug_mode_enables_textual_debug_and_devtools(monkeypatch: pytest.Monke
     assert os.environ["TEXTUAL"] == "debug,devtools,foo"
 
 
+def test_every_cli_command_and_group_self_documents() -> None:
+    # 7.1: every command and every sub-app must carry non-empty help so `vela --help`
+    # (and each `vela <group> --help`) reads as a product surface, not a blank list.
+    missing_commands: list[str] = []
+    missing_groups: list[str] = []
+
+    def walk(group: typer.Typer, prefix: str) -> None:
+        for command in group.registered_commands:
+            name = command.name or (command.callback.__name__ if command.callback else "?")
+            help_text = command.help or (command.callback.__doc__ if command.callback else None)
+            if not (help_text and help_text.strip()):
+                missing_commands.append(f"{prefix}{name}")
+        for sub in group.registered_groups:
+            sub_name = sub.name or "?"
+            sub_app = sub.typer_instance
+            sub_help = sub.help or (sub_app.info.help if sub_app is not None else None)
+            if not (sub_help and sub_help.strip()):
+                missing_groups.append(f"{prefix}{sub_name}")
+            if sub_app is not None:
+                walk(sub_app, prefix=f"{prefix}{sub_name} ")
+
+    walk(cli_module.app, prefix="")
+
+    assert missing_commands == [], f"commands missing help: {missing_commands}"
+    assert missing_groups == [], f"sub-apps missing help: {missing_groups}"
+
+
 def test_cli_root_version_option_prints_version_without_launching_tui() -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "vela.cli", "--version"],
