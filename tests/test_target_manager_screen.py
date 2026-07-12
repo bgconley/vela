@@ -25,7 +25,7 @@ from textual.widgets import Label, Static
 
 from vela.config.targets import TargetConfig, TransportKind
 from vela.tui.screens.target_manager import _FOOTER_HINTS, TargetManagerScreen
-from vela.tui.widgets import KeyHintBar, MasterDetail
+from vela.tui.widgets import KeyHintBar
 
 
 class _FakeRegistry:
@@ -96,7 +96,8 @@ async def test_target_manager_uses_stacked_full_width_layout_and_footer() -> Non
         screen = _make_screen(capabilities=["gpu", "health", "preview"])
         await app.push_screen(screen)
         await pilot.pause()
-        assert len(screen.query(MasterDetail)) == 0  # the cramped two-pane is gone
+        # The cramped two-pane widget was deleted outright in Phase-9; the
+        # full-width list-in-a-VerticalScroll is the positive guard now.
         assert len(screen.query(VerticalScroll)) == 1  # list scroll region
         assert len(screen.query(KeyHintBar)) >= 1  # footer keybar(s)
         # The pinned panes survive as queryable Statics.

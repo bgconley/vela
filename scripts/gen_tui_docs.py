@@ -17,6 +17,7 @@ without a docs regen fails there.
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import inspect
 import pkgutil
@@ -111,6 +112,13 @@ def render_tui_docs() -> str:
             "hidden."
         ),
         "",
+        (
+            "Scope: this reference covers app- and screen-level bindings only. "
+            "Widget-level bindings (for example the New Deployment wizard's preset "
+            "chips, whose arrow keys move the cursor and `enter` selects) are handled "
+            "inside their widgets and are out of scope here."
+        ),
+        "",
     ]
     blocks: list[tuple[str, list[_BindingRow]]] = [(_title(VelaApp), _own_bindings(VelaApp))]
     for cls in _discover_screens():
@@ -123,8 +131,22 @@ def render_tui_docs() -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
-def main() -> None:
-    DOC_PATH.write_text(render_tui_docs(), encoding="utf-8")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate docs/tui.md from the TUI's declared key bindings.",
+    )
+    parser.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Print the rendered doc to stdout instead of writing docs/tui.md.",
+    )
+    args = parser.parse_args(argv)
+    content = render_tui_docs()
+    if args.stdout:
+        # `content` already ends in a single newline; print it verbatim.
+        print(content, end="")
+        return
+    DOC_PATH.write_text(content, encoding="utf-8")
     print(f"wrote {DOC_PATH}")
 
 

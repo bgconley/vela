@@ -31,7 +31,7 @@ from vela.tui.screens.model_manager import (
     _row_source_tag,
 )
 from vela.tui.theme import AMBER, CYAN, VIOLET
-from vela.tui.widgets import KeyHintBar, MasterDetail
+from vela.tui.widgets import KeyHintBar
 from vela.tui.widgets.keyhintbar import pack_hint_rows
 
 
@@ -90,7 +90,8 @@ async def test_model_manager_uses_stacked_full_width_layout_and_footer() -> None
         screen = _make_screen()
         await app.push_screen(screen)
         await pilot.pause()
-        assert len(screen.query(MasterDetail)) == 0
+        # The cramped two-pane widget was deleted outright in Phase-9; the
+        # full-width list-in-a-VerticalScroll is the positive guard now.
         assert len(screen.query(VerticalScroll)) == 1
         assert len(screen.query(KeyHintBar)) >= 1
         assert screen.query_one("#model-manager-list", Static)

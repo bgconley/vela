@@ -6,7 +6,7 @@ import re
 
 import pytest
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.css.scalar import Unit
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
@@ -15,7 +15,6 @@ from vela.tui.theme import AMBER, CYAN, VIOLET
 from vela.tui.widgets.contextcard import ContextCard
 from vela.tui.widgets.field import Field
 from vela.tui.widgets.keyhintbar import KeyHintBar
-from vela.tui.widgets.masterdetail import MasterDetail
 from vela.tui.widgets.preset_chips import PresetChips
 from vela.tui.widgets.step_indicator import StepIndicator
 from vela.tui.widgets.tags import (
@@ -289,33 +288,6 @@ def test_recipe_flags_cover_precision_critical_fields() -> None:
     assert is_recipe_flag("dtype")
     assert is_recipe_flag("kv_cache_dtype")
     assert not is_recipe_flag("tensor_parallel_size")
-
-
-class _MasterDetailHarness(App):
-    def compose(self) -> ComposeResult:
-        yield MasterDetail(
-            Static("L", id="md-list"),
-            Static("R", id="md-detail"),
-            footer=KeyHintBar([("⏎", "Select"), ("Esc", "Close")]),
-            id="md",
-        )
-
-
-@pytest.mark.asyncio
-async def test_master_detail_lays_out_panes_side_by_side_with_footer() -> None:
-    app = _MasterDetailHarness()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        md = app.query_one("#md", MasterDetail)
-        # Caller-provided panes keep their ids + content (contract-preserving wrap).
-        assert str(app.query_one("#md-list", Static).content) == "L"
-        assert str(app.query_one("#md-detail", Static).content) == "R"
-        # Both panes sit side-by-side inside the one horizontal body.
-        body = md.query_one(".master-detail-body", Horizontal)
-        assert body.query_one("#md-list", Static) is app.query_one("#md-list", Static)
-        assert body.query_one("#md-detail", Static) is app.query_one("#md-detail", Static)
-        # The optional footer is mounted.
-        assert len(md.query(KeyHintBar)) == 1
 
 
 class _StepIndicatorHarness(App):

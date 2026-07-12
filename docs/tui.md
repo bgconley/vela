@@ -4,6 +4,8 @@ Generated from the TUI's declared key bindings by `scripts/gen_tui_docs.py` — 
 
 The dashboard footer advertises a state-filtered subset of these keys (control keys only during a run, log keys only when a log is present, and so on), but every binding below still works even when its footer hint is hidden.
 
+Scope: this reference covers app- and screen-level bindings only. Widget-level bindings (for example the New Deployment wizard's preset chips, whose arrow keys move the cursor and `enter` selects) are handled inside their widgets and are out of scope here.
+
 ## Dashboard (root app bindings)
 
 | Key | Action | Description |

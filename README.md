@@ -51,6 +51,9 @@ deployments and reach targets from inside the TUI:
 4. Launch from the TUI, watch phase/readiness/logs, then stop or reattach from the
    same screen.
 
+The full keyboard reference for every TUI screen is in
+[docs/tui.md](docs/tui.md).
+
 ### Cloned repo
 
 Clone the repo and install it editable with dev extras — this is the path for
@@ -81,6 +84,9 @@ vela build list
 vela model list
 vela deploy create --help
 ```
+
+When a launch, connection, or model job surfaces an error banner, the remediation
+for each error kind is in [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Remote Targets
 

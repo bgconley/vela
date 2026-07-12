@@ -20,7 +20,7 @@ from textual.css.scalar import Unit
 from textual.widgets import Label, Static
 
 from vela.tui.screens.build_manager import _FOOTER_HINTS, BuildManagerScreen
-from vela.tui.widgets import KeyHintBar, MasterDetail
+from vela.tui.widgets import KeyHintBar
 
 
 class _Host(App):
@@ -61,7 +61,8 @@ async def test_build_manager_uses_stacked_full_width_layout_and_footer() -> None
         screen = _make_screen()
         await app.push_screen(screen)
         await pilot.pause()
-        assert len(screen.query(MasterDetail)) == 0  # the cramped two-pane is gone
+        # The cramped two-pane widget was deleted outright in Phase-9; the
+        # full-width list-in-a-VerticalScroll is the positive guard now.
         assert len(screen.query(VerticalScroll)) == 1  # list scroll region
         assert len(screen.query(KeyHintBar)) >= 1  # footer keybar(s)
         assert screen.query_one("#build-manager-list", Static)

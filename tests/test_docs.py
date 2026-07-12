@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
@@ -27,6 +29,38 @@ def test_tui_doc_matches_bindings() -> None:
     assert committed == expected, (
         "docs/tui.md is stale — regenerate with `python3 scripts/gen_tui_docs.py`"
     )
+
+
+def test_gen_tui_docs_stdout_prints_without_writing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Phase-9: `--stdout` prints the rendered doc to stdout and must NOT rewrite the
+    # committed file (it was previously ignored — main() always wrote).
+    gen = _load_script("scripts/gen_tui_docs.py", "gen_tui_docs_stdout_test")
+    fake_doc = tmp_path / "tui.md"
+    monkeypatch.setattr(gen, "DOC_PATH", fake_doc)
+
+    gen.main(["--stdout"])
+
+    captured = capsys.readouterr()
+    assert captured.out == gen.render_tui_docs()
+    assert not fake_doc.exists()  # --stdout writes nothing
+
+
+def test_gen_tui_docs_default_writes_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The default (no --stdout) writes docs/tui.md with the rendered content.
+    gen = _load_script("scripts/gen_tui_docs.py", "gen_tui_docs_write_test")
+    fake_doc = tmp_path / "tui.md"
+    monkeypatch.setattr(gen, "DOC_PATH", fake_doc)
+
+    gen.main([])
+
+    assert fake_doc.read_text(encoding="utf-8") == gen.render_tui_docs()
 
 
 def test_troubleshooting_doc_covers_every_remediation_kind() -> None:
@@ -103,6 +137,10 @@ def test_readme_covers_new_contributor_v1_paths() -> None:
     assert "~/.config/vela/configs" in text
     assert "XDG_CONFIG_HOME" in text
     assert "VELA_TARGET" in text
+    # Phase-9: the TUI key reference and the troubleshooting guide were orphaned
+    # (linked from nowhere); the README now points to both.
+    assert "docs/tui.md" in text
+    assert "docs/troubleshooting.md" in text
 
 
 def test_user_docs_cover_schema_artifacts_and_rpc() -> None:

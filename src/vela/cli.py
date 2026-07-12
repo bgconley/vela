@@ -3871,30 +3871,59 @@ def _collect_runs_for_target(target: str) -> list[dict[str, str]]:
     Only fields safe for a controller surface are surfaced — run id, config name,
     liveness, reachable url, and the served model (a pid-safe identity). Sidecar
     paths and PIDs are never read out of the status payload (bug-225).
+
+    The whole sweep (discover_runs plus one status per run) reuses a single
+    connection: opening one client and looping the calls avoids N+1 SSH handshakes
+    for an N-run listing.
     """
+    client = _target_client_for_name_or_exit(target)
     try:
-        discovered = _agent_call("discover_runs", target_name=target)
+        return asyncio.run(_collect_runs_for_target_async(client))
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, target_name=target)
-    rows: list[dict[str, str]] = []
-    for summary in discovered.get("runs", []):
-        run_id = str(summary.get("run_id") or "")
-        config = str(summary.get("config_name") or "")
-        phase, url, model = "running", "-", "-"
+        raise  # unreachable: _echo_target_error_or_exit always exits
+
+
+async def _collect_runs_for_target_async(client: TargetClient) -> list[dict[str, str]]:
+    """Sweep discover_runs + per-run status over ONE open connection."""
+    try:
+        agent_info = await client.connect()
+        _maybe_warn_stale_local_daemon(client, agent_info)
         try:
-            status = _agent_call("status", {"run_id": run_id}, target_name=target)
-        except TargetCallError:
-            # The sidecar no longer verifies (process gone); still list it, marked exited.
-            phase = "exited"
-        else:
-            sidecar = status.get("sidecar") or {}
-            url = str(sidecar.get("reachable_url") or "-")
-            served = sidecar.get("served_model_names") or []
-            model = str(served[0]) if served else "-"
-        rows.append(
-            {"run_id": run_id, "config": config, "phase": phase, "url": url, "model": model}
-        )
-    return rows
+            discovered = await client.call("discover_runs", None)
+            rows: list[dict[str, str]] = []
+            for summary in discovered.get("runs", []):
+                run_id = str(summary.get("run_id") or "")
+                config = str(summary.get("config_name") or "")
+                phase, url, model = "running", "-", "-"
+                try:
+                    status = await client.call("status", {"run_id": run_id})
+                except (TargetCallError, AgentTokenError):
+                    # Sidecar no longer verifies (process gone); list it, marked exited.
+                    phase = "exited"
+                else:
+                    sidecar = status.get("sidecar") or {}
+                    url = str(sidecar.get("reachable_url") or "-")
+                    served = sidecar.get("served_model_names") or []
+                    model = str(served[0]) if served else "-"
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "config": config,
+                        "phase": phase,
+                        "url": url,
+                        "model": model,
+                    }
+                )
+            return rows
+        finally:
+            await client.disconnect()
+    except AgentTokenError as exc:
+        raise TargetCallError(
+            "agent-auth-required",
+            "controller agent token is malformed",
+            {"reason": "capability-token-misconfigured"},
+        ) from exc
 
 
 @runs_app.command("prune")

@@ -2877,32 +2877,111 @@ def test_agent_start_text_failure_names_stderr_log(
     assert "agent-start.err" in result.output
 
 
+class _RecordingRunsClient:
+    """A single TargetClient whose connect/call/disconnect are counted.
+
+    The runs-list sweep (discover_runs + one status per run) must reuse ONE
+    connection for the whole listing rather than open a fresh handshake per call
+    (the N+1 bug); this client makes the connection count observable.
+    """
+
+    def __init__(
+        self,
+        runs: list[dict[str, object]],
+        status_by_run: dict[str, dict[str, object]] | None = None,
+        status_errors: frozenset[str] = frozenset(),
+    ) -> None:
+        self._runs = runs
+        self._status_by_run = status_by_run or {}
+        self._status_errors = set(status_errors)
+        self.connect_count = 0
+        self.disconnect_count = 0
+        self.calls: list[tuple[str, object]] = []
+
+    async def connect(self) -> dict[str, object]:
+        self.connect_count += 1
+        return {"agent_revision": "test"}
+
+    async def disconnect(self) -> None:
+        self.disconnect_count += 1
+
+    async def call(self, method: str, params: dict[str, object] | None = None):
+        self.calls.append((method, params))
+        if method == "discover_runs":
+            return {"runs": self._runs}
+        if method == "status":
+            run_id = str((params or {}).get("run_id") or "")
+            if run_id in self._status_errors:
+                raise TargetCallError("run-not-found", "sidecar gone", {})
+            return self._status_by_run[run_id]
+        raise AssertionError(f"unexpected target client call: {method}")
+
+
+def test_cli_runs_list_uses_single_connection_for_all_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Phase-9 (routed twice): the runs-list sweep must open ONE connection for the
+    # whole listing — discover_runs plus one status per run — not a fresh
+    # connect/disconnect (SSH handshake) per call. RED before the fix: the old
+    # `_agent_call`-per-call path connects 1 + N times.
+    runs = [{"run_id": f"01RUN{tag}", "config_name": "llama"} for tag in ("A", "B", "C")]
+    status_by_run = {
+        f"01RUN{tag}": {
+            "sidecar": {
+                "reachable_url": f"http://127.0.0.1:800{idx}",
+                "served_model_names": ["meta/llama"],
+            }
+        }
+        for idx, tag in enumerate(("A", "B", "C"))
+    }
+    client = _RecordingRunsClient(runs, status_by_run)
+    monkeypatch.setattr(
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["runs", "list"])
+
+    assert result.exit_code == 0, result.output
+    # ONE connection reused for the entire 3-run sweep (the fix); 4 = the N+1 bug.
+    assert client.connect_count == 1
+    assert client.disconnect_count == 1
+    # Still one discover + one status per run, in order.
+    assert [method for method, _ in client.calls] == [
+        "discover_runs",
+        "status",
+        "status",
+        "status",
+    ]
+    for tag in ("A", "B", "C"):
+        assert f"01RUN{tag}" in result.output
+
+
 def test_cli_runs_list_renders_scrubbed_table(monkeypatch: pytest.MonkeyPatch) -> None:
     # 7.2: `vela runs list` shows run_id, config, phase, ready url, and a pid-safe
-    # identity (served model) — never the sidecar path or PID (bug-225).
-    def fake_agent_call(method, params=None, *, target_name="local"):
-        if method == "discover_runs":
-            return {"runs": [{"run_id": "01RUNA", "config_name": "llama"}]}
-        if method == "status":
-            assert params == {"run_id": "01RUNA"}
-            return {
-                "run_id": "01RUNA",
-                "config": {"name": "llama"},
-                "sidecar": {
-                    "config_name": "llama",
-                    "host": "127.0.0.1",
-                    "port": 8000,
-                    "reachable_url": "http://127.0.0.1:8000",
-                    "served_model_names": ["meta/llama"],
-                    "launch_mode": "detached",
-                    # Would-be leaks the list must never print:
-                    "sidecar_path": "/home/bg/.local/state/vela/runs/01RUNA.json",
-                    "pid": 4242,
-                },
-            }
-        raise AssertionError(f"unexpected agent call: {method}")
-
-    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+    # identity (served model) — never the sidecar path or PID (bug-225). Mocked at the
+    # client layer (Phase-9) because the sweep now reuses one connection.
+    runs = [{"run_id": "01RUNA", "config_name": "llama"}]
+    status_by_run = {
+        "01RUNA": {
+            "run_id": "01RUNA",
+            "config": {"name": "llama"},
+            "sidecar": {
+                "config_name": "llama",
+                "host": "127.0.0.1",
+                "port": 8000,
+                "reachable_url": "http://127.0.0.1:8000",
+                "served_model_names": ["meta/llama"],
+                "launch_mode": "detached",
+                # Would-be leaks the list must never print:
+                "sidecar_path": "/home/bg/.local/state/vela/runs/01RUNA.json",
+                "pid": 4242,
+            },
+        }
+    }
+    client = _RecordingRunsClient(runs, status_by_run)
+    monkeypatch.setattr(
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
+    )
 
     result = CliRunner().invoke(cli_module.app, ["runs", "list"])
 
@@ -2915,13 +2994,16 @@ def test_cli_runs_list_renders_scrubbed_table(monkeypatch: pytest.MonkeyPatch) -
     assert "/home/bg" not in result.output
     assert "4242" not in result.output
     assert ".json" not in result.output
+    # The status enrichment is scoped to the discovered run id.
+    assert ("status", {"run_id": "01RUNA"}) in client.calls
+    # One connection reused for discover + status (no N+1 handshake).
+    assert client.connect_count == 1
 
 
 def test_cli_runs_list_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _RecordingRunsClient([])
     monkeypatch.setattr(
-        cli_module,
-        "_agent_call",
-        lambda method, params=None, *, target_name="local": {"runs": []},
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
     )
 
     result = CliRunner().invoke(cli_module.app, ["runs", "list"])
