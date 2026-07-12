@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from vela.agent.daemon import (
+    agent_start_err_path,
     restart_agent_daemon_process,
     start_agent_daemon_process,
 )
@@ -110,7 +111,7 @@ class UnixSocketTargetClient:
             raise TargetCallError(
                 "agent-unreachable",
                 "unable to start local target agent daemon",
-                status,
+                {**status, "transport": "local"},
             )
 
     def _restart_agent_or_raise(self) -> None:
@@ -119,7 +120,7 @@ class UnixSocketTargetClient:
             raise TargetCallError(
                 "agent-unreachable",
                 "unable to restart local target agent daemon",
-                status,
+                {**status, "transport": "local"},
             )
 
     async def _open_socket(self) -> None:
@@ -281,5 +282,9 @@ def _agent_socket_unreachable_error(socket_path: Path) -> TargetCallError:
     return TargetCallError(
         "agent-unreachable",
         f"Unable to connect to target agent socket: {socket_path}",
-        {"socket_path": str(socket_path)},
+        {
+            "socket_path": str(socket_path),
+            "transport": "local",
+            "stderr_log": str(agent_start_err_path(socket_path)),
+        },
     )

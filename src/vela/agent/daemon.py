@@ -166,6 +166,11 @@ def agent_identity_path(socket_path: str | Path) -> Path:
     return Path(socket_path).with_name("agent.json")
 
 
+def agent_start_err_path(socket_path: str | Path) -> Path:
+    """Where a spawned daemon's startup stderr is captured (bug-238)."""
+    return Path(socket_path).with_name("agent-start.err")
+
+
 def inspect_agent_daemon(socket_path: str | Path | None = None) -> dict[str, Any]:
     resolved_socket_path = (
         Path(socket_path)
@@ -220,14 +225,29 @@ def start_agent_daemon_process(
         "--socket",
         str(resolved_socket_path),
     ]
-    process = subprocess.Popen(
-        command,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        close_fds=True,
-    )
+    # Capture the spawned daemon's startup stderr so a silent start-failure (a bad
+    # socket path, a crashed import, a bind error) leaves a readable log instead of
+    # vanishing into DEVNULL (bug-238). A cleanly-stopped daemon removes it again.
+    stderr_log = agent_start_err_path(resolved_socket_path)
+    with contextlib.suppress(OSError):
+        resolved_socket_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stderr_target: Any = subprocess.DEVNULL
+    try:
+        stderr_target = open(stderr_log, "a", encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        stderr_target = subprocess.DEVNULL
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_target,
+            start_new_session=True,
+            close_fds=True,
+        )
+    finally:
+        if stderr_target is not subprocess.DEVNULL:
+            stderr_target.close()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         status = inspect_agent_daemon(resolved_socket_path)
@@ -239,6 +259,7 @@ def start_agent_daemon_process(
                 "reason": f"daemon exited with {process.returncode}",
                 "socket_path": str(resolved_socket_path),
                 "identity_path": str(agent_identity_path(resolved_socket_path)),
+                "stderr_log": str(stderr_log),
             }
         time.sleep(0.05)
     return {
@@ -246,6 +267,7 @@ def start_agent_daemon_process(
         "pid": process.pid,
         "socket_path": str(resolved_socket_path),
         "identity_path": str(agent_identity_path(resolved_socket_path)),
+        "stderr_log": str(stderr_log),
     }
 
 
@@ -392,6 +414,10 @@ async def run_agent_daemon(
         daemon.close()
         await daemon.wait_closed()
         daemon.socket_path.unlink(missing_ok=True)
+        # A clean shutdown means the startup log is empty/irrelevant; remove it so
+        # the runtime dir has no leftover artifacts. A FAILED start never reaches
+        # here (start_agent_daemon raised before the try), so its log persists.
+        agent_start_err_path(daemon.socket_path).unlink(missing_ok=True)
         daemon.identity_path.unlink(missing_ok=True)
 
 

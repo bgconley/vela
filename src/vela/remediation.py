@@ -38,8 +38,16 @@ def remediation_for_error(
             ),
         )
     if code == "agent-unreachable":
-        stderr = str(detail_map.get("stderr") or "").strip()
         reason = str(detail_map.get("reason") or "")
+        if detail_map.get("transport") == "local":
+            log_path = str(detail_map.get("stderr_log") or "").strip()
+            log_clause = f"; the local agent log is at {log_path}" if log_path else ""
+            return ErrorRemediation(
+                label="AGENT_UNREACHABLE",
+                cause="local agent daemon unreachable",
+                fix=f"Fix: check `vela agent status`{log_clause}.",
+            )
+        stderr = str(detail_map.get("stderr") or "").strip()
         cause = _agent_unreachable_cause(reason)
         extra_lines = (f"SSH stderr: {stderr}",) if stderr else ()
         return ErrorRemediation(

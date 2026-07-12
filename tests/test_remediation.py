@@ -29,6 +29,21 @@ def test_agent_unreachable_remediation_names_setup_ssh_and_stderr() -> None:
     assert "vela targets setup-ssh blackbird" in remediation.fix
 
 
+def test_agent_unreachable_local_remediation_names_agent_status_and_log() -> None:
+    remediation = remediation_for_error(
+        "agent-unreachable",
+        target_name="local",
+        details={"transport": "local", "stderr_log": "/tmp/vela/agent-start.err"},
+    )
+
+    assert remediation is not None
+    assert remediation.label == "AGENT_UNREACHABLE"
+    assert "vela agent status" in remediation.fix
+    assert "/tmp/vela/agent-start.err" in remediation.fix
+    # The local branch never appends SSH stderr.
+    assert remediation.extra_lines == ()
+
+
 def test_agent_auth_required_remediation_names_token_install_command() -> None:
     remediation = remediation_for_error("agent-auth-required", target_name="blackbird")
 

@@ -119,6 +119,28 @@ def test_stale_local_daemon_banner_none_when_revision_unavailable() -> None:
     )
 
 
+def test_start_agent_daemon_failure_captures_stderr_log_and_names_it() -> None:
+    # bug-238: a silent start-failure must leave a readable log instead of vanishing
+    # into DEVNULL, and the start-failed error must name it. A socket path that
+    # exceeds the macOS AF_UNIX limit forces the daemon to fail to bind and exit
+    # non-zero (the runtime dir + regular err file allow far longer paths).
+    from vela.agent.daemon import agent_start_err_path, start_agent_daemon_process
+
+    long_dir = Path("/tmp") / ("d" * 90)
+    socket_path = long_dir / "agent.sock"  # > 104 chars total → bind fails
+    try:
+        status = start_agent_daemon_process(socket_path, timeout=scaled_timeout(6))
+
+        assert status["status"] == "start-failed"
+        stderr_log = Path(str(status["stderr_log"]))
+        assert stderr_log == agent_start_err_path(socket_path)
+        assert stderr_log.exists()
+        # The captured stderr names the bind failure, not an empty file.
+        assert stderr_log.read_text(encoding="utf-8").strip()
+    finally:
+        shutil.rmtree(long_dir, ignore_errors=True)
+
+
 def test_default_agent_runtime_dir_precedence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
