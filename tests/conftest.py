@@ -20,6 +20,9 @@ _VELA_STATE_ENV_KEYS = (
     # precedence). Clear it so a developer's shell can't override the isolated
     # XDG_RUNTIME_DIR and reconnect tests to their real long-running daemon.
     "VELA_AGENT_RUNTIME_DIR",
+    # 7.3: the CLI's --target now falls back to VELA_TARGET; clear it so a shell
+    # export can't redirect target-omitting tests off the implicit local target.
+    "VELA_TARGET",
 )
 
 
@@ -59,6 +62,9 @@ def isolated_vela_state() -> Iterator[Path]:
     # export would escape the isolated dirs entirely. Pop it — being in the
     # _VELA_STATE_ENV_KEYS snapshot above, the teardown loop restores it.
     os.environ.pop("VELA_AGENT_RUNTIME_DIR", None)
+    # 7.3: same reasoning for VELA_TARGET (adding a key to the snapshot tuple only
+    # restores it — the fixture body must pop it so a shell export can't leak in).
+    os.environ.pop("VELA_TARGET", None)
     (state_root / "runtime").mkdir(parents=True, exist_ok=True)
     try:
         yield state_root

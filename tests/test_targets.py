@@ -9,8 +9,10 @@ from conftest import write_yaml
 from vela.config.targets import (
     TargetConfig,
     TransportKind,
+    load_default_target,
     load_targets_file,
     remove_target_file,
+    save_default_target,
     upsert_target_file,
 )
 
@@ -177,3 +179,36 @@ def test_ssh_target_requires_host(tmp_path: Path) -> None:
 def test_targets_registry_does_not_remove_implicit_local(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="local.*implicit"):
         remove_target_file("local", tmp_path / "targets.yaml")
+
+
+def test_default_target_round_trips_and_preserves_targets(tmp_path: Path) -> None:
+    # 7.3: the persisted default_target survives a round-trip, sits alongside the
+    # targets it names, and can be cleared without dropping the targets.
+    path = tmp_path / "targets.yaml"
+    upsert_target_file(
+        TargetConfig(name="blackbird", transport=TransportKind.SSH, host="u@h"), path
+    )
+    assert load_default_target(path) is None
+
+    save_default_target("blackbird", path)
+    assert load_default_target(path) == "blackbird"
+    assert [target.name for target in load_targets_file(path).targets] == ["local", "blackbird"]
+
+    save_default_target(None, path)
+    assert load_default_target(path) is None
+    assert [target.name for target in load_targets_file(path).targets] == ["local", "blackbird"]
+
+
+def test_saving_a_target_preserves_the_existing_default(tmp_path: Path) -> None:
+    # Adding another target must not wipe a previously-saved default.
+    path = tmp_path / "targets.yaml"
+    upsert_target_file(
+        TargetConfig(name="blackbird", transport=TransportKind.SSH, host="u@h"), path
+    )
+    save_default_target("blackbird", path)
+
+    upsert_target_file(
+        TargetConfig(name="thunderbird", transport=TransportKind.SSH, host="u@h2"), path
+    )
+
+    assert load_default_target(path) == "blackbird"

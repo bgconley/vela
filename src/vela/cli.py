@@ -29,8 +29,10 @@ from vela.config.targets import (
     TargetConfig,
     TargetsRegistry,
     TransportKind,
+    load_default_target,
     load_targets_file,
     remove_target_file,
+    save_default_target,
     upsert_target_file,
 )
 from vela.engine.phases import Phase
@@ -118,7 +120,7 @@ def interactive(
     configs_dir: Annotated[
         Path | None, typer.Option("--configs-dir", help="Config directory override.")
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     debug: Annotated[
         bool,
         typer.Option("--debug", help="Enable structured debug log and Textual devtools."),
@@ -128,6 +130,7 @@ def interactive(
         typer.Option("--debug-log", help="Debug JSONL path used with --debug."),
     ] = None,
 ) -> None:
+    target = _resolve_target_name(target)
     if version_requested:
         typer.echo(__version__)
         raise typer.Exit()
@@ -142,7 +145,7 @@ def tui(
     configs_dir: Annotated[
         Path | None, typer.Option("--configs-dir", help="Config directory override.")
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     debug: Annotated[
         bool,
         typer.Option("--debug", help="Enable structured debug log and Textual devtools."),
@@ -153,6 +156,7 @@ def tui(
     ] = None,
 ) -> None:
     """Open the Vela TUI explicitly."""
+    target = _resolve_target_name(target)
     _run_tui(configs_dir=configs_dir, target=target, debug=debug, debug_log=debug_log)
 
 
@@ -214,10 +218,43 @@ def doctor(
 
 @targets_app.command("list")
 def targets_list() -> None:
-    """List configured targets."""
+    """List configured targets (the default is marked with *)."""
     registry = _load_targets_or_exit()
+    default = load_default_target()
     for target in registry.targets:
-        typer.echo(f"{target.name}\t{target.transport.value}\t{target.host or '-'}")
+        marker = "*" if target.name == default else " "
+        typer.echo(
+            f"{marker}\t{target.name}\t{target.transport.value}\t{target.host or '-'}"
+        )
+
+
+@targets_app.command("use")
+def targets_use(
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Target name to make the default (omit with --clear)."),
+    ] = None,
+    clear: Annotated[
+        bool,
+        typer.Option("--clear", help="Clear the saved default target."),
+    ] = False,
+) -> None:
+    """Set (or --clear) the default target used when --target is omitted."""
+    if clear:
+        save_default_target(None)
+        typer.echo("cleared default target")
+        return
+    if name is None:
+        typer.echo("ERROR: provide a target name or --clear", err=True)
+        raise typer.Exit(2)
+    registry = _load_targets_or_exit()
+    if all(target.name != name for target in registry.targets):
+        typer.echo(f"ERROR: unknown target: {name}", err=True)
+        available = ", ".join(target.name for target in registry.targets)
+        typer.echo(f"Available targets: {available}", err=True)
+        raise typer.Exit(2)
+    save_default_target(name)
+    typer.echo(f"default target set to {name}")
 
 
 @targets_app.command("add")
@@ -423,13 +460,14 @@ def targets_setup_ssh(
 
 @build_app.command("list")
 def build_list(
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable build list."),
     ] = False,
 ) -> None:
     """List target-local vLLM builds."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call("list_builds", target_name=target)
     except TargetCallError as exc:
@@ -457,13 +495,14 @@ def build_list(
 
 @build_app.command("doctor")
 def build_doctor(
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable build readiness."),
     ] = False,
 ) -> None:
     """Check the target's build toolchain (uv, compiler, CUDA)."""
+    target = _resolve_target_name(target)
     checks: list[dict[str, Any]] = []
     uv_available: bool | None = None
     for method in BUILD_DOCTOR_METHODS:
@@ -555,9 +594,10 @@ def build_add(
         list[str] | None,
         typer.Option("--env", help="Build environment override KEY=VALUE."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
 ) -> None:
     """Build a new target-local vLLM from source or a wheel."""
+    target = _resolve_target_name(target)
     client = _target_client_for_name_or_exit(target)
     params: dict[str, Any] = {
         "job_id": uuid.uuid4().hex,
@@ -584,13 +624,14 @@ def build_add(
 @build_app.command("inspect")
 def build_inspect(
     build: Annotated[str, typer.Argument(help="Build id or label to inspect.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable build detail."),
     ] = False,
 ) -> None:
     """Show one build's metadata and integrity."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "inspect_build",
@@ -633,13 +674,14 @@ def build_adopt(
         bool,
         typer.Option("--copy", help="Copy the external venv into the build directory."),
     ] = False,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable adoption result."),
     ] = False,
 ) -> None:
     """Register an existing venv as a build."""
+    target = _resolve_target_name(target)
     del build_id
     params = _agent_params(
         label=label,
@@ -664,13 +706,14 @@ def build_adopt(
 @build_app.command("select")
 def build_select(
     build: Annotated[str, typer.Argument(help="Build id or label to make active.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable selection result."),
     ] = False,
 ) -> None:
     """Mark a build as the active one for launches."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "select_build",
@@ -690,13 +733,14 @@ def build_select(
 @build_app.command("verify")
 def build_verify(
     build: Annotated[str, typer.Argument(help="Build id or label to verify.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable verification result."),
     ] = False,
 ) -> None:
     """Re-verify a build's recorded files against disk."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "verify_build",
@@ -726,13 +770,14 @@ def build_verify(
 @build_app.command("repair")
 def build_repair(
     build: Annotated[str, typer.Argument(help="Build id or label to repair.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable repair result."),
     ] = False,
 ) -> None:
     """Repair a broken build in place."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "repair_build",
@@ -764,9 +809,10 @@ def build_repair(
 def build_run(
     ctx: typer.Context,
     build: Annotated[str, typer.Argument(help="Build id or label to run.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
 ) -> None:
     """Launch a config against a specific build."""
+    target = _resolve_target_name(target)
     argv = list(ctx.args)
     if argv and argv[0] == "--":
         argv = argv[1:]
@@ -789,7 +835,7 @@ def build_remove(
         Path | None,
         typer.Option("--configs-dir", help="Config directory for pin checks."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     yes: Annotated[
         bool,
         typer.Option("--yes", help="Confirm removing the agent-owned build directory."),
@@ -800,6 +846,7 @@ def build_remove(
     ] = False,
 ) -> None:
     """Delete a build record (and optionally its venv)."""
+    target = _resolve_target_name(target)
     if not yes:
         typer.echo("ERROR: use --yes to remove a build", err=True)
         raise typer.Exit(2)
@@ -821,7 +868,7 @@ def build_remove(
 
 @model_app.command("list")
 def model_list(
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     cached_only: Annotated[
         bool,
         typer.Option("--cached-only", help="Show only cached models."),
@@ -836,6 +883,7 @@ def model_list(
     ] = False,
 ) -> None:
     """List models known to the target registry."""
+    target = _resolve_target_name(target)
     params = _agent_params(
         cached_only="true" if cached_only else None,
         pinned_only="true" if pinned_only else None,
@@ -866,13 +914,14 @@ def model_list(
 
 @model_app.command("refresh")
 def model_refresh(
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable refresh result."),
     ] = False,
 ) -> None:
     """Rescan the Hugging Face cache and refresh the model registry."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call("refresh_models", target_name=target)
     except TargetCallError as exc:
@@ -901,13 +950,14 @@ def model_refresh(
 @model_app.command("inspect")
 def model_inspect(
     model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable model detail."),
     ] = False,
 ) -> None:
     """Show one model entry's metadata and cache state."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "inspect_model",
@@ -948,13 +998,14 @@ def model_adopt(
         str | None,
         typer.Option("--tokenizer", help="Tokenizer override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable adoption result."),
     ] = False,
 ) -> None:
     """Register an on-disk model directory as an entry."""
+    target = _resolve_target_name(target)
     del entry_id
     params = _agent_params(
         display_name=display_name,
@@ -1048,13 +1099,14 @@ def model_pin(
             ),
         ),
     ] = False,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable pin result."),
     ] = False,
 ) -> None:
     """Pin a Hugging Face repo as a referenceable model entry."""
+    target = _resolve_target_name(target)
     del entry_id
     if url is not None:
         params = _agent_params(
@@ -1106,7 +1158,7 @@ def model_pin(
 @model_app.command("verify")
 def model_verify(
     model_ref: Annotated[str, typer.Argument(help="Model entry id or display name.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     deep: Annotated[
         bool,
         typer.Option("--deep", help="Run deep content-hash verification."),
@@ -1117,6 +1169,7 @@ def model_verify(
     ] = False,
 ) -> None:
     """Verify a pinned model's files are fully cached."""
+    target = _resolve_target_name(target)
     params = _agent_params(model_ref=model_ref, deep="true" if deep else None)
     try:
         result = _agent_call(
@@ -1158,13 +1211,14 @@ def model_download(
         list[str] | None,
         typer.Option("--ignore", help="Ignore-pattern passed to Hugging Face download."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit final job result as machine-readable JSON."),
     ] = False,
 ) -> None:
     """Download a pinned model into the target's Hugging Face cache."""
+    target = _resolve_target_name(target)
     client = _target_client_for_name_or_exit(target)
     params: dict[str, object] = {
         "job_id": uuid.uuid4().hex,
@@ -1195,7 +1249,7 @@ def model_remove(
         Path | None,
         typer.Option("--configs-dir", help="Config directory for pin checks."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     yes: Annotated[
         bool,
         typer.Option("--yes", help="Confirm removing model metadata."),
@@ -1210,6 +1264,7 @@ def model_remove(
     ] = False,
 ) -> None:
     """Delete a model entry from the registry."""
+    target = _resolve_target_name(target)
     if not yes:
         typer.echo("ERROR: use --yes to remove model metadata", err=True)
         raise typer.Exit(2)
@@ -1246,7 +1301,7 @@ def config_push(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     overwrite: Annotated[
         bool,
         typer.Option("--overwrite", help="Overwrite an existing target config."),
@@ -1257,6 +1312,7 @@ def config_push(
     ] = False,
 ) -> None:
     """Copy a local config file to the target."""
+    target = _resolve_target_name(target)
     try:
         yaml_text = file.read_text(encoding="utf-8")
     except OSError as exc:
@@ -1285,7 +1341,7 @@ def config_pull(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Local path to write the pulled YAML."),
@@ -1296,6 +1352,7 @@ def config_pull(
     ] = False,
 ) -> None:
     """Copy a config file from the target to local."""
+    target = _resolve_target_name(target)
     params: dict[str, Any] = {"name": name}
     if configs_dir is not None:
         params["configs_dir"] = str(configs_dir)
@@ -1318,13 +1375,14 @@ def config_pull(
 @config_app.command("lint")
 def config_lint(
     file: Annotated[Path, typer.Argument(help="Local config YAML to lint.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable lint result."),
     ] = False,
 ) -> None:
     """Validate a config file without launching."""
+    target = _resolve_target_name(target)
     try:
         yaml_text = file.read_text(encoding="utf-8")
     except OSError as exc:
@@ -1350,13 +1408,14 @@ def config_edit(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable edit result."),
     ] = False,
 ) -> None:
     """Open a config in $EDITOR."""
+    target = _resolve_target_name(target)
     pull_params: dict[str, Any] = {"name": name}
     if configs_dir is not None:
         pull_params["configs_dir"] = str(configs_dir)
@@ -1469,7 +1528,7 @@ def deploy_create(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Compose, validate, and preview without saving."),
@@ -1492,6 +1551,7 @@ def deploy_create(
     ] = False,
 ) -> None:
     """Create a new deployment config, interactively or via --set."""
+    target = _resolve_target_name(target)
     if model is None and model_ref is None:
         typer.echo("ERROR: provide --model or --model-ref", err=True)
         raise typer.Exit(2)
@@ -1629,7 +1689,7 @@ def deploy_edit(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Validate edits without saving."),
@@ -1640,6 +1700,7 @@ def deploy_edit(
     ] = False,
 ) -> None:
     """Set deployment fields non-interactively (--set)."""
+    target = _resolve_target_name(target)
     try:
         overrides = _deploy_overrides(
             port=port,
@@ -1674,13 +1735,14 @@ def deploy_list(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable deployment list."),
     ] = False,
 ) -> None:
     """List deployments on the target."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "list_configs",
@@ -1720,7 +1782,7 @@ def deploy_clone(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     overwrite: Annotated[
         bool,
         typer.Option("--overwrite", help="Overwrite an existing cloned config."),
@@ -1731,6 +1793,7 @@ def deploy_clone(
     ] = False,
 ) -> None:
     """Copy an existing deployment under a new name."""
+    target = _resolve_target_name(target)
     try:
         overrides = _deploy_overrides(
             port=None,
@@ -1773,7 +1836,7 @@ def deploy_from_wrapper(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Emit the migrated config without saving."),
@@ -1788,6 +1851,7 @@ def deploy_from_wrapper(
     ] = False,
 ) -> None:
     """Import a deployment from a shell wrapper script."""
+    target = _resolve_target_name(target)
     params: dict[str, Any] = {"src_name": src_name}
     if new_name is not None:
         params["new_name"] = new_name
@@ -1816,7 +1880,7 @@ def deploy_delete(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     yes: Annotated[
         bool,
         typer.Option("--yes", help="Confirm deleting the target-local config."),
@@ -1827,6 +1891,7 @@ def deploy_delete(
     ] = False,
 ) -> None:
     """Delete a deployment config."""
+    target = _resolve_target_name(target)
     if not yes:
         typer.echo("ERROR: use --yes to delete a deployment", err=True)
         raise typer.Exit(2)
@@ -1855,7 +1920,7 @@ def deploy_export(
         Path | None,
         typer.Option("--configs-dir", help="Target config directory override."),
     ] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     overwrite: Annotated[
         bool,
         typer.Option("--overwrite", help="Overwrite an existing exported script."),
@@ -1866,6 +1931,7 @@ def deploy_export(
     ] = False,
 ) -> None:
     """Export a deployment config to a shell wrapper script."""
+    target = _resolve_target_name(target)
     params: dict[str, Any] = {"name": name}
     if configs_dir is not None:
         params["configs_dir"] = str(configs_dir)
@@ -1891,9 +1957,10 @@ def deploy_export(
 @app.command("list")
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
 ) -> None:
     """List valid and invalid configs on the target."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "list_configs",
@@ -1912,7 +1979,7 @@ def list_configs(
 def preview(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     build_id: Annotated[
         str | None,
         typer.Option("--build-id", help="Target build id or label override."),
@@ -1927,6 +1994,7 @@ def preview(
     ] = None,
 ) -> None:
     """Print the resolved vLLM command for a config, without launching."""
+    target = _resolve_target_name(target)
     try:
         result = _agent_call(
             "preview",
@@ -1952,7 +2020,7 @@ def run_config(
     preview_only: Annotated[
         bool, typer.Option("--preview", help="Print command instead of launching.")
     ] = False,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     build_id: Annotated[
         str | None,
         typer.Option("--build-id", help="Target build id or label override."),
@@ -1974,6 +2042,7 @@ def run_config(
     ] = False,
 ) -> None:
     """Launch a config on the target (or --preview to just print it)."""
+    target = _resolve_target_name(target)
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
         build_id=build_id,
@@ -2014,7 +2083,7 @@ def run_config(
 def smoke_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     build_id: Annotated[
         str | None,
         typer.Option("--build-id", help="Target build id or label override."),
@@ -2036,6 +2105,7 @@ def smoke_config(
     ] = False,
 ) -> None:
     """Launch, wait for READY, verify /v1/models, then stop — agent-side"""
+    target = _resolve_target_name(target)
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
         build_id=build_id,
@@ -2059,7 +2129,7 @@ def smoke_config(
 def smoke_tui_config(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     build_id: Annotated[
         str | None,
         typer.Option("--build-id", help="Target build id or label override."),
@@ -2081,6 +2151,7 @@ def smoke_tui_config(
     ] = False,
 ) -> None:
     """Same gate driven through the real TUI headlessly"""
+    target = _resolve_target_name(target)
     client = _target_client_for_name_or_exit(target)
     overrides = _launch_override_params(
         build_id=build_id,
@@ -2686,6 +2757,16 @@ def _load_targets_or_exit() -> TargetsRegistry:
     except ValueError as exc:
         typer.echo(f"ERROR: Unable to load targets: {exc}", err=True)
         raise typer.Exit(2) from exc
+
+
+def _resolve_target_name(explicit: str | None) -> str:
+    """Resolve the effective target: explicit --target > VELA_TARGET > saved default > local."""
+    if explicit is not None:
+        return explicit
+    env = os.environ.get("VELA_TARGET")
+    if env and env.strip():
+        return env.strip()
+    return load_default_target() or "local"
 
 
 def _target_client_for_name_or_exit(target_name: str) -> TargetClient:
@@ -3404,13 +3485,14 @@ async def _wait_target_until_ready_or_exit(
 @app.command("stop")
 def stop_run(
     run: Annotated[str, typer.Argument(help="Run id or config name to stop.")],
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     kill: Annotated[
         bool,
         typer.Option("--kill", help="Send SIGKILL immediately instead of a graceful stop."),
     ] = False,
 ) -> None:
     """Stop a detached run by id or config name (--kill for SIGKILL)."""
+    target = _resolve_target_name(target)
     try:
         discovered = _agent_call("discover_runs", target_name=target)
     except TargetCallError as exc:
@@ -3453,9 +3535,10 @@ def logs(
         int,
         typer.Option("--lines", "-n", min=0, help="Show only the last N lines (0 = all)."),
     ] = 0,
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
 ) -> None:
     """Replay a detached run's scrubbed log via the agent (--follow to stream)."""
+    target = _resolve_target_name(target)
     if follow:
         raise typer.Exit(asyncio.run(_follow_run_logs_cli(target, run_id)))
     try:
@@ -3730,13 +3813,14 @@ def _format_agent_status(status: dict[str, Any]) -> str:
 
 @runs_app.command("list")
 def runs_list(
-    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable run list."),
     ] = False,
 ) -> None:
     """List active detached runs on the target."""
+    target = _resolve_target_name(target)
     rows = _collect_runs_for_target(target)
     if json_output:
         _echo_json({"runs": rows})

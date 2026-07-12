@@ -21,7 +21,12 @@ from vela import cli as cli_module
 from vela.agent.auth import configured_agent_token, default_agent_token_file
 from vela.agent.local import TargetCallError
 from vela.cli import _enable_textual_debug_features
-from vela.config.targets import TargetConfig, TransportKind, load_targets_file
+from vela.config.targets import (
+    TargetConfig,
+    TransportKind,
+    load_targets_file,
+    upsert_target_file,
+)
 from vela.engine import process_manager as process_manager_module
 from vela.engine import supervisor as supervisor_module
 from vela.engine.phases import Phase
@@ -2718,8 +2723,8 @@ def test_cli_targets_list_prints_registry_targets(monkeypatch: pytest.MonkeyPatc
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [
-        "local\tlocal\t-",
-        "blackbird\tssh\tbgconley@10.25.0.51",
+        " \tlocal\tlocal\t-",
+        " \tblackbird\tssh\tbgconley@10.25.0.51",
     ]
 
 
@@ -3056,6 +3061,117 @@ def test_cli_logs_follow_streams_committed_lines_until_exit(
     assert "ready" in result.output
     # Follow replays from the start of the durable log via tail_detached.
     assert ("tail_detached", {"run_id": "01RUNA", "start_position": 0}) in client.calls
+
+
+def test_resolve_target_name_precedence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 7.3: explicit flag > VELA_TARGET > persisted default > "local".
+    from vela.config import targets as targets_module
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("VELA_TARGET", raising=False)
+
+    assert cli_module._resolve_target_name(None) == "local"
+
+    targets_module.save_default_target("saved")
+    assert cli_module._resolve_target_name(None) == "saved"
+
+    monkeypatch.setenv("VELA_TARGET", "envtarget")
+    assert cli_module._resolve_target_name(None) == "envtarget"
+
+    assert cli_module._resolve_target_name("explicit") == "explicit"
+
+
+def test_cli_targets_use_sets_and_clears_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from vela.config import targets as targets_module
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    upsert_target_file(
+        TargetConfig(name="blackbird", transport=TransportKind.SSH, host="u@h")
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "use", "blackbird"])
+    assert result.exit_code == 0, result.output
+    assert targets_module.load_default_target() == "blackbird"
+
+    cleared = CliRunner().invoke(cli_module.app, ["targets", "use", "--clear"])
+    assert cleared.exit_code == 0, cleared.output
+    assert targets_module.load_default_target() is None
+
+
+def test_cli_targets_use_rejects_unknown_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from vela.config import targets as targets_module
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "use", "ghost"])
+
+    assert result.exit_code == 2
+    assert "ghost" in result.output
+    assert targets_module.load_default_target() is None
+
+
+def test_cli_targets_list_marks_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@10.25.0.51",
+    )
+
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local"), blackbird]
+
+    monkeypatch.setattr(
+        cli_module, "load_targets_file", lambda: FakeTargetsRegistry(), raising=False
+    )
+    monkeypatch.setattr(cli_module, "load_default_target", lambda: "blackbird")
+
+    result = CliRunner().invoke(cli_module.app, ["targets", "list"])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[0].startswith(" ") and "local" in lines[0]
+    assert lines[1].startswith("*") and "blackbird" in lines[1]
+
+
+def test_cli_command_resolves_target_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.3: a command with --target omitted resolves the target via VELA_TARGET.
+    seen: dict[str, str] = {}
+
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        seen["target"] = target_name
+        return {"valid": [], "invalid": []}
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+    monkeypatch.setenv("VELA_TARGET", "blackbird")
+
+    result = CliRunner().invoke(cli_module.app, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["target"] == "blackbird"
+
+
+def test_cli_command_explicit_target_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, str] = {}
+
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        seen["target"] = target_name
+        return {"valid": [], "invalid": []}
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+    monkeypatch.setenv("VELA_TARGET", "blackbird")
+
+    result = CliRunner().invoke(cli_module.app, ["list", "--target", "thunderbird"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["target"] == "thunderbird"
 
 
 def test_cli_targets_test_handshake_error_uses_target_name_in_remediation(

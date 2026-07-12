@@ -124,7 +124,7 @@ def save_targets_file(
     registry: TargetsRegistry, path: str | Path | None = None
 ) -> Path:
     target_path = _resolve_targets_path(path)
-    payload = {
+    payload: dict[str, Any] = {
         "targets": {
             target.name: target.model_dump(
                 mode="json",
@@ -135,9 +135,54 @@ def save_targets_file(
             if target.name != "local"
         }
     }
+    # Preserve a previously-saved default across a targets rewrite (e.g. upsert/remove).
+    existing_default = load_default_target(target_path)
+    if existing_default is not None:
+        payload["default_target"] = existing_default
     target_path.parent.mkdir(parents=True, exist_ok=True)
     _write_targets_payload(target_path, payload)
     return target_path
+
+
+def load_default_target(path: str | Path | None = None) -> str | None:
+    """The persisted default target name (``default_target`` in targets.yaml), or None."""
+    target_path = _resolve_targets_path(path)
+    if not target_path.exists():
+        return None
+    try:
+        data = _load_targets_payload(target_path)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("default_target")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def save_default_target(name: str | None, path: str | Path | None = None) -> Path:
+    """Persist (``name``) or clear (``None``) the default target, keeping targets intact."""
+    target_path = _resolve_targets_path(path)
+    payload = _existing_raw_payload(target_path)
+    payload.setdefault("targets", {})
+    if name is None:
+        payload.pop("default_target", None)
+    else:
+        payload["default_target"] = name
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_targets_payload(target_path, payload)
+    return target_path
+
+
+def _existing_raw_payload(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = _load_targets_payload(path)
+    except Exception:
+        return {}
+    return dict(data) if isinstance(data, dict) else {}
 
 
 def upsert_target_file(target: TargetConfig, path: str | Path | None = None) -> Path:
