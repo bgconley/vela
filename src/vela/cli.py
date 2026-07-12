@@ -3047,7 +3047,10 @@ async def _run_detached_cli(
         except TargetCallError as exc:
             _echo_agent_start_error_or_exit(exc, _fallback_command_from_prepared(prepared))
             return
-        typer.echo(f"detached run started: {launch['run_id']}")
+        detached_run_id = launch["run_id"]
+        typer.echo(f"detached run started: {detached_run_id}")
+        typer.echo(f"  watch:  vela logs {detached_run_id} --follow")
+        typer.echo(f"  stop:   vela stop {detached_run_id}")
     finally:
         await client.disconnect()
 
@@ -3398,6 +3401,92 @@ async def _wait_target_until_ready_or_exit(
     probe_task.cancel()
     return 1
 
+@app.command("stop")
+def stop_run(
+    run: Annotated[str, typer.Argument(help="Run id or config name to stop.")],
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    kill: Annotated[
+        bool,
+        typer.Option("--kill", help="Send SIGKILL immediately instead of a graceful stop."),
+    ] = False,
+) -> None:
+    """Stop a detached run by id or config name (--kill for SIGKILL)."""
+    try:
+        discovered = _agent_call("discover_runs", target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
+    runs = list(discovered.get("runs", []))
+    matches = [
+        item
+        for item in runs
+        if str(item.get("run_id")) == run or str(item.get("config_name")) == run
+    ]
+    if not matches:
+        typer.echo(f"ERROR: no active run matches {run!r} on target {target}", err=True)
+        if runs:
+            typer.echo("Active runs:", err=True)
+            for item in runs:
+                typer.echo(f"  {item.get('run_id')}\t{item.get('config_name')}", err=True)
+        raise typer.Exit(2)
+    if len(matches) > 1:
+        typer.echo(f"ERROR: {run!r} matches multiple runs; pass a run id:", err=True)
+        for item in matches:
+            typer.echo(f"  {item.get('run_id')}\t{item.get('config_name')}", err=True)
+        raise typer.Exit(2)
+    run_id = str(matches[0].get("run_id"))
+    method = "kill" if kill else "stop"
+    try:
+        _agent_call(method, {"run_id": run_id}, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
+    typer.echo(f"{'killed' if kill else 'stopped'} run {run_id}")
+
+
+@app.command("logs")
+def logs(
+    run_id: Annotated[str, typer.Argument(help="Run id to show logs for.")],
+    follow: Annotated[
+        bool,
+        typer.Option("--follow", "-f", help="Stream new log lines until the run exits."),
+    ] = False,
+    lines: Annotated[
+        int,
+        typer.Option("--lines", "-n", min=0, help="Show only the last N lines (0 = all)."),
+    ] = 0,
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+) -> None:
+    """Replay a detached run's scrubbed log via the agent (--follow to stream)."""
+    if follow:
+        raise typer.Exit(asyncio.run(_follow_run_logs_cli(target, run_id)))
+    try:
+        artifact = _agent_call("read_run_artifact", {"run_id": run_id}, target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
+    log_lines = str(artifact.get("log_text", "")).splitlines()
+    if lines > 0:
+        log_lines = log_lines[-lines:]
+    for line in log_lines:
+        typer.echo(line)
+
+
+async def _follow_run_logs_cli(target: str, run_id: str) -> int:
+    # Replay-from-start-then-follow via tail_detached (start_position=0); the agent
+    # streams the scrubbed durable log so the controller never reads target paths (bug-225).
+    client = _target_client_for_name_or_exit(target)
+    await client.connect()
+    try:
+        wait_task = asyncio.create_task(
+            client.call("tail_detached", {"run_id": run_id, "start_position": 0})
+        )
+        events = client.subscribe([run_id], resume_from="live")
+        try:
+            return await _echo_attached_event_stream_until_exit(events, wait_task)
+        finally:
+            await events.aclose()
+    finally:
+        await client.disconnect()
+
+
 @app.command("version")
 def version() -> None:
     """Print the Vela version."""
@@ -3637,6 +3726,60 @@ def _format_agent_status(status: dict[str, Any]) -> str:
     if stderr_log:
         line += f"\n  agent log: {stderr_log}"
     return line
+
+
+@runs_app.command("list")
+def runs_list(
+    target: Annotated[str, typer.Option("--target", help="Execution target name.")] = "local",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable run list."),
+    ] = False,
+) -> None:
+    """List active detached runs on the target."""
+    rows = _collect_runs_for_target(target)
+    if json_output:
+        _echo_json({"runs": rows})
+        return
+    if not rows:
+        typer.echo(f"no active runs on target {target}")
+        return
+    for row in rows:
+        typer.echo(
+            "\t".join([row["run_id"], row["config"], row["phase"], row["url"], row["model"]])
+        )
+
+
+def _collect_runs_for_target(target: str) -> list[dict[str, str]]:
+    """Discover active detached runs and enrich each with scrubbed status fields.
+
+    Only fields safe for a controller surface are surfaced — run id, config name,
+    liveness, reachable url, and the served model (a pid-safe identity). Sidecar
+    paths and PIDs are never read out of the status payload (bug-225).
+    """
+    try:
+        discovered = _agent_call("discover_runs", target_name=target)
+    except TargetCallError as exc:
+        _echo_target_error_or_exit(exc, target_name=target)
+    rows: list[dict[str, str]] = []
+    for summary in discovered.get("runs", []):
+        run_id = str(summary.get("run_id") or "")
+        config = str(summary.get("config_name") or "")
+        phase, url, model = "running", "-", "-"
+        try:
+            status = _agent_call("status", {"run_id": run_id}, target_name=target)
+        except TargetCallError:
+            # The sidecar no longer verifies (process gone); still list it, marked exited.
+            phase = "exited"
+        else:
+            sidecar = status.get("sidecar") or {}
+            url = str(sidecar.get("reachable_url") or "-")
+            served = sidecar.get("served_model_names") or []
+            model = str(served[0]) if served else "-"
+        rows.append(
+            {"run_id": run_id, "config": config, "phase": phase, "url": url, "model": model}
+        )
+    return rows
 
 
 @runs_app.command("prune")

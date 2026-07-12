@@ -2841,6 +2841,223 @@ def test_agent_start_text_failure_names_stderr_log(
     assert "agent-start.err" in result.output
 
 
+def test_cli_runs_list_renders_scrubbed_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.2: `vela runs list` shows run_id, config, phase, ready url, and a pid-safe
+    # identity (served model) — never the sidecar path or PID (bug-225).
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        if method == "discover_runs":
+            return {"runs": [{"run_id": "01RUNA", "config_name": "llama"}]}
+        if method == "status":
+            assert params == {"run_id": "01RUNA"}
+            return {
+                "run_id": "01RUNA",
+                "config": {"name": "llama"},
+                "sidecar": {
+                    "config_name": "llama",
+                    "host": "127.0.0.1",
+                    "port": 8000,
+                    "reachable_url": "http://127.0.0.1:8000",
+                    "served_model_names": ["meta/llama"],
+                    "launch_mode": "detached",
+                    # Would-be leaks the list must never print:
+                    "sidecar_path": "/home/bg/.local/state/vela/runs/01RUNA.json",
+                    "pid": 4242,
+                },
+            }
+        raise AssertionError(f"unexpected agent call: {method}")
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["runs", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "01RUNA" in result.output
+    assert "llama" in result.output
+    assert "http://127.0.0.1:8000" in result.output
+    assert "meta/llama" in result.output
+    # bug-225: no sidecar paths / PIDs leak into a controller surface.
+    assert "/home/bg" not in result.output
+    assert "4242" not in result.output
+    assert ".json" not in result.output
+
+
+def test_cli_runs_list_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {"runs": []},
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["runs", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "no active runs" in result.output
+
+
+def test_cli_stop_resolves_unique_run_and_confirms(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.2: `vela stop CONFIG` resolves the one live run for that config and confirms.
+    calls: list[tuple[str, object]] = []
+
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        calls.append((method, params))
+        if method == "discover_runs":
+            return {"runs": [{"run_id": "01RUNA", "config_name": "llama"}]}
+        if method == "stop":
+            return {"run_id": "01RUNA", "signaled": True}
+        raise AssertionError(f"unexpected agent call: {method}")
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["stop", "llama"])
+
+    assert result.exit_code == 0, result.output
+    assert "01RUNA" in result.output
+    assert ("stop", {"run_id": "01RUNA"}) in calls
+
+
+def test_cli_stop_ambiguous_lists_candidates_and_exits_2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        if method == "discover_runs":
+            return {
+                "runs": [
+                    {"run_id": "01RUNA", "config_name": "llama"},
+                    {"run_id": "01RUNB", "config_name": "llama"},
+                ]
+            }
+        raise AssertionError(f"stop must not fire on ambiguity: {method}")
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["stop", "llama"])
+
+    assert result.exit_code == 2
+    assert "01RUNA" in result.output
+    assert "01RUNB" in result.output
+
+
+def test_cli_stop_kill_uses_kill_rpc(monkeypatch: pytest.MonkeyPatch) -> None:
+    methods: list[str] = []
+
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        methods.append(method)
+        if method == "discover_runs":
+            return {"runs": [{"run_id": "01RUNA", "config_name": "llama"}]}
+        if method == "kill":
+            return {"run_id": "01RUNA", "signaled": True}
+        raise AssertionError(f"unexpected agent call: {method}")
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["stop", "01RUNA", "--kill"])
+
+    assert result.exit_code == 0, result.output
+    assert "kill" in methods
+    assert "stop" not in methods
+
+
+def test_cli_stop_no_match_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {"runs": []},
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["stop", "ghost"])
+
+    assert result.exit_code == 2
+    assert "ghost" in result.output
+
+
+def test_cli_logs_replays_scrubbed_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.2: `vela logs RUN_ID` replays the agent-scrubbed log; it never reads target paths.
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        assert method == "read_run_artifact"
+        assert params == {"run_id": "01RUNA"}
+        return {
+            "run_id": "01RUNA",
+            "config": {},
+            "log_text": "line one\nline two\nline three\n",
+        }
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["logs", "01RUNA"])
+
+    assert result.exit_code == 0, result.output
+    assert "line one" in result.output
+    assert "line three" in result.output
+
+
+def test_cli_logs_lines_shows_last_n(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {"log_text": "a\nb\nc\nd\n"},
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["logs", "01RUNA", "--lines", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip().splitlines() == ["c", "d"]
+
+
+def test_cli_logs_follow_streams_committed_lines_until_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeStream:
+        def __init__(self) -> None:
+            self._events = iter(
+                [
+                    {"event": "log", "kind": "committed", "text": "starting up"},
+                    {"event": "log", "kind": "committed", "text": "ready"},
+                    {"event": "exited", "returncode": 0},
+                ]
+            )
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration:
+                raise StopAsyncIteration from None
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        async def connect(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            return None
+
+        def subscribe(self, run_ids, *, resume_from="live"):
+            return FakeStream()
+
+        async def call(self, method, params=None):
+            self.calls.append((method, params))
+            return {"run_id": "01RUNA", "status": "ended"}
+
+    client = FakeClient()
+    monkeypatch.setattr(cli_module, "_target_client_for_name_or_exit", lambda target: client)
+
+    result = CliRunner().invoke(cli_module.app, ["logs", "01RUNA", "--follow"])
+
+    assert result.exit_code == 0, result.output
+    assert "starting up" in result.output
+    assert "ready" in result.output
+    # Follow replays from the start of the durable log via tail_detached.
+    assert ("tail_detached", {"run_id": "01RUNA", "start_position": 0}) in client.calls
+
+
 def test_cli_targets_test_handshake_error_uses_target_name_in_remediation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5394,6 +5611,9 @@ def test_cli_run_detached_launches_through_target_client(
 
     captured = capsys.readouterr()
     assert "detached run started: run-1" in captured.out
+    # 7.2: the launch message now hands the operator the follow/stop commands.
+    assert "  watch:  vela logs run-1 --follow" in captured.out
+    assert "  stop:   vela stop run-1" in captured.out
     assert "sidecar:" not in captured.out
     assert "log:" not in captured.out
     launch_call = client_instances[0].calls[1]
