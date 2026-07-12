@@ -106,6 +106,23 @@ def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     assert "run_id=<run_id>" in gpu_workflow
 
 
+def test_docs_cover_offline_pins_and_disk_prechecks() -> None:
+    builds_models = _read("docs/builds-and-models.md")
+    docker_runtime = _read("docs/docker-runtime.md")
+    configuration = _read("docs/configuration.md")
+
+    # --offline / validated:false and the --commit-sha gating guarantee (5.8/M5).
+    assert "--offline" in builds_models
+    assert "validated: false" in builds_models
+    assert "--offline" in configuration
+    assert "validated: false" in configuration
+    # Disk-headroom prechecks (5.9) — the resolved cache dir needs size + 10%.
+    assert "insufficient-disk" in builds_models
+    assert "disk-headroom" in builds_models
+    assert "disk-headroom" in docker_runtime
+    assert "disk-headroom" in configuration
+
+
 def test_docs_cover_docker_pull_timeout_and_progress() -> None:
     docker_runtime = _read("docs/docker-runtime.md")
     configuration = _read("docs/configuration.md")

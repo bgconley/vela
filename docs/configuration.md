@@ -180,8 +180,15 @@ Model selection resolves as:
 2. bare `model` plus `revision` when present
 3. bare `model`
 
-Preflight, flag detection, version/profile selection, and local-path checks run
-on the target agent.
+A pinned registry entry can be recorded with `vela model pin --offline` (no
+Hugging Face lookup), in which case it carries `validated: false`; a
+`--commit-sha` pin still detects gating so `HF_TOKEN` reaches the launch env. See
+`docs/builds-and-models.md` for the pin/revision/verify rules.
+
+Preflight, flag detection, version/profile selection, local-path checks, and a
+disk-headroom check — free space on the resolved Hugging Face cache directory
+greater than an uncached pinned model's known size plus a 10% margin, before the
+launch downloads it — run on the target agent.
 
 For Blackwell Docker deployments, local deployment scripts and proven configs
 are the compatibility source of truth. Hugging Face model metadata can help with

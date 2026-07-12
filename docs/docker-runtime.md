@@ -23,7 +23,10 @@ For a Docker deployment, the target agent:
 - writes a Docker sidecar with container name, container id, and image digest;
 - verifies container identity before `docker stop` or `docker kill`;
 - treats a Docker sidecar as live only when the verified container is still
-  running.
+  running;
+- selects the vLLM flag-compatibility profile from the bundled profile map as-is
+  instead of probing a host `vllm --help` — the container's vLLM, not whatever
+  vLLM happens to be on the target host, decides which flags are valid.
 
 The vLLM image is the build artifact for Docker runtime configs. Managed venv
 builds still apply to `command.runtime: process`.
@@ -200,6 +203,13 @@ Hand-written Docker YAML that omits the mount is not blocked. Launching a
 `command.docker.hf_cache` (and no volume covering that cache) surfaces a
 `docker-no-hf-cache-mount` launch warning explaining that the container will
 re-download the weights on every fresh start.
+
+Before a `runtime: docker` launch downloads an uncached Hugging Face model into
+the mounted cache, the agent applies the same disk-headroom precheck as a
+process launch: it requires free space on the resolved cache directory greater
+than the model's known size plus a 10% staging margin, failing with a
+size/percentage-only `DISK_FULL` detail (never a host path) rather than filling
+the disk mid-pull.
 
 One limitation: the default mount is `HF_HOME`, but registry downloads land in
 `HF_HUB_CACHE`. If the agent host relocates `HF_HUB_CACHE` **outside** `HF_HOME`

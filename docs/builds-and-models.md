@@ -94,7 +94,16 @@ guessing) — remove the duplicates or use `--new`.
 
 For gated repos, accept the license upstream and set `HF_TOKEN` on the target
 host before pinning or downloading. The token is never stored in the registry
-and is scrubbed from job output.
+and is scrubbed from job output. A `--commit-sha` pin still runs a best-effort
+Hugging Face metadata lookup for gating/existence detection — it never
+*re-resolves* the trusted sha, but a gated repo is flagged so `HF_TOKEN` reaches
+the launch (and Docker container) environment.
+
+Pass `--offline` to `vela model pin` to skip the Hugging Face lookup entirely:
+the pin is taken on faith and recorded with `validated: false` (shown by `model
+inspect`), which is the right choice for an air-gapped pin or when you already
+trust the supplied fields. An offline pin with no sha is allowed — it stays
+`remote_only` until a re-pin online resolves it.
 
 `model download --json` emits the final job payload for automation.
 
@@ -158,6 +167,17 @@ loop, so the registry learns that vLLM has now cached the weights.
 Already-cached launches skip the refresh entirely. The refresh is best-effort: a
 slow or failing scan never disturbs the running server.
 
+### Disk-headroom precheck
+
+Before a launch downloads an uncached pinned model — and before `vela model
+download` fetches one — the agent runs a disk-headroom precheck against the
+resolved Hugging Face cache directory (the Docker mount for a `runtime: docker`
+launch, otherwise the agent's own hub cache). When the entry's size is known it
+requires free space greater than that size plus a 10% staging margin; otherwise
+the launch fails preflight (`DISK_FULL`) and the download refuses with an
+`insufficient-disk` error. The detail names only sizes and a percentage — never
+a host path — so it is safe to relay to the controller.
+
 ### Revision single source of truth
 
 A model revision can be named in three places; they do not compete:
@@ -176,7 +196,11 @@ A model revision can be named in three places; they do not compete:
   `commit_sha`/`revision` or its cache state. On a cached pin the download is no
   longer a no-op: an explicitly different revision is actually fetched. `verify`
   then warns while the last download diverges from the pin, so the divergence is
-  visible instead of silent.
+  visible instead of silent. A later download of the pinned revision clears the
+  recorded `last_download_*`, and a refresh never adopts a divergent side
+  download's sha into a sha-less pin, so the warning cannot go stale or
+  self-disarm. `model inspect` shows `last_download_revision`/`last_download_sha`
+  when present.
 
 To change which revision a deployment launches, edit the config (or re-pin and
 regenerate it) — downloading a different revision never moves the launch target.
