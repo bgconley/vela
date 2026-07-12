@@ -16,6 +16,10 @@ _VELA_STATE_ENV_KEYS = (
     "XDG_RUNTIME_DIR",
     "XDG_DATA_HOME",
     "XDG_CONFIG_HOME",
+    # D5 (bug-238): the socket dir now also honours VELA_AGENT_RUNTIME_DIR (highest
+    # precedence). Clear it so a developer's shell can't override the isolated
+    # XDG_RUNTIME_DIR and reconnect tests to their real long-running daemon.
+    "VELA_AGENT_RUNTIME_DIR",
 )
 
 

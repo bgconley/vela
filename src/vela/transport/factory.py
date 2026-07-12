@@ -4,7 +4,7 @@ import os
 import shlex
 from collections.abc import Callable, Sequence
 
-from vela.agent.daemon import default_agent_socket_path
+from vela.agent.daemon import resolve_default_agent_socket_path
 from vela.agent.local import LocalAgent
 from vela.config.targets import LocalTransportKind, TargetConfig, TransportKind
 from vela.transport.client import TargetClient
@@ -113,7 +113,9 @@ def target_client_for_config(
 ) -> TargetClient:
     if target.transport is TransportKind.LOCAL:
         if target.local_transport is LocalTransportKind.SOCKET:
-            return UnixSocketTargetClient(target.socket_path or default_agent_socket_path())
+            return UnixSocketTargetClient(
+                target.socket_path or resolve_default_agent_socket_path()
+            )
         return InProcessTargetClient(local_agent_factory(target_name=target.name))
     if target.transport is TransportKind.SSH:
         return SubprocessTargetClient(_ssh_agent_command(target, agent_command))

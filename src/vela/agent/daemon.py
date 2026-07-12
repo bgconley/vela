@@ -38,14 +38,59 @@ class AgentDaemon:
 
 
 def default_agent_runtime_dir() -> Path:
+    """The dir that holds ``agent.sock`` (D5, bug-238).
+
+    Precedence: ``VELA_AGENT_RUNTIME_DIR`` (vela-specific override, used verbatim)
+    > ``XDG_RUNTIME_DIR`` (shared runtime dir → ``/vela`` subdir) >
+    ``$XDG_STATE_HOME/vela`` > ``~/.local/state/vela``. Honouring ``XDG_STATE_HOME``
+    lets an isolated instance escape the shared long-running daemon; previously
+    only ``XDG_RUNTIME_DIR`` did, so setting ``XDG_STATE_HOME`` alone silently
+    reconnected to the user's daemon.
+    """
+    explicit = os.environ.get("VELA_AGENT_RUNTIME_DIR")
+    if explicit:
+        return Path(explicit)
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_dir:
         return Path(runtime_dir) / "vela"
+    state_home = os.environ.get("XDG_STATE_HOME")
+    if state_home:
+        return Path(state_home) / "vela"
     return Path.home() / ".local" / "state" / "vela"
 
 
 def default_agent_socket_path() -> Path:
     return default_agent_runtime_dir() / "agent.sock"
+
+
+def legacy_agent_socket_path() -> Path:
+    """Where a daemon started before D5 would have bound its socket.
+
+    That is the pre-D5 resolution (``XDG_RUNTIME_DIR/vela`` else
+    ``~/.local/state/vela``). When the new resolution diverges from this (only when
+    ``XDG_RUNTIME_DIR`` is unset but ``XDG_STATE_HOME`` is set), a controller probes
+    it so an already-running daemon is not orphaned mid-upgrade.
+    """
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "vela" / "agent.sock"
+    return Path.home() / ".local" / "state" / "vela" / "agent.sock"
+
+
+def resolve_default_agent_socket_path() -> Path:
+    """The socket a controller should use: the new path, else a live legacy one.
+
+    Returns the new resolved path when a daemon is running there (or when nothing
+    is running anywhere — new is canonical). Only when the new path has no live
+    daemon but the legacy path does, and they differ, is the legacy path returned.
+    """
+    primary = default_agent_socket_path()
+    if _inspect_agent_daemon_at(primary)["status"] == "running":
+        return primary
+    legacy = legacy_agent_socket_path()
+    if legacy != primary and _inspect_agent_daemon_at(legacy)["status"] == "running":
+        return legacy
+    return primary
 
 
 def agent_identity_path(socket_path: str | Path) -> Path:
@@ -54,8 +99,14 @@ def agent_identity_path(socket_path: str | Path) -> Path:
 
 def inspect_agent_daemon(socket_path: str | Path | None = None) -> dict[str, Any]:
     resolved_socket_path = (
-        Path(socket_path) if socket_path is not None else default_agent_socket_path()
+        Path(socket_path)
+        if socket_path is not None
+        else resolve_default_agent_socket_path()
     )
+    return _inspect_agent_daemon_at(resolved_socket_path)
+
+
+def _inspect_agent_daemon_at(resolved_socket_path: Path) -> dict[str, Any]:
     identity_path = agent_identity_path(resolved_socket_path)
     base = {
         "socket_path": str(resolved_socket_path),
@@ -84,7 +135,9 @@ def start_agent_daemon_process(
     timeout: float = 5.0,
 ) -> dict[str, Any]:
     resolved_socket_path = (
-        Path(socket_path) if socket_path is not None else default_agent_socket_path()
+        Path(socket_path)
+        if socket_path is not None
+        else resolve_default_agent_socket_path()
     )
     current_status = inspect_agent_daemon(resolved_socket_path)
     if current_status["status"] == "running":

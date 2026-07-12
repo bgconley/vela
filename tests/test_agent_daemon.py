@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -21,6 +22,120 @@ from vela.transport.subprocess import SubprocessTargetClient
 
 def _short_socket_path() -> Path:
     return Path("/tmp") / f"vela-daemon-{uuid.uuid4().hex}" / "agent.sock"
+
+
+def _bind_live_daemon(socket_path: Path) -> socket.socket:
+    """Bind a real socket + write an identity naming THIS process as the daemon."""
+    from vela.agent.daemon import agent_identity_path
+
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    sock = socket.socket(socket.AF_UNIX)
+    sock.bind(str(socket_path))
+    agent_identity_path(socket_path).write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "create_time": psutil.Process(os.getpid()).create_time(),
+                "procfs_starttime": procfs_starttime_from_pid(os.getpid()),
+                "socket_path": str(socket_path),
+                "version": "0.1.0",
+                "protocol_versions": [1],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return sock
+
+
+def _cleanup_live_daemon(socket_path: Path) -> None:
+    from vela.agent.daemon import agent_identity_path
+
+    socket_path.unlink(missing_ok=True)
+    agent_identity_path(socket_path).unlink(missing_ok=True)
+
+
+def test_default_agent_runtime_dir_precedence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # D5: VELA_AGENT_RUNTIME_DIR > XDG_RUNTIME_DIR > $XDG_STATE_HOME/vela >
+    # ~/.local/state/vela. Setting XDG_STATE_HOME alone must now isolate the socket
+    # dir (bug-238: it previously fell through to the shared ~/.local/state daemon).
+    from vela.agent import daemon as daemon_module
+
+    explicit = tmp_path / "explicit"
+    runtime = tmp_path / "run"
+    state = tmp_path / "state"
+    home = tmp_path / "home"
+
+    # 1. VELA_AGENT_RUNTIME_DIR wins and is used verbatim (vela-specific, no /vela).
+    monkeypatch.setenv("VELA_AGENT_RUNTIME_DIR", str(explicit))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("XDG_STATE_HOME", str(state))
+    assert daemon_module.default_agent_runtime_dir() == explicit
+
+    # 2. XDG_RUNTIME_DIR next (shared runtime dir → /vela subdir).
+    monkeypatch.delenv("VELA_AGENT_RUNTIME_DIR", raising=False)
+    assert daemon_module.default_agent_runtime_dir() == runtime / "vela"
+
+    # 3. $XDG_STATE_HOME/vela next — the isolation gap this closes.
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    assert daemon_module.default_agent_runtime_dir() == state / "vela"
+
+    # 4. ~/.local/state/vela is the last resort.
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(home))
+    assert daemon_module.default_agent_runtime_dir() == home / ".local" / "state" / "vela"
+
+
+def test_inspect_and_resolve_fall_back_to_running_legacy_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Compat: the new resolved runtime dir has no daemon, but a live daemon sits on
+    # the legacy path. inspect/resolve must return the legacy one so an existing
+    # daemon isn't orphaned mid-upgrade, and `agent status` shows the in-use socket.
+    # Short /tmp paths only (macOS caps AF_UNIX paths at ~104 chars).
+    from vela.agent import daemon as daemon_module
+
+    base = Path("/tmp") / f"vela-d5-{uuid.uuid4().hex}"
+    primary_dir = base / "run"
+    legacy_socket = base / "legacy" / "agent.sock"
+    monkeypatch.setenv("VELA_AGENT_RUNTIME_DIR", str(primary_dir))
+    monkeypatch.setattr(daemon_module, "legacy_agent_socket_path", lambda: legacy_socket)
+    sock = _bind_live_daemon(legacy_socket)
+    try:
+        assert daemon_module.resolve_default_agent_socket_path() == legacy_socket
+        status = daemon_module.inspect_agent_daemon()
+        assert status["status"] == "running"
+        assert status["socket_path"] == str(legacy_socket)
+    finally:
+        sock.close()
+        _cleanup_live_daemon(legacy_socket)
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def test_resolve_prefers_running_primary_over_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When the primary (new) socket has a live daemon, the legacy probe is never
+    # consulted — the new canonical path wins. Short /tmp paths only (socket cap).
+    from vela.agent import daemon as daemon_module
+
+    base = Path("/tmp") / f"vela-d5-{uuid.uuid4().hex}"
+    primary_dir = base / "run"
+    primary_socket = primary_dir / "agent.sock"
+    legacy_socket = base / "legacy" / "agent.sock"
+    monkeypatch.setenv("VELA_AGENT_RUNTIME_DIR", str(primary_dir))
+    monkeypatch.setattr(daemon_module, "legacy_agent_socket_path", lambda: legacy_socket)
+    primary_sock = _bind_live_daemon(primary_socket)
+    legacy_sock = _bind_live_daemon(legacy_socket)
+    try:
+        assert daemon_module.resolve_default_agent_socket_path() == primary_socket
+    finally:
+        primary_sock.close()
+        legacy_sock.close()
+        _cleanup_live_daemon(primary_socket)
+        _cleanup_live_daemon(legacy_socket)
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def _agent_connect_socket_command(socket_path: Path) -> list[str]:
