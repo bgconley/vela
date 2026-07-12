@@ -1818,3 +1818,66 @@
 | 23:39 | Edited tests/test_agent_daemon.py | modified test_isolation_fixture_clears_shell_vela_agent_runtime_dir() | ~535 |
 | 23:40 | Edited tests/conftest.py | 7→11 lines | ~213 |
 | 23:41 | bug-294 review fix: isolation fixture now pops VELA_AGENT_RUNTIME_DIR (snapshot restores it); regression test drives the fixture generator directly | tests/conftest.py tests/test_agent_daemon.py | red-green, clusters green | ~small |
+| 23:46 | Session end: 177 writes across 32 files (test_agent_client.py, model_registry.py, test_cli_run.py, cli.py, local.py) | 34 reads | ~748232 tok |
+| 00:20 | Phase-6 gate ADDENDUM (Fable 5): verified fix e9be309 — diff scoped to conftest pop + regression test only; original escape probe now green at HEAD (shell export neutralized, socket under isolated XDG_RUNTIME_DIR); regression test RED-confirmed against pre-fix conftest (fails at assert None, restored byte-identical); test_agent_daemon.py 22 passed; 1372 collected; d556cc8 is .wolf-only, bug-294 closed accurately. VERDICT: Phase 6 CLOSED. | tests/conftest.py, tests/test_agent_daemon.py | approved | ~12k |
+| 23:56 | Edited tests/test_tui_smoke.py | added error handling | ~1897 |
+| 23:57 | Edited src/vela/tui/app.py | _refresh_selected_config_preview() → _keepalive_refresh_preview() | ~88 |
+| 23:57 | Edited src/vela/tui/app.py | added error handling | ~868 |
+| 23:59 | Edited tests/test_agent_daemon.py | modified test_diagnose_socket_path_honors_runtime_dir_override() | ~261 |
+| 23:59 | Edited src/vela/agent/local.py | modified _diagnose() | ~145 |
+| 23:59 | Edited src/vela/agent/local.py | inline fix | ~19 |
+| 00:00 | Edited src/vela/agent/local.py | removed 8 lines | ~7 |
+| 00:01 | Edited tests/test_cli_run.py | modified test_agent_start_text_failure_names_stderr_log() | ~325 |
+| 00:01 | Edited src/vela/cli.py | modified _format_agent_status() | ~185 |
+| 00:03 | Edited tests/test_agent_client.py | modified test_local_agent_read_run_artifact_unknown_config_names_searched_dir() | ~290 |
+| 00:03 | Edited src/vela/agent/local.py | modified strip() | ~72 |
+| 00:05 | Edited tests/test_agent_daemon.py | modified test_stale_local_daemon_banner_flags_newer_daemon_direction() | ~496 |
+| 00:05 | Edited src/vela/agent/daemon.py | added 1 import(s) | ~13 |
+| 00:06 | Edited src/vela/agent/daemon.py | added 1 condition(s) | ~871 |
+| 00:11 | Edited tests/test_cli_run.py | modified test_debug_mode_enables_textual_debug_and_devtools() | ~449 |
+| 00:22 | Edited tests/test_cli_run.py | modified test_cli_runs_list_renders_scrubbed_table() | ~698 |
+| 00:23 | Edited src/vela/cli.py | modified runs_list() | ~614 |
+| 00:23 | Edited tests/test_cli_run.py | modified test_cli_stop_resolves_unique_run_and_confirms() | ~845 |
+| 00:25 | Edited src/vela/cli.py | modified stop_run() | ~1020 |
+| 00:25 | Edited tests/test_cli_run.py | modified test_cli_logs_replays_scrubbed_log() | ~914 |
+| 00:26 | Edited tests/test_cli_run.py | 6→9 lines | ~130 |
+| 00:27 | Edited src/vela/cli.py | 1→4 lines | ~68 |
+| 00:33 | Edited tests/test_targets.py | 7→9 lines | ~56 |
+| 00:33 | Edited tests/test_targets.py | modified test_targets_registry_does_not_remove_implicit_local() | ~440 |
+| 00:33 | Edited src/vela/config/targets.py | modified save_targets_file() | ~621 |
+| 00:34 | Edited src/vela/cli.py | 8→10 lines | ~62 |
+| 00:35 | Edited tests/test_cli_run.py | modified test_resolve_target_name_precedence() | ~793 |
+| 00:35 | Edited tests/test_cli_run.py | 7→7 lines | ~71 |
+| 00:36 | Edited src/vela/cli.py | modified targets_list() | ~413 |
+| 00:36 | Edited src/vela/cli.py | modified _resolve_target_name() | ~151 |
+| 00:36 | Edited tests/test_cli_run.py | 1→6 lines | ~34 |
+| 00:37 | Edited tests/test_cli_run.py | modified test_cli_command_resolves_target_from_env() | ~362 |
+| 00:39 | Edited tests/conftest.py | modified D5() | ~130 |
+| 00:40 | Edited tests/conftest.py | 2→5 lines | ~92 |
+| 00:45 | Edited tests/test_cli_run.py | modified _command_info_by_path() | ~468 |
+| 00:45 | Edited src/vela/cli.py | modified preview() | ~24 |
+| 00:45 | Edited src/vela/cli.py | modified deploy_list() | ~24 |
+| 00:45 | Edited src/vela/cli.py | 2→2 lines | ~27 |
+| 00:52 | Edited tests/test_cli_run.py | modified test_cli_list_empty_state_names_searched_dirs() | ~985 |
+| 00:53 | Edited src/vela/cli.py | expanded (+11 lines) | ~196 |
+| 00:53 | Edited src/vela/agent/local.py | modified _list_configs() | ~201 |
+| 00:54 | Edited src/vela/cli.py | modified get() | ~92 |
+| 00:54 | Edited src/vela/cli.py | modified get() | ~102 |
+| 00:54 | Edited src/vela/cli.py | 8→10 lines | ~115 |
+| 00:54 | Edited src/vela/cli.py | expanded (+20 lines) | ~413 |
+| 00:55 | Edited src/vela/engine/build_registry.py | modified except() | ~348 |
+| 00:57 | Edited src/vela/engine/model_registry.py | modified _entry_id_for_reference() | ~166 |
+| 00:59 | Edited tests/test_cli_run.py | 4→6 lines | ~116 |
+| 01:04 | Edited tests/test_agent_daemon.py | 9→14 lines | ~216 |
+| 01:05 | Created packaging/systemd/vela-agent.service | — | ~148 |
+| 01:06 | Edited docs/configuration.md | expanded (+17 lines) | ~221 |
+| 01:06 | Edited docs/agent-rpc.md | expanded (+13 lines) | ~183 |
+
+| 01:09 | Phase 7 (CLI friendliness) — C0 keepalive/socket/start-hint/configs_dir/banner-dir; C1 docstring 50 cmds; C2 runs list/stop/logs; C3 VELA_TARGET+targets use; C4 hidden aliases; C5 uniform errors+empty states; C6 systemd; C7 docs+buglog+gate | cli.py, app.py, daemon.py, local.py, build/model_registry.py, targets.py, docs, systemd | 1405 passed, ruff+mypy clean; bug-295..300 | ~large |
+| 01:24 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p7_keepalive.py | — | ~2391 |
+| 01:24 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p7_runs_scrub.py | — | ~1103 |
+| 01:25 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p7_precedence.sh | — | ~902 |
+| 01:25 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_p7_keepalive.py | 4→7 lines | ~102 |
+| 01:40 | Created ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_review_p7.py | — | ~1602 |
+| 01:41 | Phase-7 GATE REVIEW (Fable senior): repros green (keepalive both modes, VELA_TARGET chain, runs scrub), RED honesty verified (full revert 35F+1E, logs-only 3F, 7.3 boundary 4F+1E), sweep audit 39/39 once-each, buglog 291-294 intact + 295-300 accurate; 2 open findings logged (bug-301 keepalive reload window, bug-302 registry-miss false I/O) | .wolf/buglog.json | APPROVED WITH NOTES | ~0 |
+| 01:45 | Phase 7 gate CLOSED (8 commits, suite 1406; reviewer refuted 7.5 registry-miss mootness -> bug-302; bug-301 keepalive reload window; daemon-leak-per-test-run found; deploy-list alias divergence) | .wolf | ok | ~1k |

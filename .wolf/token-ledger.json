@@ -2,14 +2,14 @@
   "version": 1,
   "created_at": "2026-06-02T04:55:09.315Z",
   "lifetime": {
-    "total_tokens_estimated": 43319715,
-    "total_reads": 11147,
-    "total_writes": 7194,
+    "total_tokens_estimated": 44812477,
+    "total_reads": 11215,
+    "total_writes": 7546,
     "total_sessions": 14,
-    "anatomy_hits": 5620,
-    "anatomy_misses": 5434,
-    "repeated_reads_blocked": 49113,
-    "estimated_savings_vs_bare_cli": 743773084
+    "anatomy_hits": 5680,
+    "anatomy_misses": 5442,
+    "repeated_reads_blocked": 49484,
+    "estimated_savings_vs_bare_cli": 768162471
   },
   "sessions": [
     {
@@ -105604,6 +105604,2208 @@
         "writes_count": 109,
         "repeated_reads_blocked": 126,
         "anatomy_lookups": 17
+      }
+    },
+    {
+      "id": "session-2026-07-11-1813",
+      "started": "2026-07-11T22:13:52.064Z",
+      "ended": "2026-07-12T03:38:18.280Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 26339,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 63304,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 2297,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 138747,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 34992,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 57557,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconife/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/tasks/bvho0hp0r.output",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/tasks/bof5ruo55.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/plans/2026-07-09-vela-remediation.md",
+          "tokens_estimated": 13353,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 2762,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/build_registry.py",
+          "tokens_estimated": 12279,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 3015,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 5949,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 6193,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 528,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 1919,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 2356,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 3093,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/tasks/bway3x495.output",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/full_gate_head.log",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 5019,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/remediation.py",
+          "tokens_estimated": 924,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 4386,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_remediation.py",
+          "tokens_estimated": 722,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_config_loader.py",
+          "tokens_estimated": 2624,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/config/loader.py",
+          "tokens_estimated": 1153,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/conftest.py",
+          "tokens_estimated": 1172,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 3073,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 74258,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 3838,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 206873,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_branding.py",
+          "tokens_estimated": 948,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/agent-rpc.md",
+          "tokens_estimated": 1080,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 880,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 244,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 109,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 52,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 438,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 141,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 81,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 122,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 130,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1622,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 439,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 1134,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 223,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1566,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 540,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 139,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 167,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 953,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 201,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 128,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 643,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 78,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 105,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 384,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 124,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 134,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 104,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 164,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 398,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 131,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 250,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 72,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 176,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 139,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 187,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1068,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 386,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 348,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 44,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 94,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 974,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 275,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 151,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 752,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 410,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 218,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 38,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 223,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 272,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 101,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 578,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 212,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 272,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 169,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 45,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 497,
+          "action": "edit"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/reviewer_56_57_repro.py",
+          "tokens_estimated": 6058,
+          "action": "create"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_review_56_57.py",
+          "tokens_estimated": 1745,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 394,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 269,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 218,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 72,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 575,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 330,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 140,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 26,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 59,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1019,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 371,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 166,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 92,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 767,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/build_registry.py",
+          "tokens_estimated": 218,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 161,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 29,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 862,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 341,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 553,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 584,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 384,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 299,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 114,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 88,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 289,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 214,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 456,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 383,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 20,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 211,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 53,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 192,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 861,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 422,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 567,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 166,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 197,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 97,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 87,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 15,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 23,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 230,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 228,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 283,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 162,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 111,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 212,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 204,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 681,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 159,
+          "action": "edit"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m5_sha_pin_gating.py",
+          "tokens_estimated": 2447,
+          "action": "create"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py",
+          "tokens_estimated": 1937,
+          "action": "create"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py",
+          "tokens_estimated": 19,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 402,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 260,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 600,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 762,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 35,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 105,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 1320,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 816,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 75,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 18,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 38,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/conftest.py",
+          "tokens_estimated": 110,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 647,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 34,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 632,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 103,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 89,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 824,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 72,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 141,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 119,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 497,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 32,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 47,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 377,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 75,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 722,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 48,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 32,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 44,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 90,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 316,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 373,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 39,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 699,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 46,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 42,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 289,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 87,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 569,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 137,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/remediation.py",
+          "tokens_estimated": 258,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 36,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 200,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 106,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_remediation.py",
+          "tokens_estimated": 183,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 328,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_config_loader.py",
+          "tokens_estimated": 325,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/config/loader.py",
+          "tokens_estimated": 175,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_branding.py",
+          "tokens_estimated": 121,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_branding.py",
+          "tokens_estimated": 24,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 120,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 879,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 345,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 155,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 880,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 159,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 230,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 521,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/agent-rpc.md",
+          "tokens_estimated": 166,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 236,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 162,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 20,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 680753,
+        "output_tokens_estimated": 63777,
+        "reads_count": 34,
+        "writes_count": 175,
+        "repeated_reads_blocked": 184,
+        "anatomy_lookups": 30
+      }
+    },
+    {
+      "id": "session-2026-07-11-1813",
+      "started": "2026-07-11T22:13:52.064Z",
+      "ended": "2026-07-12T03:46:53.673Z",
+      "reads": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 26339,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 63304,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 2297,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 138747,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 34992,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 57557,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconife/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/tasks/bvho0hp0r.output",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/tasks/bof5ruo55.output",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/plans/2026-07-09-vela-remediation.md",
+          "tokens_estimated": 13353,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 2762,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/build_registry.py",
+          "tokens_estimated": 12279,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 3015,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 5949,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 6193,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 528,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 1919,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 2356,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 3093,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/tasks/bway3x495.output",
+          "tokens_estimated": 0,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/full_gate_head.log",
+          "tokens_estimated": 0,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 5019,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/remediation.py",
+          "tokens_estimated": 924,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 7340,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_remediation.py",
+          "tokens_estimated": 722,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_config_loader.py",
+          "tokens_estimated": 2624,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/config/loader.py",
+          "tokens_estimated": 1153,
+          "was_repeated": false,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/conftest.py",
+          "tokens_estimated": 1172,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 3073,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 74258,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 3838,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 206873,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_branding.py",
+          "tokens_estimated": 948,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/agent-rpc.md",
+          "tokens_estimated": 1080,
+          "was_repeated": true,
+          "anatomy_had_description": false
+        }
+      ],
+      "writes": [
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 880,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 244,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 109,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 52,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 438,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 141,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 81,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 122,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 130,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1622,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 439,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 1134,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 223,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1566,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 540,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 139,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 167,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 953,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 201,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 128,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 643,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 78,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 105,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 384,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 124,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 134,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 104,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 164,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 398,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 131,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 250,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 72,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 176,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 139,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 187,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1068,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 386,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 348,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 44,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 94,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 974,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 275,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 151,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 752,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 410,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 218,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 38,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 223,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 272,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 101,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 578,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 212,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 272,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 169,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 45,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 497,
+          "action": "edit"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/reviewer_56_57_repro.py",
+          "tokens_estimated": 6058,
+          "action": "create"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/wolf_review_56_57.py",
+          "tokens_estimated": 1745,
+          "action": "create"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 394,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 269,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 218,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 72,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 575,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 330,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 140,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 26,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 59,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 1019,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 371,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 166,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 92,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 767,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/build_registry.py",
+          "tokens_estimated": 218,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 161,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 29,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 862,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 341,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 553,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 584,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/preflight.py",
+          "tokens_estimated": 384,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 299,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 114,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 88,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 289,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 214,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 456,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 383,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 20,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/profile.py",
+          "tokens_estimated": 211,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 53,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/supervisor.py",
+          "tokens_estimated": 192,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 861,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 422,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 567,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 166,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 197,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 97,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_command_builder.py",
+          "tokens_estimated": 87,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 15,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/pyproject.toml",
+          "tokens_estimated": 23,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 230,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 228,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 283,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/builds-and-models.md",
+          "tokens_estimated": 162,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 111,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/docker-runtime.md",
+          "tokens_estimated": 212,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 204,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 681,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 159,
+          "action": "edit"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m5_sha_pin_gating.py",
+          "tokens_estimated": 2447,
+          "action": "create"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py",
+          "tokens_estimated": 1937,
+          "action": "create"
+        },
+        {
+          "file": "/private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py",
+          "tokens_estimated": 19,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 402,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 260,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 600,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_client.py",
+          "tokens_estimated": 762,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 35,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/engine/model_registry.py",
+          "tokens_estimated": 105,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 1320,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 816,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 75,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 18,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/factory.py",
+          "tokens_estimated": 38,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/conftest.py",
+          "tokens_estimated": 110,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 647,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 34,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 632,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 103,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 89,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 824,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 72,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 141,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 119,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 497,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 32,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 47,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 377,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 75,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 722,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 48,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 32,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 44,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 90,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 316,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_cli_run.py",
+          "tokens_estimated": 373,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 39,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 699,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 46,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/local.py",
+          "tokens_estimated": 42,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/cli.py",
+          "tokens_estimated": 289,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 87,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 569,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/agent/daemon.py",
+          "tokens_estimated": 137,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/remediation.py",
+          "tokens_estimated": 258,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 36,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 200,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/transport/socket.py",
+          "tokens_estimated": 106,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_remediation.py",
+          "tokens_estimated": 183,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 328,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_config_loader.py",
+          "tokens_estimated": 325,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/config/loader.py",
+          "tokens_estimated": 175,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_branding.py",
+          "tokens_estimated": 121,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_branding.py",
+          "tokens_estimated": 24,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 120,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 879,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 345,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 155,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 880,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 159,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/src/vela/tui/app.py",
+          "tokens_estimated": 230,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 521,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/agent-rpc.md",
+          "tokens_estimated": 166,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_docs.py",
+          "tokens_estimated": 236,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/docs/configuration.md",
+          "tokens_estimated": 162,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_tui_smoke.py",
+          "tokens_estimated": 20,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/test_agent_daemon.py",
+          "tokens_estimated": 535,
+          "action": "edit"
+        },
+        {
+          "file": "/Users/brennanconley/vibecode/lab-tui/tests/conftest.py",
+          "tokens_estimated": 213,
+          "action": "edit"
+        }
+      ],
+      "totals": {
+        "input_tokens_estimated": 683707,
+        "output_tokens_estimated": 64525,
+        "reads_count": 34,
+        "writes_count": 177,
+        "repeated_reads_blocked": 187,
+        "anatomy_lookups": 30
       }
     }
   ],

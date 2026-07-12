@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-12T03:40:28.833Z
-> Files: 294 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-12T05:40:44.552Z
+> Files: 298 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/
 
@@ -42,6 +42,9 @@
 - `prove_comment_example.py` — Reconstruct the theme.py comment's interpolation example VERBATIM and prove (~322 tok)
 - `repro_m5_sha_pin_gating.py` — Independent repro for M5 (5.8): --commit-sha pins still detect gating; sha is trusted. (~2447 tok)
 - `repro_m6_active_build_integrity.py` — Independent repro for M6 (5.9): tampered ACTIVE build blocks venv launches, not docker. (~1940 tok)
+- `repro_p7_keepalive.py` — Reviewer independent repro — Phase 7 commit 0 (0.1): keepalive preview-window guard. (~2426 tok)
+- `repro_p7_precedence.sh` — Reviewer independent repro — 7.3: target-resolution precedence chain, real CLI, (~902 tok)
+- `repro_p7_runs_scrub.py` — Reviewer independent repro — 7.2: `vela runs list` scrub with a HOSTILE payload. (~1103 tok)
 - `reviewer_45_probe.py` — Reviewer probe (Task 4.5): header invariants at boundary widths + busy-verb transient. (~994 tok)
 - `reviewer_56_57_repro.py` — Reviewer independent repros for Tasks 5.6 (M1) + 5.7 (M2). (~6058 tok)
 - `test_444_probes.py` — Reviewer probes for Task 4.4 (not part of the repo suite). (~1058 tok)
@@ -55,6 +58,7 @@
 - `wolf_bookkeeping_48.py` — Task 4.8 buglog bookkeeping (unstaged .wolf edit): (~1621 tok)
 - `wolf_bookkeeping_49_410.py` — Tasks 4.9 + 4.10 bookkeeping (unstaged .wolf edits, idempotent). (~837 tok)
 - `wolf_review_56_57.py` — Reviewer bookkeeping for Tasks 5.6+5.7 review (idempotent, unstaged .wolf edits). (~1745 tok)
+- `wolf_review_p7.py` — Reviewer bookkeeping for the Phase-7 gate review (idempotent, unstaged .wolf edits). (~1602 tok)
 
 ## ../../.claude/projects/-Users-brennanconley-vibecode-lab-tui/memory/
 
@@ -181,9 +185,9 @@
 
 ## docs/
 
-- `agent-rpc.md` — Agent RPC (~1195 tok)
+- `agent-rpc.md` — Agent RPC (~1341 tok)
 - `builds-and-models.md` — Builds And Models (~2681 tok)
-- `configuration.md` — Configuration (~3392 tok)
+- `configuration.md` — Configuration (~3591 tok)
 - `deployments.md` — Deployments (~554 tok)
 - `docker-runtime.md` — Docker Runtime (~2515 tok)
 - `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4080 tok)
@@ -198,7 +202,7 @@
 
 ## packaging/systemd/
 
-- `vela-agent.service` (~62 tok)
+- `vela-agent.service` (~148 tok)
 
 ## scripts/
 
@@ -218,7 +222,7 @@
 
 - `__init__.py` — Vela package. (~23 tok)
 - `__main__.py` (~29 tok)
-- `cli.py` — API router (~34992 tok)
+- `cli.py` — API router (~39062 tok)
 - `fake_child.py` — Handler: do_GET, log_message, main, print_help + 1 more (~1146 tok)
 - `messages.py` — from: from_log_record (~592 tok)
 - `remediation.py` — from: remediation_for_error (~1046 tok)
@@ -227,8 +231,8 @@
 
 - `__init__.py` — Agent-side execution surfaces. (~11 tok)
 - `auth.py` — AgentTokenError: configured_agent_token, agent_token_required, default_agent_token_file, install_age (~958 tok)
-- `daemon.py` — from: close, wait_closed, default_agent_runtime_dir, default_agent_socket_path + 10 more (~5019 tok)
-- `local.py` — Declares BuildInstallRequest (~63304 tok)
+- `daemon.py` — from: close, wait_closed, default_agent_runtime_dir, default_agent_socket_path + 8 more (~5786 tok)
+- `local.py` — Declares BuildInstallRequest (~63442 tok)
 - `socket.py` — serve_unix_socket_agent, handle_connection, verify_same_user_peer, bridge_stdio_to_unix_socket (~1392 tok)
 - `stdio.py` — _ConnectionAuthState: serve_stdio_agent, serve_agent_stream, write_frame, load + 3 more (~3542 tok)
 
@@ -237,19 +241,19 @@
 - `__init__.py` — Configuration loading and validation. (~13 tok)
 - `loader.py` — ValidConfig: by_name, discover_config_dirs, load_registry, first_existing_dir + 1 more (~1229 tok)
 - `schema.py` — Pydantic: DockerConfig (~2235 tok)
-- `targets.py` — URL configuration (~2041 tok)
+- `targets.py` — from: name_must_not_be_empty, agent_command_from_shell_string, validate_transport_fields, targets + (~2501 tok)
 
 ## src/vela/engine/
 
 - `__init__.py` — Engine, process, log, and vLLM-version adapter code. (~17 tok)
-- `build_registry.py` — from: payload, default_builds_root, active_build_id, resolve_build_handoff + 8 more (~12423 tok)
+- `build_registry.py` — from: payload, default_builds_root, active_build_id, resolve_build_handoff + 8 more (~12538 tok)
 - `command_builder.py` — CommandBuildResult: build_command, is_local_model_reference, mask_preview_value, render_preview + 1 more (~2518 tok)
 - `composer.py` — ModelContext: list_presets, list_deployment_recipes (~13469 tok)
 - `docker_runtime.py` — DockerRunCommand: build_docker_run, prepare_docker_image, pull_docker_image, inspect_docker_image + (~3429 tok)
 - `ids.py` — mint_ulid (~132 tok)
 - `job_phases.py` — Declares import (~126 tok)
 - `log_sink.py` — from: feed, close, rotate_to, scrub + 5 more (~1715 tok)
-- `model_registry.py` — from: metadata, env_contribution, default_models_registry_path, default_hf_hub_cache_dir + 3 more (~26339 tok)
+- `model_registry.py` — from: metadata, env_contribution, default_models_registry_path, default_hf_hub_cache_dir + 3 more (~26444 tok)
 - `phases.py` — Phase: feed_line, health_ready, health_failed, health_error + 2 more (~1204 tok)
 - `preflight.py` — from: check_launch_preflight, missing_local_model_path, parallel_world_size_mismatch, occupied_port_ (~2762 tok)
 - `process_manager.py` — from: read_loop, stop, kill, start_attached + 1 more (~3673 tok)
@@ -282,7 +286,7 @@
 ## src/vela/tui/
 
 - `__init__.py` — Textual user interface. (~9 tok)
-- `app.py` — Declares for (~74258 tok)
+- `app.py` — Declares for (~75043 tok)
 - `cells.py` — Cell-aware text helpers shared across the TUI (bug-237). (~409 tok)
 - `theme.py` — Shared Figma-derived color tokens for the Textual TUI. (~1164 tok)
 
@@ -320,16 +324,16 @@
 
 - `_reviewer_probe_46_47.py` — Reviewer probes for Tasks 4.6/4.7 — TEMPORARY file, deleted after review. (~1815 tok)
 - `.DS_Store` (~1640 tok)
-- `conftest.py` — scaled_timeout, isolated_vela_state, config_dir, write_yaml (~1253 tok)
+- `conftest.py` — scaled_timeout, isolated_vela_state, config_dir, write_yaml (~1363 tok)
 - `test_adopt_build_screen.py` — Headless tests for the refactored AdoptBuildScreen (Mac-safe; no GPU/vLLM). (~1793 tok)
-- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~139913 tok)
-- `test_agent_daemon.py` — test_stale_local_daemon_banner_flags_version_drift, test_stale_local_daemon_banner_flags_revision_dr (~7773 tok)
+- `test_agent_client.py` — LegacyCapabilityAgent: test_target_client_requires_lifecycle_capabilities, test_agent_connect_bridge (~140154 tok)
+- `test_agent_daemon.py` — test_stale_local_daemon_banner_flags_version_drift, test_stale_local_daemon_banner_flags_newer_daemo (~8516 tok)
 - `test_agent_socket.py` — FakeWriter: get_extra_info, test_same_user_peer_check_accepts_current_uid, test_same_user_peer_check (~600 tok)
 - `test_blackbird_config.py` — Tests: blackbird_qwen36_fp8_config_uses_native_docker_runtime, blackbird_qwen36_bf16_config_uses_native_docker_without_fp8_pins, tiny_blackbird_res... (~1321 tok)
 - `test_branding.py` — test_project_is_branded_as_vela, test_default_product_paths_and_agent_command_use_vela, test_module_ (~952 tok)
 - `test_build_manager_screen.py` — Headless tests for the rebuilt BuildManagerScreen (Task 4.4, bug-237). (~2678 tok)
 - `test_build_registry.py` — Engine-level tests for build_registry venv inspection (Mac-safe; no GPU/vLLM). (~1095 tok)
-- `test_cli_run.py` — FakeTargetsRegistry: test_debug_mode_enables_textual_debug_and_devtools, test_cli_root_version_optio (~57873 tok)
+- `test_cli_run.py` — FakeTargetsRegistry: test_debug_mode_enables_textual_debug_and_devtools, test_every_cli_command_and_ (~63346 tok)
 - `test_command_builder.py` — cfg, test_exact_argv_env_for_serve_entrypoint, test_revision_pin_is_emitted_for_standalone_model_han (~5970 tok)
 - `test_config_loader.py` — test_valid_config_loads, test_invalid_yaml_or_schema_error_is_retained, test_duplicate_names_are_det (~2842 tok)
 - `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~1812 tok)
@@ -360,10 +364,10 @@
 - `test_state_isolation.py` — Pins the test-suite state isolation (the durable bug-185 fix). (~444 tok)
 - `test_target_edit_screen.py` — Headless tests for TargetEditScreen's shared modal frame (Task 4.4, bug-237). (~804 tok)
 - `test_target_manager_screen.py` — Headless tests for the refactored TargetManagerScreen (Mac-safe; no GPU/vLLM). (~4139 tok)
-- `test_targets.py` — Tests: missing_targets_file_still_yields_implicit_local_target, targets_registry_loads_ssh_targets_with_local_first, targets_registry_loads_json_ta... (~1557 tok)
+- `test_targets.py` — test_missing_targets_file_still_yields_implicit_local_target, test_targets_registry_loads_ssh_target (~1952 tok)
 - `test_transport_factory.py` — Tests: subscription_event_matcher_accepts_job_ids, subscription_event_matcher_broadcasts_agent_errors, target_client_factory_builds_implicit_local_... (~4644 tok)
 - `test_tui_screen_parsers.py` — Tests: structured_tui_forms_do_not_export_legacy_free_form_parsers (~106 tok)
-- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~207744 tok)
+- `test_tui_smoke.py` — RecordingConfigAgent: test_tui_import_defaults_to_truecolor_for_figma_palette, test_tui_import_honor (~209567 tok)
 - `test_tui_widgets.py` — Headless tests for the shared Vela TUI widgets (Mac-safe; no GPU/vLLM). (~4919 tok)
 
 ## tests/fakes/

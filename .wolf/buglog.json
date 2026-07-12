@@ -1425,7 +1425,7 @@
       "timestamp": "2026-06-02T18:20:29Z",
       "error_message": "Canonical Tab focus binding was not exposed in the TUI",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical §8.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
+      "root_cause": "The app implemented core launch/log/help/palette actions but skipped the `Tab` focus traversal listed in the canonical \u00a78.5 keybindings, so Help, footer bindings, and command palette coverage were incomplete.",
       "fix": "Bound Tab to Textual's built-in focus_next action, added a Focus next widget system command, and documented Tab focus in the footer and Help modal.",
       "tags": [
         "tui",
@@ -1468,7 +1468,7 @@
       "timestamp": "2026-06-02T18:41:41Z",
       "error_message": "Responsive narrow layout hid the sidebar without a canonical overlay",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by §8.6's sidebar-overlay behavior.",
+      "root_cause": "The responsive layout only toggled `#sidebar.display` off below 100 columns, which kept the log visible but lost the selected config and phase/status context required by \u00a78.6's sidebar-overlay behavior.",
       "fix": "Added a Textual-native `#sidebar-overlay` in the main column, rendered it as Rich Text with selected config, phase/status, and URL context, and toggled it on whenever the full sidebar is hidden while preserving GPU visibility rules and log visibility.",
       "tags": [
         "tui",
@@ -1490,7 +1490,7 @@
       "timestamp": "2026-06-02T18:48:05Z",
       "error_message": "ErrorBanner omitted the canonical jump-to-lines affordance",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the §8.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
+      "root_cause": "Named TUI error banners rendered the error kind, guidance, and excerpt, but did not expose the \u00a78.6 jump-to-lines workflow that lets operators quickly find the relevant log line.",
       "fix": "Added an error jump target derived from `PhaseFSM.error_excerpt`, routed named errors through a shared banner helper, appended a visible `Jump to error log line` palette hint, and added a dynamic palette command that applies log search/highlight for the target excerpt.",
       "tags": [
         "tui",
@@ -1512,7 +1512,7 @@
       "timestamp": "2026-06-02T18:55:16Z",
       "error_message": "TUI Kill bypassed the canonical confirmation modal",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical §8.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
+      "root_cause": "action_kill sent attached and reattached kill signals immediately, while canonical \u00a78.2 lists ConfirmScreen as the modal surface for kill as well as quit-while-attached Stop/Cancel.",
       "fix": "Generalized ConfirmScreen with configurable title, label, and app confirm action; action_kill now opens a Kill/Cancel modal for attached and reattached runs, and confirm_kill_running is the only path that sends SIGKILL or process.kill().",
       "tags": [
         "tui",
@@ -1621,7 +1621,7 @@
       "timestamp": "2026-06-02T19:36:58Z",
       "error_message": "Wrap toggle changed state without a toast",
       "file": "src/vllm_loader/tui/app.py",
-      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical §8.6 state-change notification used by neighboring controls.",
+      "root_cause": "The TUI updated the RichLog wrap flag plus log-control/status-strip labels, but `action_wrap` omitted the canonical \u00a78.6 state-change notification used by neighboring controls.",
       "fix": "Added a focused smoke regression for `w` wrap toggles and emitted `Wrap enabled`/`Wrap disabled` notifications after refreshing the visible chrome.",
       "tags": [
         "tui",
@@ -1792,7 +1792,7 @@
       "timestamp": "2026-06-02T20:20:58Z",
       "error_message": "Canonical message taxonomy was missing Textual message types",
       "file": "src/vllm_loader/messages.py",
-      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving §6.3/P4 message wiring incomplete.",
+      "root_cause": "The message module used plain dataclasses and omitted spec-named `ProgressUpdated`, `HealthChanged`, and `GpuStatsUnavailable` event shapes, leaving \u00a76.3/P4 message wiring incomplete.",
       "fix": "Added a Textual `LoaderMessage` base, converted canonical event dataclasses to `Message` subclasses, added the missing message types, and changed transient log-record conversion to emit `ProgressUpdated`.",
       "tags": [
         "messages",
@@ -2183,7 +2183,7 @@
     {
       "id": "bug-111",
       "timestamp": "2026-06-02T21:47:37Z",
-      "error_message": "§13 recorded phase fixtures were still missing OOM and port-in-use cases",
+      "error_message": "\u00a713 recorded phase fixtures were still missing OOM and port-in-use cases",
       "file": "tests/test_phases.py",
       "root_cause": "The phase suite had synthetic classifier strings for OOM and port-in-use but lacked recorded-style fixture files for those categories, leaving the canonical fixture matrix incomplete.",
       "fix": "Added fixture-backed OOM and port-in-use tests plus representative vLLM log snippets under `tests/fixtures/vllm_logs/`.",
@@ -2459,7 +2459,7 @@
       "error_message": "Significant refactor of ",
       "file": "vllm-agent-architecture-spec-v1.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 7→21 lines (5 removed) | Also: Event    (A→C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
+      "fix": "Rewrote 7\u219221 lines (5 removed) | Also: Event    (A\u2192C): {\"event\":\"<name>\",\"run_id|sub_id|j; The controller demuxes: a line with `id` resolves  | Also: ### 7.1 LocalTransport (in-process); The `Agent` object is instantiated in the controll | Also: | SSH drop / agent crash | stdout EOF / non-zero e; | Ping timeout | no pong | treat as loss; reconnec",
       "tags": [
         "auto-detected",
         "refactor",
@@ -2474,7 +2474,7 @@
       "timestamp": "2026-06-05T03:56:15.821Z",
       "error_message": "Missing await",
       "file": "vllm-full-repo-review-findings-v2.md",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -2491,7 +2491,7 @@
       "error_message": "Significant refactor of ",
       "file": "vllm-full-repo-review-findings-v2.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 5→6 lines (5 removed)",
+      "fix": "Rewrote 5\u21926 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -2507,7 +2507,7 @@
       "error_message": "Significant refactor of ",
       "file": "vela-session-context-2026-06-06.md",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 9→49 lines (5 removed)",
+      "fix": "Rewrote 9\u219249 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3360,7 +3360,7 @@
       "timestamp": "2026-06-08T07:52:44.574Z",
       "error_message": "Missing await",
       "file": "vela-tui-figma-redesign-handoff.md",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3393,7 +3393,7 @@
       "error_message": "Incorrect value in code",
       "file": "src/vela/tui/screens/create_build.py",
       "root_cause": "Had \"pip requirement - e.g. vllm==0.11.2 or vllm.\"",
-      "fix": "Changed to \"pip requirement · e.g. vllm==0.11.2 or vllm.\"",
+      "fix": "Changed to \"pip requirement \u00b7 e.g. vllm==0.11.2 or vllm.\"",
       "tags": [
         "auto-detected",
         "wrong-value",
@@ -3424,7 +3424,7 @@
       "timestamp": "2026-06-09T03:51:14.016Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_widgets.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3440,7 +3440,7 @@
       "timestamp": "2026-06-09T05:40:43.824Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_widgets.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3457,7 +3457,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_tui_widgets.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 7→9 lines (2 removed)",
+      "fix": "Rewrote 7\u21929 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3473,7 +3473,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/flag_manager.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 5→11 lines (3 removed) | Also: def _render_list(self) -> str:; lines = [ | Also: def _render_detail(self) -> str:; lines = [\"Editor + live preview\", \"\", \"Resolved co",
+      "fix": "Rewrote 5\u219211 lines (3 removed) | Also: def _render_list(self) -> str:; lines = [ | Also: def _render_detail(self) -> str:; lines = [\"Editor + live preview\", \"\", \"Resolved co",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3488,7 +3488,7 @@
       "timestamp": "2026-06-09T06:31:43.144Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_widgets.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3523,7 +3523,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/new_deployment.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 14→18 lines (2 removed) | Also: (\"Pin HF repo\", \"pin_hf\"),; (\"Adopt local path\", \"adopt_local\"), | Also: self.query_one(\"#new-deployment-actions\", Static).; def _actions_text(self) -> str: | Also: yield Static(; \"F Flags   Ctrl+S Save   S Save & Smoke   Esc Canc",
+      "fix": "Rewrote 14\u219218 lines (2 removed) | Also: (\"Pin HF repo\", \"pin_hf\"),; (\"Adopt local path\", \"adopt_local\"), | Also: self.query_one(\"#new-deployment-actions\", Static).; def _actions_text(self) -> str: | Also: yield Static(; \"F Flags   Ctrl+S Save   S Save & Smoke   Esc Canc",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3539,7 +3539,7 @@
       "error_message": "Wrong reference: level_for_line should be display_level_for_line",
       "file": "src/vela/tui/app.py",
       "root_cause": "Used \"level_for_line\" instead of \"display_level_for_line\"",
-      "fix": "Changed level_for_line → display_level_for_line",
+      "fix": "Changed level_for_line \u2192 display_level_for_line",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -3555,7 +3555,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/model_manager.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 9→21 lines (2 removed) | Also: with Vertical(id=\"model-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Model Manager\", \"\"]",
+      "fix": "Rewrote 9\u219221 lines (2 removed) | Also: with Vertical(id=\"model-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Model Manager\", \"\"]",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3571,7 +3571,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/build_manager.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 8→19 lines (2 removed) | Also: with Vertical(id=\"build-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Build Manager\", \"\"]",
+      "fix": "Rewrote 8\u219219 lines (2 removed) | Also: with Vertical(id=\"build-manager-panel\"):; with Horizontal(): | Also: def _render_list(self) -> str:; lines = [\"Build Manager\", \"\"]",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3603,7 +3603,7 @@
       "error_message": "Significant refactor of ",
       "file": "vela-tui-session-context-2026-06-09.md",
       "root_cause": "6 lines replaced/restructured",
-      "fix": "Rewrote 6→7 lines (6 removed)",
+      "fix": "Rewrote 6\u21927 lines (6 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3643,7 +3643,7 @@
       "timestamp": "2026-06-09T22:35:49.202Z",
       "error_message": "Missing await",
       "file": "tests/test_create_build_screen.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3660,7 +3660,7 @@
       "error_message": "Wrong reference: PresetChips should be KeyHintBar",
       "file": "tests/test_download_model_screen.py",
       "root_cause": "Used \"PresetChips\" instead of \"KeyHintBar\"",
-      "fix": "Changed PresetChips → KeyHintBar",
+      "fix": "Changed PresetChips \u2192 KeyHintBar",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -3675,7 +3675,7 @@
       "timestamp": "2026-06-09T22:40:58.072Z",
       "error_message": "Missing await",
       "file": "tests/test_download_model_screen.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3692,7 +3692,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/screens/download_model.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 11→14 lines (3 removed) | Also: (\"o\", \"Override revision\"),; (\"a\", \"Advanced patterns\"),",
+      "fix": "Rewrote 11\u219214 lines (3 removed) | Also: (\"o\", \"Override revision\"),; (\"a\", \"Advanced patterns\"),",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3707,7 +3707,7 @@
       "timestamp": "2026-06-09T22:44:04.740Z",
       "error_message": "Missing await",
       "file": "tests/test_target_manager_screen.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3724,7 +3724,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_adopt_build_screen.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 8→75 lines (2 removed)",
+      "fix": "Rewrote 8\u219275 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3756,7 +3756,7 @@
       "error_message": "Function not marked async",
       "file": "src/vela/tui/screens/adopt_build.py",
       "root_cause": "Function uses await but wasn't declared async",
-      "fix": "Added async modifier | Also: [(\"⏎\", \"Adopt\"), (\"Esc\", \"Cancel\")],; def on_input_changed(self, event: Input.Changed) -> None:",
+      "fix": "Added async modifier | Also: [(\"\u23ce\", \"Adopt\"), (\"Esc\", \"Cancel\")],; def on_input_changed(self, event: Input.Changed) -> None:",
       "tags": [
         "auto-detected",
         "async-fix",
@@ -3771,7 +3771,7 @@
       "timestamp": "2026-06-09T22:50:44.829Z",
       "error_message": "Missing await",
       "file": "src/vela/tui/app.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -3878,7 +3878,7 @@
       "error_message": "Intermittent NoMatches '#pin-model-repo-id' on PinModelScreen in wizard handoff smoke tests (different victim each batch run)",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Tests waited on `app.screen.id == 'pin-model'` then immediately query_one a child input. The rebuilt (heavier) PinModelScreen registers as app.screen before its children finish mounting, so the wait passed during the mount gap under load.",
-      "fix": "Strengthened all 5 pin-model wait conditions to `app.screen.id == 'pin-model' and bool(app.screen.query(Input))`. Pattern: NEVER wait on screen.id alone before querying children — include a child-mounted check.",
+      "fix": "Strengthened all 5 pin-model wait conditions to `app.screen.id == 'pin-model' and bool(app.screen.query(Input))`. Pattern: NEVER wait on screen.id alone before querying children \u2014 include a child-mounted check.",
       "tags": [
         "tests",
         "flaky",
@@ -3913,7 +3913,7 @@
     {
       "id": "bug-209",
       "timestamp": "2026-06-10T07:45:00-04:00",
-      "error_message": "NoMatches: No nodes match '#label' on SelectCurrent(classes='-has-value') — test_new_deployment_create_build_handoff_pins_created_build + test_new_deployment_build_pin_and_smoke_acceptance_flow failed ONLY on the slower GPU host (blackbird rounds 1+2); pass on the Mac",
+      "error_message": "NoMatches: No nodes match '#label' on SelectCurrent(classes='-has-value') \u2014 test_new_deployment_create_build_handoff_pins_created_build + test_new_deployment_build_pin_and_smoke_acceptance_flow failed ONLY on the slower GPU host (blackbird rounds 1+2); pass on the Mac",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Both tests waited on app.screen.id alone ('new-deployment' / 'create-build') then immediately assigned Select.value. On the slower GPU box the Select's internal SelectCurrent #label child had not composed yet, so the value-watch update raised NoMatches. Same mount-race family as bug-207; the wizard/create-build screens got heavier this session, newly exposing it under GPU-host load.",
       "fix": "Strengthened all 4 screen-open gates in the 2 tests to also require bool(app.screen.query('#<first-assigned-select> SelectCurrent #label')) before any Select.value assignment (wizard: #new-deployment-runtime; create-build: #create-build-method).",
@@ -3938,7 +3938,7 @@
       "error_message": "Significant refactor of ",
       "file": "README.md",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 10→16 lines (3 removed)",
+      "fix": "Rewrote 10\u219216 lines (3 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -3970,7 +3970,7 @@
       "error_message": "Wrong reference: dict should be Mapping",
       "file": "src/vela/config/targets.py",
       "root_cause": "Used \"dict\" instead of \"Mapping\"",
-      "fix": "Changed dict → Mapping",
+      "fix": "Changed dict \u2192 Mapping",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -4002,7 +4002,7 @@
       "error_message": "Significant refactor of ",
       "file": ".github/workflows/ci.yml",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 4→6 lines (2 removed)",
+      "fix": "Rewrote 4\u21926 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4033,7 +4033,7 @@
       "timestamp": "2026-06-10T20:16:36.577Z",
       "error_message": "Missing await",
       "file": "scripts/readme_screenshots.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -4049,7 +4049,7 @@
       "timestamp": "2026-06-10T20:21:30.053Z",
       "error_message": "Missing await",
       "file": "tests/test_tui_smoke.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -4066,7 +4066,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/tui/app.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 8→4 lines (3 removed)",
+      "fix": "Rewrote 8\u21924 lines (3 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4081,7 +4081,7 @@
       "timestamp": "2026-06-10T16:30:00-04:00",
       "error_message": "Dashboard Configs card showed 'Selected: <name>' twice when a config is selected",
       "file": "src/vela/tui/app.py",
-      "root_cause": "_render_configs_title() appended a 'Selected: <name>' line to the card TITLE while _render_config_summary() (the card body) also renders one — both Statics carried the same line. Found while staging README screenshots.",
+      "root_cause": "_render_configs_title() appended a 'Selected: <name>' line to the card TITLE while _render_config_summary() (the card body) also renders one \u2014 both Statics carried the same line. Found while staging README screenshots.",
       "fix": "Removed the title appendix; the body remains the single carrier. Red-green: test_configs_title_does_not_duplicate_selected_line.",
       "tags": [
         "tui",
@@ -4099,7 +4099,7 @@
       "timestamp": "2026-06-10T16:55:00-04:00",
       "error_message": "CI test job failed: test_manual_remote_validation_workflow_executes_script_and_uploads_artifact asserted 'tiny-random-llama-detached-blackbird' in remote-validation.yml after the scrub removed personal defaults",
       "file": "tests/test_remote_workflow.py",
-      "root_cause": "The workflow file is pinned by a static content-assertion test; the scrub commit changed the file without updating the pin (same family as the VELA_REMOTE_BRANCH script-pin break, bug-201/202 era). Caught by the new CI on PR #1 — first save by the shakedown.",
+      "root_cause": "The workflow file is pinned by a static content-assertion test; the scrub commit changed the file without updating the pin (same family as the VELA_REMOTE_BRANCH script-pin break, bug-201/202 era). Caught by the new CI on PR #1 \u2014 first save by the shakedown.",
       "fix": "Updated the pin to the new contract: no 'bgconley'/'/home/bgconley' literals, vars.VELA_REMOTE_* wiring present, unconfigured-host guard message present.",
       "tags": [
         "tests",
@@ -4327,7 +4327,7 @@
       "error_message": "Quit->Stop on unreachable target hangs the confirm modal forever; Esc leaves a zombie worker that can exit the app minutes later",
       "file": "src/vela/tui/app.py, src/vela/tui/screens/confirm.py",
       "root_cause": "confirm_stop_running never pops ConfirmScreen; quit-stop worker waits unbounded on current_run_id while _target_stop_run swallows all exceptions; action_quit lacks the _target_control_blocked connection guard.",
-      "fix": "FIXED 2026-07-09 (commit 611a159, Task 1.3, red-green x6): confirm_stop_running now pops the ConfirmScreen and notifies 'Stopping run ...' before spawning the quit-stop worker; the wait for current_run_id to clear is bounded by an injectable _quit_stop_wait_timeout_seconds (default 30s via DEFAULT_QUIT_STOP_WAIT_SECONDS) and on timeout renders 'Unable to stop run ... - target unreachable?' WITHOUT exiting; _target_stop_run returns bool so the quit path renders failure immediately instead of polling forever (the 's' Stop path keeps its _set_error_text); ConfirmScreen.action_cancel cancels the 'quit' worker group so no zombie worker exits later; action_quit now guards with _target_control_blocked('quit') like stop/kill/restart. FOLLOW-UP (commit aa0e983): the bullet-5 _target_control_blocked('quit') guard itself created a no-exit trap (live attached run + dead target = q/ctrl+c banner-blocked while s/K/detach/target-switch already blocked). action_quit now drops the banner path: disconnected + live run pushes a ConfirmScreen variant (title 'Confirm quit — target unreachable', label 'Quit without stopping', action confirm_quit_without_stop) which exits WITHOUT the stop RPC after cancelling tail+health groups detach-style; cancel keeps the app running with the run untouched.",
+      "fix": "FIXED 2026-07-09 (commit 611a159, Task 1.3, red-green x6): confirm_stop_running now pops the ConfirmScreen and notifies 'Stopping run ...' before spawning the quit-stop worker; the wait for current_run_id to clear is bounded by an injectable _quit_stop_wait_timeout_seconds (default 30s via DEFAULT_QUIT_STOP_WAIT_SECONDS) and on timeout renders 'Unable to stop run ... - target unreachable?' WITHOUT exiting; _target_stop_run returns bool so the quit path renders failure immediately instead of polling forever (the 's' Stop path keeps its _set_error_text); ConfirmScreen.action_cancel cancels the 'quit' worker group so no zombie worker exits later; action_quit now guards with _target_control_blocked('quit') like stop/kill/restart. FOLLOW-UP (commit aa0e983): the bullet-5 _target_control_blocked('quit') guard itself created a no-exit trap (live attached run + dead target = q/ctrl+c banner-blocked while s/K/detach/target-switch already blocked). action_quit now drops the banner path: disconnected + live run pushes a ConfirmScreen variant (title 'Confirm quit \u2014 target unreachable', label 'Quit without stopping', action confirm_quit_without_stop) which exits WITHOUT the stop RPC after cancelling tail+health groups detach-style; cancel keeps the app running with the run untouched.",
       "tags": [
         "tui",
         "quit",
@@ -4368,7 +4368,7 @@
       "error_message": "Wizard Model step dead-ends: empty registry defaults to Existing pin + 'Custom model' with no model-id input; 'Download now' stays enabled+checked in Bare-repo-id mode and then hard-blocks Review; stray debug text 'sources configured_ports, defaults' rendered; 'Model is required' shows while breadcrumb marks Model as done (all observed live)",
       "file": "src/vela/tui/screens/new_deployment.py",
       "root_cause": "Model-source/checkbox visibility state machine incomplete: checkbox not hidden/reset per source; default source not switched when registry empty; validation only runs at review-compose and reports at panel bottom without stepping back.",
-      "fix": "236a DONE (Task 2.2): Download-now now obeys the model source. Added _DOWNLOAD_MODES={existing,pin_hf}; _apply_model_disclosure hides the #new-deployment-download-now Checkbox AND resets .value=False for bare/adopt_local (computed before the handoff early-return so a restored bare draft resets too); the adopt_local handoff branch in on_select_changed also clears the box before capturing the draft. existing/pin_hf keep it visible + independent (hiding resets, re-showing does not re-check). The app.py:3198 'Download now requires a pinned model' gate is untouched and still fires for existing+checked+no-pin. _collect_spec/_draft_state payloads unchanged. TDD in test_new_deployment_screen.py; the review-time gate itself is pinned app-level by test_tui_smoke.py::test_new_deployment_review_blocks_download_now_without_pin (red-proven by inverting the model_ref check). 236b DONE (Task 2.3): empty registry now defaults the Model source to \"Bare repo id\" (NewDeploymentScreen._default_model_mode returns bare when _pinned_model_options() is empty) so the Model input is immediately visible; the pinned-model Select shows an honest placeholder row No pins on this target — pick \"Pin HF repo →\" (keeps the __custom__ no-op value, so _selected_model_ref()->None and the review gate still blocks) instead of the phantom Custom model. Restored drafts carrying model_mode win via _apply_initial. Scoped to the zero-pins branch; >=1-pin behavior byte-for-byte unchanged. TDD in test_new_deployment_screen.py (+4 tests); touched test_tui_smoke.py 236a gate (now switches to existing explicitly) and the build+pin+smoke acceptance flow (checks Download-now after the pin). Commit c809e93. 236c DONE (Task 2.4, commit 187c4af): a per-step _validate_step advance gate plus StepIndicator amber ✗ error state, so Ctrl+N can't walk past an unresolvable Model step and the breadcrumb never shows a dishonest ✓ on a failed step. 236d DONE (Task 2.5, commits 5f73ae6 + fb5a455): removed the 'sources ... defaults' debug leak, fixed hint casing, added the Enter-advance hint, made the review-error nav hint direction-aware (owning<current → back-suffix, owning>current → neutral 'see <Step>', owning==current → none), bound the mapped review prefixes as module constants, and cleared stale panel errors on step-fix. M3 (Task 2.6, commits c793883/f43f6fc/e6beaeb): list_models rows carry an additive derived `pinned` field and the wizard only offers model refs compose can resolve, with invariant docs. Phase-2 gate (Task 2.7, commit 69fd1d7) softened the behind-branch hint to '— Ctrl+B back to <Step>'. bug-236 fully resolved.",
+      "fix": "236a DONE (Task 2.2): Download-now now obeys the model source. Added _DOWNLOAD_MODES={existing,pin_hf}; _apply_model_disclosure hides the #new-deployment-download-now Checkbox AND resets .value=False for bare/adopt_local (computed before the handoff early-return so a restored bare draft resets too); the adopt_local handoff branch in on_select_changed also clears the box before capturing the draft. existing/pin_hf keep it visible + independent (hiding resets, re-showing does not re-check). The app.py:3198 'Download now requires a pinned model' gate is untouched and still fires for existing+checked+no-pin. _collect_spec/_draft_state payloads unchanged. TDD in test_new_deployment_screen.py; the review-time gate itself is pinned app-level by test_tui_smoke.py::test_new_deployment_review_blocks_download_now_without_pin (red-proven by inverting the model_ref check). 236b DONE (Task 2.3): empty registry now defaults the Model source to \"Bare repo id\" (NewDeploymentScreen._default_model_mode returns bare when _pinned_model_options() is empty) so the Model input is immediately visible; the pinned-model Select shows an honest placeholder row No pins on this target \u2014 pick \"Pin HF repo \u2192\" (keeps the __custom__ no-op value, so _selected_model_ref()->None and the review gate still blocks) instead of the phantom Custom model. Restored drafts carrying model_mode win via _apply_initial. Scoped to the zero-pins branch; >=1-pin behavior byte-for-byte unchanged. TDD in test_new_deployment_screen.py (+4 tests); touched test_tui_smoke.py 236a gate (now switches to existing explicitly) and the build+pin+smoke acceptance flow (checks Download-now after the pin). Commit c809e93. 236c DONE (Task 2.4, commit 187c4af): a per-step _validate_step advance gate plus StepIndicator amber \u2717 error state, so Ctrl+N can't walk past an unresolvable Model step and the breadcrumb never shows a dishonest \u2713 on a failed step. 236d DONE (Task 2.5, commits 5f73ae6 + fb5a455): removed the 'sources ... defaults' debug leak, fixed hint casing, added the Enter-advance hint, made the review-error nav hint direction-aware (owning<current \u2192 back-suffix, owning>current \u2192 neutral 'see <Step>', owning==current \u2192 none), bound the mapped review prefixes as module constants, and cleared stale panel errors on step-fix. M3 (Task 2.6, commits c793883/f43f6fc/e6beaeb): list_models rows carry an additive derived `pinned` field and the wizard only offers model refs compose can resolve, with invariant docs. Phase-2 gate (Task 2.7, commit 69fd1d7) softened the behind-branch hint to '\u2014 Ctrl+B back to <Step>'. bug-236 fully resolved.",
       "tags": [
         "tui",
         "wizard",
@@ -4387,7 +4387,7 @@
       "error_message": "Layout: manager modals exceed 80 cols and clip (target 100 / model 104 / build 96 / target_edit 96 / review 92 / help 82); header fixed widths wrap+hide URL/badge/clock below ~130 cols with the floating status pill overlapping chrome at every size; Build Manager footer clips its own hint to 'Esc Clos'; 4th sidebar card clipped at <=~30 rows (probe + live verified)",
       "file": "src/vela/tui/app.py:467-528,505-507; src/vela/tui/screens/*.py CSS widths",
       "root_cause": "Fixed pixel/col widths and heights instead of %/auto/adaptive; responsive breakpoints key on width only and never adapt top chrome.",
-      "fix": "CLOSED at the Phase-4 gate (Task 4.11), commits e135dad..583730d (14) plus the 4.11 review follow-ups 0c4577e/667dc66/a3493d7. Shipped: 4.1 shared modal frame tokens (e135dad); 4.2 Target Manager full-width list-over-detail + live refresh_target_state + reconnect feedback (0f3ffed), incl. truthful FAILED reconnect (fa9fc52, bug-257); 4.3 Model Manager full-width + one-line scannable row grammar (8c278ed, bug-264); 4.4 Build Manager full-width + honest empty state and Review/Target-Edit/Help on the shared frame, Help retitled 'Help — keys & markers' (630c95a, 936673e); 4.5 adaptive header — 1fr model slot absorbs slack so the badge is never pushed off, honest URL, per-width reveal (37b25d1); 4.6 sidebar hugs content in a VerticalScroll + height-keyed GPU shed (5f62a5e); 4.7 context-sensitive footer that always keeps ? Help / q Quit (21a7663); 4.8 small-screen polish — config picker fits/scrolls/tells the truth, honest narrow overlay, visible checkboxes, keyboard preset chips, legacy→canonical dialog tokens, single confirm stack (bug-279), docked Help pills (83cd96b, 7524af8, 3a1dba0); 4.9 run-lifecycle feedback — progress suppression gate, run separators, operator stop/kill closure, terminal phase markers (a5dbba9); 4.10 Flag Manager title-first + 7 submit verbs on _busy_badge (583730d). 4.11 review follow-ups (bug-280/281/282): customize-review 'composing…' badge, clear the stale progress panel on job-end while READY, deterministic restart immunity. Gate: ruff+mypy clean, full suite 1272 green, smoke+flag 322. Chrome + managers + modals are now width/height-adaptive (no fixed-col clipping) and truthful. The broader reactive-hardening sweep is tracked separately (bug-248, stays open).",
+      "fix": "CLOSED at the Phase-4 gate (Task 4.11), commits e135dad..583730d (14) plus the 4.11 review follow-ups 0c4577e/667dc66/a3493d7. Shipped: 4.1 shared modal frame tokens (e135dad); 4.2 Target Manager full-width list-over-detail + live refresh_target_state + reconnect feedback (0f3ffed), incl. truthful FAILED reconnect (fa9fc52, bug-257); 4.3 Model Manager full-width + one-line scannable row grammar (8c278ed, bug-264); 4.4 Build Manager full-width + honest empty state and Review/Target-Edit/Help on the shared frame, Help retitled 'Help \u2014 keys & markers' (630c95a, 936673e); 4.5 adaptive header \u2014 1fr model slot absorbs slack so the badge is never pushed off, honest URL, per-width reveal (37b25d1); 4.6 sidebar hugs content in a VerticalScroll + height-keyed GPU shed (5f62a5e); 4.7 context-sensitive footer that always keeps ? Help / q Quit (21a7663); 4.8 small-screen polish \u2014 config picker fits/scrolls/tells the truth, honest narrow overlay, visible checkboxes, keyboard preset chips, legacy\u2192canonical dialog tokens, single confirm stack (bug-279), docked Help pills (83cd96b, 7524af8, 3a1dba0); 4.9 run-lifecycle feedback \u2014 progress suppression gate, run separators, operator stop/kill closure, terminal phase markers (a5dbba9); 4.10 Flag Manager title-first + 7 submit verbs on _busy_badge (583730d). 4.11 review follow-ups (bug-280/281/282): customize-review 'composing\u2026' badge, clear the stale progress panel on job-end while READY, deterministic restart immunity. Gate: ruff+mypy clean, full suite 1272 green, smoke+flag 322. Chrome + managers + modals are now width/height-adaptive (no fixed-col clipping) and truthful. The broader reactive-hardening sweep is tracked separately (bug-248, stays open).",
       "tags": [
         "tui",
         "layout",
@@ -4398,15 +4398,15 @@
       "related_bugs": [],
       "occurrences": 2,
       "last_seen": "2026-07-11",
-      "notes": "Task 4.4 (commits 630c95a, 936673e): Build Manager rebuilt full-width stacked like 4.2/4.3 (shared MODAL_PANEL_CSS/MODAL_LIST_CSS frame + VerticalScroll list above detail + docked pack_hint_rows footer); its footer no longer clips its own last hint to 'Esc Clos', and the empty state advertises only n New / a Adopt / Esc Close. Review (width 92), Target Edit (96) and Help (82) panels swapped their fixed pixel widths for the shared frame so they fit the 80-col screen. Help also retitled 'HelpScreen - bindings + palette hint' -> 'Help — keys & markers', packs its Markers legend to the panel content width (whole pairs, no orphaned glyphs), and migrates legacy ACCENT/GOOD/WARN/PURPLE + hardcoded 'on #0e2a21' to canonical theme tokens. Carry-forwards: model-manager _sha8 now ellipsizes non-sha refs (release-candidate -> release…) + a quant: detail pin. Remaining modal-frame work: header/sidebar/footer chrome (Tasks 4.5-4.8) still pending. | Task 4.5 (adaptive top chrome): the header used ~110 fixed cols (app-title 20 + target 18 + active-model 32 + status-badge 26 + clock 10 + padding) before the 1fr URL got a cell, so at 80 the badge overflowed to x=73 w26 (right edge 99 on a 78-wide header — cut mid-border), active-model hard-clipped at 32 mid-glyph (content 40-47 cells), and the URL got 1 col. Fix: segments are now width:auto except #active-model (width:1fr min-width:0) which absorbs all slack so Textual can never push the badge off-screen; #status-badge/#status-label are width:auto (badge sizes to dot+label, full border always visible); model text is cell-aware truncated (rich cell_len via hoisted vela.tui.cells.truncate_cells — model_manager now imports it too) to its exact 1fr region so it ellipsizes instead of clipping; server URL + clock reveal by exact width (HEADER_URL_MIN_WIDTH=112, HEADER_CLOCK_MIN_WIDTH=132) in _apply_responsive_layout, which now re-fits chrome on EVERY resize (100/120/140 are all 'wide' but differ); _render_chrome_url returns a Rich Text styled MUTED unless phase is READY/DEGRADED (honest — IDLE/STOPPED no longer advertise a live cyan server). CSS margin-right:2 gives inter-segment gaps without touching widget .content (exact #target-segment assertions stay green). 4 new tests in test_tui_smoke.py; 280 smoke + full suite green. Remaining: sidebar/footer chrome (Tasks 4.6-4.8). | Task 4.6 (5f62a5e): sidebar vertical fit. Fixed heights (config 7 + phase 11 + gpu 10 + status 3 = 34 rows) overflowed short terminals — at 100x30 the GPU panel was clipped 5 rows and the status strip fell fully off-screen (probe: y=36); at 142x38 the Phases card reserved 11 rows for its single IDLE line. Fix: #sidebar is now a VerticalScroll; #config-panel/#phase-panel/#gpu-panel use height:auto with per-card max-height (9/12/11) and #status-strip is height:auto, so each hugs its real content and the column scrolls rather than clipping chrome. _apply_responsive_layout now takes height too and keys on it: below SIDEBAR_GPU_MIN_HEIGHT=24 the GPU card sheds first (mirroring the compact-WIDTH behaviour), toggling BOTH #gpu-panel and #gpu so FR-24's #gpu display assertion stays green. Tradeoff: config caps at 9 even on tall terminals (its later list lines clip) so all four card tops stay on-screen at 100x30 — full detail is one 'c' away. 3 new tests; FR-24 + narrow overlay unchanged. | Task 4.7 (21a7663): context-sensitive footer that always fits. The footer advertised all ~20 keys unconditionally (inert Stop/Kill/Restart/Reconnect at IDLE) as one 215-cell line, so below ~135 cols the tail (? Help, q Quit) clipped and a new user could not find Help/Quit. Now _footer_droppable_hints() is state-filtered+ordered: control keys (Stop/Kill/Restart) and log keys (Search/Filter/Pause/Wrap/Top-Bottom) show only with an active run (_has_active_run = attached-alive or reattached); Load shows only when no run; R Reconnect shows only when target_connection_state != 'connected' (hidden at healthy IDLE). Decision: F Flags STAYS in the dashboard IDLE set (it edits the selected config's vLLM flags, available at IDLE like c Configs — also pinned by the existing chrome/footer test). _footer_rows_for_width packs cell-aware into <= FOOTER_MAX_ROWS=2 rows (usable = width - FOOTER_CHROME_CELLS=6) and drops the lowest-priority DROPPABLE hint from the tail until it fits, but FOOTER_PROTECTED_HINTS (? Help, q Quit) are never dropped — asserted present at 80/100/142 idle+running. _render_footer_bindings(width) returns Rich Text (keys bold ACCENT, labels MUTED) refreshed inside _refresh_chrome (phase/connection/resize choke point). BINDINGS stay unconditional (keys work when hidden; Help screen is the full reference). Shared keyhintbar.hint_row_width now uses cell_len (closes the 4.2 len() nit). 3 new tests + 2 footer-content pins updated (_render_footer_bindings now instance/Text). Full suite 1244 passed; ruff+mypy clean. Phase-4 layout chrome (header/sidebar/footer) now complete; remaining 4.x: 4.8 small-screen polish, 4.9-4.11. | Task 4.8 (small-screen polish batch, commits 83cd96b/7524af8/3a1dba0; full suite 1255 green, ruff+mypy clean): (1-5) config_picker.py adopts the shared MODAL_PANEL_CSS frame so the panel hugs content (height:auto — the missing-height:auto full-height-empty-box gotcha); the list moved into a #config-picker-scroll VerticalScroll and the '>' marker line is scrolled into view after each selection (arrowing past the fold no longer loses it); Enter with zero filter matches no-ops (stays open) and shows 'no match — Esc to close' instead of silently popping at action_accept; first-run empty copy -> 'No configs yet — Esc to close, then press n on the dashboard' (the focused filter Input ate 'n'); a DEFAULTED connection_state ctor param renders amber 'target unreachable — configs unknown' when disconnected (bug-252 sibling, now closed); the list is rendered as Rich Text so those states carry color. app.action_config_picker threads self.target_connection_state. (6) narrow/compact #sidebar-overlay renders the REAL Configs card (reuses _render_config_summary) titled 'Config' + a glanceable phase line, box now height:auto/max-height:7; dropped the 'Sidebar overlay' title + 'Log remains primary; press c for full config picker' spec-note (FR-24 pin updated old->new). (7) global Checkbox CSS in VelaApp.CSS: unchecked = dim slate #56707c (TEXT_FAINT) block, checked = green #67e8a5 (GREEN) + dark glyph — default Textual gave BOTH states the SAME near-invisible #242f38 bg; asserted via get_component_styles('toggle--button').background on wizard Download-now + Flag Manager Changed-only. (8) PresetChips can_focus=True + Left/Right cursor (silent highlight) + Enter commit (posts Selected); was mouse-only on_click; click + widget tests preserved. (9) confirm.py/log_prompt.py migrate same-hex legacy tokens (ACCENT/GOOD/WARN/MUTED/TEXT) -> canonical; BAD kept (canonical RED differs in hex; app + target_edit still use BAD); verified by a structural hasattr token test. NOTE: target_edit.py STILL imports BAD+TEXT (4.4 did only its frame, not tokens) — out of item-9 named scope, flagged. (10) bug-279 q-stack guard (see that entry). (11) Help #help-actions docked bottom (dock:bottom+background) so pills stay visible at 80x24; _content_width() pre-Resize 'or 100' fallback left as-is (self-corrects on first Resize). (12) folded the duplicate #sidebar { height: 1fr } CSS rule. Tasks 4.9+4.10 (commits a5dbba9, 583730d): run-lifecycle feedback — _update_progress gated by PROGRESS_SUPPRESSED_PHASES (READY/DEGRADED/STOPPED/ERROR, _active_job_id escape) so trailing CR records can't resurrect the panel; dim RULE-level display separators `── run <id> · <config> · <target> ──` on attached monitor + reattach; operator stop/kill closure (verb recorded by run_id pre-signal → `Stopped/Killed <id>` toast + `── STOPPED/KILLED by operator ──` line); phases panel terminal marker rows (■ STOPPED dim / ✗ CRASHED red, #phase-panel max-height 12→13). Flag Manager title+context now compose FIRST as #flag-manager-title (pins moved out of #flag-manager-list); 7 submit verbs wired through _busy_badge (composing…/saving…/adopting build…/pinning model…/saving flags…/cancelling…/probing uv…); _busy_badge now _refresh_chrome()s on paint+restore."
+      "notes": "Task 4.4 (commits 630c95a, 936673e): Build Manager rebuilt full-width stacked like 4.2/4.3 (shared MODAL_PANEL_CSS/MODAL_LIST_CSS frame + VerticalScroll list above detail + docked pack_hint_rows footer); its footer no longer clips its own last hint to 'Esc Clos', and the empty state advertises only n New / a Adopt / Esc Close. Review (width 92), Target Edit (96) and Help (82) panels swapped their fixed pixel widths for the shared frame so they fit the 80-col screen. Help also retitled 'HelpScreen - bindings + palette hint' -> 'Help \u2014 keys & markers', packs its Markers legend to the panel content width (whole pairs, no orphaned glyphs), and migrates legacy ACCENT/GOOD/WARN/PURPLE + hardcoded 'on #0e2a21' to canonical theme tokens. Carry-forwards: model-manager _sha8 now ellipsizes non-sha refs (release-candidate -> release\u2026) + a quant: detail pin. Remaining modal-frame work: header/sidebar/footer chrome (Tasks 4.5-4.8) still pending. | Task 4.5 (adaptive top chrome): the header used ~110 fixed cols (app-title 20 + target 18 + active-model 32 + status-badge 26 + clock 10 + padding) before the 1fr URL got a cell, so at 80 the badge overflowed to x=73 w26 (right edge 99 on a 78-wide header \u2014 cut mid-border), active-model hard-clipped at 32 mid-glyph (content 40-47 cells), and the URL got 1 col. Fix: segments are now width:auto except #active-model (width:1fr min-width:0) which absorbs all slack so Textual can never push the badge off-screen; #status-badge/#status-label are width:auto (badge sizes to dot+label, full border always visible); model text is cell-aware truncated (rich cell_len via hoisted vela.tui.cells.truncate_cells \u2014 model_manager now imports it too) to its exact 1fr region so it ellipsizes instead of clipping; server URL + clock reveal by exact width (HEADER_URL_MIN_WIDTH=112, HEADER_CLOCK_MIN_WIDTH=132) in _apply_responsive_layout, which now re-fits chrome on EVERY resize (100/120/140 are all 'wide' but differ); _render_chrome_url returns a Rich Text styled MUTED unless phase is READY/DEGRADED (honest \u2014 IDLE/STOPPED no longer advertise a live cyan server). CSS margin-right:2 gives inter-segment gaps without touching widget .content (exact #target-segment assertions stay green). 4 new tests in test_tui_smoke.py; 280 smoke + full suite green. Remaining: sidebar/footer chrome (Tasks 4.6-4.8). | Task 4.6 (5f62a5e): sidebar vertical fit. Fixed heights (config 7 + phase 11 + gpu 10 + status 3 = 34 rows) overflowed short terminals \u2014 at 100x30 the GPU panel was clipped 5 rows and the status strip fell fully off-screen (probe: y=36); at 142x38 the Phases card reserved 11 rows for its single IDLE line. Fix: #sidebar is now a VerticalScroll; #config-panel/#phase-panel/#gpu-panel use height:auto with per-card max-height (9/12/11) and #status-strip is height:auto, so each hugs its real content and the column scrolls rather than clipping chrome. _apply_responsive_layout now takes height too and keys on it: below SIDEBAR_GPU_MIN_HEIGHT=24 the GPU card sheds first (mirroring the compact-WIDTH behaviour), toggling BOTH #gpu-panel and #gpu so FR-24's #gpu display assertion stays green. Tradeoff: config caps at 9 even on tall terminals (its later list lines clip) so all four card tops stay on-screen at 100x30 \u2014 full detail is one 'c' away. 3 new tests; FR-24 + narrow overlay unchanged. | Task 4.7 (21a7663): context-sensitive footer that always fits. The footer advertised all ~20 keys unconditionally (inert Stop/Kill/Restart/Reconnect at IDLE) as one 215-cell line, so below ~135 cols the tail (? Help, q Quit) clipped and a new user could not find Help/Quit. Now _footer_droppable_hints() is state-filtered+ordered: control keys (Stop/Kill/Restart) and log keys (Search/Filter/Pause/Wrap/Top-Bottom) show only with an active run (_has_active_run = attached-alive or reattached); Load shows only when no run; R Reconnect shows only when target_connection_state != 'connected' (hidden at healthy IDLE). Decision: F Flags STAYS in the dashboard IDLE set (it edits the selected config's vLLM flags, available at IDLE like c Configs \u2014 also pinned by the existing chrome/footer test). _footer_rows_for_width packs cell-aware into <= FOOTER_MAX_ROWS=2 rows (usable = width - FOOTER_CHROME_CELLS=6) and drops the lowest-priority DROPPABLE hint from the tail until it fits, but FOOTER_PROTECTED_HINTS (? Help, q Quit) are never dropped \u2014 asserted present at 80/100/142 idle+running. _render_footer_bindings(width) returns Rich Text (keys bold ACCENT, labels MUTED) refreshed inside _refresh_chrome (phase/connection/resize choke point). BINDINGS stay unconditional (keys work when hidden; Help screen is the full reference). Shared keyhintbar.hint_row_width now uses cell_len (closes the 4.2 len() nit). 3 new tests + 2 footer-content pins updated (_render_footer_bindings now instance/Text). Full suite 1244 passed; ruff+mypy clean. Phase-4 layout chrome (header/sidebar/footer) now complete; remaining 4.x: 4.8 small-screen polish, 4.9-4.11. | Task 4.8 (small-screen polish batch, commits 83cd96b/7524af8/3a1dba0; full suite 1255 green, ruff+mypy clean): (1-5) config_picker.py adopts the shared MODAL_PANEL_CSS frame so the panel hugs content (height:auto \u2014 the missing-height:auto full-height-empty-box gotcha); the list moved into a #config-picker-scroll VerticalScroll and the '>' marker line is scrolled into view after each selection (arrowing past the fold no longer loses it); Enter with zero filter matches no-ops (stays open) and shows 'no match \u2014 Esc to close' instead of silently popping at action_accept; first-run empty copy -> 'No configs yet \u2014 Esc to close, then press n on the dashboard' (the focused filter Input ate 'n'); a DEFAULTED connection_state ctor param renders amber 'target unreachable \u2014 configs unknown' when disconnected (bug-252 sibling, now closed); the list is rendered as Rich Text so those states carry color. app.action_config_picker threads self.target_connection_state. (6) narrow/compact #sidebar-overlay renders the REAL Configs card (reuses _render_config_summary) titled 'Config' + a glanceable phase line, box now height:auto/max-height:7; dropped the 'Sidebar overlay' title + 'Log remains primary; press c for full config picker' spec-note (FR-24 pin updated old->new). (7) global Checkbox CSS in VelaApp.CSS: unchecked = dim slate #56707c (TEXT_FAINT) block, checked = green #67e8a5 (GREEN) + dark glyph \u2014 default Textual gave BOTH states the SAME near-invisible #242f38 bg; asserted via get_component_styles('toggle--button').background on wizard Download-now + Flag Manager Changed-only. (8) PresetChips can_focus=True + Left/Right cursor (silent highlight) + Enter commit (posts Selected); was mouse-only on_click; click + widget tests preserved. (9) confirm.py/log_prompt.py migrate same-hex legacy tokens (ACCENT/GOOD/WARN/MUTED/TEXT) -> canonical; BAD kept (canonical RED differs in hex; app + target_edit still use BAD); verified by a structural hasattr token test. NOTE: target_edit.py STILL imports BAD+TEXT (4.4 did only its frame, not tokens) \u2014 out of item-9 named scope, flagged. (10) bug-279 q-stack guard (see that entry). (11) Help #help-actions docked bottom (dock:bottom+background) so pills stay visible at 80x24; _content_width() pre-Resize 'or 100' fallback left as-is (self-corrects on first Resize). (12) folded the duplicate #sidebar { height: 1fr } CSS rule. Tasks 4.9+4.10 (commits a5dbba9, 583730d): run-lifecycle feedback \u2014 _update_progress gated by PROGRESS_SUPPRESSED_PHASES (READY/DEGRADED/STOPPED/ERROR, _active_job_id escape) so trailing CR records can't resurrect the panel; dim RULE-level display separators `\u2500\u2500 run <id> \u00b7 <config> \u00b7 <target> \u2500\u2500` on attached monitor + reattach; operator stop/kill closure (verb recorded by run_id pre-signal \u2192 `Stopped/Killed <id>` toast + `\u2500\u2500 STOPPED/KILLED by operator \u2500\u2500` line); phases panel terminal marker rows (\u25a0 STOPPED dim / \u2717 CRASHED red, #phase-panel max-height 12\u219213). Flag Manager title+context now compose FIRST as #flag-manager-title (pins moved out of #flag-manager-list); 7 submit verbs wired through _busy_badge (composing\u2026/saving\u2026/adopting build\u2026/pinning model\u2026/saving flags\u2026/cancelling\u2026/probing uv\u2026); _busy_badge now _refresh_chrome()s on paint+restore."
     },
     {
       "id": "bug-238",
       "timestamp": "2026-07-09T06:05:00Z",
       "error_message": "Local agent daemon socket ignores XDG_STATE_HOME so 'isolated' environments silently reuse the user daemon; stale daemon serves month-old code (observed: Jun 9 daemon still running Jul 9) and freezes ./configs discovery at its old cwd; pytest daemons can leak for weeks (one from Jun 10 still alive)",
       "file": "src/vela/agent/daemon.py:41-48",
-      "root_cause": "default_agent_runtime_dir uses XDG_RUNTIME_DIR else ~/.local/state/vela — inconsistent with the rest of the XDG-aware state layout; no controller/daemon version-mismatch or cwd-mismatch detection.",
-      "fix": "Phase 6 remediation (commits a69eb1a..gate): D5 socket precedence VELA_AGENT_RUNTIME_DIR > XDG_RUNTIME_DIR > $XDG_STATE_HOME/vela > ~/.local/state/vela + legacy-fallback probe (c68126b); stale-daemon version+git-revision banner at handshake, CLI+TUI, first contact only (7c36c25); unknown-config errors name searched_dirs + daemon cwd (d376cae); local agent-unreachable remediation + agent-start.err stderr capture (e2b472b); config discovery honors XDG_CONFIG_HOME (da154cd). OWNER STILL TODO: `vela agent stop` the pre-upgrade June-9 daemon + kill leaked PID 20556 — the legacy-fallback probe keeps it reachable until then.",
+      "root_cause": "default_agent_runtime_dir uses XDG_RUNTIME_DIR else ~/.local/state/vela \u2014 inconsistent with the rest of the XDG-aware state layout; no controller/daemon version-mismatch or cwd-mismatch detection.",
+      "fix": "Phase 6 remediation (commits a69eb1a..gate): D5 socket precedence VELA_AGENT_RUNTIME_DIR > XDG_RUNTIME_DIR > $XDG_STATE_HOME/vela > ~/.local/state/vela + legacy-fallback probe (c68126b); stale-daemon version+git-revision banner at handshake, CLI+TUI, first contact only (7c36c25); unknown-config errors name searched_dirs + daemon cwd (d376cae); local agent-unreachable remediation + agent-start.err stderr capture (e2b472b); config discovery honors XDG_CONFIG_HOME (da154cd). OWNER STILL TODO: `vela agent stop` the pre-upgrade June-9 daemon + kill leaked PID 20556 \u2014 the legacy-fallback probe keeps it reachable until then.",
       "tags": [
         "agent",
         "daemon",
@@ -4425,7 +4425,7 @@
       "error_message": "Opening n/m/b/F runs agent RPCs with zero pending feedback; New Deployment runs 4 sequential RPCs and swallows 3 failure modes into empty lists; observed live: delayed wizard open made a double 'n' press type the letter into the Name field",
       "file": "src/vela/tui/app.py:2857-2907,2167-2185,1392-1403,1350-1367",
       "root_cause": "No busy/loading state convention for RPC-backed screen opens; except Exception -> {} on recipes/models/builds lists makes failures indistinguishable from empty registries.",
-      "fix": "pending — documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
+      "fix": "pending \u2014 documented in 2026-07-09 full-repo + live-TUI review (see cerebrum session notes)",
       "tags": [
         "tui",
         "latency",
@@ -4493,7 +4493,7 @@
       "error_message": "test_new_deployment_adopt_venv_handoff_pins_adopted_build failed once with NoMatches (textual dom.py query) during a `pytest tests/ -k new_deployment` batch run; passed in isolation and in two full-cluster reruns; recurred 2026-07-11 during Task 3.2 review in a full-suite run that OVERLAPPED a concurrent smoke-file pytest run (load-flake); passed in isolation and in a clean full-suite rerun (1190/1190)",
       "file": "tests/test_tui_smoke.py",
       "root_cause": "Pre-existing bug-207/bug-209 class flake, not the reviewed commit (1f19ccc is tests-only and its new test sits AFTER the victim at line 5103 vs 5445). The test waits on app.screen.id alone ('new-deployment' / 'adopt-build') then immediately query_one's child widgets; under load the screen registers before children finish mounting.",
-      "fix": "No code change in the reviewed slice (out of its scope); recorded the occurrence. Hardening path is the bug-209 fix: strengthen the wait to include child presence (query() truthiness) or use _wait_for_textual_condition, which retries when the condition raises (bare _wait_for_condition propagates NoMatches raised inside the lambda). PARTIAL (Phase-2 gate, commit 69fd1d7): the two waits in test_new_deployment_review_blocks_download_now_without_pin were hardened per this path — the screen-open wait now also gates on a #new-deployment-name child via query() truthiness, and the reopen wait moved to _wait_for_textual_condition (retries NoMatches instead of propagating it). FURTHER (Task 3.5 gate, commit 8c292cd): the two waits actually observed to flake are now hardened -- test_new_deployment_adopt_venv_handoff_pins_adopted_build (its two id-only open waits gate on a child via query() truthiness; the reopen wait that query_one's several children moved to _wait_for_textual_condition) and test_flag_manager_open_shows_busy_verb_loading_flags (the flag-manager open wait now gates on the #flag-manager-preset Select being composed -- SelectCurrent #label -- so a mid-mount teardown cannot raise NoMatches: SelectOverlay; its busy-verb wait moved to the retrying variant). Each passed 5x consecutively and the full suite is clean at 1201. Entry stays OPEN: a scan still finds ~86 bare _wait_for_condition( calls whose condition query_one's a widget across test_tui_smoke.py; only the instances observed to flake have been hardened reactively, so a file-wide sweep of the remaining id-only / query_one-in-_wait_for_condition waits is still pending.",
+      "fix": "No code change in the reviewed slice (out of its scope); recorded the occurrence. Hardening path is the bug-209 fix: strengthen the wait to include child presence (query() truthiness) or use _wait_for_textual_condition, which retries when the condition raises (bare _wait_for_condition propagates NoMatches raised inside the lambda). PARTIAL (Phase-2 gate, commit 69fd1d7): the two waits in test_new_deployment_review_blocks_download_now_without_pin were hardened per this path \u2014 the screen-open wait now also gates on a #new-deployment-name child via query() truthiness, and the reopen wait moved to _wait_for_textual_condition (retries NoMatches instead of propagating it). FURTHER (Task 3.5 gate, commit 8c292cd): the two waits actually observed to flake are now hardened -- test_new_deployment_adopt_venv_handoff_pins_adopted_build (its two id-only open waits gate on a child via query() truthiness; the reopen wait that query_one's several children moved to _wait_for_textual_condition) and test_flag_manager_open_shows_busy_verb_loading_flags (the flag-manager open wait now gates on the #flag-manager-preset Select being composed -- SelectCurrent #label -- so a mid-mount teardown cannot raise NoMatches: SelectOverlay; its busy-verb wait moved to the retrying variant). Each passed 5x consecutively and the full suite is clean at 1201. Entry stays OPEN: a scan still finds ~86 bare _wait_for_condition( calls whose condition query_one's a widget across test_tui_smoke.py; only the instances observed to flake have been hardened reactively, so a file-wide sweep of the remaining id-only / query_one-in-_wait_for_condition waits is still pending.",
       "tags": [
         "test",
         "tui",
@@ -4513,10 +4513,10 @@
     {
       "id": "bug-249",
       "timestamp": "2026-07-10T00:00:00Z",
-      "error_message": "bug-236c: wizard let Ctrl+N walk past an unresolvable Model step, and the breadcrumb showed a dishonest green ✓ on steps whose fields failed review-time validation",
+      "error_message": "bug-236c: wizard let Ctrl+N walk past an unresolvable Model step, and the breadcrumb showed a dishonest green \u2713 on steps whose fields failed review-time validation",
       "file": "src/vela/tui/screens/new_deployment.py",
-      "root_cause": "action_next_step advanced unconditionally (no per-step validation) and StepIndicator had no error state, so review failures rendered only at the panel bottom while the failed step stayed ✓",
-      "fix": "Added _validate_step advance gate (Model rule: no pinned ref + empty bare id + non-handoff source blocks with step-adjacent #new-deployment-model-error Static), StepIndicator.set_error/clear_error/clear_errors amber ✗ state, and _render_wizard_error mapping known review errors (Model is required / Download now requires a pinned model) to the owning step with a '— Ctrl+B to <Step>' suffix; unmapped errors unchanged",
+      "root_cause": "action_next_step advanced unconditionally (no per-step validation) and StepIndicator had no error state, so review failures rendered only at the panel bottom while the failed step stayed \u2713",
+      "fix": "Added _validate_step advance gate (Model rule: no pinned ref + empty bare id + non-handoff source blocks with step-adjacent #new-deployment-model-error Static), StepIndicator.set_error/clear_error/clear_errors amber \u2717 state, and _render_wizard_error mapping known review errors (Model is required / Download now requires a pinned model) to the owning step with a '\u2014 Ctrl+B to <Step>' suffix; unmapped errors unchanged",
       "tags": [
         "tui",
         "wizard",
@@ -4534,10 +4534,10 @@
     {
       "id": "bug-250",
       "timestamp": "2026-07-11T00:00:00Z",
-      "error_message": "New Deployment wizard: cancelling the Pin HF repo / Adopt local path handoff (Esc on PinModelScreen) re-opened the pin screen immediately in an inescapable loop — Cancel could not return to the wizard; the only exits were pinning or killing the app, and a queued Enter landed on the re-opened pre-filled pin form and created an unwanted pin",
+      "error_message": "New Deployment wizard: cancelling the Pin HF repo / Adopt local path handoff (Esc on PinModelScreen) re-opened the pin screen immediately in an inescapable loop \u2014 Cancel could not return to the wizard; the only exits were pinning or killing the app, and a queued Enter landed on the re-opened pre-filled pin form and created an unwanted pin",
       "file": "src/vela/tui/screens/new_deployment.py",
       "root_cause": "The cancel resume path (_handle_new_deployment_pin_model_submission with params None) reopens the wizard with the RAW stashed draft, whose model_mode is still the handoff value 'pin_hf'/'adopt_local'. _apply_initial restored that verbatim into the model-source Select; the resulting Select.Changed is deferred and delivered AFTER the _applying_initial suppression flag clears, so on_select_changed re-hit the handoff branch and dismissed the just-restored wizard. The successful-pin resume avoided it only because _resume_new_deployment_with_model rewrites model_mode to 'existing' before reopening. The Runtime step's Create build / Adopt venv handoffs do NOT loop: _apply_initial only re-selects process/docker/build/executable, so a restored 'create_build'/'adopt_build' runtime is dropped and never re-fires",
-      "fix": "Screen-side coercion in _apply_initial (option b, covers ALL resume paths incl. crafted drafts): new _restored_model_mode(mode) maps a restored handoff model_mode onto a non-handoff Select value before _set_select_value — 'bare' when the draft carried a model id or the target has no pins, else 'existing' (mirrors _default_model_mode but keeps a typed bare model id visible). Non-handoff modes pass through untouched so the successful-pin resume is unaffected",
+      "fix": "Screen-side coercion in _apply_initial (option b, covers ALL resume paths incl. crafted drafts): new _restored_model_mode(mode) maps a restored handoff model_mode onto a non-handoff Select value before _set_select_value \u2014 'bare' when the draft carried a model id or the target has no pins, else 'existing' (mirrors _default_model_mode but keeps a typed bare model id visible). Non-handoff modes pass through untouched so the successful-pin resume is unaffected",
       "tags": [
         "tui",
         "wizard",
@@ -4575,10 +4575,10 @@
     {
       "id": "bug-252",
       "timestamp": "2026-07-11T08:18:38+00:00",
-      "error_message": "Switching to an unreachable target made the dashboard Configs card render the FIRST-RUN empty state 'No configs yet — press n to create your first deployment · ? help', which reads as 'your configs were deleted' when the target is merely unreachable.",
+      "error_message": "Switching to an unreachable target made the dashboard Configs card render the FIRST-RUN empty state 'No configs yet \u2014 press n to create your first deployment \u00b7 ? help', which reads as 'your configs were deleted' when the target is merely unreachable.",
       "file": "src/vela/tui/app.py",
       "root_cause": "_render_config_summary / _render_config_summary_plain / _render_configs_title rendered an empty registry unconditionally as the first-run onboarding copy plus a confident valid/invalid count, with no branch on target_connection_state. A disconnect (e.g. switching to an unreachable target, which resets self.registry to empty in _switch_target) therefore showed 'No configs yet' and a stale/absent count instead of an offline indicator. _reconnect_target (the R action) also never reloaded the registry, so the offline card stayed frozen after the link was restored.",
-      "fix": "FIXED 2026-07-11 commit a88fb84 (Task 3.3, red-green). When target_connection_state != 'connected': the Configs card BODY renders amber 'target unreachable — configs unknown · R reconnect' in the empty case (and keeps cached entries otherwise), and the card TITLE replaces the valid/invalid count badges with an amber 'target unreachable' marker (the 'count line' replacement — covers both the empty and cached cases). Connected + empty is UNCHANGED (first-run copy pinned by test_configs_card_keeps_first_run_copy_when_connected_and_empty). _reconnect_target now reloads the registry + _refresh_target_backed_views on a successful reconnect so R restores the normal card. Rich Text renderables only (no markup strings) per the Static.content leak gotcha. Build/model manager empty-states are NOT reachable offline (they open via list_builds/list_models wrapped in _with_agent_busy, which banners-and-aborts on TargetCallError since Task 3.2 — the screen never mounts), so no change there. KNOWN SIBLING (out of Task 3.3's named scope): ConfigPickerScreen (config_picker.py:116, opened by 'c' from the cached registry) shows the same 'No configs yet' copy offline; fixing it needs the connection state passed into the screen constructor — flagged for follow-up. Tests: tests/test_tui_smoke.py::{test_configs_card_reports_target_unreachable_when_disconnected_and_empty, test_configs_card_keeps_first_run_copy_when_connected_and_empty, test_configs_card_keeps_cached_entries_and_flags_unreachable_when_disconnected, test_reconnect_restores_normal_configs_card}. Task 3.5 (bug-253, commit b442dfd) extended this immediate-render contract to keepalive-detected drops and auto-recovery flips, which previously only refreshed chrome and left the offline card frozen.",
+      "fix": "FIXED 2026-07-11 commit a88fb84 (Task 3.3, red-green). When target_connection_state != 'connected': the Configs card BODY renders amber 'target unreachable \u2014 configs unknown \u00b7 R reconnect' in the empty case (and keeps cached entries otherwise), and the card TITLE replaces the valid/invalid count badges with an amber 'target unreachable' marker (the 'count line' replacement \u2014 covers both the empty and cached cases). Connected + empty is UNCHANGED (first-run copy pinned by test_configs_card_keeps_first_run_copy_when_connected_and_empty). _reconnect_target now reloads the registry + _refresh_target_backed_views on a successful reconnect so R restores the normal card. Rich Text renderables only (no markup strings) per the Static.content leak gotcha. Build/model manager empty-states are NOT reachable offline (they open via list_builds/list_models wrapped in _with_agent_busy, which banners-and-aborts on TargetCallError since Task 3.2 \u2014 the screen never mounts), so no change there. KNOWN SIBLING (out of Task 3.3's named scope): ConfigPickerScreen (config_picker.py:116, opened by 'c' from the cached registry) shows the same 'No configs yet' copy offline; fixing it needs the connection state passed into the screen constructor \u2014 flagged for follow-up. Tests: tests/test_tui_smoke.py::{test_configs_card_reports_target_unreachable_when_disconnected_and_empty, test_configs_card_keeps_first_run_copy_when_connected_and_empty, test_configs_card_keeps_cached_entries_and_flags_unreachable_when_disconnected, test_reconnect_restores_normal_configs_card}. Task 3.5 (bug-253, commit b442dfd) extended this immediate-render contract to keepalive-detected drops and auto-recovery flips, which previously only refreshed chrome and left the offline card frozen.",
       "tags": [
         "tui",
         "dashboard",
@@ -4625,10 +4625,10 @@
     {
       "id": "bug-254",
       "timestamp": "2026-07-11T08:53:13+00:00",
-      "error_message": "Task 3.4 premise: 'model verify (v in the Model Manager) dumps you on the dashboard instead of reopening the Model Manager the way build verify does.' On investigation the reported asymmetry no longer reproduces at HEAD a88fb84 — _verify_model already reopens the Model Manager on success.",
+      "error_message": "Task 3.4 premise: 'model verify (v in the Model Manager) dumps you on the dashboard instead of reopening the Model Manager the way build verify does.' On investigation the reported asymmetry no longer reproduces at HEAD a88fb84 \u2014 _verify_model already reopens the Model Manager on success.",
       "file": "src/vela/tui/app.py",
       "root_cause": "The model-verify asymmetry was real historically but was already resolved on 2026-06-10 in commit 3f7df485 (journey-friction punchlist J30, 'maintenance actions land the user back in the refreshed manager'): _verify_model ends with self._reopen_manager_later(lambda: self._open_model_manager(focus_model=model_ref)), symmetric with _verify_build's self._reopen_manager_later(_open_build_manager). The 2026-07-09 remediation plan was written from stale pre-drift line numbers (~2364-2376) and did not observe the June-10 fix. The only genuine remaining gap was TEST coverage of the FAILURE-path symmetry: both verbs funnel failures through _with_agent_busy (TargetCallError -> unified remediation banner via _mark_target_connection_error -> returns None -> `if result is None: return`, so NEITHER reopens after a failure), but only the model failure path was pinned (test_verify_model_banner_on_failure_keeps_state_sane); the build failure path was unpinned.",
-      "fix": "FIXED 2026-07-11 commit f661885 (Task 3.4). No production change needed and none made — model verify already reopens the Model Manager (pre-existing passing test_verify_model_reopens_manager_focused proves it; src/vela/tui/app.py is byte-for-byte unchanged). Symmetry decision recorded: neither verb reopens after a failure banner; both reopen only on success. Closed the coverage gap by adding tests/test_tui_smoke.py::test_verify_build_banner_on_failure_keeps_state_sane, which pins the previously-unpinned build side: a failed verify_build banners-and-aborts (AGENT_UNREACHABLE) and never reopens the Build Manager (stays on _default; list_builds is never issued, even by a DEFERRED reopen — the test waits 0.2s past the 0.05s _reopen_manager_later set_timer and asserts client.list_builds_calls == 0). Mutation-verified RED: injecting _reopen_manager_later into the _verify_build failure branch turns the test RED (AssertionError: 'build-manager' == '_default'); reverting restores GREEN. Gate: smoke 267 (266 baseline + 1), ruff + mypy clean. (Unrelated pre-existing full-suite flake observed once: test_flag_manager_open_shows_busy_verb_loading_flags -> NoMatches SelectOverlay on Select#flag-manager-preset; passes 3/3 in isolation, not caused by this test-only change.)",
+      "fix": "FIXED 2026-07-11 commit f661885 (Task 3.4). No production change needed and none made \u2014 model verify already reopens the Model Manager (pre-existing passing test_verify_model_reopens_manager_focused proves it; src/vela/tui/app.py is byte-for-byte unchanged). Symmetry decision recorded: neither verb reopens after a failure banner; both reopen only on success. Closed the coverage gap by adding tests/test_tui_smoke.py::test_verify_build_banner_on_failure_keeps_state_sane, which pins the previously-unpinned build side: a failed verify_build banners-and-aborts (AGENT_UNREACHABLE) and never reopens the Build Manager (stays on _default; list_builds is never issued, even by a DEFERRED reopen \u2014 the test waits 0.2s past the 0.05s _reopen_manager_later set_timer and asserts client.list_builds_calls == 0). Mutation-verified RED: injecting _reopen_manager_later into the _verify_build failure branch turns the test RED (AssertionError: 'build-manager' == '_default'); reverting restores GREEN. Gate: smoke 267 (266 baseline + 1), ruff + mypy clean. (Unrelated pre-existing full-suite flake observed once: test_flag_manager_open_shows_busy_verb_loading_flags -> NoMatches SelectOverlay on Select#flag-manager-preset; passes 3/3 in isolation, not caused by this test-only change.)",
       "tags": [
         "tui",
         "verify",
@@ -4654,7 +4654,7 @@
       "error_message": "Target Manager: width:100 two-pane MasterDetail clips past 80 cols; modal resizes/jumps arrowing between targets; detail is a constructor snapshot so R Reconnect does nothing visibly; footer hints overflow (last clipped) and v view all missing",
       "file": "src/vela/tui/screens/target_manager.py; src/vela/tui/app.py",
       "root_cause": "Fixed width:100 box + content-hugging two-pane MasterDetail; screen held a frozen constructor snapshot with no live-refresh path; single-row KeyHintBar cannot fit the verb set at 80 cols.",
-      "fix": "CLOSED (Phase-4 gate, Task 4.2, commits 0f3ffed + fa9fc52). Task 4.2 (bug-237 slice): shared 4.1 modal frame (MODAL_PANEL_CSS/MODAL_LIST_CSS) + full-width list-in-a-VerticalScroll stacked above the detail; footer packs _FOOTER_HINTS into KeyHintBar rows docked to the panel bottom (v view all added); refresh_target_state(payload) re-renders in place, called by app _reconnect_target when the manager is top-of-stack; action_reconnect shows reconnecting… immediately.",
+      "fix": "CLOSED (Phase-4 gate, Task 4.2, commits 0f3ffed + fa9fc52). Task 4.2 (bug-237 slice): shared 4.1 modal frame (MODAL_PANEL_CSS/MODAL_LIST_CSS) + full-width list-in-a-VerticalScroll stacked above the detail; footer packs _FOOTER_HINTS into KeyHintBar rows docked to the panel bottom (v view all added); refresh_target_state(payload) re-renders in place, called by app _reconnect_target when the manager is top-of-stack; action_reconnect shows reconnecting\u2026 immediately.",
       "tags": [
         "tui",
         "layout",
@@ -4675,7 +4675,7 @@
     {
       "id": "bug-257",
       "timestamp": "2026-07-11T11:18:55Z",
-      "error_message": "Task 4.2 review (Fable 5): a FAILED reconnect fired from the open Target Manager leaves the modal stuck at the optimistic 'reconnecting…' (header dot + list dot + connection row) forever while app.target_connection_state is 'unreachable' and the chrome shows the unreachable banner — modal contradicts chrome.",
+      "error_message": "Task 4.2 review (Fable 5): a FAILED reconnect fired from the open Target Manager leaves the modal stuck at the optimistic 'reconnecting\u2026' (header dot + list dot + connection row) forever while app.target_connection_state is 'unreachable' and the chrome shows the unreachable banner \u2014 modal contradicts chrome.",
       "file": "src/vela/tui/app.py",
       "root_cause": "_reconnect_target (app.py:2610) has no try/finally: _ensure_target_client_connected re-raises on BOTH failure paths (TargetCallError app.py:4477-4479, generic Exception app.py:4480-4488), so the worker dies before the tail _refresh_open_target_manager() (app.py:2628) ever runs. Nothing else refreshes the open manager (keepalive never calls it), so the truthful failed state is never pushed into the modal.",
       "fix": "FIXED 2026-07-11 commit fa9fc52 (red-green, reviewer-verified in two RED configs): _reconnect_target body after the disconnect wrapped in try/finally with _refresh_open_target_manager() in the finally (single refresh on every path); plus the keepalive's two state-change branches (_mark_target_disconnected drop, _target_keepalive_once not-was_connected recovery flip) also call it so an open manager tracks mid-session drops/recoveries. Pinned by test_target_manager_failed_reconnect_renders_truthfully and test_target_manager_tracks_keepalive_drop_and_recovery_while_open.",
@@ -4698,10 +4698,10 @@
     {
       "id": "bug-264",
       "timestamp": "2026-07-11T00:00:00Z",
-      "error_message": "Model Manager: width:104 two-pane MasterDetail clips even at 100 cols; against a real HF cache the ~33-col list pane wraps every row into interleaved SHA fragments; sizes read 0.0 GB for metadata-only caches; 'files: 1 unknown' renders raw. Unscannable — and it's the screen where you decide what to deploy.",
+      "error_message": "Model Manager: width:104 two-pane MasterDetail clips even at 100 cols; against a real HF cache the ~33-col list pane wraps every row into interleaved SHA fragments; sizes read 0.0 GB for metadata-only caches; 'files: 1 unknown' renders raw. Unscannable \u2014 and it's the screen where you decide what to deploy.",
       "file": "src/vela/tui/screens/model_manager.py; src/vela/tui/widgets/keyhintbar.py; src/vela/tui/widgets/__init__.py",
       "root_cause": "Fixed width:104 box + side-by-side MasterDetail squeezed the list pane so long rows (full commit sha + quant + 'unique/nominal' size) soft-wrapped into interleaved fragments; the list row rendered the FULL sha and raw 'N unknown' files; small metadata-only caches formatted as 0.0 GB via _gb_label.",
-      "fix": "CLOSED (Phase-4 gate, Task 4.3, commit 8c278ed). Task 4.3 (bug-237 slice): shared 4.1 modal frame (MODAL_PANEL_CSS/MODAL_LIST_CSS) replaces width:104; full-width list-in-a-VerticalScroll stacked above the detail (Task 4.2 precedent); new one-line row grammar {dot} {name-truncated} {source_tag} {cache_state} {size} {sha8}. Name truncates (cell-aware ellipsis) to the width-derived content region so rows never wrap; size shows '—' for zero/metadata-only(all-unknown-weights) caches and '<0.1 GB' for small-but-real (never 0.0 GB); only the 8-char short sha is in the row (full sha stays in the detail); sha8 drops <100 cols then size drops <80 cols (self.size.width breakpoints, re-rendered via on_resize). Pinned rows are cyan(modeled)/violet(url passthrough)/amber(unpinned cache-scan) via the shared source_tag palette; detail gains 'pinned:' and 'quant:' lines. _pack_hint_rows hoisted to widgets/keyhintbar.pack_hint_rows and consumed by BOTH managers; footer docked at the panel bottom.",
+      "fix": "CLOSED (Phase-4 gate, Task 4.3, commit 8c278ed). Task 4.3 (bug-237 slice): shared 4.1 modal frame (MODAL_PANEL_CSS/MODAL_LIST_CSS) replaces width:104; full-width list-in-a-VerticalScroll stacked above the detail (Task 4.2 precedent); new one-line row grammar {dot} {name-truncated} {source_tag} {cache_state} {size} {sha8}. Name truncates (cell-aware ellipsis) to the width-derived content region so rows never wrap; size shows '\u2014' for zero/metadata-only(all-unknown-weights) caches and '<0.1 GB' for small-but-real (never 0.0 GB); only the 8-char short sha is in the row (full sha stays in the detail); sha8 drops <100 cols then size drops <80 cols (self.size.width breakpoints, re-rendered via on_resize). Pinned rows are cyan(modeled)/violet(url passthrough)/amber(unpinned cache-scan) via the shared source_tag palette; detail gains 'pinned:' and 'quant:' lines. _pack_hint_rows hoisted to widgets/keyhintbar.pack_hint_rows and consumed by BOTH managers; footer docked at the panel bottom.",
       "tags": [
         "tui",
         "layout",
@@ -4724,9 +4724,9 @@
     {
       "id": "bug-279",
       "timestamp": "2026-07-11T15:45:00Z",
-      "error_message": "textual._node_list.DuplicateIds: Tried to insert a widget with ID 'confirm', but a widget already exists with that ID (ConfirmScreen) — invoking action_quit or action_kill (e.g. command-palette 'Quit app'/'Kill') while a ConfirmScreen is already open crashes the TUI",
+      "error_message": "textual._node_list.DuplicateIds: Tried to insert a widget with ID 'confirm', but a widget already exists with that ID (ConfirmScreen) \u2014 invoking action_quit or action_kill (e.g. command-palette 'Quit app'/'Kill') while a ConfirmScreen is already open crashes the TUI",
       "file": "src/vela/tui/app.py",
-      "root_cause": "action_quit and action_kill push a fresh ConfirmScreen(id='confirm') unconditionally. With one already on the stack, Textual's node registration raises DuplicateIds (ids must be unique). A bubbled keyboard q does NOT reproduce (the open ModalScreen swallows the unhandled key), but any DIRECT invocation — the palette command, or a second action call — does. Observed in Task 1.3's self-review as 'q can push a second ConfirmScreen'.",
+      "root_cause": "action_quit and action_kill push a fresh ConfirmScreen(id='confirm') unconditionally. With one already on the stack, Textual's node registration raises DuplicateIds (ids must be unique). A bubbled keyboard q does NOT reproduce (the open ModalScreen swallows the unhandled key), but any DIRECT invocation \u2014 the palette command, or a second action call \u2014 does. Observed in Task 1.3's self-review as 'q can push a second ConfirmScreen'.",
       "fix": "CLOSED (Phase-4 gate, Task 4.8, commit 3a1dba0). Guard both openers: `if isinstance(self.screen, ConfirmScreen): return` at the top of action_quit and action_kill, so exactly one confirm is ever live. Test: test_quit_and_kill_do_not_stack_a_second_confirm (RED = DuplicateIds crash on action_quit() with a confirm open).",
       "tags": [
         "tui",
@@ -4747,10 +4747,10 @@
     {
       "id": "bug-280",
       "timestamp": "2026-07-11T20:00:00Z",
-      "error_message": "Wizard flag-customize review (_review_customized_new_deployment) ran its validate_config+preview RPCs with banners but no busy badge, so a slow agent left the customize→review step looking frozen — unlike the plain compose/review path which paints 'composing…'.",
+      "error_message": "Wizard flag-customize review (_review_customized_new_deployment) ran its validate_config+preview RPCs with banners but no busy badge, so a slow agent left the customize\u2192review step looking frozen \u2014 unlike the plain compose/review path which paints 'composing\u2026'.",
       "file": "src/vela/tui/app.py",
       "root_cause": "_review_customized_new_deployment never wrapped its RPCs in _busy_badge; only _review_new_deployment did.",
-      "fix": "Task 4.11/A1 (commit 0c4577e): wrapped the validate+preview RPCs in `with self._busy_badge('composing…')`, scoped to the RPCs only (no nesting), matching _review_new_deployment exactly. Red-green: test_customize_review_shows_composing_busy_verb (Event-gated on validate_config; RED = badge never appears while the RPC is gated).",
+      "fix": "Task 4.11/A1 (commit 0c4577e): wrapped the validate+preview RPCs in `with self._busy_badge('composing\u2026')`, scoped to the RPCs only (no nesting), matching _review_new_deployment exactly. Red-green: test_customize_review_shows_composing_busy_verb (Event-gated on validate_config; RED = badge never appears while the RPC is gated).",
       "tags": [
         "tui",
         "busy-badge",
@@ -4769,7 +4769,7 @@
       "timestamp": "2026-07-11T20:00:00Z",
       "error_message": "A background job (e.g. a download) that finished while the server was READY/DEGRADED left its last streamed percent frozen in the transient panel ('87% 7/8') over a settled server.",
       "file": "src/vela/tui/app.py",
-      "root_cause": "The job_done→ProgressUpdated('Job complete') message is pumped AFTER _run_target_job's finally clears _active_job_id, so the 4.9 PROGRESS_SUPPRESSED_PHASES gate in _update_progress drops the final text swap and the stale percent stays on screen.",
+      "root_cause": "The job_done\u2192ProgressUpdated('Job complete') message is pumped AFTER _run_target_job's finally clears _active_job_id, so the 4.9 PROGRESS_SUPPRESSED_PHASES gate in _update_progress drops the final text swap and the stale percent stays on screen.",
       "fix": "Task 4.11/A2 (commit 667dc66): on job end, if self.phase is in PROGRESS_SUPPRESSED_PHASES, _run_target_job's finally now calls _clear_progress() to hide the transient panel instead of leaving the stale percent (showing 'Job complete' over a READY server would just add noise). Live jobs and non-suppressed phases are unchanged. Red-green: test_progress_panel_hides_when_job_ends_while_ready (a gated download renders its percent while READY, then the panel must be hidden on job end; RED = stale percent remained).",
       "tags": [
         "tui",
@@ -4787,7 +4787,7 @@
     {
       "id": "bug-282",
       "timestamp": "2026-07-11T20:00:00Z",
-      "error_message": "During an attached restart, the OLD run's monitor could fire a spurious 'Stopped <old-id>' operator-closure toast if its exit-event drain finished before the restart response re-pointed current_run_id (racy — empirically immune but not guaranteed).",
+      "error_message": "During an attached restart, the OLD run's monitor could fire a spurious 'Stopped <old-id>' operator-closure toast if its exit-event drain finished before the restart response re-pointed current_run_id (racy \u2014 empirically immune but not guaranteed).",
       "file": "src/vela/tui/app.py",
       "root_cause": "_monitor_attached_run announces operator stop when its terminal guard sees current_run_id == run_id; restart re-pointed current_run_id only inside _monitor_restart_result (AFTER the restart RPC response), so the losing interleave let the old monitor consume the intent and announce.",
       "fix": "Task 4.11/A3 (commit a3493d7): re-point self.current_run_id = None in _restart_attached_run BEFORE the restart RPC, so the old monitor's `current_run_id != run_id` guard fires deterministically regardless of drain/response interleave; _monitor_restart_result then re-points it to the replacement run. Red-green: test_restart_never_announces_operator_stop_for_the_old_run forces the losing interleave with a gated restart RPC (the old monitor runs to its terminal guard before the response returns) and asserts no operator-closure announce for the old run (RED = announced == ['run-1']).",
@@ -4810,7 +4810,7 @@
       "timestamp": "2026-07-11T18:34:10.307Z",
       "error_message": "Missing error handling in test_docker_supervisor_classifies_pull_timeout_and_streams_progress",
       "file": "tests/test_docker_supervisor.py",
-      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "root_cause": "Code path had no error handling \u2014 exceptions would propagate uncaught",
       "fix": "Added try/catch block",
       "tags": [
         "auto-detected",
@@ -4827,7 +4827,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/engine/supervisor.py",
       "root_cause": "10 lines replaced/restructured",
-      "fix": "Rewrote 70→94 lines (10 removed) | Also: def _write_docker_failure_log(; payload: dict,",
+      "fix": "Rewrote 70\u219294 lines (10 removed) | Also: def _write_docker_failure_log(; payload: dict,",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4858,7 +4858,7 @@
       "timestamp": "2026-07-11T19:16:10.243Z",
       "error_message": "Missing await",
       "file": "tests/test_agent_client.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -4891,7 +4891,7 @@
       "error_message": "Wrong reference: PhaseFSM should be Phase",
       "file": "src/vela/agent/local.py",
       "root_cause": "Used \"PhaseFSM\" instead of \"Phase\"",
-      "fix": "Changed PhaseFSM → Phase",
+      "fix": "Changed PhaseFSM \u2192 Phase",
       "tags": [
         "auto-detected",
         "wrong-reference",
@@ -4907,7 +4907,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/agent/local.py",
       "root_cause": "5 lines replaced/restructured",
-      "fix": "Rewrote 9→10 lines (5 removed)",
+      "fix": "Rewrote 9\u219210 lines (5 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4923,7 +4923,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_agent_client.py",
       "root_cause": "10 lines replaced/restructured",
-      "fix": "Rewrote 32→55 lines (10 removed)",
+      "fix": "Rewrote 32\u219255 lines (10 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4955,7 +4955,7 @@
       "error_message": "H2: prelaunch model gate never checked cache state; a remote_only pin launched anyway, letting a multi-GB fetch run inside vLLM startup and silently burn ready_timeout_seconds, and the registry still read remote_only afterward (nothing learned from a successful launch).",
       "file": "src/vela/agent/local.py",
       "root_cause": "_validate_model_handoff_prelaunch validated pin metadata (sha, HF_TOKEN, offline conflict) but not cache_state, and no code path updated cache_state from a successful READY.",
-      "fix": "Added _model_not_cached_descriptor: an uncached hf_repo handoff now yields a structured model-not-cached warning in prepare_launch (additive launch_warnings field + the string promoted onto build.warnings so the TUI banner and CLI stderr surface it). launch.require_cached_models (schema) / --require-cached (run/smoke/smoke-tui) upgrade it to a preflight failure (ErrorKind.MODEL_NOT_CACHED) in _prepare_launch and _preflight. Bare unpinned models only warn (never gate). On READY, _probe_until_ready best-effort re-scans via refresh_models so the registry learns the entry is now cached. Follow-up (review fix, same change set): the post-READY refresh now runs off the event loop (asyncio.to_thread for resolve_model_handoff + refresh_models — refresh is a blocking full HF-cache walk under an exclusive flock with no timeout) and skips entirely when the handoff is already cached, so happy-path launches pay no scan tax and the agent loop can never freeze at READY.",
+      "fix": "Added _model_not_cached_descriptor: an uncached hf_repo handoff now yields a structured model-not-cached warning in prepare_launch (additive launch_warnings field + the string promoted onto build.warnings so the TUI banner and CLI stderr surface it). launch.require_cached_models (schema) / --require-cached (run/smoke/smoke-tui) upgrade it to a preflight failure (ErrorKind.MODEL_NOT_CACHED) in _prepare_launch and _preflight. Bare unpinned models only warn (never gate). On READY, _probe_until_ready best-effort re-scans via refresh_models so the registry learns the entry is now cached. Follow-up (review fix, same change set): the post-READY refresh now runs off the event loop (asyncio.to_thread for resolve_model_handoff + refresh_models \u2014 refresh is a blocking full HF-cache walk under an exclusive flock with no timeout) and skips entirely when the handoff is already cached, so happy-path launches pay no scan tax and the agent loop can never freeze at READY.",
       "tags": [
         "model-registry",
         "lifecycle",
@@ -4979,7 +4979,7 @@
       "error_message": "Significant refactor of ",
       "file": "tests/test_agent_client.py",
       "root_cause": "36 lines replaced/restructured",
-      "fix": "Rewrote 122→157 lines (36 removed)",
+      "fix": "Rewrote 122\u2192157 lines (36 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -4994,7 +4994,7 @@
       "timestamp": "2026-07-11T19:52:42.530Z",
       "error_message": "Missing await",
       "file": "src/vela/agent/local.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -5011,7 +5011,7 @@
       "error_message": "Significant refactor of ",
       "file": "docs/builds-and-models.md",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 3→5 lines (3 removed)",
+      "fix": "Rewrote 3\u21925 lines (3 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5026,7 +5026,7 @@
       "timestamp": "2026-07-11T20:24:30.641Z",
       "error_message": "Missing await",
       "file": "tests/test_agent_client.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -5042,7 +5042,7 @@
       "timestamp": "2026-07-11T20:25:06.868Z",
       "error_message": "Missing error handling in _docker_missing_hf_cache_mount_descriptor",
       "file": "src/vela/agent/local.py",
-      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "root_cause": "Code path had no error handling \u2014 exceptions would propagate uncaught",
       "fix": "Added try/catch block",
       "tags": [
         "auto-detected",
@@ -5056,7 +5056,7 @@
     {
       "id": "bug-284",
       "timestamp": "2026-07-11T00:00:00Z",
-      "error_message": "H3: a composed generic Docker deployment of an hf_repo model got NO HF cache mount by default (docker.hf_cache=None), so 'Download now'/'vela model download' pre-warmed the agent HF cache the container never saw — every fresh container re-downloaded the model and the pre-download was wasted disk. Also blunted the 5.2 uncached-model launch gate for docker runs (agent registry is only truthful for the container if it mounts the host HF cache).",
+      "error_message": "H3: a composed generic Docker deployment of an hf_repo model got NO HF cache mount by default (docker.hf_cache=None), so 'Download now'/'vela model download' pre-warmed the agent HF cache the container never saw \u2014 every fresh container re-downloaded the model and the pre-download was wasted disk. Also blunted the 5.2 uncached-model launch gate for docker runs (agent registry is only truthful for the container if it mounts the host HF cache).",
       "file": "src/vela/engine/composer.py",
       "root_cause": "composer._runtime_command built the generic (non-recipe) docker block with only image + container_name; nothing set docker.hf_cache, and registry downloads use huggingface_hub's default HF_HUB_CACHE (under HF_HOME) which the container's own filesystem does not share. Only the two hard-coded Blackbird recipes mounted a cache.",
       "fix": "Added model_registry.default_hf_home_dir() / default_hf_hub_cache_dir() resolvers anchored on huggingface_hub.constants (same tree snapshot_download/scan_cache_dir use). composer._runtime_command now takes model_context and, for a generic (recipe is None) docker deploy of an hf_repo model (pinned via model_ref OR bare repo id), setdefault's docker.hf_cache to str(default_hf_home_dir()); local-path and url models get no auto-mount and an explicit/recipe value always wins (recipes stay byte-identical). For hand-written YAML, local.py._prepare_launch now appends a structured 'docker-no-hf-cache-mount' launch warning (additive, 5.2 launch_warnings shape; promoted onto build.warnings for the banner) when a docker+hf_repo launch has no hf_cache and no volume covering the resolved cache dir; warning-only, detail carries model identity only (no agent path, bug-225). Docs (docker-runtime.md, builds-and-models.md) document the default mount and the warning.",
@@ -5099,7 +5099,7 @@
       "timestamp": "2026-07-11T21:08:56.131Z",
       "error_message": "Missing await",
       "file": "tests/test_agent_client.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -5116,7 +5116,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/agent/local.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 13→49 lines (2 removed) | Also: if cache is not None and cache[\"gateable\"] and cfg; return {\"ok\": not failures, \"failures\": failures}",
+      "fix": "Rewrote 13\u219249 lines (2 removed) | Also: if cache is not None and cache[\"gateable\"] and cfg; return {\"ok\": not failures, \"failures\": failures}",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5131,7 +5131,7 @@
       "timestamp": "2026-07-11T21:18:20.684Z",
       "error_message": "Missing await",
       "file": "tests/test_agent_client.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -5148,7 +5148,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/engine/model_registry.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 20→80 lines (3 removed)",
+      "fix": "Rewrote 20\u219280 lines (3 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5207,7 +5207,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/engine/model_registry.py",
       "root_cause": "7 lines replaced/restructured",
-      "fix": "Rewrote 45→66 lines (7 removed)",
+      "fix": "Rewrote 45\u219266 lines (7 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5223,7 +5223,7 @@
       "error_message": "Significant refactor of ",
       "file": "docs/builds-and-models.md",
       "root_cause": "6 lines replaced/restructured",
-      "fix": "Rewrote 6→10 lines (6 removed)",
+      "fix": "Rewrote 6\u219210 lines (6 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5238,7 +5238,7 @@
       "timestamp": "2026-07-11T22:39:23.906Z",
       "error_message": "Missing await",
       "file": "tests/test_agent_client.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call",
       "tags": [
         "auto-detected",
@@ -5255,7 +5255,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/engine/model_registry.py",
       "root_cause": "2 lines replaced/restructured",
-      "fix": "Rewrote 56→104 lines (2 removed)",
+      "fix": "Rewrote 56\u2192104 lines (2 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5270,7 +5270,7 @@
       "timestamp": "2026-07-11T22:44:33.226Z",
       "error_message": "Missing await",
       "file": "tests/test_agent_client.py",
-      "root_cause": "Async call without await — returned Promise instead of value",
+      "root_cause": "Async call without await \u2014 returned Promise instead of value",
       "fix": "Added await to async call | Also: async def test_entry_for_reference_display_name_ambiguous_li; tmp_path: Path,",
       "tags": [
         "auto-detected",
@@ -5287,7 +5287,7 @@
       "error_message": "Significant refactor of ",
       "file": "docs/builds-and-models.md",
       "root_cause": "4 lines replaced/restructured",
-      "fix": "Rewrote 4→14 lines (4 removed)",
+      "fix": "Rewrote 4\u219214 lines (4 removed)",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5346,7 +5346,7 @@
     {
       "id": "bug-289",
       "timestamp": "2026-07-12T01:30:00.000Z",
-      "error_message": "5.6/5.7 review carry-forwards (open, not regressions): (a) vela model download X --revision other ends with CLI 'DONE ... model cached' — _default_model_job_runner (local.py ~3136) hardcodes the detail and discards download_hf_model's 'downloaded revision X; pin unchanged'; no human surface names the fetched revision (only --json/verify do). (b) A sha-less pin (offline pin, commit_sha None + revision None) that side-downloads a divergent revision gets silently ADOPTED by the next refresh_models: _matching_hf_payload_for_entry's both-None fallback matches the side snapshot, _apply_cached_model_payload sets commit_sha/cached, and the revision-divergence warning self-disarms (last_download_sha == commit_sha). (c) last_download_revision/sha are never refreshed by a later pinned re-download, so the verify divergence warning text misattributes 'last download'. (d) MODEL_INSPECT_FIELDS lacks last_download_revision/last_download_sha, so text inspect cannot show the divergence.",
+      "error_message": "5.6/5.7 review carry-forwards (open, not regressions): (a) vela model download X --revision other ends with CLI 'DONE ... model cached' \u2014 _default_model_job_runner (local.py ~3136) hardcodes the detail and discards download_hf_model's 'downloaded revision X; pin unchanged'; no human surface names the fetched revision (only --json/verify do). (b) A sha-less pin (offline pin, commit_sha None + revision None) that side-downloads a divergent revision gets silently ADOPTED by the next refresh_models: _matching_hf_payload_for_entry's both-None fallback matches the side snapshot, _apply_cached_model_payload sets commit_sha/cached, and the revision-divergence warning self-disarms (last_download_sha == commit_sha). (c) last_download_revision/sha are never refreshed by a later pinned re-download, so the verify divergence warning text misattributes 'last download'. (d) MODEL_INSPECT_FIELDS lacks last_download_revision/last_download_sha, so text inspect cannot show the divergence.",
       "file": "src/vela/agent/local.py",
       "root_cause": "Job runner surfaces a fixed success detail; the scan-merge fallback for sha-less+revision-less pins predates M2 and adopts any cached snapshot of the repo; last_download_* is write-once until re-pin.",
       "fix": "CLOSED in Phase 5. Item (b) sha-less side-download adoption -> bug-290 (M5, Task 5.8): _matching_hf_payload_for_entry withholds its both-None fallback when last_download_* is present. Items (a) job-runner honest detail, (c) matching-download clears stale last_download_*, (d) MODEL_INSPECT_FIELDS gains last_download_* -> bug-291 (Task 5.9). Phase 5 gate (Tasks 5.1-5.10). Commits: 3e959f0 (5.8/M5), ac9fd27 (5.9/M6-M7-L2-L3), plus the phase-5 gate commit.",
@@ -5372,7 +5372,7 @@
       "error_message": "Significant refactor of ",
       "file": "src/vela/engine/model_registry.py",
       "root_cause": "3 lines replaced/restructured",
-      "fix": "Rewrote 14→19 lines (3 removed) | Also: # own sha is only adopted when the operator gave n; info = None",
+      "fix": "Rewrote 14\u219219 lines (3 removed) | Also: # own sha is only adopted when the operator gave n; info = None",
       "tags": [
         "auto-detected",
         "refactor",
@@ -5413,7 +5413,7 @@
       "error_message": "Lifecycle-tail correctness gaps (Task 5.9): (M6) prelaunch build integrity only checked an explicit command.build, so a tampered ACTIVE/default build launched unchecked. (M7) no size-aware disk check: an uncached pinned model of known size could be launched/downloaded onto a disk too small. (L2) select_profile_for_config probed the HOST `vllm --help` for docker-runtime configs. (L3) verify of a URL entry returned the misleading hf_repo 'remote_only'. _evict_docker_containers ran docker stop/rm with NO timeout. bug-289 carry-forwards: (a) the download job hardcoded 'model cached'; (c) a matching re-download never cleared stale last_download_*; (d) MODEL_INSPECT_FIELDS omitted last_download_*.",
       "file": "src/vela/agent/local.py",
       "root_cause": "Integrity/disk/profile/verify paths special-cased the common case and missed the resolved/default target; eviction predated the 5.1 per-command timeout; the download job + inspect surface predated last_download_* tracking.",
-      "fix": "(M6) _check_build_launch_integrity resolves `cfg.command.build or active_build_id(builds_root)`. (M7) preflight.hf_cache_download_disk_detail (wire-scrubbed) gates check_launch_preflight (hf_cache_dir/expected_download_bytes) and the download path (_check_hf_download_disk) at free > size×1.1. (L2) select_profile_for_config returns bundled_profile unfiltered for RuntimeKind.DOCKER. (L3) _verify_metadata_model_entry short-circuits url; the download runner handles url before the cached short-circuit. _evict_docker_containers passes timeout=DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS + catches TimeoutExpired. Job runner surfaces downloaded.get('detail'); non-override download clears last_download_*; MODEL_INSPECT_FIELDS gains last_download_*. (M6 guard: docker-runtime configs skip the venv-build integrity check — a docker launch uses the image, not the resolved active venv build.)",
+      "fix": "(M6) _check_build_launch_integrity resolves `cfg.command.build or active_build_id(builds_root)`. (M7) preflight.hf_cache_download_disk_detail (wire-scrubbed) gates check_launch_preflight (hf_cache_dir/expected_download_bytes) and the download path (_check_hf_download_disk) at free > size\u00d71.1. (L2) select_profile_for_config returns bundled_profile unfiltered for RuntimeKind.DOCKER. (L3) _verify_metadata_model_entry short-circuits url; the download runner handles url before the cached short-circuit. _evict_docker_containers passes timeout=DEFAULT_DOCKER_COMMAND_TIMEOUT_SECONDS + catches TimeoutExpired. Job runner surfaces downloaded.get('detail'); non-override download clears last_download_*; MODEL_INSPECT_FIELDS gains last_download_*. (M6 guard: docker-runtime configs skip the venv-build integrity check \u2014 a docker launch uses the image, not the resolved active venv build.)",
       "tags": [
         "local-agent",
         "preflight",
@@ -5484,9 +5484,9 @@
     {
       "id": "bug-294",
       "timestamp": "2026-07-11T23:59:00Z",
-      "error_message": "conftest _VELA_STATE_ENV_KEYS lists VELA_AGENT_RUNTIME_DIR with a 'Clear it' comment, but isolated_vela_state never pops it — a shell-exported VELA_AGENT_RUNTIME_DIR (top D5 precedence, now advertised in docs/configuration.md) escapes suite isolation: sockets resolve outside the session dir and the session teardown runs 'vela agent stop' against the real dir.",
+      "error_message": "conftest _VELA_STATE_ENV_KEYS lists VELA_AGENT_RUNTIME_DIR with a 'Clear it' comment, but isolated_vela_state never pops it \u2014 a shell-exported VELA_AGENT_RUNTIME_DIR (top D5 precedence, now advertised in docs/configuration.md) escapes suite isolation: sockets resolve outside the session dir and the session teardown runs 'vela agent stop' against the real dir.",
       "file": "tests/conftest.py",
-      "root_cause": "The key was added to the snapshot/restore tuple only; adding a key to _VELA_STATE_ENV_KEYS does not clear it — the fixture body sets the four XDG keys but never os.environ.pop()s the vela override.",
+      "root_cause": "The key was added to the snapshot/restore tuple only; adding a key to _VELA_STATE_ENV_KEYS does not clear it \u2014 the fixture body sets the four XDG keys but never os.environ.pop()s the vela override.",
       "fix": "isolated_vela_state now os.environ.pop('VELA_AGENT_RUNTIME_DIR', None) after the snapshot (the _VELA_STATE_ENV_KEYS teardown loop restores it). Regression test test_isolation_fixture_clears_shell_vela_agent_runtime_dir drives the fixture generator directly (__wrapped__) with a shell export in place and asserts the isolated XDG_RUNTIME_DIR wins + the export is restored at teardown.",
       "tags": [
         "tests",
@@ -5502,6 +5502,162 @@
       "occurrences": 1,
       "last_seen": "2026-07-11T21:30:00Z",
       "status": "fixed"
+    },
+    {
+      "id": "bug-295",
+      "timestamp": "2026-07-12",
+      "error_message": "keepalive recovery-flip config-preview refresh raced a concurrent _switch_target",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "The recovery flip's _refresh_selected_config_preview await was a second switch window after the registry-reload guard: a _switch_target completing during it let the OLD target's preview overwrite selected_config_preview and poison _config_preview_cache under the NEW config name; the switch's disconnect() could also fail the in-flight preview future with RuntimeError, which _refresh_selected_config_preview (catches TargetCallError only) let escape and kill the _poll_target_keepalive while-True loop.",
+      "fix": "Added _keepalive_refresh_preview(generation): captures config, guards the apply on the pre-reload generation + a live current_config, and swallows the link RuntimeError so the loop survives.",
+      "tags": [
+        "tui",
+        "keepalive",
+        "race",
+        "phase-6-followup",
+        "config-preview"
+      ],
+      "related_bugs": [
+        "bug-293"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-12"
+    },
+    {
+      "id": "bug-296",
+      "timestamp": "2026-07-12",
+      "error_message": "vela agent diagnose reported a socket path the daemon never bound when VELA_AGENT_RUNTIME_DIR/XDG_STATE_HOME was set",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "The diagnose RPC's paths.socket_path used a pre-D5 local helper (XDG_RUNTIME_DIR-or-home) that ignored the D5 precedence.",
+      "fix": "diagnose now uses daemon.default_agent_socket_path() via a function-level cycle-dodge import; the dead pre-D5 local helper was removed.",
+      "tags": [
+        "agent",
+        "diagnose",
+        "socket-path",
+        "d5",
+        "phase-6-followup"
+      ],
+      "related_bugs": [
+        "bug-238"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-12"
+    },
+    {
+      "id": "bug-297",
+      "timestamp": "2026-07-12",
+      "error_message": "text-mode `vela agent start` start-failure did not name the captured stderr log",
+      "file": "src/vela/cli.py",
+      "root_cause": "_format_agent_status dropped the stderr_log key for a non-running/stopped status; only --json and the remediation surface named agent-start.err.",
+      "fix": "_format_agent_status appends `\\n  agent log: <path>` when the status carries stderr_log.",
+      "tags": [
+        "cli",
+        "agent-start",
+        "diagnostics",
+        "phase-6-followup"
+      ],
+      "related_bugs": [
+        "bug-238"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-12"
+    },
+    {
+      "id": "bug-298",
+      "timestamp": "2026-07-12",
+      "error_message": "read_run_artifact unknown-config error reported the default dirs, not the honest --configs-dir",
+      "file": "src/vela/agent/local.py",
+      "root_cause": "The fifth _config_by_name site (_read_run_artifact) did not thread configs_dir, so its unknown-config error's searched_dirs fell back to the two default dirs.",
+      "fix": "Threaded configs_dir=_configs_dir(params) into _config_by_name at _read_run_artifact.",
+      "tags": [
+        "agent",
+        "unknown-config",
+        "searched-dirs",
+        "phase-6-followup"
+      ],
+      "related_bugs": [
+        "bug-238"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-12"
+    },
+    {
+      "id": "bug-299",
+      "timestamp": "2026-07-12",
+      "error_message": "stale-daemon banner advised `vela agent restart` even when the daemon was NEWER than the controller",
+      "file": "src/vela/agent/daemon.py",
+      "root_cause": "stale_local_daemon_banner always emitted the restart wording; restarting a newer daemon is wrong advice (the controller is the stale side).",
+      "fix": "Added direction detection (version tuple, else git-describe distance): a provably-newer daemon gets `controller is older; upgrade the controller or restart the daemon`; the stale wording stays byte-stable.",
+      "tags": [
+        "daemon",
+        "stale-banner",
+        "version-drift",
+        "phase-6-followup"
+      ],
+      "related_bugs": [
+        "bug-238"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-12"
+    },
+    {
+      "id": "bug-300",
+      "timestamp": "2026-07-12",
+      "error_message": "systemd unit Documentation pointed at vllm-project/vllm; ExecStart was PATH-dependent; no HF_TOKEN hook for gated models",
+      "file": "packaging/systemd/vela-agent.service",
+      "root_cause": "The unit predated the rename and used a relative ExecStart with no token hook.",
+      "fix": "Documentation=github.com/bgconley/vela; absolute ExecStart=/usr/local/bin/vela agent run (with a uv-tool comment); commented HF_TOKEN Environment + EnvironmentFile hooks.",
+      "tags": [
+        "packaging",
+        "systemd",
+        "branding",
+        "hf-token",
+        "m7-cli"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-12"
+    },
+    {
+      "id": "bug-301",
+      "timestamp": "2026-07-12T05:41:10Z",
+      "error_message": "Keepalive recovery-flip still dies when a _switch_target lands during the REGISTRY-RELOAD await (first window): the switch's disconnect() fails the in-flight list_configs future with RuntimeError('target client disconnected'), _load_registry_from_agent catches only TargetCallError, so the RuntimeError escapes _target_keepalive_once and kills _poll_target_keepalive's while-loop for the rest of the session.",
+      "file": "src/vela/tui/app.py",
+      "root_cause": "590f1a2 guarded only the SECOND switch window (preview RPC, _keepalive_refresh_preview swallows RuntimeError); the first window (list_configs reload) has the Phase-3 generation guard for stale RESULTS but no guard for the link RuntimeError. socket.py/subprocess.py disconnect() fail pending calls with raw RuntimeError.",
+      "fix": "OPEN \u2014 routed as Phase-7 gate-review carry-forward. Reviewer repro: scratchpad/repro_p7_keepalive.py scenario 'gap' (drives the real _target_keepalive_once + real _switch_target mid-list_configs-await; keepalive task ends with RuntimeError). Suggested fix: catch RuntimeError around the flip's reload (or inside _load_registry_from_agent) the same way _keepalive_refresh_preview does.",
+      "tags": [
+        "tui",
+        "keepalive",
+        "race",
+        "target-switch",
+        "phase-7-review",
+        "open"
+      ],
+      "related_bugs": [
+        "bug-293",
+        "bug-295"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-12T05:41:10Z"
+    },
+    {
+      "id": "bug-302",
+      "timestamp": "2026-07-12T05:41:10Z",
+      "error_message": "Fresh install (no model registry file yet): `vela model inspect ghost` / any model_ref resolution prints 'ERROR: unable to read model registry for ghost' \u2014 a false I/O-failure claim; the honest answer is the 7.5 shape 'Unknown model: ghost / Available models: none' (builds already do this).",
+      "file": "src/vela/engine/model_registry.py",
+      "root_cause": "_load_registry_or_raise has no missing-file short-circuit: path.read_text() on an absent file raises FileNotFoundError (an OSError) -> 'unable to read model registry' (reason: unreadable). Only _load_registry_for_write/list_models tolerate a missing file. The 7.5 plan item 'registry-miss no longer claims an I/O failure' was dropped on a misread of the WRITE path; the READ paths (resolve_model_handoff, inspect_model, model_reference_aliases, _entry_id_for_reference) still claim I/O failure, and the new Unknown-model/Available-models shape is unreachable in the fresh-box case (no `available` in details).",
+      "fix": "OPEN \u2014 routed as Phase-7 gate-review carry-forward. Repro (hermetic): XDG_STATE_HOME=<fresh> vela model inspect ghost -> 'unable to read model registry for ghost'. Suggested fix: treat FileNotFoundError as an empty registry in _load_registry_or_raise (mirror _load_registry_for_write) so the not-found branch attaches available=[] and the CLI renders the 6.3 shape.",
+      "tags": [
+        "model-registry",
+        "cli",
+        "error-shape",
+        "fresh-install",
+        "phase-7-review",
+        "open"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-12T05:41:10Z"
     }
   ]
 }
