@@ -2406,6 +2406,164 @@ async def test_keepalive_flip_discards_reload_after_target_switch(config_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_keepalive_flip_discards_preview_after_target_switch(config_dir: Path) -> None:
+    # Phase-6 follow-up: the recovery-flip's config-preview refresh is a SECOND switch
+    # window (after the registry reload). A _switch_target that commits during the preview
+    # RPC must NOT let this OLD target's preview clobber selected_config_preview or poison
+    # _config_preview_cache under the NEW config's name (sticky until manual reselect).
+    switched = {"done": False}
+
+    class SwitchingPreviewClient:
+        def __init__(self) -> None:
+            self.connected = True
+            self.app: VelaApp | None = None
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, params):
+            if method == "preview":
+                app = self.app
+                assert app is not None
+                # A target switch commits mid-preview-await: bump the generation and
+                # install the NEW target's selected config, then return the OLD preview.
+                app._target_generation += 1
+                app.current_config = tui_app_module.ModelConfig.model_validate(
+                    {"name": "new", "model": "org/new"}
+                )
+                switched["done"] = True
+                return {"preview": "OLD TARGET COMMAND", "warnings": [], "metadata": {}}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {"valid": [], "invalid": []}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("switch-race test should not subscribe")
+
+    client = SwitchingPreviewClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+    client.app = app
+    old_registry = tui_app_module._config_registry_from_agent_payload(
+        {
+            "valid": [
+                {
+                    "path": "/agent/configs/old.yaml",
+                    "name": "old",
+                    "model": "org/model",
+                    "warnings": [],
+                    "config": {"name": "old", "model": "org/model"},
+                }
+            ],
+            "invalid": [],
+        }
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        # Precondition for the recovery-flip branch: link down + no selected config so the
+        # flip sets current_config from the reloaded registry then refreshes the preview.
+        app.target_connection_state = "disconnected"
+        app.current_config = None
+        app.registry = tui_app_module.ConfigRegistry()
+
+        async def reload() -> tui_app_module.ConfigRegistry:
+            # The reload itself does NOT switch; the switch lands during the preview.
+            return old_registry
+
+        app._load_registry_from_agent = reload  # type: ignore[method-assign]
+        await app._target_keepalive_once()
+
+        assert switched["done"], "the flip preview window was never exercised"
+        # The switch owns the preview state now; the stale OLD preview must be discarded.
+        assert app.selected_config_preview != "OLD TARGET COMMAND"
+        assert app._config_preview_cache.get("new") != "OLD TARGET COMMAND"
+
+
+@pytest.mark.asyncio
+async def test_keepalive_flip_preview_link_failure_keeps_loop_alive(config_dir: Path) -> None:
+    # Phase-6 follow-up: a concurrent _switch_target's disconnect() can fail the in-flight
+    # preview future with RuntimeError. _refresh_selected_config_preview catches only
+    # TargetCallError, so the RuntimeError would escape _target_keepalive_once and kill the
+    # _poll_target_keepalive `while True` for the rest of the session. The keepalive flip
+    # must swallow the link error and stay alive.
+    class LinkFailPreviewClient:
+        def __init__(self) -> None:
+            self.connected = True
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, params):
+            if method == "preview":
+                raise RuntimeError("client disconnected")
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {"valid": [], "invalid": []}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("link-fail test should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=LinkFailPreviewClient(),
+        target_ping_interval_seconds=None,
+    )
+    old_registry = tui_app_module._config_registry_from_agent_payload(
+        {
+            "valid": [
+                {
+                    "path": "/agent/configs/old.yaml",
+                    "name": "old",
+                    "model": "org/model",
+                    "warnings": [],
+                    "config": {"name": "old", "model": "org/model"},
+                }
+            ],
+            "invalid": [],
+        }
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        app.target_connection_state = "disconnected"
+        app.current_config = None
+        app.registry = tui_app_module.ConfigRegistry()
+
+        async def reload() -> tui_app_module.ConfigRegistry:
+            return old_registry
+
+        app._load_registry_from_agent = reload  # type: ignore[method-assign]
+        # Must NOT raise — the keepalive loop has to survive the preview link failure.
+        await app._target_keepalive_once()
+
+        # The flip's ping succeeded, so the link is marked connected despite the preview
+        # RuntimeError.
+        assert app.target_connection_state == "connected"
+
+
+@pytest.mark.asyncio
 async def test_failed_restart_rediscovers_orphaned_run(config_dir: Path) -> None:
     # Phase-4 carry-forward: restart nulls current_run_id BEFORE the RPC, so a failed
     # restart leaves the old (possibly still-alive) run unattached. Re-discover runs

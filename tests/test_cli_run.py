@@ -2793,6 +2793,27 @@ def test_cli_targets_test_handshakes_with_selected_target(
     ]
 
 
+def test_agent_start_text_failure_names_stderr_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Phase-6 follow-up: on a start-failure the TEXT path must name the captured stderr
+    # log (agent-start.err) the same way --json / the remediation surface already do —
+    # otherwise the operator has no pointer to why the daemon died.
+    from vela.agent import daemon as daemon_module
+
+    def _fake_start(socket_path: Path | None = None, **_kwargs: object) -> dict[str, object]:
+        return {
+            "status": "start-failed",
+            "socket_path": "/tmp/vela/agent.sock",
+            "stderr_log": "/tmp/vela/agent-start.err",
+        }
+
+    monkeypatch.setattr(daemon_module, "start_agent_daemon_process", _fake_start)
+    result = CliRunner().invoke(cli_module.app, ["agent", "start"])
+    assert result.exit_code == 1
+    assert "agent-start.err" in result.output
+
+
 def test_cli_targets_test_handshake_error_uses_target_name_in_remediation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

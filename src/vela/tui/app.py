@@ -4605,6 +4605,59 @@ class VelaApp(App):
         except WIDGET_MISSING_EXCEPTIONS:
             return
 
+    async def _keepalive_refresh_preview(self, generation: int) -> None:
+        """Refresh the selected-config preview during a keepalive recovery flip, guarded
+        against a concurrent ``_switch_target``.
+
+        The flip's preview RPC is a SECOND switch window (after the registry reload). A
+        switch that commits during the await (a) would let this OLD target's preview
+        clobber ``selected_config_preview`` and poison ``_config_preview_cache`` under the
+        NEW target's config name, and (b) its ``disconnect()`` can fail this in-flight
+        future with ``RuntimeError`` — which ``_refresh_selected_config_preview`` (catches
+        ``TargetCallError`` only) would let escape and kill the ``_poll_target_keepalive``
+        loop. Guard the apply on the pre-reload ``generation`` + a live ``current_config``,
+        and swallow the link ``RuntimeError`` so the loop stays alive.
+        """
+        config = self.current_config
+        if config is None:
+            return
+        try:
+            result = await self._target_call(
+                "preview",
+                self._agent_params(
+                    name=config.name,
+                    configs_dir=self.configs_dir,
+                    **self._launch_overrides,
+                ),
+            )
+        except TargetCallError as exc:
+            preview = f"Preview unavailable: {exc}"
+            metadata: dict[str, Any] = {}
+        except RuntimeError as exc:
+            # A concurrent switch's disconnect() failed this future; log and keep the
+            # keepalive loop alive rather than letting the RuntimeError escape.
+            self._debug_event("keepalive.preview_link_failed", error=str(exc))
+            return
+        else:
+            preview = str(result["preview"])
+            raw_metadata = result.get("metadata")
+            metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+        if self._target_generation != generation or self.current_config is None:
+            # A switch committed during the preview await; it owns current_config /
+            # selected_config_preview / the preview cache now — discard this stale result.
+            return
+        self.selected_config_preview = preview
+        self._config_preview_cache[config.name] = preview
+        self.selected_config_metadata = metadata
+        self.config_summary = self._render_config_summary_plain()
+        try:
+            self.query_one("#configs", Static).update(self._render_config_summary())
+            self.query_one("#configs-title", Static).update(self._render_configs_title())
+            self._refresh_sidebar_overlay()
+            self._refresh_chrome()
+        except WIDGET_MISSING_EXCEPTIONS:
+            return
+
     async def _load_registry_from_agent(self) -> ConfigRegistry:
         try:
             result = await self._target_call(
@@ -4858,7 +4911,7 @@ class VelaApp(App):
                 self.registry = registry
                 if self.current_config is None and self.registry.valid:
                     self.current_config = self.registry.valid[0].config
-                    await self._refresh_selected_config_preview()
+                    await self._keepalive_refresh_preview(generation)
                 self._refresh_target_backed_views()
                 # An open Target Manager tracks the auto-recovery too (bug-257).
                 self._refresh_open_target_manager()

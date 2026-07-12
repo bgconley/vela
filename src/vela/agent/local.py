@@ -1965,7 +1965,9 @@ class LocalAgent:
         candidate_dirs: list[Path] = []
         if isinstance(config_name, str) and config_name.strip():
             registry = load_registry(_configs_dir(params))
-            cfg = _config_by_name(registry, config_name.strip())
+            cfg = _config_by_name(
+                registry, config_name.strip(), configs_dir=_configs_dir(params)
+            )
             self._remember_run_config(cfg)
             candidate_dirs.append(cfg.run_artifacts_dir)
         sidecar_path = self._run_artifact_sidecar_path(run_id, candidate_dirs)
@@ -2066,6 +2068,11 @@ class LocalAgent:
     def _diagnose(self, params: dict[str, Any]) -> dict[str, Any]:
         uv_path = _find_uv_executable()
         gpu_poll = _diagnose_gpu_poll(self.sample_gpus)
+        # Function-level import dodges the local <-> daemon import cycle (mirrors the 6.2
+        # source_revision pattern); default_agent_socket_path honours the D5 precedence
+        # (VELA_AGENT_RUNTIME_DIR / XDG_STATE_HOME) the pre-D5 local helper missed.
+        from vela.agent.daemon import default_agent_socket_path
+
         return {
             "host": {
                 "hostname": platform.node(),
@@ -2078,7 +2085,7 @@ class LocalAgent:
                 "runs_dir": str(default_run_artifacts_dir()),
                 "builds_dir": str(self._builds_root),
                 "models_registry": str(self._models_registry_path),
-                "socket_path": str(_default_agent_socket_path()),
+                "socket_path": str(default_agent_socket_path()),
                 "agent_token_file": str(default_agent_token_file()),
             },
             "toolchain": {
@@ -3754,13 +3761,6 @@ def _configs_dir(params: dict[str, Any]) -> Path | None:
 def _default_config_dir() -> Path:
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return config_home / "vela"
-
-
-def _default_agent_socket_path() -> Path:
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-    if runtime_dir:
-        return Path(runtime_dir) / "vela" / "agent.sock"
-    return Path.home() / ".local" / "state" / "vela" / "agent.sock"
 
 
 def _diagnose_gpu_poll(

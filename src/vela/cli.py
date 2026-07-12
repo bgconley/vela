@@ -3581,7 +3581,13 @@ def _format_agent_status(status: dict[str, Any]) -> str:
         return f"stopped pid={status.get('pid')} socket={status.get('socket_path')}"
     if status["status"] == "running":
         return f"running pid={status.get('pid')} socket={status.get('socket_path')}"
-    return f"{status['status']} socket={status.get('socket_path')}"
+    line = f"{status['status']} socket={status.get('socket_path')}"
+    # A failed/failing start captures the daemon's stderr; name it so the text path
+    # matches --json / the remediation surface (Phase-6 follow-up).
+    stderr_log = status.get("stderr_log")
+    if stderr_log:
+        line += f"\n  agent log: {stderr_log}"
+    return line
 
 
 @runs_app.command("prune")

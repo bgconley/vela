@@ -69,6 +69,45 @@ def test_stale_local_daemon_banner_flags_version_drift() -> None:
     )
 
 
+def test_stale_local_daemon_banner_flags_newer_daemon_direction() -> None:
+    # 6.2 follow-up: when the DAEMON is newer than the controller, "restart with: vela
+    # agent restart" is wrong advice (a restart re-launches the same newer daemon). Detect
+    # the direction and name the controller as the stale side instead.
+    from vela.agent.daemon import stale_local_daemon_banner
+
+    banner = stale_local_daemon_banner(
+        {"agent_version": "0.2.0", "daemon_start_ts": "2026-07-01T12:00:00Z"},
+        controller_version="0.1.0",
+        controller_revision=None,
+    )
+
+    assert banner == (
+        "local daemon is running vela 0.2.0 (started 2026-07-01) "
+        "— controller is older; upgrade the controller or restart the daemon"
+    )
+
+
+def test_stale_local_daemon_banner_flags_newer_daemon_by_revision_distance() -> None:
+    # Same-version case: a daemon started from a LATER commit than the controller now
+    # sits on (git-describe distance) is also newer — same direction wording.
+    from vela.agent.daemon import stale_local_daemon_banner
+
+    banner = stale_local_daemon_banner(
+        {
+            "agent_version": "0.1.0",
+            "agent_revision": "v0.1.0-90-gfeed000",
+            "daemon_start_ts": "2026-07-01T12:00:00Z",
+        },
+        controller_version="0.1.0",
+        controller_revision="v0.1.0-77-g75ebb73",
+    )
+
+    assert banner is not None
+    assert banner.endswith(
+        "— controller is older; upgrade the controller or restart the daemon"
+    )
+
+
 def test_stale_local_daemon_banner_flags_revision_drift_same_version() -> None:
     # The month-stale trap: __version__ is a static string, so a same-version
     # daemon running an older commit must still be caught via git-describe drift.
@@ -257,6 +296,20 @@ def test_resolve_prefers_running_primary_over_legacy(
         _cleanup_live_daemon(primary_socket)
         _cleanup_live_daemon(legacy_socket)
         shutil.rmtree(base, ignore_errors=True)
+
+
+def test_diagnose_socket_path_honors_runtime_dir_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Phase-6 follow-up: the diagnose RPC's paths.socket_path must reflect the D5 socket
+    # resolution (VELA_AGENT_RUNTIME_DIR has top precedence), not the pre-D5 XDG_RUNTIME_DIR-
+    # or-home fallback — otherwise `vela agent diagnose` reports a socket the daemon never
+    # bound when the runtime dir is overridden.
+    runtime_dir = Path("/tmp") / f"vela-diag-{uuid.uuid4().hex}"
+    monkeypatch.setenv("VELA_AGENT_RUNTIME_DIR", str(runtime_dir))
+    agent = LocalAgent(target_name="local")
+    result = agent._diagnose({})
+    assert result["paths"]["socket_path"] == str(runtime_dir / "agent.sock")
 
 
 def _agent_connect_socket_command(socket_path: Path) -> list[str]:

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -150,10 +151,76 @@ def stale_local_daemon_banner(
         label = f"{label} ({daemon_revision})"
     started = _daemon_start_date(agent_info.get("daemon_start_ts"))
     started_clause = f" (started {started})" if started else ""
+    if _daemon_is_newer_than_controller(
+        daemon_version, controller_version, daemon_revision, ctrl_revision
+    ):
+        # A restart would just re-launch the same newer daemon, so pointing at
+        # `vela agent restart` is wrong here — the controller is the stale side (6.2
+        # follow-up). New wording is pinned alongside the byte-stable stale line below.
+        return (
+            f"local daemon is running vela {label}{started_clause} "
+            "— controller is older; upgrade the controller or restart the daemon"
+        )
     return (
         f"local daemon is running vela {label}{started_clause} "
         "— restart with: vela agent restart"
     )
+
+
+def _version_key(version: str) -> tuple[int, ...] | None:
+    """Leading dotted-numeric components of a version, else None when unparseable."""
+    key: list[int] = []
+    for part in version.strip().lstrip("vV").split("."):
+        digits = ""
+        for char in part:
+            if char.isdigit():
+                digits += char
+            else:
+                break
+        if not digits:
+            break
+        key.append(int(digits))
+    return tuple(key) or None
+
+
+def _describe_distance(revision: str) -> tuple[str, int] | None:
+    """``(tag, commits-since-tag)`` for a ``git describe`` string, else None.
+
+    ``v0.1.0-77-g75ebb73`` -> ``("v0.1.0", 77)`` so same-tag revisions order by how
+    many commits after the tag each was cut from.
+    """
+    match = re.match(r"^(?P<tag>.+)-(?P<dist>\d+)-g[0-9A-Fa-f]+", revision.strip())
+    if match is None:
+        return None
+    return match.group("tag"), int(match.group("dist"))
+
+
+def _daemon_is_newer_than_controller(
+    daemon_version: str,
+    controller_version: str,
+    daemon_revision: str,
+    ctrl_revision: str | None,
+) -> bool:
+    """Whether the daemon is provably newer than the controller (else assume stale).
+
+    Ordered by dotted version when the versions differ and both parse; otherwise (a
+    same-version drift) by git-describe distance from a shared tag. Anything we cannot
+    confidently order defaults to False so the byte-stable stale wording still applies.
+    """
+    daemon_key = _version_key(daemon_version)
+    controller_key = _version_key(controller_version)
+    if daemon_key is not None and controller_key is not None and daemon_key != controller_key:
+        return daemon_key > controller_key
+    if daemon_revision and ctrl_revision:
+        daemon_distance = _describe_distance(daemon_revision)
+        controller_distance = _describe_distance(ctrl_revision)
+        if (
+            daemon_distance is not None
+            and controller_distance is not None
+            and daemon_distance[0] == controller_distance[0]
+        ):
+            return daemon_distance[1] > controller_distance[1]
+    return False
 
 
 def _daemon_start_date(daemon_start_ts: Any) -> str | None:

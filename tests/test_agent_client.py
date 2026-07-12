@@ -1336,6 +1336,27 @@ async def test_local_agent_preview_reports_unknown_config(config_dir: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_local_agent_read_run_artifact_unknown_config_names_searched_dir(
+    config_dir: Path,
+) -> None:
+    # Phase-6 follow-up: the FIFTH _config_by_name site (_read_run_artifact) must thread
+    # configs_dir so its unknown-config error reports the honest searched dir
+    # (--configs-dir), like the launch/preview/preflight sites already do (bug-238's
+    # plan-mandated diagnostic surface).
+    client = InProcessTargetClient(LocalAgent())
+
+    await client.connect()
+    with pytest.raises(TargetCallError) as exc_info:
+        await client.call(
+            "read_run_artifact",
+            {"run_id": "01GHOST", "config_name": "missing", "configs_dir": str(config_dir)},
+        )
+
+    assert exc_info.value.code == "unknown-config"
+    assert exc_info.value.details["searched_dirs"] == [str(config_dir)]
+
+
+@pytest.mark.asyncio
 async def test_local_agent_prepare_launch_returns_serialized_build(config_dir: Path) -> None:
     write_yaml(
         config_dir / "launch.yaml",
