@@ -70,6 +70,37 @@ def test_every_cli_command_and_group_self_documents() -> None:
     assert missing_groups == [], f"sub-apps missing help: {missing_groups}"
 
 
+def _command_info_by_path(path: list[str]):
+    group = cli_module.app
+    for name in path[:-1]:
+        group = next(g.typer_instance for g in group.registered_groups if g.name == name)
+    for command in group.registered_commands:
+        cmd_name = command.name or (command.callback.__name__ if command.callback else None)
+        if cmd_name == path[-1]:
+            return command
+    raise AssertionError(f"command not found: {' '.join(path)}")
+
+
+def test_cli_command_surface_hides_duplicate_aliases() -> None:
+    # 7.4: one canonical verb per operation. deploy list / preview / model add are hidden
+    # aliases; list / run / model pin stay the visible canonical verbs.
+    assert _command_info_by_path(["preview"]).hidden is True
+    assert _command_info_by_path(["deploy", "list"]).hidden is True
+    assert _command_info_by_path(["model", "add"]).hidden is True
+
+    assert not _command_info_by_path(["list"]).hidden
+    assert not _command_info_by_path(["run"]).hidden
+    assert not _command_info_by_path(["model", "pin"]).hidden
+
+    def help_text(path: list[str]) -> str:
+        command = _command_info_by_path(path)
+        return command.help or (command.callback.__doc__ if command.callback else "") or ""
+
+    assert "$EDITOR" in help_text(["config", "edit"])
+    assert "--set" in help_text(["deploy", "edit"])
+    assert "non-interactively" in help_text(["deploy", "edit"])
+
+
 def test_cli_root_version_option_prints_version_without_launching_tui() -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "vela.cli", "--version"],

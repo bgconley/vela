@@ -1029,7 +1029,7 @@ def model_adopt(
 
 
 @model_app.command("pin")
-@model_app.command("add")
+@model_app.command("add", hidden=True)  # alias of `model pin` (7.4)
 def model_pin(
     repo_or_entry: Annotated[
         str,
@@ -1729,7 +1729,7 @@ def deploy_edit(
     typer.echo(f"{verb}\t{result.get('name', name)}\t{result.get('path', '')}")
 
 
-@deploy_app.command("list")
+@deploy_app.command("list", hidden=True)  # alias of `list` (7.4)
 def deploy_list(
     configs_dir: Annotated[
         Path | None,
@@ -1975,7 +1975,7 @@ def list_configs(
         typer.echo(f"INVALID {Path(item['path']).name}\t{'; '.join(item['errors'])}")
 
 
-@app.command("preview")
+@app.command("preview", hidden=True)  # alias of `run --preview` (7.4)
 def preview(
     name: str,
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
