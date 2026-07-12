@@ -1,6 +1,0 @@
-name: lan-warning
-model: org/model
-server:
-  host: 0.0.0.0
-  exposure: lan
-  api_key: sk-live-secret
