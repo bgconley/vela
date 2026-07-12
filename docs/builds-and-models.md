@@ -4,8 +4,8 @@ Builds and models are both target-owned resources surfaced over RPC, but they
 have different storage semantics.
 
 Builds are managed venvs under the target data dir. Models are metadata entries
-over the shared Hugging Face cache or user-owned local paths; the loader does
-not copy weights into an app-owned tree by default.
+over the shared Hugging Face cache or user-owned local paths; Vela does not copy
+weights into an app-owned tree by default.
 
 ## Build Methods
 
