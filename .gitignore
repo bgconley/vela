@@ -25,3 +25,13 @@ runs/
 # Editor noise
 .idea/
 .vscode/
+
+# OpenWolf session bookkeeping (per-session churn; kept on disk, not tracked)
+.wolf/token-ledger.json
+.wolf/memory.md
+.wolf/buglog.json
+.wolf/designqc-captures/
+
+# Scraped/tool-local docs and captures
+.firecrawl/
+.playwright-mcp/
