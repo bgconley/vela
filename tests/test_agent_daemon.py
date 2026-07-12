@@ -459,10 +459,15 @@ def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:
 
     assert "[Unit]" in service
     assert "Description=Vela target agent daemon" in service
+    assert "Documentation=https://github.com/bgconley/vela" in service
     assert "After=network.target" not in service
     assert "[Service]" in service
     assert "Type=simple" in service
-    assert "ExecStart=vela agent run" in service
+    # Absolute ExecStart (was the bare `vela agent run`, which needs PATH set).
+    assert "ExecStart=/usr/local/bin/vela agent run" in service
+    # Gated models need HF_TOKEN; both hooks are commented so the unit works as-is.
+    assert "# Environment=HF_TOKEN=hf_xxx" in service
+    assert "# EnvironmentFile=%h/.config/vela/agent.env" in service
     assert "Restart=on-failure" in service
     assert "[Install]" in service
     assert "WantedBy=default.target" in service

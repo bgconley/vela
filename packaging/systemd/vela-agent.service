@@ -1,10 +1,15 @@
 [Unit]
 Description=Vela target agent daemon
-Documentation=https://github.com/vllm-project/vllm
+Documentation=https://github.com/bgconley/vela
 
 [Service]
 Type=simple
-ExecStart=vela agent run
+# Absolute path so the unit does not depend on the service PATH. A uv-tool
+# (per-user) install instead lives at %h/.local/bin/vela — point ExecStart there.
+ExecStart=/usr/local/bin/vela agent run
+# Gated Hugging Face models need a token. Uncomment ONE of these and fill it in:
+# Environment=HF_TOKEN=hf_xxx
+# EnvironmentFile=%h/.config/vela/agent.env
 Restart=on-failure
 RestartSec=2s
 NoNewPrivileges=yes
