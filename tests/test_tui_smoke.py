@@ -2330,6 +2330,157 @@ async def test_keepalive_recovery_transition_reloads_registry(
         )
 
 
+@pytest.mark.asyncio
+async def test_keepalive_flip_discards_reload_after_target_switch(config_dir: Path) -> None:
+    # Phase-3 carry-forward: a keepalive recovery-flip reload that completes AFTER a
+    # target switch began must NOT overwrite the switch's fresh state with stale
+    # data. A generation counter (bumped in _switch_target) invalidates the result.
+    class QuietClient:
+        def __init__(self) -> None:
+            self.connected = True
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, params):
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {"valid": [], "invalid": []}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("switch-race test should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=QuietClient(),
+        target_ping_interval_seconds=None,
+    )
+    stale = tui_app_module._config_registry_from_agent_payload(
+        {
+            "valid": [
+                {
+                    "path": "/agent/configs/stale.yaml",
+                    "name": "stale",
+                    "model": "org/model",
+                    "warnings": [],
+                    "config": {"name": "stale", "model": "org/model"},
+                }
+            ],
+            "invalid": [],
+        }
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        # Precondition for the recovery-flip branch: pretend the link is down, and a
+        # switch has established fresh (empty) state + a selected config to protect.
+        app.target_connection_state = "disconnected"
+        app.current_config = tui_app_module.ModelConfig.model_validate(
+            {"name": "fresh", "model": "org/fresh"}
+        )
+        fresh = tui_app_module.ConfigRegistry()
+        app.registry = fresh
+        base_generation = app._target_generation
+
+        async def racing_reload() -> tui_app_module.ConfigRegistry:
+            # A target switch commits mid-reload (bumps the generation); the stale
+            # reload then resolves with the OLD target's configs.
+            app._target_generation = base_generation + 1
+            return stale
+
+        app._load_registry_from_agent = racing_reload  # type: ignore[method-assign]
+        await app._target_keepalive_once()
+
+        # The stale reload was discarded; the switch's fresh registry stands.
+        assert app.registry is fresh
+        assert app.registry.valid == []
+
+
+@pytest.mark.asyncio
+async def test_failed_restart_rediscovers_orphaned_run(config_dir: Path) -> None:
+    # Phase-4 carry-forward: restart nulls current_run_id BEFORE the RPC, so a failed
+    # restart leaves the old (possibly still-alive) run unattached. Re-discover runs
+    # so the handle is re-acquired without a manual reconnect.
+    write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha\n")
+
+    class FailingRestartClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.restart_failed = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {
+                    "valid": [
+                        {
+                            "path": "/agent/configs/alpha.yaml",
+                            "name": "alpha",
+                            "model": "org/alpha",
+                            "warnings": [],
+                            "config": {"name": "alpha", "model": "org/alpha"},
+                        }
+                    ],
+                    "invalid": [],
+                }
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "preview":
+                return {"preview": "vllm serve org/alpha", "warnings": [], "metadata": {}}
+            if method == "restart":
+                self.restart_failed = True
+                raise TargetCallError(
+                    "preflight-failed",
+                    "restart boom",
+                    {"kind": "CONFIG_INVALID", "detail": "restart boom"},
+                )
+            if method == "discover_runs":
+                runs = (
+                    [{"run_id": "run-1", "config_name": "alpha"}]
+                    if self.restart_failed
+                    else []
+                )
+                return {"runs": runs}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("failed-restart test should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=FailingRestartClient(),
+        target_ping_interval_seconds=None,
+    )
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        app.current_config = load_registry(config_dir).by_name("alpha")
+        app.current_run_id = "run-1"
+
+        app.action_restart()
+
+        # After the restart RPC fails, the orphaned run is re-discovered rather than
+        # requiring a manual reconnect to re-acquire it.
+        await _wait_for_condition(
+            lambda: any(s["run_id"] == "run-1" for s in app.detached_run_summaries),
+            "failed restart did not re-discover the orphaned run",
+        )
+
+
 def test_target_keepalive_uses_exponential_reconnect_backoff(
     config_dir: Path,
 ) -> None:

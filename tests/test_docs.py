@@ -50,6 +50,22 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     assert "XDG_RUNTIME_DIR" in configuration
 
 
+def test_docs_cover_daemon_honesty_surfaces() -> None:
+    configuration = _read("docs/configuration.md")
+    agent_rpc = _read("docs/agent-rpc.md")
+
+    # Socket-directory precedence (D5, bug-238) — the new socket-precedence prose.
+    assert "VELA_AGENT_RUNTIME_DIR" in configuration
+    # Stale-local-daemon version banner + the startup stderr log + the daemon-cwd
+    # honesty (searched dirs) surfaced by the unknown-config error.
+    assert "restart with: vela agent restart" in configuration
+    assert "agent-start.err" in configuration
+    assert "the directories it searched" in configuration
+    # Handshake identity + the diagnostic unknown-config payload keys.
+    assert "agent_revision" in agent_rpc
+    assert "searched_dirs" in agent_rpc
+
+
 def test_build_model_docs_cover_operational_cli_surfaces() -> None:
     text = _read("docs/builds-and-models.md")
 

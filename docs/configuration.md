@@ -262,10 +262,19 @@ socket is missing or stale, then bridges stdio to the socket.
 
 Default paths:
 
-- Socket: `$XDG_RUNTIME_DIR/vela/agent.sock` when `XDG_RUNTIME_DIR` is
-  set.
-- Fallback socket: `~/.local/state/vela/agent.sock`.
-- Identity file: `agent.json` beside the socket.
+- Socket directory precedence: `$VELA_AGENT_RUNTIME_DIR` (used verbatim) >
+  `$XDG_RUNTIME_DIR/vela` > `$XDG_STATE_HOME/vela` > `~/.local/state/vela`. So
+  setting `XDG_STATE_HOME` alone now isolates the socket, not just
+  `XDG_RUNTIME_DIR`.
+- Socket file: `agent.sock` in that directory.
+- Legacy fallback: a controller whose resolved socket has no live daemon also
+  probes the pre-upgrade path (`$XDG_RUNTIME_DIR/vela` else `~/.local/state/vela`)
+  so an already-running daemon is not orphaned mid-upgrade. `vela agent status`
+  reports the socket actually in use.
+- Identity file: `agent.json` beside the socket (records the daemon version and
+  git revision).
+- Startup log: `agent-start.err` beside the socket captures a spawned daemon's
+  stderr; a start failure names it, and a clean stop removes it.
 
 Operator commands:
 
@@ -282,6 +291,15 @@ daemon in the foreground, use:
 ```bash
 vela agent run
 ```
+
+The local socket daemon is long-lived and keeps the working directory and code it
+was launched with. On first contact the controller compares its version + git
+revision against the daemon's; on a mismatch it prints a single warning like
+`local daemon is running vela X (started <date>) — restart with: vela agent restart`.
+Because the daemon keeps that first working directory, an unknown-config error
+names the directories it searched and that cwd, and an unreachable local daemon
+points at `vela agent status` and the `agent-start.err` log (not the SSH setup
+path).
 
 For SSH targets, `vela agent status --target <name>` queries the remote agent
 and prints the resolved per-host paths and toolchain/auth status instead of the

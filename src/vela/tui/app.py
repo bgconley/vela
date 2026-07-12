@@ -843,6 +843,10 @@ class VelaApp(App):
         self._target_has_connected_once = False
         self._target_daemon_start_ts: str | None = None
         self._stale_daemon_banner_shown = False
+        # Bumped on every target switch so a slow background reload (keepalive
+        # recovery flip) can discard its result instead of overwriting the new
+        # target's fresh state with stale data (Phase-3 carry-forward).
+        self._target_generation = 0
         self._target_last_event_seq_by_run: dict[str, int] = {}
         self._target_last_log_cursor_by_run: dict[str, dict[str, int]] = {}
         self._target_ping_interval_seconds = target_ping_interval_seconds
@@ -2757,6 +2761,11 @@ class VelaApp(App):
             self._set_error_text(f"Target switch failed: {exc}", style=f"bold {BAD}")
             return
 
+        # Invalidate any in-flight background reload (keepalive recovery flip) for the
+        # OLD target so its result can't overwrite this switch's fresh state
+        # (Phase-3 carry-forward).
+        self._target_generation += 1
+
         try:
             await self._target_client.disconnect()
         except Exception as exc:
@@ -3012,6 +3021,11 @@ class VelaApp(App):
             result = await self._target_call("restart", params)
         except TargetCallError as exc:
             self._handle_launch_agent_error(exc)
+            # current_run_id was nulled pre-RPC (above), so a failed restart leaves
+            # the old — possibly still-alive — run unattached. Re-discover runs to
+            # re-acquire the handle instead of forcing a manual reconnect (Phase-4
+            # carry-forward). _refresh_detached_runs self-guards every exception.
+            await self._refresh_detached_runs()
             return
         await self._monitor_restart_result(
             cfg,
@@ -4834,7 +4848,14 @@ class VelaApp(App):
                 # changed while the link was down) and re-render the target-backed
                 # views so a frozen offline card is replaced, not just chrome
                 # (bug-253). _load_registry_from_agent self-guards TargetCallError.
-                self.registry = await self._load_registry_from_agent()
+                generation = self._target_generation
+                registry = await self._load_registry_from_agent()
+                if self._target_generation != generation:
+                    # A target switch landed during the reload await; discard the
+                    # stale result so it can't overwrite the switch's fresh state
+                    # (Phase-3 carry-forward).
+                    return
+                self.registry = registry
                 if self.current_config is None and self.registry.valid:
                     self.current_config = self.registry.valid[0].config
                     await self._refresh_selected_config_preview()

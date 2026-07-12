@@ -96,6 +96,13 @@ Common request methods and capabilities:
 Build and model jobs emit `job_progress` and `job_done` events and can be
 cancelled with `cancel_job`.
 
+The `handshake` result reports `agent_version` and `agent_revision` (a
+git-describe frozen at daemon start) alongside `daemon_start_ts`, so a controller
+can detect a stale local socket daemon on first contact. As an intentional
+exception to the authority boundary, an `unknown-config` error payload carries the
+`searched_dirs` it looked in plus the agent `cwd` — diagnostic surface for the
+frozen daemon working directory, not a path the controller acts on.
+
 ## Event Stream
 
 `subscribe` streams run events such as:
