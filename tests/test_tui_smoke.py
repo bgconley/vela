@@ -598,6 +598,68 @@ async def test_target_manager_screen_opens_from_binding(
 
 
 @pytest.mark.asyncio
+async def test_tui_warns_once_on_stale_local_daemon(config_dir: Path) -> None:
+    # bug-238: the persistent local socket daemon can serve month-old code after an
+    # upgrade. First contact surfaces a single restart warning; the wording is pinned.
+    notifications: list[tuple[str, object]] = []
+
+    class StaleLocalClient:
+        def __init__(self) -> None:
+            self.connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {
+                "agent_version": "0.0.1",
+                "daemon_start_ts": "2026-06-09T00:00:00Z",
+                "capabilities": ["list_configs", "gpu", "health"],
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("stale-daemon test should not subscribe")
+
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=StaleLocalClient(),
+        target_ping_interval_seconds=None,
+    )
+
+    def recording_notify(message: object, **kwargs: object) -> None:
+        notifications.append((str(message), kwargs.get("severity")))
+
+    app.notify = recording_notify  # type: ignore[method-assign]
+
+    async with app.run_test(size=(120, 40)):
+        await _wait_for_target_connection_state(app, "connected")
+        await _wait_for_condition(
+            lambda: any(
+                "local daemon is running vela 0.0.1" in message
+                for message, _ in notifications
+            ),
+            "stale local daemon banner was not shown",
+        )
+
+    stale = [(m, sev) for m, sev in notifications if "local daemon is running vela" in m]
+    assert len(stale) == 1
+    message, severity = stale[0]
+    assert "local daemon is running vela 0.0.1 (started 2026-06-09)" in message
+    assert "restart with: vela agent restart" in message
+    assert severity == "warning"
+
+
+@pytest.mark.asyncio
 async def test_target_manager_live_refreshes_on_reconnect_while_open(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

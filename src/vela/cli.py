@@ -22,6 +22,7 @@ from vela.agent.auth import (
     generate_agent_token,
     install_agent_token,
 )
+from vela.agent.daemon import stale_local_daemon_banner
 from vela.agent.local import LocalAgent, TargetCallError
 from vela.config.schema import ModelConfig, RuntimeKind
 from vela.config.targets import (
@@ -36,6 +37,7 @@ from vela.engine.phases import Phase
 from vela.remediation import remediation_for_error
 from vela.transport.client import TargetClient
 from vela.transport.factory import target_client_for_config
+from vela.transport.socket import UnixSocketTargetClient
 from vela.transport.ssh_bootstrap import DEFAULT_AGENT_INSTALL_SPEC, install_ssh_agent
 from vela.transport.ssh_discovery import discover_ssh_agent_command
 from vela.transport.ssh_setup import setup_ssh_key
@@ -2758,11 +2760,32 @@ def _target_call(
         ) from exc
 
 
+_stale_local_daemon_warned = False
+
+
+def _maybe_warn_stale_local_daemon(client: TargetClient, agent_info: object) -> None:
+    """Print the stale-daemon restart banner once per process, local socket only.
+
+    The persistent local socket daemon can serve month-old code after an upgrade
+    (bug-238); SSH/in-process targets are spawned fresh, so they are never stale.
+    """
+    global _stale_local_daemon_warned
+    if _stale_local_daemon_warned:
+        return
+    if not isinstance(client, UnixSocketTargetClient) or not isinstance(agent_info, dict):
+        return
+    banner = stale_local_daemon_banner(agent_info)
+    if banner is not None:
+        _stale_local_daemon_warned = True
+        typer.echo(banner, err=True)
+
+
 async def _target_call_async(
     client: TargetClient, method: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     try:
-        await client.connect()
+        agent_info = await client.connect()
+        _maybe_warn_stale_local_daemon(client, agent_info)
         try:
             return await client.call(method, params)
         finally:

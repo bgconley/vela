@@ -31,10 +31,12 @@ from textual.widget import Widget
 from textual.widgets import ProgressBar, RichLog, Static
 from textual.worker import Worker, WorkerState
 
+from vela.agent.daemon import stale_local_daemon_banner
 from vela.agent.local import AgentEvent, TargetCallError
 from vela.config.loader import ConfigRegistry, InvalidConfig, ValidConfig
 from vela.config.schema import ModelConfig
 from vela.config.targets import (
+    LocalTransportKind,
     TargetConfig,
     TransportKind,
     load_targets_file,
@@ -840,6 +842,7 @@ class VelaApp(App):
         self._target_last_seen_at: str | None = None
         self._target_has_connected_once = False
         self._target_daemon_start_ts: str | None = None
+        self._stale_daemon_banner_shown = False
         self._target_last_event_seq_by_run: dict[str, int] = {}
         self._target_last_log_cursor_by_run: dict[str, dict[str, int]] = {}
         self._target_ping_interval_seconds = target_ping_interval_seconds
@@ -4647,6 +4650,7 @@ class VelaApp(App):
             if isinstance(agent_info, dict):
                 self._target_agent_info = dict(agent_info)
                 self._target_last_seen_at = _target_seen_timestamp(agent_info)
+                self._maybe_warn_stale_local_daemon(agent_info)
                 daemon_start_ts = agent_info.get("daemon_start_ts")
                 if isinstance(daemon_start_ts, str) and daemon_start_ts:
                     previous_daemon_start_ts = self._target_daemon_start_ts
@@ -4693,6 +4697,25 @@ class VelaApp(App):
             ),
             style=f"bold {BAD}",
         )
+
+    def _target_is_local_socket(self) -> bool:
+        return (
+            self._target_config.transport is TransportKind.LOCAL
+            and self._target_config.local_transport is LocalTransportKind.SOCKET
+        )
+
+    def _maybe_warn_stale_local_daemon(self, agent_info: dict[str, Any]) -> None:
+        """Surface a single stale-daemon restart warning on first contact (bug-238).
+
+        Only the persistent local socket daemon can serve month-old code after an
+        upgrade; SSH/in-process targets are spawned fresh, so they are never stale.
+        """
+        if self._stale_daemon_banner_shown or not self._target_is_local_socket():
+            return
+        banner = stale_local_daemon_banner(agent_info)
+        if banner is not None:
+            self._stale_daemon_banner_shown = True
+            self.notify(banner, severity="warning", timeout=12.0)
 
     async def _target_call(
         self, method: str, params: dict[str, Any] | None = None

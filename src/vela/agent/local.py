@@ -424,6 +424,12 @@ class LocalAgent:
         self._post_ready_registry_refreshed: set[str] = set()
         self._start_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._controller_version: str | None = None
+        # Freeze the source revision at construction (daemon start) so the handshake
+        # reports the commit the daemon was launched from even after the tree moves
+        # on — the month-stale trap (bug-238). Local import: daemon imports us.
+        from vela.agent.daemon import source_revision
+
+        self._source_revision = source_revision()
 
     def handle(
         self, method: str, params: dict[str, Any] | None = None
@@ -611,6 +617,7 @@ class LocalAgent:
                 )
         return {
             "agent_version": __version__,
+            "agent_revision": self._source_revision,
             "agent_protocol_version": PROTOCOL_VERSION,
             "protocol_version": controller_protocol_version,
             "controller_version": self._controller_version,

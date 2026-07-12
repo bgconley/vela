@@ -1609,6 +1609,41 @@ def test_cli_model_inspect_shows_validated_false(
     assert "validated\tFalse" in result.output.splitlines()
 
 
+def test_cli_warns_once_on_stale_local_daemon(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # bug-238: first contact with a stale LOCAL socket daemon prints the restart
+    # banner exactly once per process; the wording is stable and pinned.
+    from vela.transport.socket import UnixSocketTargetClient
+
+    monkeypatch.setattr(cli_module, "_stale_local_daemon_warned", False)
+    client = UnixSocketTargetClient("/tmp/vela-stale-test.sock")
+    stale = {"agent_version": "0.0.1", "daemon_start_ts": "2026-06-09T00:00:00Z"}
+
+    cli_module._maybe_warn_stale_local_daemon(client, stale)
+    cli_module._maybe_warn_stale_local_daemon(client, stale)
+
+    err = capsys.readouterr().err
+    assert err.count("local daemon is running vela 0.0.1 (started 2026-06-09)") == 1
+    assert "restart with: vela agent restart" in err
+
+
+def test_cli_stale_daemon_banner_skips_non_socket_transport(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # An in-process (or SSH) client is never the stale local daemon — no banner.
+    from vela.agent.local import LocalAgent
+    from vela.transport.inprocess import InProcessTargetClient
+
+    monkeypatch.setattr(cli_module, "_stale_local_daemon_warned", False)
+    client = InProcessTargetClient(LocalAgent())
+    stale = {"agent_version": "0.0.1", "daemon_start_ts": "2026-06-09T00:00:00Z"}
+
+    cli_module._maybe_warn_stale_local_daemon(client, stale)
+
+    assert "local daemon is running" not in capsys.readouterr().err
+
+
 def test_cli_model_adopt_uses_verified_local_pin_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

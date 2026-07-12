@@ -8,9 +8,10 @@ import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,74 @@ def resolve_default_agent_socket_path() -> Path:
     if legacy != primary and _inspect_agent_daemon_at(legacy)["status"] == "running":
         return legacy
     return primary
+
+
+@lru_cache(maxsize=1)
+def source_revision() -> str | None:
+    """Best-effort ``git describe`` of the vela source tree, frozen at first call.
+
+    Returns None when git or the repo is unavailable (a released wheel). A daemon
+    freezes this the first time it is computed — at daemon start (LocalAgent primes
+    it) or its first handshake — so a long-running daemon keeps reporting the commit
+    it was launched from even after the working tree moves on. That is what makes
+    the month-stale trap visible: ``__version__`` is a static string, so only the
+    revision reveals a same-version daemon running month-old code (bug-238).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--always", "--dirty"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def stale_local_daemon_banner(
+    agent_info: Mapping[str, Any],
+    *,
+    controller_version: str = __version__,
+    controller_revision: str | None = None,
+) -> str | None:
+    """A single stable warning line when the local daemon's code is stale.
+
+    Compares the handshake's ``agent_version`` (+ ``agent_revision`` git-describe
+    when available on both sides) against the running controller. Returns None on a
+    match. Wording is stable and pinned (bug-238). Callers gate this on the target
+    being a local socket daemon (``vela agent restart`` is the local-only fix).
+    """
+    daemon_version = str(agent_info.get("agent_version") or "").strip()
+    daemon_revision = str(agent_info.get("agent_revision") or "").strip()
+    ctrl_revision = (
+        controller_revision if controller_revision is not None else source_revision()
+    )
+    version_drift = bool(daemon_version) and daemon_version != controller_version
+    revision_drift = (
+        bool(daemon_revision) and bool(ctrl_revision) and daemon_revision != ctrl_revision
+    )
+    if not (version_drift or revision_drift):
+        return None
+    label = daemon_version or "unknown"
+    if daemon_revision:
+        label = f"{label} ({daemon_revision})"
+    started = _daemon_start_date(agent_info.get("daemon_start_ts"))
+    started_clause = f" (started {started})" if started else ""
+    return (
+        f"local daemon is running vela {label}{started_clause} "
+        "— restart with: vela agent restart"
+    )
+
+
+def _daemon_start_date(daemon_start_ts: Any) -> str | None:
+    if not isinstance(daemon_start_ts, str) or not daemon_start_ts:
+        return None
+    return daemon_start_ts.split("T", 1)[0] or None
 
 
 def agent_identity_path(socket_path: str | Path) -> Path:
@@ -359,6 +428,7 @@ def _current_agent_identity(socket_path: Path) -> dict[str, Any]:
         "procfs_starttime": procfs_starttime_from_pid(pid),
         "start_ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "version": __version__,
+        "revision": source_revision(),
         "protocol_versions": [PROTOCOL_VERSION],
         "socket_path": str(socket_path),
     }

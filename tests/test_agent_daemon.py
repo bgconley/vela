@@ -54,6 +54,71 @@ def _cleanup_live_daemon(socket_path: Path) -> None:
     agent_identity_path(socket_path).unlink(missing_ok=True)
 
 
+def test_stale_local_daemon_banner_flags_version_drift() -> None:
+    from vela.agent.daemon import stale_local_daemon_banner
+
+    banner = stale_local_daemon_banner(
+        {"agent_version": "0.0.9", "daemon_start_ts": "2026-06-09T12:00:00Z"},
+        controller_version="0.1.0",
+        controller_revision=None,
+    )
+
+    assert banner == (
+        "local daemon is running vela 0.0.9 (started 2026-06-09) "
+        "— restart with: vela agent restart"
+    )
+
+
+def test_stale_local_daemon_banner_flags_revision_drift_same_version() -> None:
+    # The month-stale trap: __version__ is a static string, so a same-version
+    # daemon running an older commit must still be caught via git-describe drift.
+    from vela.agent.daemon import stale_local_daemon_banner
+
+    banner = stale_local_daemon_banner(
+        {
+            "agent_version": "0.1.0",
+            "agent_revision": "v0.1.0-40-gabc0000",
+            "daemon_start_ts": "2026-06-09T12:00:00Z",
+        },
+        controller_version="0.1.0",
+        controller_revision="v0.1.0-77-g75ebb73",
+    )
+
+    assert banner is not None
+    assert banner.startswith(
+        "local daemon is running vela 0.1.0 (v0.1.0-40-gabc0000) (started 2026-06-09)"
+    )
+    assert banner.endswith("— restart with: vela agent restart")
+
+
+def test_stale_local_daemon_banner_none_when_matching() -> None:
+    from vela.agent.daemon import stale_local_daemon_banner
+
+    assert (
+        stale_local_daemon_banner(
+            {"agent_version": "0.1.0", "agent_revision": "v0.1.0-77-g75ebb73"},
+            controller_version="0.1.0",
+            controller_revision="v0.1.0-77-g75ebb73",
+        )
+        is None
+    )
+
+
+def test_stale_local_daemon_banner_none_when_revision_unavailable() -> None:
+    # Best-effort: a released wheel has no git-describe on either side, so a
+    # matching __version__ must not false-positive (revision drift needs both).
+    from vela.agent.daemon import stale_local_daemon_banner
+
+    assert (
+        stale_local_daemon_banner(
+            {"agent_version": "0.1.0"},
+            controller_version="0.1.0",
+            controller_revision=None,
+        )
+        is None
+    )
+
+
 def test_default_agent_runtime_dir_precedence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -319,6 +384,9 @@ async def test_foreground_daemon_writes_identity_and_serves_socket() -> None:
 
         assert connected["target"] == "daemon-local"
         assert connected["daemon_pid"] == os.getpid()
+        # The handshake reports a frozen-at-start source revision (git describe)
+        # so a stale local daemon is detectable even when __version__ is unchanged.
+        assert "agent_revision" in connected
     finally:
         await client.disconnect()
         daemon.close()
