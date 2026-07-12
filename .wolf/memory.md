@@ -1749,3 +1749,72 @@
 | 21:03 | Edited ../../../../private/tmp/claude-501/-Users-brennanconley-vibecode-lab-tui/b57f45b4-419d-4e33-a773-9d3137509bde/scratchpad/repro_m6_active_build_integrity.py | inline fix | ~19 |
 | 21:15 | Fable review 5.8-5.10: 2 independent repros green, RED-revert 14/15 fail at b84a0d4 + boundary check at 3e959f0, full gate 1349 pass/ruff/mypy clean; verdict APPROVED WITH NOTES (validated missing from MODEL_INSPECT_FIELDS vs docs claim; M7 expected_size launch fallback carried) | review only, no repo edits | done | ~52k |
 | 21:16 | Phase 5 gate CLOSED by Fable review (5.1-5.10 approved; notes: validated-inspect gap, expected_size launch fallback, buglog hook ids, 2 coverage nits routed to P6/P8/debt) | .wolf | ok | ~1k |
+| 21:33 | Edited tests/test_cli_run.py | modified test_cli_model_inspect_shows_validated_false() | ~402 |
+| 21:33 | Edited tests/test_agent_client.py | modified _write_hf_model_registry() | ~260 |
+| 21:33 | Edited tests/test_agent_client.py | modified test_prepare_launch_blocks_uncached_model_with_only_expected_size() | ~600 |
+| 21:33 | Edited tests/test_agent_client.py | modified test_pin_model_with_commit_sha_network_error_keeps_sha_unvalidated() | ~762 |
+| 21:34 | Edited src/vela/cli.py | 5→6 lines | ~35 |
+| 21:34 | Edited src/vela/engine/model_registry.py | modified _handoff_size_bytes() | ~105 |
+| 21:43 | Edited tests/test_agent_daemon.py | modified _short_socket_path() | ~1320 |
+| 21:44 | Edited src/vela/agent/daemon.py | modified default_agent_runtime_dir() | ~816 |
+| 21:44 | Edited src/vela/agent/daemon.py | default_agent_socket_path() → resolve_default_agent_socket_path() | ~75 |
+| 21:44 | Edited src/vela/transport/factory.py | inline fix | ~18 |
+| 21:44 | Edited src/vela/transport/factory.py | default_agent_socket_path() → resolve_default_agent_socket_path() | ~38 |
+| 21:44 | Edited tests/conftest.py | modified D5() | ~110 |
+| 21:45 | Edited tests/test_agent_daemon.py | modified test_inspect_and_resolve_fall_back_to_running_legacy_socket() | ~647 |
+| 21:46 | Edited tests/test_agent_daemon.py | added 1 import(s) | ~34 |
+| 21:56 | Edited tests/test_agent_daemon.py | modified test_stale_local_daemon_banner_flags_version_drift() | ~632 |
+| 21:56 | Edited tests/test_agent_daemon.py | 4→7 lines | ~103 |
+| 21:58 | Edited src/vela/agent/daemon.py | added 1 import(s) | ~89 |
+| 21:58 | Edited src/vela/agent/daemon.py | modified source_revision() | ~824 |
+| 21:58 | Edited src/vela/agent/daemon.py | 5→6 lines | ~72 |
+| 21:58 | Edited src/vela/agent/local.py | expanded (+6 lines) | ~141 |
+| 21:58 | Edited src/vela/agent/local.py | 8→9 lines | ~119 |
+| 21:59 | Edited tests/test_cli_run.py | modified test_cli_warns_once_on_stale_local_daemon() | ~497 |
+| 21:59 | Edited src/vela/cli.py | added 1 import(s) | ~32 |
+| 21:59 | Edited src/vela/cli.py | added 1 import(s) | ~47 |
+| 22:00 | Edited src/vela/cli.py | modified _maybe_warn_stale_local_daemon() | ~377 |
+| 22:00 | Edited tests/test_cli_run.py | added 1 import(s) | ~75 |
+| 22:01 | Edited tests/test_tui_smoke.py | modified test_tui_warns_once_on_stale_local_daemon() | ~722 |
+| 22:02 | Edited src/vela/tui/app.py | 7→8 lines | ~48 |
+| 22:02 | Edited src/vela/tui/app.py | added 1 import(s) | ~32 |
+| 22:02 | Edited src/vela/tui/app.py | 2→3 lines | ~44 |
+| 22:02 | Edited src/vela/tui/app.py | modified isinstance() | ~90 |
+| 22:02 | Edited src/vela/tui/app.py | modified _target_is_local_socket() | ~316 |
+| 22:13 | Edited tests/test_cli_run.py | modified test_cli_unknown_config_names_searched_dirs_and_daemon_cwd_hint() | ~373 |
+| 22:14 | Edited src/vela/agent/local.py | expanded (+6 lines) | ~39 |
+| 22:14 | Edited src/vela/agent/local.py | modified _valid_config_item_by_name() | ~699 |
+| 22:14 | Edited src/vela/agent/local.py | 1→3 lines | ~46 |
+| 22:15 | Edited src/vela/agent/local.py | 1→3 lines | ~42 |
+| 22:15 | Edited src/vela/cli.py | modified echo() | ~289 |
+| 22:23 | Edited src/vela/agent/daemon.py | modified agent_identity_path() | ~87 |
+| 22:24 | Edited src/vela/agent/daemon.py | modified suppress() | ~569 |
+| 22:24 | Edited src/vela/agent/daemon.py | 4→8 lines | ~137 |
+| 22:24 | Edited src/vela/remediation.py | expanded (+8 lines) | ~258 |
+| 22:25 | Edited src/vela/transport/socket.py | 4→5 lines | ~36 |
+| 22:25 | Edited src/vela/transport/socket.py | modified _start_agent_or_raise() | ~200 |
+| 22:25 | Edited src/vela/transport/socket.py | modified _agent_socket_unreachable_error() | ~106 |
+| 22:25 | Edited tests/test_remediation.py | modified test_agent_unreachable_local_remediation_names_agent_status_and_log() | ~183 |
+| 22:25 | Edited tests/test_agent_daemon.py | modified test_start_agent_daemon_failure_captures_stderr_log_and_names_it() | ~328 |
+| 22:32 | Edited tests/test_config_loader.py | modified test_discovery_precedence() | ~325 |
+| 22:32 | Edited src/vela/config/loader.py | 8→12 lines | ~175 |
+| 22:33 | Edited tests/test_branding.py | modified test_default_product_paths_and_agent_command_use_vela() | ~121 |
+| 22:33 | Edited tests/test_branding.py | added 1 import(s) | ~24 |
+| 22:43 | Edited src/vela/tui/app.py | 3→7 lines | ~120 |
+| 22:43 | Edited tests/test_tui_smoke.py | modified test_keepalive_flip_discards_reload_after_target_switch() | ~879 |
+| 22:44 | Edited src/vela/tui/app.py | expanded (+7 lines) | ~345 |
+| 22:44 | Edited src/vela/tui/app.py | 10→15 lines | ~155 |
+| 22:45 | Edited tests/test_tui_smoke.py | modified test_failed_restart_rediscovers_orphaned_run() | ~880 |
+| 22:46 | Edited tests/test_tui_smoke.py | 9→11 lines | ~159 |
+| 22:46 | Edited src/vela/tui/app.py | modified _restart_reattached_target_run() | ~230 |
+| 22:47 | Edited docs/configuration.md | expanded (+18 lines) | ~486 |
+| 22:48 | Edited docs/agent-rpc.md | expanded (+7 lines) | ~155 |
+| 22:48 | Edited tests/test_docs.py | modified test_docs_cover_daemon_honesty_surfaces() | ~236 |
+| 22:48 | Edited docs/configuration.md | 8→8 lines | ~152 |
+| 22:52 | Phase 6 daemon/discovery honesty (bug-238): socket XDG precedence+legacy fallback, stale-daemon banner, unknown-config searched dirs, agent-start.err, XDG_CONFIG_HOME, keepalive-race + restart-rediscovery carry-forwards | daemon.py cli.py app.py local.py loader.py remediation.py socket.py + docs + tests | 7 commits, 1372 passed | ~large |
+| 22:53 | Edited tests/test_tui_smoke.py | inline fix | ~20 |
+| 23:59 | Phase-6 GATE REVIEW (Fable 5): verified all 7 commits a69eb1a..2699db7 — independent repros (D5 precedence 11/11, keepalive race 4 scenarios, unknown-config CLI E2E), RED-revert 20-fail/3-expected-pass at 75ebb73 + boundary matrix at c68126b, suite 1371 passed + ruff + mypy clean. VERDICT: CHANGES REQUIRED on ONE item — conftest never actually pops VELA_AGENT_RUNTIME_DIR (bug-294, 1-line fix); everything else verified. Carry-forwards routed: unguarded preview await after keepalive generation check (sticky cross-target preview + keepalive-loop-killing RuntimeError, repro'd), diagnose socket_path shows pre-D5 rules (display-only), text-mode `vela agent start` doesn't name stderr log. | tests/conftest.py, .wolf/buglog.json | reviewed | ~95k |
+| 23:38 | Session end: 175 writes across 32 files (test_agent_client.py, model_registry.py, test_cli_run.py, cli.py, local.py) | 34 reads | ~744530 tok |
+| 23:39 | Edited tests/test_agent_daemon.py | modified test_isolation_fixture_clears_shell_vela_agent_runtime_dir() | ~535 |
+| 23:40 | Edited tests/conftest.py | 7→11 lines | ~213 |
+| 23:41 | bug-294 review fix: isolation fixture now pops VELA_AGENT_RUNTIME_DIR (snapshot restores it); regression test drives the fixture generator directly | tests/conftest.py tests/test_agent_daemon.py | red-green, clusters green | ~small |
