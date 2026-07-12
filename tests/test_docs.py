@@ -186,3 +186,18 @@ def test_docker_examples_doc_matches_native_docker_cutover() -> None:
     assert "wrappers are retained as reference" in text
     assert "Do not drop these into `configs/` yet" not in text
     assert "delete the wrapper scripts" not in text
+
+
+def test_docs_cover_phase7_cli_surfaces() -> None:
+    configuration = _read("docs/configuration.md")
+    agent_rpc = _read("docs/agent-rpc.md")
+
+    # 7.3: default-target resolution and the command that persists it.
+    assert "VELA_TARGET" in configuration
+    assert "vela targets use" in configuration
+    # 7.4: one canonical command per operation.
+    assert "canonical" in configuration
+    # 7.2: the run-lifecycle CLI trio.
+    assert "vela runs list" in agent_rpc
+    assert "vela stop" in agent_rpc
+    assert "vela logs" in agent_rpc

@@ -25,6 +25,23 @@ targets:
     local_transport: socket
 ```
 
+### Choosing a target
+
+Every command takes `--target NAME`. When it is omitted, the target resolves in
+precedence order: the explicit `--target` flag, then the `VELA_TARGET`
+environment variable, then a persisted default, then the implicit `local`.
+
+Persist a default with `vela targets use NAME` (clear it with
+`vela targets use --clear`). It is stored as `default_target` in `targets.yaml`,
+and `vela targets list` marks it with a leading `*`.
+
+### One canonical command per operation
+
+Each operation has a single canonical command; a few historical spellings remain
+as hidden aliases so old scripts keep working but only the canonical verb shows
+in `--help`: `vela list` (alias `vela deploy list`), `vela run --preview` (alias
+`vela preview`), and `vela model pin` (alias `vela model add`).
+
 Fields:
 
 - `transport`: `local` or `ssh`.
