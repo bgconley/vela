@@ -683,11 +683,16 @@ class LocalAgent:
         self._known_runs_dirs.add(cfg.run_artifacts_dir)
 
     def _list_configs(self, params: dict[str, Any]) -> dict[str, Any]:
-        registry = load_registry(_configs_dir(params))
+        configs_dir = _configs_dir(params)
+        registry = load_registry(configs_dir)
         self._remember_registry_runs_dirs(registry)
+        # searched_dirs lets the CLI name where it looked on an empty list — the same
+        # plan-mandated diagnostic surface as the unknown-config error (bug-238).
+        searched = discover_config_dirs(configs_dir)
         return {
             "valid": [_valid_config_payload(item) for item in registry.valid],
             "invalid": [_invalid_config_payload(item) for item in registry.invalid],
+            "searched_dirs": [_home_relative(str(path)) for path in searched],
         }
 
     def _set_config_build(self, params: dict[str, Any]) -> dict[str, Any]:

@@ -491,6 +491,8 @@ def build_list(
         typer.echo(
             f"SKIPPED {skipped.get('build_id', '')}\t{skipped.get('reason', 'unknown')}"
         )
+    if not result.get("builds") and not result.get("skipped"):
+        typer.echo("no builds registered — create one with 'vela build add' or the TUI (b)")
 
 
 @build_app.command("doctor")
@@ -910,6 +912,8 @@ def model_list(
         typer.echo(
             f"SKIPPED {skipped.get('entry_id', '')}\t{skipped.get('reason', 'unknown')}"
         )
+    if not result.get("models") and not result.get("skipped"):
+        typer.echo("no models pinned — add one with 'vela model pin <org/repo>' or the TUI (m)")
 
 
 @model_app.command("refresh")
@@ -1969,10 +1973,21 @@ def list_configs(
         )
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, target_name=target)
-    for item in result["valid"]:
+    valid = result.get("valid", [])
+    invalid = result.get("invalid", [])
+    for item in valid:
         typer.echo(f"{item['name']}\t{item['model']}")
-    for item in result["invalid"]:
+    for item in invalid:
         typer.echo(f"INVALID {Path(item['path']).name}\t{'; '.join(item['errors'])}")
+    if not valid and not invalid:
+        dirs = (
+            ", ".join(str(item) for item in result.get("searched_dirs", []))
+            or "the configured directories"
+        )
+        typer.echo(
+            f"no configs found in: {dirs} — "
+            "create one with 'vela deploy create' or the TUI (n)"
+        )
 
 
 @app.command("preview", hidden=True)  # alias of `run --preview` (7.4)
@@ -2392,6 +2407,8 @@ def _doctor_payload(*, target_name: str | None = None) -> dict[str, Any]:
                 "detail": f"{len(remote_targets)} remote target(s) configured",
             }
         )
+        if not remote_targets:
+            next_steps.append("vela targets add <name> --host <user@host>")
 
     try:
         token = configured_agent_token()
@@ -2985,6 +3002,26 @@ def _echo_target_error_or_exit(
         kind = str(exc.details.get("kind") or "PREFLIGHT_FAILED")
         detail = str(exc.details.get("detail") or exc.message)
         typer.echo(f"ERROR {kind}: {detail}", err=True)
+        raise typer.Exit(2) from exc
+    if exc.code == "build-not-found" and isinstance(exc.details.get("available"), list):
+        # A plain unknown build (the resolver adds `available` only then, not for the
+        # ambiguous/corrupt-manifest cases) mirrors the 6.3 config-error shape.
+        name = str(exc.details.get("build") or fallback_name or "unknown")
+        typer.echo(f"ERROR: Unknown build: {name}", err=True)
+        available = [str(item) for item in exc.details["available"]]
+        typer.echo(f"Available builds: {', '.join(available) or 'none'}", err=True)
+        raise typer.Exit(2) from exc
+    if exc.code == "model-not-found" and isinstance(exc.details.get("available"), list):
+        name = str(
+            exc.details.get("model_ref")
+            or exc.details.get("reference")
+            or exc.details.get("entry_id")
+            or fallback_name
+            or "unknown"
+        )
+        typer.echo(f"ERROR: Unknown model: {name}", err=True)
+        available = [str(item) for item in exc.details["available"]]
+        typer.echo(f"Available models: {', '.join(available) or 'none'}", err=True)
         raise typer.Exit(2) from exc
     typer.echo(f"ERROR: {exc.message}", err=True)
     raise typer.Exit(2) from exc

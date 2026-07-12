@@ -3205,6 +3205,101 @@ def test_cli_command_explicit_target_beats_env(monkeypatch: pytest.MonkeyPatch) 
     assert seen["target"] == "thunderbird"
 
 
+def test_cli_list_empty_state_names_searched_dirs(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.5: an empty config list names where it looked and how to create one.
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {
+            "valid": [],
+            "invalid": [],
+            "searched_dirs": ["~/.config/vela/configs"],
+        },
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert "no configs found in: ~/.config/vela/configs" in result.output
+    assert "vela deploy create" in result.output
+
+
+def test_cli_build_list_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {"builds": [], "skipped": []},
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["build", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "no builds" in result.output.lower()
+    assert "vela build add" in result.output
+
+
+def test_cli_model_list_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {"models": [], "skipped": []},
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["model", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "no models" in result.output.lower()
+    assert "vela model pin" in result.output
+
+
+def test_cli_doctor_next_step_when_no_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeTargetsRegistry:
+        @property
+        def targets(self) -> list[TargetConfig]:
+            return [TargetConfig(name="local")]
+
+    monkeypatch.setattr(cli_module, "load_targets_file", lambda: FakeTargetsRegistry())
+
+    result = CliRunner().invoke(cli_module.app, ["doctor"])
+
+    assert "vela targets add" in result.output
+
+
+def test_cli_unknown_build_error_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.5: unknown build matches the config-error shape (Unknown X + Available …).
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        raise cli_module.TargetCallError(
+            "build-not-found",
+            "unknown build: ghost",
+            {"build": "ghost", "available": ["01BUILD", "nightly-cu130"]},
+        )
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["build", "inspect", "ghost"])
+
+    assert result.exit_code == 2
+    assert "Unknown build: ghost" in result.output
+    assert "Available builds: 01BUILD, nightly-cu130" in result.output
+
+
+def test_cli_unknown_model_error_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_agent_call(method, params=None, *, target_name="local"):
+        raise cli_module.TargetCallError(
+            "model-not-found",
+            "unknown model: ghost",
+            {"model_ref": "ghost", "available": ["org/a", "org/b"]},
+        )
+
+    monkeypatch.setattr(cli_module, "_agent_call", fake_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["model", "inspect", "ghost"])
+
+    assert result.exit_code == 2
+    assert "Unknown model: ghost" in result.output
+    assert "Available models: org/a, org/b" in result.output
+
+
 def test_cli_targets_test_handshake_error_uses_target_name_in_remediation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3416,7 +3511,9 @@ def test_cli_doctor_omits_static_next_steps_when_healthy(
     assert payload["ok"] is True
     assert any(check["name"] == "targets" for check in payload["checks"])
     assert any(check["name"] == "agent_token" for check in payload["checks"])
-    assert payload["next_steps"] == []
+    # 7.5: no failing checks add next steps, but zero configured targets earns a
+    # single contextual "add a target" pointer (was []).
+    assert payload["next_steps"] == ["vela targets add <name> --host <user@host>"]
 
 
 def test_cli_targets_bootstrap_persists_target_and_agent_command(

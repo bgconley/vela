@@ -1448,10 +1448,17 @@ def _entry_for_reference(registry: dict[str, Any], reference: str) -> dict[str, 
                 ],
             },
         )
+    # `available` marks the plain unknown-model case (the ambiguous branches above use
+    # `candidates`) so the CLI can render the config-error shape (7.5).
+    available = [
+        str(entry.get("entry_id") or entry.get("display_name") or "")
+        for entry in entries
+        if isinstance(entry, dict)
+    ]
     raise ModelRegistryError(
         "model-not-found",
         f"unknown model reference: {reference}",
-        {"model_ref": reference},
+        {"model_ref": reference, "available": [item for item in available if item]},
     )
 
 

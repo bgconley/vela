@@ -587,6 +587,7 @@ def _manifest_for_reference(root: Path, reference: str) -> tuple[dict[str, Any],
         return _load_manifest_or_raise(direct_path, reference), direct_path.parent
 
     matches: list[tuple[dict[str, Any], Path]] = []
+    available: list[str] = []
     for manifest_path in sorted(root.glob("*/build.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -594,6 +595,9 @@ def _manifest_for_reference(root: Path, reference: str) -> tuple[dict[str, Any],
             continue
         if not isinstance(manifest, dict):
             continue
+        build_id = manifest.get("build_id")
+        if isinstance(build_id, str) and build_id:
+            available.append(build_id)
         if manifest.get("label") == reference:
             matches.append((manifest, manifest_path.parent))
     if len(matches) == 1:
@@ -604,10 +608,13 @@ def _manifest_for_reference(root: Path, reference: str) -> tuple[dict[str, Any],
             f"build label is ambiguous: {reference}",
             {"build": reference},
         )
+    # `available` marks the plain unknown-build case so the CLI can render the
+    # config-error shape (Unknown build + Available builds); the ambiguous/corrupt
+    # cases above deliberately omit it (7.5).
     raise BuildRegistryError(
         "build-not-found",
         f"unknown build: {reference}",
-        {"build": reference},
+        {"build": reference, "available": sorted(available)},
     )
 
 

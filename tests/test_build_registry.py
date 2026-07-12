@@ -104,3 +104,25 @@ def test_discover_venvs_scans_roots_and_annotates(tmp_path: Path) -> None:
     assert str(bare / "") .rstrip("/") in {p.rstrip("/") for p in paths} or str(bare) in paths
     assert paths[str(bare)]["ok"] is False
     assert str(root / "not-a-venv") not in paths
+
+
+def test_resolve_build_handoff_unknown_ref_lists_available_builds(tmp_path: Path) -> None:
+    # 7.5: an unknown build resolves to a build-not-found error that names the builds
+    # that ARE registered, so the CLI can render the config-error shape.
+    import json
+
+    import pytest
+
+    from vela.engine.build_registry import BuildRegistryError, resolve_build_handoff
+
+    (tmp_path / "01BUILD").mkdir()
+    (tmp_path / "01BUILD" / "build.json").write_text(
+        json.dumps({"build_id": "01BUILD", "status": "ready", "label": "nightly"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BuildRegistryError) as exc_info:
+        resolve_build_handoff("ghost", tmp_path)
+
+    assert exc_info.value.code == "build-not-found"
+    assert exc_info.value.details["available"] == ["01BUILD"]
