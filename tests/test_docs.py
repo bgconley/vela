@@ -1,10 +1,32 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 
 def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
+
+
+def _load_script(path: str, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, Path(path).resolve())
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_tui_doc_matches_bindings() -> None:
+    # 8.2: docs/tui.md is generated from the TUI's declared BINDINGS. Regenerate the
+    # same content in memory and diff it against the committed file, so a bindings
+    # change without a docs regen fails here (drift-proof, same idea as the other
+    # generated-content pins).
+    gen = _load_script("scripts/gen_tui_docs.py", "gen_tui_docs_test")
+    expected = gen.render_tui_docs()
+    committed = _read("docs/tui.md")
+    assert committed == expected, (
+        "docs/tui.md is stale — regenerate with `python3 scripts/gen_tui_docs.py`"
+    )
 
 
 def test_readme_covers_new_contributor_v1_paths() -> None:
