@@ -450,6 +450,86 @@ def test_agent_stop_escalates_when_daemon_ignores_sigterm() -> None:
         agent_identity_path(socket_path).unlink(missing_ok=True)
 
 
+def test_agent_stop_kills_daemon_that_unlinks_identity_then_lingers() -> None:
+    # bug-303: the real daemon unlinks its identity file as the LAST graceful-shutdown step
+    # (run_agent_daemon's finally) and can still be alive afterwards — hung in interpreter /
+    # default-executor teardown. stop_agent_daemon used to return "stopped" the instant the
+    # identity file vanished, so it SKIPPED the SIGKILL escalation and left a live daemon it
+    # swore it had stopped; reparented to launchd, one leaked per full test-suite run (the
+    # conftest teardown's `vela agent stop` inherits this). "stopped" must mean the PROCESS
+    # is gone, not merely that its identity file was unlinked. (The sibling escalation test
+    # keeps its identity file, so it never exercised this identity-vanished early-out.)
+    from vela.agent.daemon import agent_identity_path, stop_agent_daemon
+
+    socket_path = _short_socket_path()
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    identity_path = agent_identity_path(socket_path)
+    sock = socket.socket(socket.AF_UNIX)
+    # On SIGTERM: unlink our OWN identity file (like the daemon's shutdown) but DO NOT exit —
+    # hold the process alive so "identity gone" != "process gone".
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os, signal, sys, time\n"
+                "ident = sys.argv[1]\n"
+                "def _term(*_a):\n"
+                "    try:\n"
+                "        os.unlink(ident)\n"
+                "    except FileNotFoundError:\n"
+                "        pass\n"
+                "signal.signal(signal.SIGTERM, _term)\n"
+                "print('ready', flush=True)\n"
+                "time.sleep(60)\n"
+            ),
+            str(identity_path),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert process.stdout is not None
+        assert process.stdout.readline() == b"ready\n"
+        sock.bind(str(socket_path))
+        identity_path.write_text(
+            json.dumps(
+                {
+                    "pid": process.pid,
+                    "create_time": psutil.Process(process.pid).create_time(),
+                    "procfs_starttime": procfs_starttime_from_pid(process.pid),
+                    "socket_path": str(socket_path),
+                    "version": "test",
+                    "protocol_versions": [1],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = stop_agent_daemon(socket_path, timeout=0.3)
+
+        # "stopped" must not be a lie: the process is actually gone (SIGKILL escalation),
+        # not merely identity-less-and-still-running.
+        assert result["status"] == "stopped"
+        try:
+            returncode = process.wait(timeout=scaled_timeout(2))
+        except subprocess.TimeoutExpired:
+            pytest.fail(
+                "stop_agent_daemon reported 'stopped' while the daemon process is still "
+                "alive — it unlinked its identity file but was never actually killed "
+                "(bug-303 test-suite daemon leak)"
+            )
+        assert returncode != 0  # died by SIGKILL, not a clean self-exit
+    finally:
+        sock.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=scaled_timeout(2))
+        socket_path.unlink(missing_ok=True)
+        identity_path.unlink(missing_ok=True)
+
+
 def test_systemd_user_unit_runs_foreground_agent_daemon() -> None:
     service_path = Path(__file__).parents[1] / "packaging" / "systemd" / (
         "vela-agent.service"

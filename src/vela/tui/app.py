@@ -4902,7 +4902,17 @@ class VelaApp(App):
                 # views so a frozen offline card is replaced, not just chrome
                 # (bug-253). _load_registry_from_agent self-guards TargetCallError.
                 generation = self._target_generation
-                registry = await self._load_registry_from_agent()
+                try:
+                    registry = await self._load_registry_from_agent()
+                except RuntimeError as exc:
+                    # A concurrent _switch_target's disconnect() can fail this in-flight
+                    # list_configs future with RuntimeError (transport/socket.py:143);
+                    # _load_registry_from_agent catches only TargetCallError, so mirror
+                    # _keepalive_refresh_preview and swallow the link error to keep the
+                    # _poll_target_keepalive loop alive. The generation guard below already
+                    # prevents stale state from a switch that lands mid-reload (bug-301).
+                    self._debug_event("keepalive.registry_reload_link_failed", error=str(exc))
+                    return
                 if self._target_generation != generation:
                     # A target switch landed during the reload await; discard the
                     # stale result so it can't overwrite the switch's fresh state

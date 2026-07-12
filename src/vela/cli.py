@@ -1746,22 +1746,9 @@ def deploy_list(
     ] = False,
 ) -> None:
     """List deployments on the target."""
-    target = _resolve_target_name(target)
-    try:
-        result = _agent_call(
-            "list_configs",
-            _agent_params(configs_dir=configs_dir),
-            target_name=target,
-        )
-    except TargetCallError as exc:
-        _echo_target_error_or_exit(exc)
-    if json_output:
-        _echo_json(result)
-        return
-    for item in result.get("valid", []):
-        typer.echo(f"{item['name']}\t{item['model']}")
-    for item in result.get("invalid", []):
-        typer.echo(f"INVALID {Path(item['path']).name}\t{'; '.join(item['errors'])}")
+    # A true delegate of the canonical `vela list` (7.4): one shared body, so the alias
+    # inherits its empty-state hint + target-threaded errors and stays byte-identical.
+    list_configs(configs_dir=configs_dir, target=target, json_output=json_output)
 
 
 @deploy_app.command("clone")
@@ -1962,6 +1949,10 @@ def deploy_export(
 def list_configs(
     configs_dir: Annotated[Path | None, typer.Option("--configs-dir")] = None,
     target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable config list."),
+    ] = False,
 ) -> None:
     """List valid and invalid configs on the target."""
     target = _resolve_target_name(target)
@@ -1973,6 +1964,9 @@ def list_configs(
         )
     except TargetCallError as exc:
         _echo_target_error_or_exit(exc, target_name=target)
+    if json_output:
+        _echo_json(result)
+        return
     valid = result.get("valid", [])
     invalid = result.get("invalid", [])
     for item in valid:

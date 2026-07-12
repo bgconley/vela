@@ -1331,9 +1331,23 @@ def _safe_int(value: object) -> int:
         return 0
 
 
+def _empty_registry() -> dict[str, Any]:
+    """A fresh install has no registry file yet; a missing file reads as an EMPTY
+    registry, never an I/O failure (bug-302 / bug-236b)."""
+    return {"schema_version": 1, "default_cache": "hf", "app_download_dir": None, "entries": []}
+
+
 def _load_registry_or_raise(path: Path, reference: str) -> dict[str, Any]:
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        # A MISSING registry file (fresh install) is an EMPTY registry, not an I/O
+        # failure — so the not-found path attaches available=[] and the CLI renders the
+        # 7.5 unknown-model shape ("Unknown model: X" / "Available models: none") instead
+        # of a false "unable to read model registry" claim (bug-302). Mirrors the
+        # missing-file tolerance the write path already had. FileNotFoundError is an
+        # OSError subclass, so this must precede the generic OSError arm below.
+        return _empty_registry()
     except json.JSONDecodeError as exc:
         raise ModelRegistryError(
             "model-not-found",
@@ -1357,7 +1371,7 @@ def _load_registry_or_raise(path: Path, reference: str) -> dict[str, Any]:
 
 def _load_registry_for_write(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {"schema_version": 1, "default_cache": "hf", "app_download_dir": None, "entries": []}
+        return _empty_registry()
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:

@@ -6166,6 +6166,33 @@ async def test_prepare_launch_blocks_uncached_model_with_only_expected_size(
     assert "insufficient disk" in exc_info.value.details["detail"]
 
 
+def test_model_registry_reads_treat_missing_file_as_empty(tmp_path: Path) -> None:
+    # bug-302: a fresh install has NO models registry file yet. The READ paths
+    # (resolve_model_handoff / inspect_model / model_reference_aliases /
+    # _entry_id_for_reference) went through _load_registry_or_raise, which hit
+    # path.read_text() with no exists() guard — so a MISSING file raised
+    # FileNotFoundError -> "unable to read model registry for X" (a false I/O claim)
+    # instead of the honest unknown-model shape (available=[]). Missing == empty.
+    import vela.engine.model_registry as model_registry
+
+    missing = tmp_path / "state" / "vela" / "models" / "registry.json"
+    assert not missing.exists()
+
+    for call in (
+        lambda: model_registry.resolve_model_handoff("ghost", registry_path=missing),
+        lambda: model_registry.inspect_model("ghost", registry_path=missing),
+        lambda: model_registry.model_reference_aliases("ghost", registry_path=missing),
+    ):
+        with pytest.raises(model_registry.ModelRegistryError) as exc_info:
+            call()
+        exc = exc_info.value
+        assert exc.code == "model-not-found"
+        # The honest fresh-box shape: an unknown model with no models available, NOT a
+        # false "unable to read model registry" I/O-failure claim.
+        assert exc.details.get("available") == []
+        assert "unable to read" not in str(exc)
+
+
 @pytest.mark.asyncio
 async def test_prepare_launch_does_not_warn_when_model_cached(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int

@@ -2564,6 +2564,73 @@ async def test_keepalive_flip_preview_link_failure_keeps_loop_alive(config_dir: 
 
 
 @pytest.mark.asyncio
+async def test_keepalive_flip_registry_reload_link_failure_keeps_loop_alive(
+    config_dir: Path,
+) -> None:
+    # bug-301: the recovery-flip's registry reload is the FIRST switch window (BEFORE the
+    # preview window fixed in Phase-7 commit 0). A concurrent _switch_target's disconnect()
+    # fails the in-flight list_configs future with RuntimeError("target client disconnected")
+    # (transport/socket.py:143). _load_registry_from_agent catches only TargetCallError, so
+    # the RuntimeError escapes it AND _target_keepalive_once (the reload runs in the else
+    # branch, outside the try) — killing the _poll_target_keepalive `while True` for the
+    # rest of the session. The flip's reload must swallow the link error the same way
+    # _keepalive_refresh_preview does; the generation guard already protects state.
+    class LinkFailReloadClient:
+        def __init__(self) -> None:
+            self.connected = True
+            self.fail_list = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                if self.fail_list:
+                    # A concurrent switch's disconnect() failed this in-flight future.
+                    raise RuntimeError("target client disconnected")
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            return {"valid": [], "invalid": []}
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("link-fail test should not subscribe")
+
+    client = LinkFailReloadClient()
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        # Precondition for the recovery-flip branch: pretend the link dropped so the next
+        # keepalive tick is a non-connected -> connected flip that reloads the registry.
+        app.target_connection_state = "disconnected"
+        # The reload's list_configs now fails with the link RuntimeError (as a mid-flight
+        # switch's disconnect() would). on_mount already loaded configs with fail_list off.
+        client.fail_list = True
+
+        # Must NOT raise — the keepalive loop has to survive the reload link failure so
+        # _poll_target_keepalive keeps running for the rest of the session.
+        await app._target_keepalive_once()
+
+        # The flip's ping succeeded, so the link is marked connected despite the reload
+        # RuntimeError.
+        assert app.target_connection_state == "connected"
+
+
+@pytest.mark.asyncio
 async def test_failed_restart_rediscovers_orphaned_run(config_dir: Path) -> None:
     # Phase-4 carry-forward: restart nulls current_run_id BEFORE the RPC, so a failed
     # restart leaves the old (possibly still-alive) run unattached. Re-discover runs

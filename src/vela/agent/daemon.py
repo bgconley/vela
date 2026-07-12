@@ -353,8 +353,14 @@ def stop_agent_daemon(
         return {**status, "status": "stopped"}
     deadline = time.monotonic() + timeout
     identity_path = Path(str(status["identity_path"]))
+    # "stopped" must mean the PROCESS is gone, not merely that its identity file was
+    # unlinked. The real daemon unlinks its identity as the LAST graceful-shutdown step
+    # and can still be alive afterwards (hung in interpreter/executor teardown); gating on
+    # `not identity_path.exists()` here returned "stopped" prematurely and skipped the
+    # SIGKILL escalation, leaking a live daemon `agent stop` swore it had stopped (bug-303).
+    # _identity_matches_live_process is False once the pid exits, zombies, or is replaced.
     while time.monotonic() < deadline:
-        if not identity_path.exists() or not _identity_matches_live_process(status):
+        if not _identity_matches_live_process(status):
             return {**status, "status": "stopped"}
         time.sleep(0.05)
     if not _identity_matches_live_process(status):
@@ -365,7 +371,7 @@ def stop_agent_daemon(
         return {**status, "status": "stopped"}
     kill_deadline = time.monotonic() + max(0.5, min(timeout, 2.0))
     while time.monotonic() < kill_deadline:
-        if not identity_path.exists() or not _identity_matches_live_process(status):
+        if not _identity_matches_live_process(status):
             identity_path.unlink(missing_ok=True)
             Path(str(status["socket_path"])).unlink(missing_ok=True)
             return {**status, "status": "stopped", "signal": "SIGKILL"}

@@ -3300,6 +3300,36 @@ def test_cli_unknown_model_error_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Available models: org/a, org/b" in result.output
 
 
+def test_cli_model_inspect_fresh_box_has_no_registry_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-302: on a fresh install (no models registry file yet) `vela model inspect ghost`
+    # must render the honest unknown-model shape (Available models: none), not a false
+    # "unable to read model registry" I/O-failure claim. Drives the REAL engine resolution
+    # against a missing registry file, through the real CLI error rendering (the agent maps
+    # ModelRegistryError -> TargetCallError verbatim, so this mirrors the wire path).
+    import vela.engine.model_registry as model_registry
+
+    missing_registry = tmp_path / "state" / "vela" / "models" / "registry.json"
+    assert not missing_registry.exists()
+
+    def real_engine_agent_call(method, params=None, *, target_name="local"):
+        assert method == "inspect_model"
+        try:
+            return model_registry.inspect_model(str(params["model_ref"]), missing_registry)
+        except model_registry.ModelRegistryError as exc:
+            raise cli_module.TargetCallError(exc.code, exc.message, exc.details) from exc
+
+    monkeypatch.setattr(cli_module, "_agent_call", real_engine_agent_call)
+
+    result = CliRunner().invoke(cli_module.app, ["model", "inspect", "ghost"])
+
+    assert result.exit_code == 2, result.output
+    assert "Unknown model: ghost" in result.output
+    assert "Available models: none" in result.output
+    assert "unable to read model registry" not in result.output
+
+
 def test_cli_targets_test_handshake_error_uses_target_name_in_remediation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4387,6 +4417,49 @@ def test_cli_deploy_list_clone_delete_call_target_agent(
         "clone_config",
         "delete_config",
     ]
+
+
+def test_cli_list_supports_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 8.0 (deploy-list divergence): --json was only on the hidden `deploy list` alias. Port
+    # it to the canonical `vela list` so the one supported surface is machine-readable too.
+    payload = {
+        "valid": [{"name": "a", "model": "org/a", "path": "/x/a.yaml"}],
+        "invalid": [],
+        "searched_dirs": ["~/.config/vela/configs"],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": payload,
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == payload
+
+
+def test_cli_deploy_list_alias_is_a_true_delegate_of_canonical_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 8.0: the hidden `deploy list` alias must be one body shared with `vela list` — so it
+    # inherits the 7.5 empty-state hint (searched dirs + how to create one), not a bare
+    # silent list. Drive the shared body through the alias.
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": {
+            "valid": [],
+            "invalid": [],
+            "searched_dirs": ["~/.config/vela/configs"],
+        },
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["deploy", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "no configs found in: ~/.config/vela/configs" in result.output
+    assert "vela deploy create" in result.output
 
 
 def test_cli_deploy_edit_calls_target_agent(
