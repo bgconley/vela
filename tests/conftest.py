@@ -55,6 +55,10 @@ def isolated_vela_state() -> Iterator[Path]:
     # Config too: tests must not see the developer machine's targets.yaml
     # (the remote-validation run exposed 4 tests that silently depended on it).
     os.environ["XDG_CONFIG_HOME"] = str(state_root / "config")
+    # bug-294: VELA_AGENT_RUNTIME_DIR outranks XDG_RUNTIME_DIR (D5), so a shell
+    # export would escape the isolated dirs entirely. Pop it — being in the
+    # _VELA_STATE_ENV_KEYS snapshot above, the teardown loop restores it.
+    os.environ.pop("VELA_AGENT_RUNTIME_DIR", None)
     (state_root / "runtime").mkdir(parents=True, exist_ok=True)
     try:
         yield state_root

@@ -141,6 +141,40 @@ def test_start_agent_daemon_failure_captures_stderr_log_and_names_it() -> None:
         shutil.rmtree(long_dir, ignore_errors=True)
 
 
+def test_isolation_fixture_clears_shell_vela_agent_runtime_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # bug-294: VELA_AGENT_RUNTIME_DIR is D5's TOP precedence, so a developer shell
+    # exporting it (docs now advertise it) would beat the isolated XDG_RUNTIME_DIR
+    # and escape suite isolation entirely — sockets would resolve in the real dir
+    # and the session teardown would `vela agent stop` against it. The isolation
+    # fixture must POP it (the _VELA_STATE_ENV_KEYS snapshot already restores it).
+    import conftest as conftest_module
+
+    from vela.agent import daemon as daemon_module
+
+    shell_override = Path("/tmp") / f"vela-shell-{uuid.uuid4().hex}"
+    monkeypatch.setenv("VELA_AGENT_RUNTIME_DIR", str(shell_override))
+
+    # Drive the session fixture's generator directly (__wrapped__ = the raw
+    # generator under pytest's direct-call guard) to simulate a session that
+    # starts with the shell export in place.
+    fixture_gen = conftest_module.isolated_vela_state.__wrapped__()
+    state_root = next(fixture_gen)
+    try:
+        assert os.environ.get("VELA_AGENT_RUNTIME_DIR") is None
+        resolved = daemon_module.default_agent_socket_path()
+        assert resolved == state_root / "runtime" / "vela" / "agent.sock"
+    finally:
+        try:
+            next(fixture_gen)
+        except StopIteration:
+            pass
+
+    # Teardown restored the shell value for the caller's environment.
+    assert os.environ.get("VELA_AGENT_RUNTIME_DIR") == str(shell_override)
+
+
 def test_default_agent_runtime_dir_precedence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
