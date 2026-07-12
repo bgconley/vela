@@ -1323,7 +1323,9 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert workflow.exists()
     text = workflow.read_text(encoding="utf-8")
     assert "workflow_dispatch:" in text
-    assert "schedule:" in text
+    # Phase-9 (D4): the zombie daily cron is killed; the workflow is dispatch-only.
+    assert "schedule:" not in text
+    assert "cron:" not in text
     assert "concurrency:" in text
     assert "runner_label" in text
     assert 'default: "self-hosted"' in text

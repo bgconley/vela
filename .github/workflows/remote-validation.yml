@@ -71,8 +71,6 @@ on:
         description: "Runner label with network access to the remote host"
         required: true
         default: "self-hosted"
-  schedule:
-    - cron: "17 8 * * *"
 
 concurrency:
   group: remote-validation-blackwell
