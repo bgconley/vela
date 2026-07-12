@@ -25,7 +25,12 @@ headlessly with placeholder-only state.)
 
 ## Quickstart
 
-Install as a tool (Python 3.10+) and open the TUI:
+There are two golden paths. Pick the one that matches how you got Vela.
+
+### Installed tool
+
+Install Vela as a standalone CLI tool (Python 3.10+) and open the TUI — this is
+the path for driving remote GPU targets from a workstation:
 
 ```bash
 uv tool install git+https://github.com/bgconley/vela
@@ -33,36 +38,44 @@ uv tool install git+https://github.com/bgconley/vela
 vela
 ```
 
-For development, install editable with dev extras instead:
+Shell completion is built in: `vela --install-completion`. `vela` and `vela tui`
+are equivalent.
+
+An installed tool ships no configs, so first use is TUI-first — you compose
+deployments and reach targets from inside the TUI:
+
+1. Open `vela` on the controller host.
+2. Press `t` to open Target Manager and add or test a GPU target (or bootstrap one
+   from the CLI — see [Remote Targets](#remote-targets)).
+3. Press `n` to compose a deployment with the New Deployment wizard.
+4. Launch from the TUI, watch phase/readiness/logs, then stop or reattach from the
+   same screen.
+
+### Cloned repo
+
+Clone the repo and install it editable with dev extras — this is the path for
+hacking on Vela and running the bundled no-GPU demo:
 
 ```bash
+git clone https://github.com/bgconley/vela
+cd vela
 pip install -e ".[dev]"
 ```
 
-Shell completion is built in: `vela --install-completion`.
-
-The explicit TUI alias is equivalent:
+The repo ships a `./configs` directory that includes the `fake-child` deployment
+(a no-GPU vLLM stand-in), so the demo commands below work out of the box **as long
+as you run from the repo root** — config discovery finds `./configs` there. None
+of these need a GPU:
 
 ```bash
-vela tui
+vela list                        # lists fake-child from ./configs
+vela run fake-child --preview    # print the resolved command, launch nothing
+vela smoke fake-child            # launch the fake child, wait READY, stop
 ```
 
-Typical first use is TUI-first:
-
-1. Open `vela` on the controller host.
-2. Press `t` to open Target Manager and add or test a GPU target.
-3. Press `n` to compose a deployment from the New Deployment wizard, or select
-   an existing YAML config from the sidebar.
-4. Launch from the TUI, watch phase/readiness/logs, then stop or reattach from
-   the same screen.
-
-Useful no-GPU checks:
+Other useful no-GPU checks (also from the repo root):
 
 ```bash
-vela list
-vela preview fake-child
-vela run fake-child --preview
-vela smoke fake-child
 vela targets list
 vela build list
 vela model list
@@ -71,11 +84,36 @@ vela deploy create --help
 
 ## Remote Targets
 
-Targets are stored on the controller in `~/.config/vela/targets.yaml`.
-`local` is implicit. An SSH target runs `vela agent connect` on the
-remote host; the remote daemon then performs all host-local work.
+The golden path provisions a target over SSH in one command: it reaches the host,
+discovers or installs the agent, registers the target on the controller, and
+handshakes it.
 
-Example target:
+```bash
+vela targets bootstrap gpu-node --host user@host --install
+vela targets test gpu-node
+```
+
+`bootstrap` writes the target to the controller's `~/.config/vela/targets.yaml`
+for you; `--install` installs the Vela agent into the target's managed venv (drop
+it when the agent is already on the host). `local` is always implicit. An SSH
+target runs `vela agent connect` on the remote host, and the remote daemon
+performs all host-local work.
+
+Make a target the default so you can omit `--target`:
+
+```bash
+vela targets use gpu-node          # persists the default; or export VELA_TARGET=gpu-node
+vela list                          # now runs against gpu-node
+```
+
+An explicit `--target` on any command wins over `vela targets use` /
+`VELA_TARGET`, which win over the implicit `local`.
+
+### Hand-edited targets.yaml (reference)
+
+`vela targets bootstrap` is the supported path. Edit
+`~/.config/vela/targets.yaml` directly only when you need a field bootstrap does
+not set:
 
 ```yaml
 targets:
@@ -87,44 +125,22 @@ targets:
     local_transport: socket
 ```
 
-Register and test a target from the CLI:
-
-```bash
-vela targets add gpu-node \
-  --host user@gpu-host \
-  --workdir /home/user/repos/vela \
-  --venv /home/user/venvs/vela
-vela targets test gpu-node
-```
-
-For workstation-to-controller-to-agent validation across two hosts, prefer a key
-available on the controller or `ProxyJump`. In a private lab, the outer
-workstation-to-controller hop can use forwarding, but Vela blocks agent
-forwarding on the controller-to-agent target transport.
-
-```bash
-VELA_SSH_OPTS="-A -i ~/.ssh/id_ed25519 -o BatchMode=yes" \
-VELA_REMOTE_VENV=/home/user/venvs/vela \
-VELA_REMOTE_TARGET=gpu-node \
-VELA_REMOTE_BUILD_SPEC=vllm==0.11.2 \
-VELA_REMOTE_MODEL_REPO=hf-internal-testing/tiny-random-LlamaForCausalLM \
-VELA_REMOTE_REAL_RESUME_CONFIG=tiny-llama-detached \
-  scripts/run_remote_tests.sh user@controller-host /home/user/repos/vela \
-  my-real-config
-```
-
-See [docs/gpu-workflow.md](docs/gpu-workflow.md) for the repeatable GPU
-validation lane and artifact workflow.
+The two-hop workstation → controller → agent validation lane and the artifact
+workflow are a maintainer runbook — see
+[docs/gpu-workflow.md](docs/gpu-workflow.md) (maintainer runbook).
 
 ## Config Schema
 
 Config discovery runs on the target agent, because configs usually reference
 target-local paths. Discovery order is:
 
-1. `--configs-dir`
-2. `VELA_CONFIGS`
-3. `./configs`
-4. `~/.config/vela/configs`
+1. `--configs-dir <dir>` (explicit override)
+2. `$VELA_CONFIGS`
+3. `./configs` — the `configs/` subdir of the current directory (this is why the
+   cloned-repo demo works when you run from the repo root)
+4. `~/.config/vela/configs` — the `configs/` **subdir** of `~/.config/vela`, not
+   `~/.config/vela` itself. `$XDG_CONFIG_HOME` overrides `~/.config`, so this
+   becomes `$XDG_CONFIG_HOME/vela/configs` when that variable is set.
 
 Common YAML fields:
 
@@ -211,8 +227,8 @@ Details are in [docs/builds-and-models.md](docs/builds-and-models.md).
 ## Model Registry
 
 Models are cataloged, not owned. Hugging Face weights stay in the target's
-standard HF cache, while the loader stores metadata, pins, and verification
-state.
+standard HF cache; the agent records only metadata, pins, and verification state
+in its registry.
 
 ```bash
 vela model pin tiny-llama \

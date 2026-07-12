@@ -21,6 +21,24 @@ def test_readme_covers_new_contributor_v1_paths() -> None:
     ):
         assert phrase in text
 
+    # 8.1: two explicit golden-path quickstarts — installed tool vs cloned repo.
+    assert "### Installed tool" in text
+    assert "### Cloned repo" in text
+    # The cloned-repo demo works because the repo ships ./configs (the fake-child
+    # deployment); the README must say so AND say to run from the repo root.
+    assert "fake-child" in text
+    assert "run from the repo root" in text
+    assert "./configs" in text
+    # 8.1: the remote-target golden path bootstraps the agent over SSH; a hand-edited
+    # targets.yaml is demoted to reference.
+    assert "vela targets bootstrap gpu-node --host user@host --install" in text
+    assert "vela targets test gpu-node" in text
+    # Config discovery: the configs/ SUBDIR of ~/.config/vela (not the dir itself),
+    # honouring XDG_CONFIG_HOME (6.5); the default target resolves via VELA_TARGET (7.3).
+    assert "~/.config/vela/configs" in text
+    assert "XDG_CONFIG_HOME" in text
+    assert "VELA_TARGET" in text
+
 
 def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     configuration = _read("docs/configuration.md")
