@@ -151,6 +151,151 @@ async def test_new_deployment_review_uses_step_indicator_and_preserves_panels() 
 
 
 @pytest.mark.asyncio
+async def test_review_treats_every_dynamic_panel_and_error_as_literal_text() -> None:
+    bracket_rich = (
+        '["--label", "ai.vela.managed=true", "--label", '
+        '"ai.vela.profile=oxcart"]'
+    )
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentReviewScreen(
+            config={
+                "name": bracket_rich,
+                "model": "org/m",
+                "command": {
+                    "runtime": "docker",
+                    "docker": {"image": "image@sha256:" + "a" * 64},
+                },
+            },
+            preview=f"docker run {bracket_rich}",
+            derived=[
+                {
+                    "field": "command.docker.extra_run_args",
+                    "value": bracket_rich,
+                    "source": "operator_override",
+                }
+            ],
+            warnings=[bracket_rich],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        for selector in (
+            "#new-deployment-review-summary",
+            "#new-deployment-review-derived",
+            "#new-deployment-review-warnings",
+            "#new-deployment-review-preview",
+        ):
+            assert bracket_rich in str(screen.query_one(selector, Static).render())
+
+        # The blocker is updated after composition; it must retain the same
+        # literal-text contract as the four initially populated panels.
+        blocker = screen.query_one("#new-deployment-review-error", Static)
+        blocker.update(bracket_rich)
+        blocker.display = True
+        await pilot.pause()
+        assert bracket_rich in str(blocker.render())
+
+
+@pytest.mark.asyncio
+async def test_wizard_treats_agent_config_and_select_labels_as_literal_text() -> None:
+    bracket_rich = (
+        '["--label", "ai.vela.managed=true", "--label", '
+        '"ai.vela.profile=oxcart"]'
+    )
+
+    async def suggestions(_params: dict[str, object]) -> dict[str, object]:
+        return {"warnings": [bracket_rich]}
+
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label=bracket_rich,
+            targets=[
+                {
+                    "name": bracket_rich,
+                    "hostname": bracket_rich,
+                    "connection_state": "connected",
+                    "connection_detail": bracket_rich,
+                }
+            ],
+            presets=[{"name": bracket_rich, "description": bracket_rich}],
+            recipes=[
+                {
+                    "key": "recipe-key",
+                    "label": bracket_rich,
+                    "name": bracket_rich,
+                    "runtime": "docker",
+                    "image": "image@sha256:" + "a" * 64,
+                    "model": bracket_rich,
+                    "model_ref": bracket_rich,
+                    "revision": "a" * 40,
+                }
+            ],
+            models=[
+                {
+                    "entry_id": "model-entry",
+                    "display_name": bracket_rich,
+                    "repo_id": "different/repo",
+                    "cache_state": bracket_rich,
+                    "pinned": True,
+                }
+            ],
+            builds=[
+                {
+                    "build_id": "build-id",
+                    "label": bracket_rich,
+                    "status": "ready",
+                    "default": True,
+                }
+            ],
+            section_errors={"models": bracket_rich},
+            error_message=bracket_rich,
+            suggestion_resolver=suggestions,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        # Rich Text keeps Textual's supported type-to-search behavior while
+        # preventing its SelectCurrent and SelectOverlay from parsing markup.
+        recipe_select = screen.query_one("#new-deployment-recipe", Select)
+        recipe_select.focus()
+        await pilot.press("enter", "v", "e", "l", "a", "enter")
+        await pilot.pause()
+        assert recipe_select.value == "recipe-key"
+
+        screen.query_one("#new-deployment-model-ref", Select).value = "model-entry"
+        await pilot.pause()
+        screen.query_one("#new-deployment-build-select", Select).value = "build-id"
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        for selector in (
+            "#new-deployment-target",
+            "#new-deployment-target-state",
+            "#new-deployment-model-warning",
+            "#new-deployment-recipe-note",
+            "#new-deployment-preset-help",
+            "#new-deployment-recipe-pin-guidance",
+            "#new-deployment-model-state",
+            "#new-deployment-model-suggestions",
+            "#new-deployment-error",
+        ):
+            assert bracket_rich in str(screen.query_one(selector, Static).render())
+
+        for selector in (
+            "#new-deployment-target-select",
+            "#new-deployment-recipe",
+            "#new-deployment-model-ref",
+            "#new-deployment-build-select",
+            "#new-deployment-preset",
+        ):
+            select = screen.query_one(selector, Select)
+            assert bracket_rich in str(select.query_one("#label", Static).render())
+
+
+@pytest.mark.asyncio
 async def test_review_panel_uses_shared_frame_and_fits_at_80x24() -> None:
     # Task 4.4 (bug-237): the review panel adopts the shared 4.1 modal frame in
     # place of the fixed `width: 92` box that overflowed the 80-col screen. The

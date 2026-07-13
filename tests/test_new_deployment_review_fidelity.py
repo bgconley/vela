@@ -112,6 +112,37 @@ def test_review_renders_provenance_in_plain_language_and_redacts_secrets() -> No
     assert "command.docker.env: •••• (values redacted)" in provenance
 
 
+@pytest.mark.asyncio
+async def test_review_renders_bracket_rich_oxcart_docker_provenance_as_plain_text() -> None:
+    """Oxcart's JSON-shaped ownership labels must never be parsed as markup."""
+    from textual.app import App
+    from textual.widgets import Static
+
+    extra_run_args = (
+        '["--label", "ai.vela.managed=true", "--label", '
+        '"ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl"]'
+    )
+    app = App()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentReviewScreen(
+            config=_oxcart_review_config(),
+            preview="docker run …",
+            derived=[
+                {
+                    "field": "command.docker.extra_run_args",
+                    "value": extra_run_args,
+                    "source": "lab_recipe:oxcart-qwen36-27b-fp8-mtp-vl",
+                }
+            ],
+            warnings=[],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        rendered = screen.query_one("#new-deployment-review-derived", Static)
+        assert extra_run_args in str(rendered.render())
+
+
 def test_flag_customization_relabels_recipe_provenance_as_operator_override() -> None:
     original = {
         "name": "demo",

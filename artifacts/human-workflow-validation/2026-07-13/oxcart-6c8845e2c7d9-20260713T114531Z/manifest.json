@@ -1,0 +1,23 @@
+{
+  "schema": "vela.human-workflow-evidence.v1",
+  "run_id": "oxcart-6c8845e2c7d9-20260713T114531Z",
+  "requested_revision": "6c8845e2c7d933b863aaf3acf097ea097fb05b25",
+  "controller": "oxcart",
+  "target": "oxcart",
+  "transport": "local",
+  "outcome": "failed-before-launch",
+  "failure": "New Deployment Review parsed bracket-rich Docker provenance as Textual markup",
+  "safety": {
+    "container_created": false,
+    "port_18004_opened": false,
+    "gpu_compute_process_created": false,
+    "guard_postflight_ok": true,
+    "owned_remote_root_removed": true
+  },
+  "evidence": {
+    "incident": "live-incident-review-markup.md",
+    "traceback": "remote-evidence/textual-serve.log",
+    "postflight": "remote-evidence/guard-postflight.json",
+    "screenshots_dir": "screenshots"
+  }
+}

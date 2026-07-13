@@ -1,0 +1,1293 @@
+___ ____ _  _ ___ _  _ ____ _       ____ ____ ____ _  _ ____ 
+ |  |___  \/   |  |  | |__| |    __ [__  |___ |__/ |  | |___ 
+ |  |___ _/\_  |  |__| |  | |___    ___] |___ |  \  \/  |___ v1.1.3
+
+Serving 
+'/tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/ve
+nv/bin/vela --configs-dir 
+/tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/con
+figs --target local' on http://127.0.0.1:8815
+
+Press Ctrl+C to quit
+INFO     127.0.0.1 [13/Jul/2026:11:47:23 +0000] "GET / HTTP/1.1" 200 4466 "-"   
+         "curl/8.7.1"                                                           
+INFO     127.0.0.1 [13/Jul/2026:11:47:59 +0000] "GET / HTTP/1.1" 200 4466 "-"   
+         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36    
+         (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"                    
+╭────────────────────────────── Traceback (most recent call last) ───────────────────────────────╮
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/screen.py:1352 in _refresh_layout                                     │
+│                                                                                                │
+│   1349 │   │   │   │   │   │   │   │   )                                                       │
+│   1350 │   │   │                                                                               │
+│   1351 │   │   │   else:                                                                       │
+│ ❱ 1352 │   │   │   │   hidden, shown, resized = self._compositor.reflow(self, size)            │
+│   1353 │   │   │   │   self._layout_widgets.clear()                                            │
+│   1354 │   │   │   │   Hide = events.Hide                                                      │
+│   1355 │   │   │   │   Show = events.Show                                                      │
+│                                                                                                │
+│ ╭────────────────────────────────────────── locals ──────────────────────────────────────────╮ │
+│ │  error = MarkupError('Expected markup value (found \'--label",                             │ │
+│ │          "ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl"] (from lab recipe                  │ │
+│ │          oxcart-qwen36-27b-fp8-mtp-vl)\').')                                               │ │
+│ │ scroll = False                                                                             │ │
+│ │   self = NewDeploymentReviewScreen(id='new-deployment-review')                             │ │
+│ │   size = Size(width=98, height=44)                                                         │ │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_compositor.py:387 in reflow                                          │
+│                                                                                                │
+│    384 │   │   old_map = self._full_map                                                        │
+│    385 │   │   old_widgets = old_map.keys()                                                    │
+│    386 │   │                                                                                   │
+│ ❱  387 │   │   map, widgets = self._arrange_root(parent, size, visible_only=False)             │
+│    388 │   │                                                                                   │
+│    389 │   │   new_widgets = map.keys()                                                        │
+│    390                                                                                         │
+│                                                                                                │
+│ ╭──────────────────────────────── locals ─────────────────────────────────╮                    │
+│ │     old_map = {}                                                        │                    │
+│ │ old_widgets = dict_keys([])                                             │                    │
+│ │      parent = NewDeploymentReviewScreen(id='new-deployment-review')     │                    │
+│ │        self = <Compositor size=Size(width=98, height=44) widgets=set()> │                    │
+│ │        size = Size(width=98, height=44)                                 │                    │
+│ ╰─────────────────────────────────────────────────────────────────────────╯                    │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_compositor.py:744 in _arrange_root                                   │
+│                                                                                                │
+│    741 │   │   │   │   )                                                                       │
+│    742 │   │                                                                                   │
+│    743 │   │   # Add top level (root) widget                                                   │
+│ ❱  744 │   │   add_widget(                                                                     │
+│    745 │   │   │   root,                                                                       │
+│    746 │   │   │   size.region,                                                                │
+│    747 │   │   │   size.region,                                                                │
+│                                                                                                │
+│ ╭─────────────────────────────────────── locals ───────────────────────────────────────╮       │
+│ │ add_new_invisible_widget = <built-in method add of set object at 0x789f2711dee0>     │       │
+│ │           add_new_widget = <built-in method add of set object at 0x789f27764c80>     │       │
+│ │        invisible_widgets = set()                                                     │       │
+│ │              layer_order = 0                                                         │       │
+│ │                      map = {}                                                        │       │
+│ │                  no_clip = Region(x=0, y=0, width=98, height=44)                     │       │
+│ │                     root = NewDeploymentReviewScreen(id='new-deployment-review')     │       │
+│ │                     self = <Compositor size=Size(width=98, height=44) widgets=set()> │       │
+│ │                     size = Size(width=98, height=44)                                 │       │
+│ │             visible_only = False                                                     │       │
+│ │                  widgets = {NewDeploymentReviewScreen(id='new-deployment-review')}   │       │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────╯       │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_compositor.py:601 in add_widget                                      │
+│                                                                                                │
+│    598 │   │   │   │                                                                           │
+│    599 │   │   │   │   if widget.is_container:                                                 │
+│    600 │   │   │   │   │   # Arrange the layout                                                │
+│ ❱  601 │   │   │   │   │   arrange_result = widget.arrange(child_region.size)                  │
+│    602 │   │   │   │   │                                                                       │
+│    603 │   │   │   │   │   arranged_widgets = arrange_result.widgets                           │
+│    604 │   │   │   │   │   widgets.update(arranged_widgets)                                    │
+│                                                                                                │
+│ ╭─────────────────────────────────────── locals ────────────────────────────────────────╮      │
+│ │ add_new_invisible_widget = <built-in method add of set object at 0x789f2711dee0>      │      │
+│ │           add_new_widget = <built-in method add of set object at 0x789f27764c80>      │      │
+│ │             child_region = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │                     clip = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │         container_region = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │           container_size = Size(width=98, height=44)                                  │      │
+│ │              dock_gutter = Spacing(top=0, right=0, bottom=0, left=0)                  │      │
+│ │              layer_order = 0                                                          │      │
+│ │                      map = {}                                                         │      │
+│ │                  no_clip = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │                    order = ((0, 0, 0),)                                               │      │
+│ │                   region = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │                     size = Size(width=98, height=44)                                  │      │
+│ │                   styles = RenderStyles(                                              │      │
+│ │                            │   NewDeploymentReviewScreen(                             │      │
+│ │                            │   │   id='new-deployment-review'                         │      │
+│ │                            │   ),                                                     │      │
+│ │                            │   layout=<vertical>,                                     │      │
+│ │                            │   auto_color=False,                                      │      │
+│ │                            │   color=Color(232, 241, 242),                            │      │
+│ │                            │   background=Color(12, 20, 27),                          │      │
+│ │                            │   overflow_y='auto',                                     │      │
+│ │                            │   scrollbar_color=Color(0, 48, 84),                      │      │
+│ │                            │   scrollbar_color_hover=Color(0, 60, 106),               │      │
+│ │                            │   scrollbar_color_active=Color(1, 120, 212),             │      │
+│ │                            │   scrollbar_corner_color=Color(0, 0, 0),                 │      │
+│ │                            │   scrollbar_background=Color(0, 0, 0),                   │      │
+│ │                            │   scrollbar_background_hover=Color(0, 0, 0),             │      │
+│ │                            │   scrollbar_background_active=Color(0, 0, 0),            │      │
+│ │                            │   scrollbar_size_vertical=2,                             │      │
+│ │                            │   scrollbar_size_horizontal=1,                           │      │
+│ │                            │   align_horizontal='center',                             │      │
+│ │                            │   align_vertical='middle',                               │      │
+│ │                            │   link_color=Color(255, 255, 255, a=0.87),               │      │
+│ │                            │   auto_link_color=True,                                  │      │
+│ │                            │   link_background=Color(0, 0, 0, a=0),                   │      │
+│ │                            │   link_style=Style(underline=True),                      │      │
+│ │                            │   link_color_hover=Color(255, 255, 255, a=0.87),         │      │
+│ │                            │   auto_link_color_hover=True,                            │      │
+│ │                            │   link_background_hover=Color(1, 120, 212),              │      │
+│ │                            │   link_style_hover=Style(bold=True, underline=False)     │      │
+│ │                            )                                                          │      │
+│ │             total_region = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │           virtual_region = Region(x=0, y=0, width=98, height=44)                      │      │
+│ │               visibility = None                                                       │      │
+│ │                  visible = True                                                       │      │
+│ │             visible_only = False                                                      │      │
+│ │                   widget = NewDeploymentReviewScreen(id='new-deployment-review')      │      │
+│ │                  widgets = {NewDeploymentReviewScreen(id='new-deployment-review')}    │      │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────╯      │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/screen.py:542 in arrange                                              │
+│                                                                                                │
+│    539 │   │   │   │   maximize_widgets.insert(0, maximized)                                   │
+│    540 │   │   │   return maximize_widgets                                                     │
+│    541 │   │                                                                                   │
+│ ❱  542 │   │   arrangement = self._arrangement_cache[cache_key] = arrange(                     │
+│    543 │   │   │   self,                                                                       │
+│    544 │   │   │   (                                                                           │
+│    545 │   │   │   │   get_maximize_widgets(self.maximized)                                    │
+│                                                                                                │
+│ ╭──────────────────────────────────── locals ─────────────────────────────────────╮            │
+│ │                _optimal = False                                                 │            │
+│ │ allow_in_maximized_view = 'Footer'                                              │            │
+│ │               cache_key = (Size(width=98, height=44), 32, None)                 │            │
+│ │           cached_result = None                                                  │            │
+│ │                    self = NewDeploymentReviewScreen(id='new-deployment-review') │            │
+│ │                    size = Size(width=98, height=44)                             │            │
+│ ╰─────────────────────────────────────────────────────────────────────────────────╯            │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_arrange.py:97 in arrange                                             │
+│                                                                                                │
+│    94 │   │   if layout_widgets:                                                               │
+│    95 │   │   │   # Arrange layout widgets (i.e. not docked)                                   │
+│    96 │   │   │   layout_placements = widget.process_layout(                                   │
+│ ❱  97 │   │   │   │   widget.layout.arrange(                                                   │
+│    98 │   │   │   │   │   widget, layout_widgets, dock_region.size, greedy=not optimal         │
+│    99 │   │   │   │   )                                                                        │
+│   100 │   │   │   )                                                                            │
+│                                                                                                │
+│ ╭────────────────────────────────────────── locals ──────────────────────────────────────────╮ │
+│ │          children = <NodeList                                                              │ │
+│ │                     │   [                                                                  │ │
+│ │                     │   │   ToastRack(                                                     │ │
+│ │                     │   │   │   id='textual-toastrack',                                    │ │
+│ │                     │   │   │   classes='-textual-system'                                  │ │
+│ │                     │   │   ),                                                             │ │
+│ │                     │   │   Tooltip(id='textual-tooltip', classes='-textual-system'),      │ │
+│ │                     │   │   Vertical(id='new-deployment-review-panel')                     │ │
+│ │                     │   ]                                                                  │ │
+│ │                     >                                                                      │ │
+│ │   display_widgets = [Vertical(id='new-deployment-review-panel')]                           │ │
+│ │       dock_region = Region(x=0, y=0, width=98, height=44)                                  │ │
+│ │      dock_spacing = Spacing(top=0, right=0, bottom=0, left=0)                              │ │
+│ │      dock_widgets = []                                                                     │ │
+│ │            layers = defaultdict(<class 'list'>, {                                          │ │
+│ │                     │   'default': [Vertical(id='new-deployment-review-panel')]            │ │
+│ │                     })                                                                     │ │
+│ │    layout_widgets = [Vertical(id='new-deployment-review-panel')]                           │ │
+│ │ non_split_widgets = [Vertical(id='new-deployment-review-panel')]                           │ │
+│ │           optimal = False                                                                  │ │
+│ │        placements = []                                                                     │ │
+│ │    scroll_spacing = Spacing(top=0, right=0, bottom=0, left=0)                              │ │
+│ │              size = Size(width=98, height=44)                                              │ │
+│ │     split_spacing = Spacing(top=0, right=0, bottom=0, left=0)                              │ │
+│ │     split_widgets = []                                                                     │ │
+│ │            styles = RenderStyles(                                                          │ │
+│ │                     │   NewDeploymentReviewScreen(id='new-deployment-review'),             │ │
+│ │                     │   layout=<vertical>,                                                 │ │
+│ │                     │   auto_color=False,                                                  │ │
+│ │                     │   color=Color(232, 241, 242),                                        │ │
+│ │                     │   background=Color(12, 20, 27),                                      │ │
+│ │                     │   overflow_y='auto',                                                 │ │
+│ │                     │   scrollbar_color=Color(0, 48, 84),                                  │ │
+│ │                     │   scrollbar_color_hover=Color(0, 60, 106),                           │ │
+│ │                     │   scrollbar_color_active=Color(1, 120, 212),                         │ │
+│ │                     │   scrollbar_corner_color=Color(0, 0, 0),                             │ │
+│ │                     │   scrollbar_background=Color(0, 0, 0),                               │ │
+│ │                     │   scrollbar_background_hover=Color(0, 0, 0),                         │ │
+│ │                     │   scrollbar_background_active=Color(0, 0, 0),                        │ │
+│ │                     │   scrollbar_size_vertical=2,                                         │ │
+│ │                     │   scrollbar_size_horizontal=1,                                       │ │
+│ │                     │   align_horizontal='center',                                         │ │
+│ │                     │   align_vertical='middle',                                           │ │
+│ │                     │   link_color=Color(255, 255, 255, a=0.87),                           │ │
+│ │                     │   auto_link_color=True,                                              │ │
+│ │                     │   link_background=Color(0, 0, 0, a=0),                               │ │
+│ │                     │   link_style=Style(underline=True),                                  │ │
+│ │                     │   link_color_hover=Color(255, 255, 255, a=0.87),                     │ │
+│ │                     │   auto_link_color_hover=True,                                        │ │
+│ │                     │   link_background_hover=Color(1, 120, 212),                          │ │
+│ │                     │   link_style_hover=Style(bold=True, underline=False)                 │ │
+│ │                     )                                                                      │ │
+│ │          viewport = Size(width=98, height=44)                                              │ │
+│ │            widget = NewDeploymentReviewScreen(id='new-deployment-review')                  │ │
+│ │           widgets = [Vertical(id='new-deployment-review-panel')]                           │ │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/layouts/vertical.py:53 in arrange                                     │
+│                                                                                                │
+│    50 │   │   else:                                                                            │
+│    51 │   │   │   resolve_margin = Size(0, 0)                                                  │
+│    52 │   │                                                                                    │
+│ ❱  53 │   │   box_models = resolve_box_models(                                                 │
+│    54 │   │   │   [styles.height for styles in child_styles],                                  │
+│    55 │   │   │   children,                                                                    │
+│    56 │   │   │   size,                                                                        │
+│                                                                                                │
+│ ╭────────────────────────────────── locals ───────────────────────────────────╮                │
+│ │  add_placement = <built-in method append of list object at 0x789f277277c0>  │                │
+│ │    box_margins = [Spacing(top=0, right=0, bottom=0, left=0)]                │                │
+│ │   child_styles = [                                                          │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Vertical(id='new-deployment-review-panel'),        │                │
+│ │                  │   │   layout=<vertical>,                                 │                │
+│ │                  │   │   background=Color(16, 25, 35),                      │                │
+│ │                  │   │   padding=Spacing(                                   │                │
+│ │                  │   │   │   top=1,                                         │                │
+│ │                  │   │   │   right=2,                                       │                │
+│ │                  │   │   │   bottom=1,                                      │                │
+│ │                  │   │   │   left=2                                         │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   border_top=('round', Color(47, 81, 104)),          │                │
+│ │                  │   │   border_right=('round', Color(47, 81, 104)),        │                │
+│ │                  │   │   border_bottom=('round', Color(47, 81, 104)),       │                │
+│ │                  │   │   border_left=('round', Color(47, 81, 104)),         │                │
+│ │                  │   │   width=Scalar(                                      │                │
+│ │                  │   │   │   value=96.0,                                    │                │
+│ │                  │   │   │   unit=<Unit.WIDTH: 4>,                          │                │
+│ │                  │   │   │   percent_unit=<Unit.WIDTH: 4>                   │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   max_height=Scalar(                                 │                │
+│ │                  │   │   │   value=96.0,                                    │                │
+│ │                  │   │   │   unit=<Unit.HEIGHT: 5>,                         │                │
+│ │                  │   │   │   percent_unit=<Unit.WIDTH: 4>                   │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   overflow_x='hidden',                               │                │
+│ │                  │   │   overflow_y='auto',                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   )                                                      │                │
+│ │                  ]                                                          │                │
+│ │       children = [Vertical(id='new-deployment-review-panel')]               │                │
+│ │         greedy = True                                                       │                │
+│ │         parent = NewDeploymentReviewScreen(id='new-deployment-review')      │                │
+│ │     placements = []                                                         │                │
+│ │ resolve_margin = Size(width=0, height=0)                                    │                │
+│ │           self = <vertical>                                                 │                │
+│ │           size = Size(width=98, height=44)                                  │                │
+│ │       viewport = Size(width=98, height=44)                                  │                │
+│ ╰─────────────────────────────────────────────────────────────────────────────╯                │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_resolve.py:254 in resolve_box_models                                 │
+│                                                                                                │
+│   251 │   │   (                                                                                │
+│   252 │   │   │   None                                                                         │
+│   253 │   │   │   if _dimension is not None and _dimension.is_fraction                         │
+│ ❱ 254 │   │   │   else widget._get_box_model(                                                  │
+│   255 │   │   │   │   size,                                                                    │
+│   256 │   │   │   │   viewport_size,                                                           │
+│   257 │   │   │   │   (                                                                        │
+│                                                                                                │
+│ ╭───────────────────────────────────────── locals ──────────────────────────────────────────╮  │
+│ │           _height = Fraction(44, 1)                                                       │  │
+│ │            _width = Fraction(98, 1)                                                       │  │
+│ │        dimensions = [Scalar(value=1.0, unit=<Unit.AUTO: 8>, percent_unit=<Unit.AUTO: 8>)] │  │
+│ │   fraction_height = Fraction(44, 1)                                                       │  │
+│ │    fraction_width = Fraction(98, 1)                                                       │  │
+│ │     fraction_zero = Fraction(0, 1)                                                        │  │
+│ │            greedy = True                                                                  │  │
+│ │            margin = Size(width=0, height=0)                                               │  │
+│ │     margin_height = 0                                                                     │  │
+│ │       margin_size = Size(width=98, height=44)                                             │  │
+│ │      margin_width = 0                                                                     │  │
+│ │           margins = [(0, 0)]                                                              │  │
+│ │ resolve_dimension = 'height'                                                              │  │
+│ │              size = Size(width=98, height=44)                                             │  │
+│ │     viewport_size = Size(width=98, height=44)                                             │  │
+│ │           widgets = [Vertical(id='new-deployment-review-panel')]                          │  │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────────╯  │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widget.py:1838 in _get_box_model                                      │
+│                                                                                                │
+│   1835 │   │   elif is_auto_height:                                                            │
+│   1836 │   │   │   # Calculate dimensions based on content                                     │
+│   1837 │   │   │   content_height = Fraction(                                                  │
+│ ❱ 1838 │   │   │   │   self.get_content_height(                                                │
+│   1839 │   │   │   │   │   content_container - margin.totals,                                  │
+│   1840 │   │   │   │   │   viewport,                                                           │
+│   1841 │   │   │   │   │   int(content_width),                                                 │
+│                                                                                                │
+│ ╭────────────────────────────────────────── locals ──────────────────────────────────────────╮ │
+│ │         cache_key = (                                                                      │ │
+│ │                     │   Size(width=98, height=44),                                         │ │
+│ │                     │   Size(width=98, height=44),                                         │ │
+│ │                     │   Fraction(98, 1),                                                   │ │
+│ │                     │   Fraction(44, 1),                                                   │ │
+│ │                     │   False,                                                             │ │
+│ │                     │   True,                                                              │ │
+│ │                     │   3,                                                                 │ │
+│ │                     │   33                                                                 │ │
+│ │                     )                                                                      │ │
+│ │  cached_box_model = None                                                                   │ │
+│ │   constrain_width = False                                                                  │ │
+│ │         container = Size(width=98, height=44)                                              │ │
+│ │ content_container = Size(width=92, height=40)                                              │ │
+│ │     content_width = Fraction(2202, 25)                                                     │ │
+│ │           extrema = Extrema(                                                               │ │
+│ │                     │   min_width=None,                                                    │ │
+│ │                     │   max_width=None,                                                    │ │
+│ │                     │   min_height=None,                                                   │ │
+│ │                     │   max_height=Fraction(956, 25)                                       │ │
+│ │                     )                                                                      │ │
+│ │            greedy = True                                                                   │ │
+│ │            gutter = Spacing(top=2, right=3, bottom=2, left=3)                              │ │
+│ │   height_fraction = Fraction(44, 1)                                                        │ │
+│ │    is_auto_height = True                                                                   │ │
+│ │     is_auto_width = False                                                                  │ │
+│ │     is_border_box = True                                                                   │ │
+│ │            margin = Spacing(top=0, right=0, bottom=0, left=0)                              │ │
+│ │        max_height = Fraction(956, 25)                                                      │ │
+│ │         max_width = None                                                                   │ │
+│ │        min_height = None                                                                   │ │
+│ │         min_width = None                                                                   │ │
+│ │              self = Vertical(id='new-deployment-review-panel')                             │ │
+│ │            styles = RenderStyles(                                                          │ │
+│ │                     │   Vertical(id='new-deployment-review-panel'),                        │ │
+│ │                     │   layout=<vertical>,                                                 │ │
+│ │                     │   background=Color(16, 25, 35),                                      │ │
+│ │                     │   padding=Spacing(top=1, right=2, bottom=1, left=2),                 │ │
+│ │                     │   border_top=('round', Color(47, 81, 104)),                          │ │
+│ │                     │   border_right=('round', Color(47, 81, 104)),                        │ │
+│ │                     │   border_bottom=('round', Color(47, 81, 104)),                       │ │
+│ │                     │   border_left=('round', Color(47, 81, 104)),                         │ │
+│ │                     │   width=Scalar(                                                      │ │
+│ │                     │   │   value=96.0,                                                    │ │
+│ │                     │   │   unit=<Unit.WIDTH: 4>,                                          │ │
+│ │                     │   │   percent_unit=<Unit.WIDTH: 4>                                   │ │
+│ │                     │   ),                                                                 │ │
+│ │                     │   height=Scalar(                                                     │ │
+│ │                     │   │   value=1.0,                                                     │ │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                                           │ │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                                    │ │
+│ │                     │   ),                                                                 │ │
+│ │                     │   max_height=Scalar(                                                 │ │
+│ │                     │   │   value=96.0,                                                    │ │
+│ │                     │   │   unit=<Unit.HEIGHT: 5>,                                         │ │
+│ │                     │   │   percent_unit=<Unit.WIDTH: 4>                                   │ │
+│ │                     │   ),                                                                 │ │
+│ │                     │   overflow_x='hidden',                                               │ │
+│ │                     │   overflow_y='auto',                                                 │ │
+│ │                     │   scrollbar_color=Color(0, 48, 84),                                  │ │
+│ │                     │   scrollbar_color_hover=Color(0, 60, 106),                           │ │
+│ │                     │   scrollbar_color_active=Color(1, 120, 212),                         │ │
+│ │                     │   scrollbar_corner_color=Color(0, 0, 0),                             │ │
+│ │                     │   scrollbar_background=Color(0, 0, 0),                               │ │
+│ │                     │   scrollbar_background_hover=Color(0, 0, 0),                         │ │
+│ │                     │   scrollbar_background_active=Color(0, 0, 0),                        │ │
+│ │                     │   scrollbar_size_vertical=2,                                         │ │
+│ │                     │   scrollbar_size_horizontal=1,                                       │ │
+│ │                     │   link_color=Color(255, 255, 255, a=0.87),                           │ │
+│ │                     │   auto_link_color=True,                                              │ │
+│ │                     │   link_background=Color(0, 0, 0, a=0),                               │ │
+│ │                     │   link_style=Style(underline=True),                                  │ │
+│ │                     │   link_color_hover=Color(255, 255, 255, a=0.87),                     │ │
+│ │                     │   auto_link_color_hover=True,                                        │ │
+│ │                     │   link_background_hover=Color(1, 120, 212),                          │ │
+│ │                     │   link_style_hover=Style(bold=True, underline=False)                 │ │
+│ │                     )                                                                      │ │
+│ │      styles_width = Scalar(value=96.0, unit=<Unit.WIDTH: 4>, percent_unit=<Unit.WIDTH: 4>) │ │
+│ │          viewport = Size(width=98, height=44)                                              │ │
+│ │    width_fraction = Fraction(98, 1)                                                        │ │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widget.py:1927 in get_content_height                                  │
+│                                                                                                │
+│   1924 │   │   │   return 0                                                                    │
+│   1925 │   │   if self.is_container:                                                           │
+│   1926 │   │   │   assert self.layout is not None                                              │
+│ ❱ 1927 │   │   │   height = self.layout.get_content_height(                                    │
+│   1928 │   │   │   │   self,                                                                   │
+│   1929 │   │   │   │   container,                                                              │
+│   1930 │   │   │   │   viewport,                                                               │
+│                                                                                                │
+│ ╭──────────────────────── locals ────────────────────────╮                                     │
+│ │ container = Size(width=92, height=40)                  │                                     │
+│ │      self = Vertical(id='new-deployment-review-panel') │                                     │
+│ │  viewport = Size(width=98, height=44)                  │                                     │
+│ │     width = 88                                         │                                     │
+│ ╰────────────────────────────────────────────────────────╯                                     │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/layout.py:271 in get_content_height                                   │
+│                                                                                                │
+│   268 │   │   │   │   # An exception for containers with all dynamic height widgets            │
+│   269 │   │   │   │   arrangement = widget.arrange(Size(width, container.height))              │
+│   270 │   │   │   else:                                                                        │
+│ ❱ 271 │   │   │   │   arrangement = widget.arrange(Size(width, 0))                             │
+│   272 │   │   │   height = arrangement.total_region.height                                     │
+│   273 │   │   else:                                                                            │
+│   274 │   │   │   height = 0                                                                   │
+│                                                                                                │
+│ ╭──────────────────────── locals ────────────────────────╮                                     │
+│ │ container = Size(width=92, height=40)                  │                                     │
+│ │      self = <vertical>                                 │                                     │
+│ │  viewport = Size(width=98, height=44)                  │                                     │
+│ │    widget = Vertical(id='new-deployment-review-panel') │                                     │
+│ │     width = 88                                         │                                     │
+│ ╰────────────────────────────────────────────────────────╯                                     │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widget.py:1352 in arrange                                             │
+│                                                                                                │
+│   1349 │   │   if cached_result is not None:                                                   │
+│   1350 │   │   │   return cached_result                                                        │
+│   1351 │   │                                                                                   │
+│ ❱ 1352 │   │   arrangement = self._arrangement_cache[cache_key] = arrange(                     │
+│   1353 │   │   │   self, self._nodes, size, self.screen.size, optimal=optimal                  │
+│   1354 │   │   )                                                                               │
+│   1355                                                                                         │
+│                                                                                                │
+│ ╭────────────────────────── locals ──────────────────────────╮                                 │
+│ │     cache_key = (Size(width=88, height=0), 27, False)      │                                 │
+│ │ cached_result = None                                       │                                 │
+│ │       optimal = False                                      │                                 │
+│ │          self = Vertical(id='new-deployment-review-panel') │                                 │
+│ │          size = Size(width=88, height=0)                   │                                 │
+│ ╰────────────────────────────────────────────────────────────╯                                 │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_arrange.py:97 in arrange                                             │
+│                                                                                                │
+│    94 │   │   if layout_widgets:                                                               │
+│    95 │   │   │   # Arrange layout widgets (i.e. not docked)                                   │
+│    96 │   │   │   layout_placements = widget.process_layout(                                   │
+│ ❱  97 │   │   │   │   widget.layout.arrange(                                                   │
+│    98 │   │   │   │   │   widget, layout_widgets, dock_region.size, greedy=not optimal         │
+│    99 │   │   │   │   )                                                                        │
+│   100 │   │   │   )                                                                            │
+│                                                                                                │
+│ ╭─────────────────────────────────── locals ───────────────────────────────────╮               │
+│ │          children = <NodeList                                                │               │
+│ │                     │   [                                                    │               │
+│ │                     │   │   Static(id='new-deployment-review-title'),        │               │
+│ │                     │   │   StepIndicator(                                   │               │
+│ │                     │   │   │   id='new-deployment-review-steps'             │               │
+│ │                     │   │   ),                                               │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-summary'),      │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-derived'),      │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-warnings'),     │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-preview'),      │               │
+│ │                     │   │   ... +2                                           │               │
+│ │                     │   ]                                                    │               │
+│ │                     >                                                        │               │
+│ │   display_widgets = [                                                        │               │
+│ │                     │   Static(id='new-deployment-review-title'),            │               │
+│ │                     │   StepIndicator(id='new-deployment-review-steps'),     │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-summary'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-derived'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-warnings'),         │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-preview'),          │               │
+│ │                     │   ... +1                                               │               │
+│ │                     ]                                                        │               │
+│ │       dock_region = Region(x=0, y=0, width=88, height=0)                     │               │
+│ │      dock_spacing = Spacing(top=0, right=0, bottom=0, left=0)                │               │
+│ │      dock_widgets = []                                                       │               │
+│ │            layers = defaultdict(<class 'list'>, {                            │               │
+│ │                     │   'default': [                                         │               │
+│ │                     │   │   Static(id='new-deployment-review-title'),        │               │
+│ │                     │   │   StepIndicator(                                   │               │
+│ │                     │   │   │   id='new-deployment-review-steps'             │               │
+│ │                     │   │   ),                                               │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-summary'),      │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-derived'),      │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-warnings'),     │               │
+│ │                     │   │   Static(classes='new-deployment-review-label'),   │               │
+│ │                     │   │   Static(id='new-deployment-review-preview'),      │               │
+│ │                     │   │   ... +1                                           │               │
+│ │                     │   ]                                                    │               │
+│ │                     })                                                       │               │
+│ │    layout_widgets = [                                                        │               │
+│ │                     │   Static(id='new-deployment-review-title'),            │               │
+│ │                     │   StepIndicator(id='new-deployment-review-steps'),     │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-summary'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-derived'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-warnings'),         │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-preview'),          │               │
+│ │                     │   ... +1                                               │               │
+│ │                     ]                                                        │               │
+│ │ non_split_widgets = [                                                        │               │
+│ │                     │   Static(id='new-deployment-review-title'),            │               │
+│ │                     │   StepIndicator(id='new-deployment-review-steps'),     │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-summary'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-derived'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-warnings'),         │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-preview'),          │               │
+│ │                     │   ... +1                                               │               │
+│ │                     ]                                                        │               │
+│ │           optimal = False                                                    │               │
+│ │        placements = []                                                       │               │
+│ │    scroll_spacing = Spacing(top=0, right=0, bottom=0, left=0)                │               │
+│ │              size = Size(width=88, height=0)                                 │               │
+│ │     split_spacing = Spacing(top=0, right=0, bottom=0, left=0)                │               │
+│ │     split_widgets = []                                                       │               │
+│ │            styles = RenderStyles(                                            │               │
+│ │                     │   Vertical(id='new-deployment-review-panel'),          │               │
+│ │                     │   layout=<vertical>,                                   │               │
+│ │                     │   background=Color(16, 25, 35),                        │               │
+│ │                     │   padding=Spacing(top=1, right=2, bottom=1, left=2),   │               │
+│ │                     │   border_top=('round', Color(47, 81, 104)),            │               │
+│ │                     │   border_right=('round', Color(47, 81, 104)),          │               │
+│ │                     │   border_bottom=('round', Color(47, 81, 104)),         │               │
+│ │                     │   border_left=('round', Color(47, 81, 104)),           │               │
+│ │                     │   width=Scalar(                                        │               │
+│ │                     │   │   value=96.0,                                      │               │
+│ │                     │   │   unit=<Unit.WIDTH: 4>,                            │               │
+│ │                     │   │   percent_unit=<Unit.WIDTH: 4>                     │               │
+│ │                     │   ),                                                   │               │
+│ │                     │   height=Scalar(                                       │               │
+│ │                     │   │   value=1.0,                                       │               │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                             │               │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                      │               │
+│ │                     │   ),                                                   │               │
+│ │                     │   max_height=Scalar(                                   │               │
+│ │                     │   │   value=96.0,                                      │               │
+│ │                     │   │   unit=<Unit.HEIGHT: 5>,                           │               │
+│ │                     │   │   percent_unit=<Unit.WIDTH: 4>                     │               │
+│ │                     │   ),                                                   │               │
+│ │                     │   overflow_x='hidden',                                 │               │
+│ │                     │   overflow_y='auto',                                   │               │
+│ │                     │   scrollbar_color=Color(0, 48, 84),                    │               │
+│ │                     │   scrollbar_color_hover=Color(0, 60, 106),             │               │
+│ │                     │   scrollbar_color_active=Color(1, 120, 212),           │               │
+│ │                     │   scrollbar_corner_color=Color(0, 0, 0),               │               │
+│ │                     │   scrollbar_background=Color(0, 0, 0),                 │               │
+│ │                     │   scrollbar_background_hover=Color(0, 0, 0),           │               │
+│ │                     │   scrollbar_background_active=Color(0, 0, 0),          │               │
+│ │                     │   scrollbar_size_vertical=2,                           │               │
+│ │                     │   scrollbar_size_horizontal=1,                         │               │
+│ │                     │   link_color=Color(255, 255, 255, a=0.87),             │               │
+│ │                     │   auto_link_color=True,                                │               │
+│ │                     │   link_background=Color(0, 0, 0, a=0),                 │               │
+│ │                     │   link_style=Style(underline=True),                    │               │
+│ │                     │   link_color_hover=Color(255, 255, 255, a=0.87),       │               │
+│ │                     │   auto_link_color_hover=True,                          │               │
+│ │                     │   link_background_hover=Color(1, 120, 212),            │               │
+│ │                     │   link_style_hover=Style(bold=True, underline=False)   │               │
+│ │                     )                                                        │               │
+│ │          viewport = Size(width=98, height=44)                                │               │
+│ │            widget = Vertical(id='new-deployment-review-panel')               │               │
+│ │           widgets = [                                                        │               │
+│ │                     │   Static(id='new-deployment-review-title'),            │               │
+│ │                     │   StepIndicator(id='new-deployment-review-steps'),     │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-summary'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-derived'),          │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-warnings'),         │               │
+│ │                     │   Static(classes='new-deployment-review-label'),       │               │
+│ │                     │   Static(id='new-deployment-review-preview'),          │               │
+│ │                     │   ... +1                                               │               │
+│ │                     ]                                                        │               │
+│ ╰──────────────────────────────────────────────────────────────────────────────╯               │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/layouts/vertical.py:53 in arrange                                     │
+│                                                                                                │
+│    50 │   │   else:                                                                            │
+│    51 │   │   │   resolve_margin = Size(0, 0)                                                  │
+│    52 │   │                                                                                    │
+│ ❱  53 │   │   box_models = resolve_box_models(                                                 │
+│    54 │   │   │   [styles.height for styles in child_styles],                                  │
+│    55 │   │   │   children,                                                                    │
+│    56 │   │   │   size,                                                                        │
+│                                                                                                │
+│ ╭────────────────────────────────── locals ───────────────────────────────────╮                │
+│ │  add_placement = <built-in method append of list object at 0x789f2760a100>  │                │
+│ │    box_margins = [                                                          │                │
+│ │                  │   Spacing(top=0, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=0, right=0, bottom=1, left=0),             │                │
+│ │                  │   Spacing(top=1, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=0, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=1, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=0, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=1, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=0, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=1, right=0, bottom=0, left=0),             │                │
+│ │                  │   Spacing(top=0, right=0, bottom=0, left=0),             │                │
+│ │                  │   ... +1                                                 │                │
+│ │                  ]                                                          │                │
+│ │   child_styles = [                                                          │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(id='new-deployment-review-title'),          │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(96, 215, 248),                         │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   text_style=Style(bold=True),                       │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   StepIndicator(id='new-deployment-review-steps'),   │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   margin=Spacing(top=0, right=0, bottom=1, left=0),  │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(classes='new-deployment-review-label'),     │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(139, 164, 174),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   text_style=Style(bold=True),                       │                │
+│ │                  │   │   margin=Spacing(top=1, right=0, bottom=0, left=0),  │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(id='new-deployment-review-summary'),        │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(232, 241, 242),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(classes='new-deployment-review-label'),     │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(139, 164, 174),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   text_style=Style(bold=True),                       │                │
+│ │                  │   │   margin=Spacing(top=1, right=0, bottom=0, left=0),  │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(id='new-deployment-review-derived'),        │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(232, 241, 242),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(classes='new-deployment-review-label'),     │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(139, 164, 174),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   text_style=Style(bold=True),                       │                │
+│ │                  │   │   margin=Spacing(top=1, right=0, bottom=0, left=0),  │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(id='new-deployment-review-warnings'),       │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(232, 241, 242),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(classes='new-deployment-review-label'),     │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(139, 164, 174),                        │                │
+│ │                  │   │   background=Color(0, 0, 0, a=0),                    │                │
+│ │                  │   │   text_style=Style(bold=True),                       │                │
+│ │                  │   │   margin=Spacing(top=1, right=0, bottom=0, left=0),  │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   RenderStyles(                                          │                │
+│ │                  │   │   Static(id='new-deployment-review-preview'),        │                │
+│ │                  │   │   auto_color=False,                                  │                │
+│ │                  │   │   color=Color(103, 232, 165),                        │                │
+│ │                  │   │   background=Color(13, 21, 29),                      │                │
+│ │                  │   │   padding=Spacing(                                   │                │
+│ │                  │   │   │   top=0,                                         │                │
+│ │                  │   │   │   right=1,                                       │                │
+│ │                  │   │   │   bottom=0,                                      │                │
+│ │                  │   │   │   left=1                                         │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   border_top=('round', Color(34, 56, 74)),           │                │
+│ │                  │   │   border_right=('round', Color(34, 56, 74)),         │                │
+│ │                  │   │   border_bottom=('round', Color(34, 56, 74)),        │                │
+│ │                  │   │   border_left=('round', Color(34, 56, 74)),          │                │
+│ │                  │   │   height=Scalar(                                     │                │
+│ │                  │   │   │   value=1.0,                                     │                │
+│ │                  │   │   │   unit=<Unit.AUTO: 8>,                           │                │
+│ │                  │   │   │   percent_unit=<Unit.AUTO: 8>                    │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   max_height=Scalar(                                 │                │
+│ │                  │   │   │   value=12.0,                                    │                │
+│ │                  │   │   │   unit=<Unit.CELLS: 1>,                          │                │
+│ │                  │   │   │   percent_unit=<Unit.WIDTH: 4>                   │                │
+│ │                  │   │   ),                                                 │                │
+│ │                  │   │   overflow_y='auto',                                 │                │
+│ │                  │   │   scrollbar_color=Color(0, 48, 84),                  │                │
+│ │                  │   │   scrollbar_color_hover=Color(0, 60, 106),           │                │
+│ │                  │   │   scrollbar_color_active=Color(1, 120, 212),         │                │
+│ │                  │   │   scrollbar_corner_color=Color(0, 0, 0),             │                │
+│ │                  │   │   scrollbar_background=Color(0, 0, 0),               │                │
+│ │                  │   │   scrollbar_background_hover=Color(0, 0, 0),         │                │
+│ │                  │   │   scrollbar_background_active=Color(0, 0, 0),        │                │
+│ │                  │   │   scrollbar_size_vertical=2,                         │                │
+│ │                  │   │   scrollbar_size_horizontal=1,                       │                │
+│ │                  │   │   link_color=Color(255, 255, 255, a=0.87),           │                │
+│ │                  │   │   auto_link_color=True,                              │                │
+│ │                  │   │   link_background=Color(0, 0, 0, a=0),               │                │
+│ │                  │   │   link_style=Style(underline=True),                  │                │
+│ │                  │   │   link_color_hover=Color(255, 255, 255, a=0.87),     │                │
+│ │                  │   │   auto_link_color_hover=True,                        │                │
+│ │                  │   │   link_background_hover=Color(1, 120, 212),          │                │
+│ │                  │   │   link_style_hover=Style(                            │                │
+│ │                  │   │   │   bold=True,                                     │                │
+│ │                  │   │   │   underline=False                                │                │
+│ │                  │   │   )                                                  │                │
+│ │                  │   ),                                                     │                │
+│ │                  │   ... +1                                                 │                │
+│ │                  ]                                                          │                │
+│ │       children = [                                                          │                │
+│ │                  │   Static(id='new-deployment-review-title'),              │                │
+│ │                  │   StepIndicator(id='new-deployment-review-steps'),       │                │
+│ │                  │   Static(classes='new-deployment-review-label'),         │                │
+│ │                  │   Static(id='new-deployment-review-summary'),            │                │
+│ │                  │   Static(classes='new-deployment-review-label'),         │                │
+│ │                  │   Static(id='new-deployment-review-derived'),            │                │
+│ │                  │   Static(classes='new-deployment-review-label'),         │                │
+│ │                  │   Static(id='new-deployment-review-warnings'),           │                │
+│ │                  │   Static(classes='new-deployment-review-label'),         │                │
+│ │                  │   Static(id='new-deployment-review-preview'),            │                │
+│ │                  │   ... +1                                                 │                │
+│ │                  ]                                                          │                │
+│ │         greedy = True                                                       │                │
+│ │         parent = Vertical(id='new-deployment-review-panel')                 │                │
+│ │     placements = []                                                         │                │
+│ │ resolve_margin = Size(width=0, height=5)                                    │                │
+│ │           self = <vertical>                                                 │                │
+│ │           size = Size(width=88, height=0)                                   │                │
+│ │       viewport = Size(width=98, height=44)                                  │                │
+│ ╰─────────────────────────────────────────────────────────────────────────────╯                │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/_resolve.py:254 in resolve_box_models                                 │
+│                                                                                                │
+│   251 │   │   (                                                                                │
+│   252 │   │   │   None                                                                         │
+│   253 │   │   │   if _dimension is not None and _dimension.is_fraction                         │
+│ ❱ 254 │   │   │   else widget._get_box_model(                                                  │
+│   255 │   │   │   │   size,                                                                    │
+│   256 │   │   │   │   viewport_size,                                                           │
+│   257 │   │   │   │   (                                                                        │
+│                                                                                                │
+│ ╭───────────────────────────────── locals ─────────────────────────────────╮                   │
+│ │           _height = Fraction(0, 1)                                       │                   │
+│ │            _width = Fraction(88, 1)                                      │                   │
+│ │        dimensions = [                                                    │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Scalar(                                          │                   │
+│ │                     │   │   value=1.0,                                   │                   │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                         │                   │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                  │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   ... +1                                           │                   │
+│ │                     ]                                                    │                   │
+│ │   fraction_height = Fraction(0, 1)                                       │                   │
+│ │    fraction_width = Fraction(88, 1)                                      │                   │
+│ │     fraction_zero = Fraction(0, 1)                                       │                   │
+│ │            greedy = True                                                 │                   │
+│ │            margin = Size(width=0, height=5)                              │                   │
+│ │     margin_height = 5                                                    │                   │
+│ │       margin_size = Size(width=88, height=0)                             │                   │
+│ │      margin_width = 0                                                    │                   │
+│ │           margins = [                                                    │                   │
+│ │                     │   (0, 0),                                          │                   │
+│ │                     │   (0, 1),                                          │                   │
+│ │                     │   (0, 1),                                          │                   │
+│ │                     │   (0, 0),                                          │                   │
+│ │                     │   (0, 1),                                          │                   │
+│ │                     │   (0, 0),                                          │                   │
+│ │                     │   (0, 1),                                          │                   │
+│ │                     │   (0, 0),                                          │                   │
+│ │                     │   (0, 1),                                          │                   │
+│ │                     │   (0, 0),                                          │                   │
+│ │                     │   ... +1                                           │                   │
+│ │                     ]                                                    │                   │
+│ │ resolve_dimension = 'height'                                             │                   │
+│ │              size = Size(width=88, height=0)                             │                   │
+│ │     viewport_size = Size(width=98, height=44)                            │                   │
+│ │           widgets = [                                                    │                   │
+│ │                     │   Static(id='new-deployment-review-title'),        │                   │
+│ │                     │   StepIndicator(                                   │                   │
+│ │                     │   │   id='new-deployment-review-steps'             │                   │
+│ │                     │   ),                                               │                   │
+│ │                     │   Static(classes='new-deployment-review-label'),   │                   │
+│ │                     │   Static(id='new-deployment-review-summary'),      │                   │
+│ │                     │   Static(classes='new-deployment-review-label'),   │                   │
+│ │                     │   Static(id='new-deployment-review-derived'),      │                   │
+│ │                     │   Static(classes='new-deployment-review-label'),   │                   │
+│ │                     │   Static(id='new-deployment-review-warnings'),     │                   │
+│ │                     │   Static(classes='new-deployment-review-label'),   │                   │
+│ │                     │   Static(id='new-deployment-review-preview'),      │                   │
+│ │                     │   ... +1                                           │                   │
+│ │                     ]                                                    │                   │
+│ ╰──────────────────────────────────────────────────────────────────────────╯                   │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widget.py:1838 in _get_box_model                                      │
+│                                                                                                │
+│   1835 │   │   elif is_auto_height:                                                            │
+│   1836 │   │   │   # Calculate dimensions based on content                                     │
+│   1837 │   │   │   content_height = Fraction(                                                  │
+│ ❱ 1838 │   │   │   │   self.get_content_height(                                                │
+│   1839 │   │   │   │   │   content_container - margin.totals,                                  │
+│   1840 │   │   │   │   │   viewport,                                                           │
+│   1841 │   │   │   │   │   int(content_width),                                                 │
+│                                                                                                │
+│ ╭────────────────────────────────────────── locals ──────────────────────────────────────────╮ │
+│ │         cache_key = (                                                                      │ │
+│ │                     │   Size(width=88, height=0),                                          │ │
+│ │                     │   Size(width=98, height=44),                                         │ │
+│ │                     │   Fraction(88, 1),                                                   │ │
+│ │                     │   Fraction(0, 1),                                                    │ │
+│ │                     │   False,                                                             │ │
+│ │                     │   True,                                                              │ │
+│ │                     │   1,                                                                 │ │
+│ │                     │   21                                                                 │ │
+│ │                     )                                                                      │ │
+│ │  cached_box_model = None                                                                   │ │
+│ │   constrain_width = False                                                                  │ │
+│ │         container = Size(width=88, height=0)                                               │ │
+│ │ content_container = Size(width=88, height=0)                                               │ │
+│ │     content_width = Fraction(88, 1)                                                        │ │
+│ │           extrema = Extrema(                                                               │ │
+│ │                     │   min_width=None,                                                    │ │
+│ │                     │   max_width=None,                                                    │ │
+│ │                     │   min_height=None,                                                   │ │
+│ │                     │   max_height=None                                                    │ │
+│ │                     )                                                                      │ │
+│ │            greedy = True                                                                   │ │
+│ │            gutter = Spacing(top=0, right=0, bottom=0, left=0)                              │ │
+│ │   height_fraction = Fraction(0, 1)                                                         │ │
+│ │    is_auto_height = True                                                                   │ │
+│ │     is_auto_width = None                                                                   │ │
+│ │     is_border_box = True                                                                   │ │
+│ │            margin = Spacing(top=0, right=0, bottom=0, left=0)                              │ │
+│ │        max_height = None                                                                   │ │
+│ │         max_width = None                                                                   │ │
+│ │        min_height = None                                                                   │ │
+│ │         min_width = None                                                                   │ │
+│ │              self = Static(id='new-deployment-review-derived')                             │ │
+│ │            styles = RenderStyles(                                                          │ │
+│ │                     │   Static(id='new-deployment-review-derived'),                        │ │
+│ │                     │   auto_color=False,                                                  │ │
+│ │                     │   color=Color(232, 241, 242),                                        │ │
+│ │                     │   background=Color(0, 0, 0, a=0),                                    │ │
+│ │                     │   height=Scalar(                                                     │ │
+│ │                     │   │   value=1.0,                                                     │ │
+│ │                     │   │   unit=<Unit.AUTO: 8>,                                           │ │
+│ │                     │   │   percent_unit=<Unit.AUTO: 8>                                    │ │
+│ │                     │   ),                                                                 │ │
+│ │                     │   scrollbar_color=Color(0, 48, 84),                                  │ │
+│ │                     │   scrollbar_color_hover=Color(0, 60, 106),                           │ │
+│ │                     │   scrollbar_color_active=Color(1, 120, 212),                         │ │
+│ │                     │   scrollbar_corner_color=Color(0, 0, 0),                             │ │
+│ │                     │   scrollbar_background=Color(0, 0, 0),                               │ │
+│ │                     │   scrollbar_background_hover=Color(0, 0, 0),                         │ │
+│ │                     │   scrollbar_background_active=Color(0, 0, 0),                        │ │
+│ │                     │   scrollbar_size_vertical=2,                                         │ │
+│ │                     │   scrollbar_size_horizontal=1,                                       │ │
+│ │                     │   link_color=Color(255, 255, 255, a=0.87),                           │ │
+│ │                     │   auto_link_color=True,                                              │ │
+│ │                     │   link_background=Color(0, 0, 0, a=0),                               │ │
+│ │                     │   link_style=Style(underline=True),                                  │ │
+│ │                     │   link_color_hover=Color(255, 255, 255, a=0.87),                     │ │
+│ │                     │   auto_link_color_hover=True,                                        │ │
+│ │                     │   link_background_hover=Color(1, 120, 212),                          │ │
+│ │                     │   link_style_hover=Style(                                            │ │
+│ │                     │   │   bold=True,                                                     │ │
+│ │                     │   │   underline=False                                                │ │
+│ │                     │   )                                                                  │ │
+│ │                     )                                                                      │ │
+│ │      styles_width = None                                                                   │ │
+│ │          viewport = Size(width=98, height=44)                                              │ │
+│ │    width_fraction = Fraction(88, 1)                                                        │ │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widget.py:1939 in get_content_height                                  │
+│                                                                                                │
+│   1936 │   │   │   if self._content_height_cache[0] == cache_key:                              │
+│   1937 │   │   │   │   return self._content_height_cache[1]                                    │
+│   1938 │   │   │                                                                               │
+│ ❱ 1939 │   │   │   visual = self._render()                                                     │
+│   1940 │   │   │   height = visual.get_height(self.styles, width)                              │
+│   1941 │   │   │   self._content_height_cache = (cache_key, height)                            │
+│   1942                                                                                         │
+│                                                                                                │
+│ ╭──────────────────────── locals ────────────────────────╮                                     │
+│ │ cache_key = 88                                         │                                     │
+│ │ container = Size(width=88, height=0)                   │                                     │
+│ │      self = Static(id='new-deployment-review-derived') │                                     │
+│ │  viewport = Size(width=98, height=44)                  │                                     │
+│ │     width = 88                                         │                                     │
+│ ╰────────────────────────────────────────────────────────╯                                     │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widget.py:4471 in _render                                             │
+│                                                                                                │
+│   4468 │   │   if cached_visual is not None:                                                   │
+│   4469 │   │   │   assert isinstance(cached_visual, Visual)                                    │
+│   4470 │   │   │   return cached_visual                                                        │
+│ ❱ 4471 │   │   visual = visualize(self, self.render(), markup=self._render_markup)             │
+│   4472 │   │   self._layout_cache[cache_key] = visual                                          │
+│   4473 │   │   return visual                                                                   │
+│   4474                                                                                         │
+│                                                                                                │
+│ ╭────────────────────────── locals ──────────────────────────╮                                 │
+│ │     cache_key = '_render.visual'                           │                                 │
+│ │ cached_visual = None                                       │                                 │
+│ │          self = Static(id='new-deployment-review-derived') │                                 │
+│ ╰────────────────────────────────────────────────────────────╯                                 │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widgets/_static.py:83 in render                                       │
+│                                                                                                │
+│   80 │   │   Returns:                                                                          │
+│   81 │   │   │   A rich renderable.                                                            │
+│   82 │   │   """                                                                               │
+│ ❱ 83 │   │   return self.visual                                                                │
+│   84 │                                                                                         │
+│   85 │   def update(self, content: VisualType = "", *, layout: bool = True) -> None:           │
+│   86 │   │   """Update the widget's content area with a string, a Visual (such as [Content][t  │
+│                                                                                                │
+│ ╭───────────────────── locals ──────────────────────╮                                          │
+│ │ self = Static(id='new-deployment-review-derived') │                                          │
+│ ╰───────────────────────────────────────────────────╯                                          │
+│                                                                                                │
+│ /tank/work/validation/vela-oxcart-pilot-oxcart-6c8845e2c7d9-20260713T114531Z/venv/lib/python3. │
+│ 12/site-packages/textual/widgets/_static.py:62 in visual                                       │
+│                                                                                                │
+│   59 │   │                                                                                     │
+│   60 │   │   """                                                                               │
+│   61 │   │   if self.__visual is None:                                                         │
+│ ❱ 62 │   │   │   self.__visual = visualize(self, self.__content, markup=self._render_markup)   │
+│   63 │   │   return self.__visual                                                              │
+│   64 │                                                                                         │
+│   65 │   @property                                                                             │
+│                                                                                                │
+│ ╭───────────────────── locals ──────────────────────╮                                          │
+│ │ self = Static(id='new-deployment-review-derived') │                                          │
+│ ╰───────────────────────────────────────────────────╯                                          │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+MarkupError: Expected markup value (found '--label", 
+"ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl"] (from lab recipe oxcart-qwen36-27b-fp8-mtp-vl)').
+
+NOTE: 1 of 2 errors shown. Run with textual run --dev to see all errors.
+INFO     127.0.0.1 [13/Jul/2026:11:47:59 +0000] "GET /ws?width=98&height=44     
+         HTTP/1.1" 101 0 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)   
+         AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36" 

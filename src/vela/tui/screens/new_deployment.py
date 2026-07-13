@@ -4,6 +4,7 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -144,6 +145,14 @@ BUILD_ID_REQUIRED_ERROR = (
 
 _DOCKER_SHA256_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
 _HF_COMMIT_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+
+
+def _literal_select_options(
+    options: list[tuple[str, str]],
+) -> list[tuple[Text, str]]:
+    """Keep target/config labels literal at Textual's markup-aware Select sink."""
+
+    return [(Text(label), value) for label, value in options]
 
 
 def _immutable_recipe_model_identity(
@@ -368,6 +377,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             self._section_warning_text(section),
             id=widget_id,
             classes="new-deployment-warning",
+            markup=False,
         )
         warning.display = bool(self.section_errors.get(section))
         return warning
@@ -375,7 +385,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="new-deployment-panel"):
             yield Static("New Deployment", id="new-deployment-title")
-            yield Static(f"Target: {self.target_label}", id="new-deployment-target")
+            yield Static(
+                f"Target: {self.target_label}",
+                id="new-deployment-target",
+                markup=False,
+            )
             yield StepIndicator(
                 self.STEP_TITLES, current=self.step_index, id="new-deployment-steps"
             )
@@ -383,15 +397,15 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             with Vertical(id="new-deployment-step-target"):
                 yield Static("Target", classes="new-deployment-field-label")
                 yield Select(
-                    self._target_options(),
+                    _literal_select_options(self._target_options()),
                     value=self.target_label,
                     allow_blank=False,
                     id="new-deployment-target-select",
                 )
-                yield Static("", id="new-deployment-target-state")
+                yield Static("", id="new-deployment-target-state", markup=False)
                 yield Static("Recipe", classes="new-deployment-field-label")
                 yield Select(
-                    self._recipe_options(),
+                    _literal_select_options(self._recipe_options()),
                     value="__custom__",
                     allow_blank=False,
                     id="new-deployment-recipe",
@@ -401,6 +415,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     "runtime, image, model, flags & port. Custom starts blank.",
                     id="new-deployment-recipe-note",
                     classes="new-deployment-helper",
+                    markup=False,
                 )
                 yield self._section_warning("recipes", "new-deployment-recipe-warning")
                 yield Static("Name", classes="new-deployment-field-label")
@@ -454,7 +469,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 with Vertical(id="nd-group-build"):
                     yield Static("Build", classes="new-deployment-field-label")
                     yield Select(
-                        self._build_options(),
+                        _literal_select_options(self._build_options()),
                         value=self._initial_build_select_value(),
                         allow_blank=False,
                         id="new-deployment-build-select",
@@ -482,7 +497,10 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         classes="new-deployment-helper",
                     )
                 runtime_error = Static(
-                    "", id="new-deployment-runtime-error", classes="step-error"
+                    "",
+                    id="new-deployment-runtime-error",
+                    classes="step-error",
+                    markup=False,
                 )
                 runtime_error.display = False
                 yield runtime_error
@@ -507,12 +525,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 with Vertical(id="nd-group-pinned"):
                     yield Static("Pinned model", classes="new-deployment-field-label")
                     yield Select(
-                        self._model_options(),
+                        _literal_select_options(self._model_options()),
                         value="__custom__",
                         allow_blank=False,
                         id="new-deployment-model-ref",
                     )
-                    yield Static("", id="new-deployment-model-state")
+                    yield Static("", id="new-deployment-model-state", markup=False)
                     # Cached-but-unpinned signpost (M3): filled + display-toggled
                     # by _render_model_scan_help when the target has HF-cache-scan
                     # rows the picker excluded. Bare Static (no wrapper container)
@@ -529,10 +547,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     "",
                     id="new-deployment-recipe-pin-guidance",
                     classes="new-deployment-warning",
+                    markup=False,
                 )
                 recipe_pin_guidance.display = False
                 yield recipe_pin_guidance
-                yield Static("", id="new-deployment-model-suggestions")
+                yield Static("", id="new-deployment-model-suggestions", markup=False)
                 with Vertical(id="nd-group-bare"):
                     yield Static("Model", classes="new-deployment-field-label")
                     yield Static(
@@ -567,7 +586,10 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 # Step-adjacent validation message (bug-236c): a bare Static
                 # with a display toggle — no wrapper container to inflate.
                 model_error = Static(
-                    "", id="new-deployment-model-error", classes="step-error"
+                    "",
+                    id="new-deployment-model-error",
+                    classes="step-error",
+                    markup=False,
                 )
                 model_error.display = False
                 yield model_error
@@ -576,7 +598,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     with Vertical(classes="new-deployment-column"):
                         yield Static("Preset", classes="new-deployment-field-label")
                         yield Select(
-                            self._preset_options(),
+                            _literal_select_options(self._preset_options()),
                             value=self._default_preset(),
                             allow_blank=False,
                             id="new-deployment-preset",
@@ -585,6 +607,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                             "",
                             id="new-deployment-preset-help",
                             classes="new-deployment-helper",
+                            markup=False,
                         )
                         yield Static("Host", classes="new-deployment-field-label")
                         yield Input(
@@ -657,7 +680,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     "The next screen writes the target-local config after review.",
                     id="new-deployment-save-summary",
                 )
-            yield Static("", id="new-deployment-error")
+            yield Static("", id="new-deployment-error", markup=False)
             yield KeyHintBar(
                 [
                     ("Ctrl+B", "Back"),
@@ -1194,7 +1217,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 selected = self.target_label
             self._suppress_target_events = True
             try:
-                select.set_options(options)
+                select.set_options(_literal_select_options(options))
                 if selected in values:
                     select.value = selected
             finally:
@@ -2092,14 +2115,25 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
                 NewDeploymentScreen.STEP_TITLES, current=4, id="new-deployment-review-steps"
             )
             yield Static("Summary", classes="new-deployment-review-label")
-            yield Static(self._summary_text(), id="new-deployment-review-summary")
+            # These panels render target/config data, not Rich/Textual markup.
+            # JSON-shaped values such as Docker arguments legitimately contain
+            # square brackets and must stay literal at this trust boundary.
+            yield Static(
+                self._summary_text(), id="new-deployment-review-summary", markup=False
+            )
             yield Static("Field provenance", classes="new-deployment-review-label")
-            yield Static(self._derived_text(), id="new-deployment-review-derived")
+            yield Static(
+                self._derived_text(), id="new-deployment-review-derived", markup=False
+            )
             yield Static("Warnings", classes="new-deployment-review-label")
-            yield Static(self._warnings_text(), id="new-deployment-review-warnings")
+            yield Static(
+                self._warnings_text(), id="new-deployment-review-warnings", markup=False
+            )
             yield Static("Resolved command", classes="new-deployment-review-label")
-            yield Static(self.preview, id="new-deployment-review-preview")
-            review_error = Static("", id="new-deployment-review-error")
+            yield Static(self.preview, id="new-deployment-review-preview", markup=False)
+            review_error = Static(
+                "", id="new-deployment-review-error", markup=False
+            )
             identity_error = new_deployment_runtime_identity_error(self.config)
             if identity_error is not None:
                 review_error.update(
