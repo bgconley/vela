@@ -1,0 +1,33 @@
+HANDSHAKE_CAPTURE
+TIMESTAMP_UTC=2026-07-13T07:55:30Z
+CONTROLLER_VELA=/tank/venvs/lab-tui-remediation-de9b0a1/bin/vela
+EXPECTED_SHA=de9b0a13f2ef7166014794bb211845dd3ba96123
+== installed package ==
+Name: vela
+Version: 0.1.0
+Summary: Vela is a phase-aware terminal TUI for launching vLLM servers from named configs.
+Home-page:
+Author: Vela contributors
+Author-email:
+License: MIT
+Location: /tank/venvs/lab-tui-remediation-de9b0a1/lib/python3.12/site-packages
+Requires: httpx, huggingface-hub, psutil, pydantic, pyyaml, rich, textual, tqdm, typer
+Required-by:
+== exact requested command ==
+COMMAND=/tank/venvs/lab-tui-remediation-de9b0a1/bin/vela targets test blackbird --json
+Usage: vela targets test [OPTIONS] [NAME]
+Try 'vela targets test --help' for help.
+╭─ Error ──────────────────────────────────────────────────────────────────────╮
+│ No such option: --json                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+REQUESTED_COMMAND_EXIT_STATUS=2
+== supported handshake ==
+COMMAND=/tank/venvs/lab-tui-remediation-de9b0a1/bin/vela targets test blackbird
+blackbird	ok	agent=0.1.0	protocol=1
+version	ok	agent=0.1.0 controller=0.1.0
+host	hostname=blackbird platform=Linux-6.8.0-124-generic-x86_64-with-glibc2.39
+paths	config=/home/bgconley/.config/vela runs=/home/bgconley/.local/state/vela/runs builds=/home/bgconley/.local/share/vela/builds models=/home/bgconley/.local/state/vela/models/registry.json socket=/run/user/1000/vela/agent.sock
+toolchain	python=/home/bgconley/venvs/vela/bin/python uv=yes driver=590.48.01 cuda=unknown gpu=1 Blackwell
+active	build=none model=none
+auth	none
+SUPPORTED_HANDSHAKE_EXIT_STATUS=0

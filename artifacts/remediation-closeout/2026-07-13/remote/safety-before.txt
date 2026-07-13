@@ -1,0 +1,20 @@
+CAPTURE=before
+TIMESTAMP_UTC=2026-07-13T07:53:59Z
+EXPECTED_SHA=de9b0a13f2ef7166014794bb211845dd3ba96123
+BRANCH=remediate/2026-07-09-review
+CONTROLLER=bgconley@10.25.0.50
+REMOTE_SOURCE=/home/bgconley/repos/lab-tui
+REMOTE_VENV=/tank/venvs/lab-tui-remediation-de9b0a1
+REMOTE_RUNTIME=/tank/venvs/lab-tui-remediation-de9b0a1/agent-runtime
+== controller ==
+oxcart
+TARGET_REGISTRY_SHA256=2027a11ec3141d5d5520040a4808bb69f1d0d5cad4f7bc8bdf571c109e60f781
+SOURCE_HEAD=88d18d897aabe87184a10575bcf8b52842ff20af
+ISOLATED_SOCKET_PRESENT=no
+VALIDATION_WORKTREES_BEGIN
+VALIDATION_WORKTREES_END
+== blackbird ==
+blackbird
+0, GPU-83baa75e-044c-99f9-beb7-bc4139326445, NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, 0, 94308, 97887
+BLACKBIRD_WORKLOAD pid=74425 start_ticks=96376413 cmd_sha256=c5cede33c1b9929e794343efd680500a6a2230f9a442d6d1fab3d1368d98eae0 command=/usr/bin/python3 /usr/local/bin/vllm serve --model RedHatAI/Qwen3.5-122B-A10B-NVFP4 --served-model-name Qwen3.5-122B-A10B-NVFP4 --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.95 --max-model-len 262144 --max-num-seqs 8 --kv-cache-dtype fp8 --calculate-kv-scales --moe-backend flashinfer_cutlass --linear-backend flashinfer_cutlass --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --compilation-config {"cudagraph_mode":"FULL_AND_PIECEWISE","cudagraph_capture_sizes":[1,2,4,8],"max_cudagraph_capture_size":8}
+BLACKBIRD_MATCH_COUNT=1

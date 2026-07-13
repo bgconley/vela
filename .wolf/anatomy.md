@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-13T07:49:57.680Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-13T08:42:35.443Z
 > Files: 215 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -95,7 +95,7 @@
 ## docs/plans/
 
 - `2026-07-09-vela-remediation.md` — Vela Remediation Implementation Plan (v1) (~13353 tok)
-- `2026-07-13-vela-remediation-closeout.md` — Vela Remediation Closeout Plan (~3034 tok)
+- `2026-07-13-vela-remediation-closeout.md` — Vela Remediation Closeout Plan (~3681 tok)
 
 ## docs/specs/
 

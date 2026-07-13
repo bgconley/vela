@@ -1,0 +1,202 @@
+{
+  "schema": "vela.remediation-closeout.v1",
+  "generated_at": "2026-07-13T08:41:58Z",
+  "authority_plan": "docs/plans/2026-07-09-vela-remediation.md",
+  "execution_plan": "docs/plans/2026-07-13-vela-remediation-closeout.md",
+  "branch": "remediate/2026-07-09-review",
+  "certified_code_sha": "de9b0a13f2ef7166014794bb211845dd3ba96123",
+  "published_branch_sha": "de9b0a13f2ef7166014794bb211845dd3ba96123",
+  "certified_commit_count_over_main": 97,
+  "main_sha_at_closeout": "88d18d897aabe87184a10575bcf8b52842ff20af",
+  "overall_verdict": "implementation_locally_certified_release_merge_and_live_remote_dependent",
+  "phase_status": {
+    "1": "pass",
+    "2": "pass",
+    "3": "pass",
+    "4": "pass",
+    "5": "pass",
+    "6": "pass",
+    "7": "pass",
+    "8": "pass_at_exact_sha_literal_main_route_merge_dependent",
+    "9": "pass_on_branch_default_branch_activation_merge_dependent",
+    "10": "optional_deferred_until_after_merge"
+  },
+  "definition_of_done": {
+    "1_quality_gates": "pass",
+    "2_bookkeeping": "pass",
+    "3_live_visual_walkthrough": "pass",
+    "4_fresh_machine_quickstarts": "exact_sha_pass_literal_main_route_merge_dependent",
+    "5_remote_blackbird_lane": "owner_scheduled_live_blackbird_smoke_required"
+  },
+  "quality_gates": [
+    {
+      "command": "python3 -m ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "python3 -m mypy",
+      "result": "pass_75_source_files"
+    },
+    {
+      "command": "python3 scripts/check_mypy_overrides.py",
+      "result": "pass_11_override_modules"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "pass_1437",
+      "duration_seconds": 271.01
+    },
+    {
+      "command": "python3 -m pytest tests/test_remote_workflow.py -q",
+      "result": "pass_68"
+    },
+    {
+      "command": "bash -n scripts/run_remote_tests.sh",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "quickstarts": {
+    "overall": "pass_supplemental_branch_only",
+    "installed_tool_exact_sha": "pass",
+    "cloned_repo_exact_sha": "pass",
+    "literal_main_routes": "merge_dependent",
+    "manifest": "quickstarts/manifest.json",
+    "checksums": "quickstarts/checksums.sha256"
+  },
+  "remote": {
+    "verdict": "partial_safe_harness_and_handshake_pass_live_blackbird_smoke_not_run",
+    "lane": "manual_safe_exact_sha_on_oxcart_plus_blackbird_handshake",
+    "revision_marker": "REMOTE_REVISION_OK expected=de9b0a13f2ef7166014794bb211845dd3ba96123 actual=de9b0a13f2ef7166014794bb211845dd3ba96123 branch=remediate/2026-07-09-review source=owned-worktree",
+    "safe_tests": 163,
+    "fake_lifecycle_probes": 2,
+    "blackbird_handshake": "pass_supported_text_interface",
+    "blackbird_json_interface": "unsupported_exit_2",
+    "shared_daemon_touched": false,
+    "existing_gpu_workload_changed": false,
+    "summary": "remote/remote-certification-summary.md",
+    "checksums": "remote/checksums.sha256"
+  },
+  "local_runtime": {
+    "production_daemon_pid": 23734,
+    "production_daemon_start": "2026-07-13T07:50:42.890183Z",
+    "production_daemon_revision": "v0.1.0-108-gde9b0a1",
+    "production_daemon_socket": "/Users/brennanconley/.local/state/vela/agent.sock",
+    "old_daemon_pid_gone": 66788,
+    "fake_children_remaining": 0,
+    "port_8765_listener_remaining": false,
+    "isolated_ui_agents_remaining": 0,
+    "isolated_ui_root_remaining": false,
+    "stale_walkthrough_servers_remaining": 0
+  },
+  "ui": {
+    "verdict": "pass",
+    "browser_surface": "in_app_chromium_textual_serve",
+    "isolated_root": "/tmp/vela-closeout-ui-de9b0a1",
+    "isolated_root_removed": true,
+    "viewport_cell_mappings": [
+      {
+        "pixels": "1283x813",
+        "cells": "142x38"
+      },
+      {
+        "pixels": "904x556",
+        "cells": "100x26"
+      },
+      {
+        "pixels": "723x513",
+        "cells": "80x24"
+      }
+    ],
+    "screenshot_count": 32,
+    "screenshots": [
+      "screenshots/01-first-run-142x38.jpeg",
+      "screenshots/02-help-142x38.jpeg",
+      "screenshots/03-dashboard-142x38.jpeg",
+      "screenshots/04-target-manager.jpeg",
+      "screenshots/05-dead-target-connecting.jpeg",
+      "screenshots/06-dead-target-cancelled-local-stable.jpeg",
+      "screenshots/07-model-manager.jpeg",
+      "screenshots/08-build-manager.jpeg",
+      "screenshots/09-flag-manager-checkbox-off.jpeg",
+      "screenshots/10-flag-manager-checkbox-on-stable.jpeg",
+      "screenshots/11-wizard-step1.jpeg",
+      "screenshots/12-wizard-runtime.jpeg",
+      "screenshots/13-wizard-model.jpeg",
+      "screenshots/14-wizard-pinned-model.jpeg",
+      "screenshots/15-wizard-customize.jpeg",
+      "screenshots/17-wizard-review-command-sha.jpeg",
+      "screenshots/18-wizard-saved.jpeg",
+      "screenshots/19-config-picker.jpeg",
+      "screenshots/20-config-picker-no-match.jpeg",
+      "screenshots/21-fake-launch-progress.jpeg",
+      "screenshots/22-fake-ready.jpeg",
+      "screenshots/23-fake-stopped-operator-stable.jpeg",
+      "screenshots/24-dashboard-100x26.jpeg",
+      "screenshots/25-dashboard-80x24.jpeg",
+      "screenshots/26-pin-handoff-checkbox-off.jpeg",
+      "screenshots/27-pin-handoff-checkbox-on.jpeg",
+      "screenshots/28-pin-handoff-cancel-return.jpeg",
+      "screenshots/29-pin-handoff-no-refire.jpeg",
+      "screenshots/30-pin-handoff-filled-current-sha.jpeg",
+      "screenshots/31-pin-handoff-submitting-current-sha.jpeg",
+      "screenshots/32-pin-handoff-success-return-current-sha.jpeg",
+      "screenshots/33-pin-handoff-review-sha-current.jpeg"
+    ],
+    "report": "ui-walkthrough.md",
+    "successful_pin_handoff_report": "pin-handoff-success.md",
+    "successful_pin_handoff_source": "pristine_detached_certified_sha",
+    "successful_pin_handoff_daemon_revision": "v0.1.0-108-gde9b0a1"
+  },
+  "bookkeeping": {
+    "bugs_233_through_240_real_fix_text": true,
+    "bug_307_fixed": true,
+    "closeout_bugs": [
+      "bug-307",
+      "bug-308",
+      "bug-309",
+      "bug-310",
+      "bug-311",
+      "bug-312",
+      "bug-313",
+      "bug-314",
+      "bug-315",
+      "bug-316",
+      "bug-317"
+    ],
+    "anatomy_tracked_source_files": 215,
+    "anatomy_hits": 0,
+    "anatomy_misses": 0
+  },
+  "release_gates": [
+    "Schedule the parent-plan live two-host Blackbird smoke when the existing GPU workload is cleared.",
+    "Run both literal unqualified README quickstarts after the certified branch is merged to main.",
+    "Verify main's remote-validation workflow is dispatch-only after merge.",
+    "Confirm no new scheduled run appears after the merge window."
+  ],
+  "owner_decisions_not_remediation_blockers": [
+    "Whether to rewrite the hostname-derived commit author email before merge.",
+    "Whether and when to schedule optional Phase 10 structural splits."
+  ],
+  "evidence_files": [
+    "final-audit.md",
+    "local-gates.md",
+    "pin-handoff-success.md",
+    "ui-walkthrough.md",
+    "github-state.md",
+    "quickstarts/installed-tool.md",
+    "quickstarts/cloned-repo.md",
+    "quickstarts/manifest.json",
+    "quickstarts/checksums.sha256",
+    "remote/manual-remote-validation-de9b0a13.md",
+    "remote/blackbird-target-handshake-de9b0a13.txt",
+    "remote/safety-before.txt",
+    "remote/safety-after.txt",
+    "remote/remote-certification-summary.md",
+    "remote/checksums.sha256",
+    "checksums.sha256"
+  ]
+}

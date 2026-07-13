@@ -27,6 +27,7 @@
         ".ruff_cache",
         ".venv",
         ".playwright-mcp",
+        "remediation-closeout",
         "target",
         ".vscode",
         ".idea",

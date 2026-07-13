@@ -1,0 +1,39 @@
+{
+  "schema": "vela.quickstart-certification.v1",
+  "generated_at": "2026-07-13T07:55:02Z",
+  "certified_code_sha": "de9b0a13f2ef7166014794bb211845dd3ba96123",
+  "published_branch": "remediate/2026-07-09-review",
+  "published_branch_sha": "de9b0a13f2ef7166014794bb211845dd3ba96123",
+  "main_sha": "88d18d897aabe87184a10575bcf8b52842ff20af",
+  "overall_verdict": "pass_supplemental_branch_only",
+  "lanes": {
+    "installed_tool_exact_sha": {
+      "verdict": "pass",
+      "install_exit": 0,
+      "version_exit": 0,
+      "help_exit": 0,
+      "tui_pty_exit": 0,
+      "empty_state_verified": true,
+      "bundled_configs_found": false,
+      "residue_found": false,
+      "evidence": "installed-tool.md"
+    },
+    "cloned_repo_exact_sha": {
+      "verdict": "pass",
+      "editable_install_exit": 0,
+      "vela_list_exit": 0,
+      "preview_exit": 0,
+      "smoke_exit": 0,
+      "ready_marker": "READY http://127.0.0.1:8765 models=fake-model",
+      "child_process_after_smoke": false,
+      "port_8765_listener_after_smoke": false,
+      "isolated_agent_after_cleanup": false,
+      "clean_clone_after_run": true,
+      "evidence": "cloned-repo.md"
+    }
+  },
+  "limitations": [
+    "The README unqualified URLs resolve main, not the certified branch.",
+    "Literal as-written main-branch certification remains blocked until merge."
+  ]
+}

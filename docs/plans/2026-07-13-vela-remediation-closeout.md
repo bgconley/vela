@@ -213,13 +213,50 @@ not upgrade a local/offline result into remote/release proof.
 
 Completion requires all of the following:
 
-- [ ] Phase 4 exact contracts and complete visual set pass.
-- [ ] Phase 5 explicit HF-cache precedence passes.
-- [ ] Phase 7 `started` output passes without wire leakage.
-- [ ] Bugs 233-240 all have real fix text; anatomy is truthful.
-- [ ] Ruff, mypy, override ratchet, and full pytest pass fresh.
-- [ ] Both fresh-machine quickstarts pass as written.
-- [ ] Orphan fake children are gone and the local daemon runs current code.
-- [ ] Dispatch-only CI behavior is active on the default branch.
-- [ ] A green Blackbird run certifies the exact final SHA.
-- [ ] Durable evidence manifest and checksums validate.
+- [x] Phase 4 exact contracts and complete visual set pass.
+- [x] Phase 5 explicit HF-cache precedence passes.
+- [x] Phase 7 `started` output passes without wire leakage.
+- [x] Bugs 233-240 all have real fix text; anatomy is truthful.
+- [x] Ruff, mypy, override ratchet, and full pytest pass fresh.
+- [ ] Both fresh-machine quickstarts pass as written on the default branch.
+  Exact-SHA supplemental tool-install and cloned-repo lanes pass; the literal unqualified README
+  URLs still resolve `main` and therefore require the certified branch to be merged first.
+- [x] Orphan fake children are gone and the local daemon runs current code.
+- [ ] Dispatch-only CI behavior is active on the default branch. The branch workflow is
+  dispatch-only and queued run 29188445178 is cancelled, but `main` retains the schedule until
+  merge.
+- [ ] A green Blackbird live lane certifies the exact final code SHA. The exact-SHA remote harness,
+  fake probes, and supported Blackbird handshake pass, but the retained lane deliberately omitted
+  a live Blackbird model workload because an existing process occupied 94308/97887 MiB. The
+  parent plan's full two-host smoke remains an owner-scheduled maintenance-window gate.
+- [x] Durable evidence manifest and checksums validate.
+
+## 12. Execution result
+
+The implementation and certification work closed on code commit
+`de9b0a13f2ef7166014794bb211845dd3ba96123`, published at the same SHA on
+`origin/remediate/2026-07-09-review`. Its evidence-only successor must retain that commit as its
+parent; it is not itself a remotely certified code revision.
+
+Validated at the certified code SHA:
+
+- Ruff clean; mypy clean across 75 source files; the 11-module override ratchet unchanged; full
+  suite `1437 passed`; remote-workflow suite `68 passed`.
+- Safe manual remote validation produced an exact-SHA marker, 163 green remote tests, two clean
+  fake lifecycle probes, and a green supported Blackbird handshake without disturbing the shared
+  daemon or the existing GPU workload. This proves the hardened remote harness and connection
+  boundary, not the parent plan's required live Blackbird model smoke.
+- Thirty-two retained live screenshots cover first-run, Help, managers, the full deployment
+  composer, immutable pin SHA/provenance, Config Picker, fake launch/READY/operator-stop, a
+  cancellable dead-target connection, literal checkbox states, pin-handoff cancel/no-refire and
+  successful exact-SHA round trips, and 80/100/142-column dashboards.
+- Both exact-SHA hermetic quickstart lanes pass and leave no daemon, child, listener, socket, or
+  checkout residue.
+- The June local daemon was replaced through its explicit socket by PID 23734, started
+  `2026-07-13T07:50:42.890183Z`, reporting revision `v0.1.0-108-gde9b0a1`.
+
+The release gates intentionally left open are: an owner-scheduled live Blackbird smoke while the
+GPU is available, plus the merge-dependent literal default-branch quickstarts and default-branch
+dispatch-only activation. Optional Phase 10 remains deferred until after Phases 1-9 are merged,
+exactly as required by the parent plan. Commit-author email cleanup remains the owner's D6
+decision and is not a functional remediation gate.
