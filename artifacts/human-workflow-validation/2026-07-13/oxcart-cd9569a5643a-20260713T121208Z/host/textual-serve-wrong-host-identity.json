@@ -1,0 +1,11 @@
+{
+  "cmdline": [
+    "/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/venv/bin/python",
+    "-c",
+    "\nimport os, shlex\nfrom textual_serve.server import Server\ncommand = shlex.join([os.path.join(os.environ[\"VENV\"], \"bin\", \"vela\"), \"--configs-dir\", os.environ[\"VELA_CONFIGS\"], \"--target\", \"local\"])\nServer(command, host=\"127.0.0.1\", port=int(os.environ[\"UI_PORT\"]), title=\"Vela Oxcart validation\").serve()\n"
+  ],
+  "create_time": 1783947370.19,
+  "cwd": "/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/source",
+  "exe": "/usr/bin/python3.12",
+  "pid": 1364846
+}

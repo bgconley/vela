@@ -1,0 +1,5 @@
+runtime_socket_absent=true
+runtime_processes=0
+probe_listeners=0
+owned_temp_worktrees=0
+guard_ok=true

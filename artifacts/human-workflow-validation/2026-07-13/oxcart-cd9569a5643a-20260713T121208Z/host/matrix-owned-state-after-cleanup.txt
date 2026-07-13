@@ -1,0 +1,4 @@
+remaining configs:
+oxcart-qwen36-27b-fp8-mtp-vl.yaml
+remaining targets:
+ 	local	local	-

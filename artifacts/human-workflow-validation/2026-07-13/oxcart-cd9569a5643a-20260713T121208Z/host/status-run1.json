@@ -1,0 +1,26 @@
+{
+  "run_id": "7489df3a708842428332de3e984a012d",
+  "sidecar": {
+    "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+    "exposure": "local",
+    "host": "127.0.0.1",
+    "launch_mode": "attached",
+    "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+    "model_entry_id": "01KXDPJ7NNB825TG9R2WANB0MS",
+    "model_ref": "01KXDPJ7NNB825TG9R2WANB0MS",
+    "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+    "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+    "port": 18004,
+    "reachable_url": "http://127.0.0.1:18004",
+    "served_model_names": [
+      "qwen36-27b-fp8-oxcart"
+    ],
+    "vllm_version_profile": "current"
+  },
+  "source": {
+    "method": "status",
+    "read_only": true,
+    "target": "local"
+  },
+  "started": "2026-07-13T12:24:49.290000Z"
+}

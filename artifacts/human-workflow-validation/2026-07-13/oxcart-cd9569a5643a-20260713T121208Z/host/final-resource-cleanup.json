@@ -1,0 +1,70 @@
+{
+  "schema": "vela.final-resource-cleanup.v1",
+  "completed_at": "2026-07-13T14:05:02Z",
+  "local_evidence_precondition": {
+    "all_json_valid": true,
+    "provisional_checksum_rows": 209,
+    "provisional_checksums_verified": true,
+    "saved_profile_retained_locally": true,
+    "saved_profile_sha256": "82584154f813f20a7f2445f0069d071be6de1ba6c10153fd92d89331b0edc6a5"
+  },
+  "remote_predelete": {
+    "hostname": "oxcart",
+    "source_sha": "cd9569a5643a41b53e0ee4d133b0b6d2d616d9d7",
+    "source_clean": true,
+    "source_registered_as_owned_worktree": true,
+    "ports_absent": [
+      18004,
+      8815,
+      60867,
+      50979
+    ],
+    "owned_container_absent": true,
+    "owned_daemon_socket_absent": true,
+    "safe_lane_short_runtime_removed": true,
+    "remaining_profile_files": [
+      "oxcart-qwen36-27b-fp8-mtp-vl.yaml"
+    ],
+    "targets_file": "targets: {}",
+    "recorded_wrong_host_identity_absent": true,
+    "recorded_matrix_identity_absent": true,
+    "historical_save_run1_run2_pids_absent": true,
+    "baseline_orphan_pids_absent": true,
+    "textual_pid_files_absent": true,
+    "run_owned_processes_absent": true,
+    "gpu_compute_processes_absent": true,
+    "result": "pass"
+  },
+  "remote_delete": {
+    "host_repository": "/home/bgconley/repos/lab-tui",
+    "worktree": "/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/source",
+    "root": "/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z",
+    "worktree_removed_with_git_worktree_remove": true,
+    "worktree_absent_after": true,
+    "root_absent_after": true,
+    "worktree_registration_absent_after": true,
+    "owned_container_absent_after": true,
+    "ports_absent_after": [
+      18004,
+      8815,
+      60867,
+      50979
+    ],
+    "result": "pass"
+  },
+  "local_tunnel": {
+    "pid": 39506,
+    "started": "Mon Jul 13 08:15:11 2026",
+    "command": "ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:8815:127.0.0.1:8815 bgconley@10.25.0.50",
+    "command_identity_verified_before_signal": true,
+    "listener_owned_by_pid_before_signal": true,
+    "signal": "SIGTERM",
+    "process_absent_after": true,
+    "listener_8815_absent_after": true,
+    "exec_session": 92876,
+    "exec_session_exit_status": 0,
+    "result": "pass"
+  },
+  "shared_mac_daemon_touched": false,
+  "result": "pass"
+}

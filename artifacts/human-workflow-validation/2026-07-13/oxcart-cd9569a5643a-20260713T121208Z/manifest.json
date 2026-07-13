@@ -1,0 +1,319 @@
+{
+  "schema": "vela.human-workflow-validation.v1",
+  "generated_at": "2026-07-13T14:07:37Z",
+  "authority": {
+    "parent_plan": "docs/plans/2026-07-09-vela-remediation.md",
+    "completion_plan": "docs/plans/2026-07-13-vela-human-workflow-completion.md",
+    "owner_amendment": {
+      "controller": "oxcart",
+      "target": "oxcart",
+      "transport": "local",
+      "shared_oxcart_daemon_restart_allowed": false,
+      "supersedes_blackbird_for_this_completion_effort": true
+    }
+  },
+  "source": {
+    "branch": "remediate/2026-07-09-review",
+    "runtime_sha": "cd9569a5643a41b53e0ee4d133b0b6d2d616d9d7",
+    "published_branch_sha_at_runtime": "cd9569a5643a41b53e0ee4d133b0b6d2d616d9d7",
+    "daemon_revision_on_oxcart": "v0.1.0-112-gcd9569a",
+    "commits_ahead_of_origin_main_at_runtime": 101,
+    "remote_source_clean_before": true,
+    "remote_source_clean_after_runs": true,
+    "remote_source_clean_after_matrix": true,
+    "remote_worktree_removed_after_evidence_copy": true
+  },
+  "verdict": {
+    "evidence": "pass_with_live_findings_fixed",
+    "owner_amended_completion": "pass",
+    "release": "branch_complete_external_release_actions_remain",
+    "tag_ready": false
+  },
+  "topology": {
+    "controller_hostname": "oxcart",
+    "target_name": "local",
+    "target_hostname": "oxcart",
+    "endpoint": "http://127.0.0.1:18004",
+    "controller_hf_home": "/tank/ai/models/qwen36-27b-fp8/hf-cache",
+    "controller_hf_hub_cache": "/tank/ai/models/qwen36-27b-fp8/hf-cache/hub",
+    "real_shared_oxcart_daemon_touched": false
+  },
+  "profile": {
+    "name": "oxcart-qwen36-27b-fp8-mtp-vl",
+    "retained_yaml": "saved-profile.yaml",
+    "yaml_sha256": "82584154f813f20a7f2445f0069d071be6de1ba6c10153fd92d89331b0edc6a5",
+    "preview_sha256": "14c3d7cb25cdb478995575e2b0bab11bf7eac25f9e3310d5c750462e92c78267",
+    "resolved_command_hash": "sha256:79c16f1c2aded2f748dadf14a5e12652c999a413d0a4a8da027ba26b3f713173",
+    "resolved_command_environment_file_sha256": "1ea408ca9e8740972071ded10283623b821f1ea7f711c3928f6e7fa784d7c1bc",
+    "runtime": "docker",
+    "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+    "model_entry_id": "01KXDPJ7NNB825TG9R2WANB0MS",
+    "model_repo": "Qwen/Qwen3.6-27B-FP8",
+    "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+    "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+    "served_model_id": "qwen36-27b-fp8-oxcart",
+    "container": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+    "port": 18004
+  },
+  "runs": [
+    {
+      "label": "run1",
+      "run_id": "7489df3a708842428332de3e984a012d",
+      "health_status": 200,
+      "model_ids": [
+        "qwen36-27b-fp8-oxcart"
+      ],
+      "text_result": "VELA_TEXT_OK",
+      "vision_result": "LEFT=RED; RIGHT=GREEN",
+      "vision_png_sha256": "21ab0d7b6f3967f4f2f6baccbdafdaeee667b97d8dfcc027b71b0fa6a9af8c57",
+      "terminal_phase": "STOPPED",
+      "intentional_stop": true,
+      "returncode": 0,
+      "container_absent_after_stop": true,
+      "port_absent_after_stop": true,
+      "clean_shutdown": true,
+      "runtime_warning_free": false,
+      "runtime_warning": "NCCL destroy_process_group warning at process exit; no residue observed",
+      "docker_inspect_retained": true
+    },
+    {
+      "label": "run2",
+      "run_id": "7da79f87c9b74c26b8961360815ef63f",
+      "health_status": 200,
+      "model_ids": [
+        "qwen36-27b-fp8-oxcart"
+      ],
+      "text_result": "VELA_TEXT_OK",
+      "vision_result": "LEFT=RED; RIGHT=GREEN",
+      "vision_png_sha256": "21ab0d7b6f3967f4f2f6baccbdafdaeee667b97d8dfcc027b71b0fa6a9af8c57",
+      "terminal_phase": "STOPPED",
+      "intentional_stop": true,
+      "returncode": 0,
+      "container_absent_after_stop": true,
+      "port_absent_after_stop": true,
+      "clean_shutdown": true,
+      "runtime_warning_free": false,
+      "runtime_warning": "NCCL destroy_process_group warning at process exit; no residue observed",
+      "docker_inspect_retained": false,
+      "identity_authority": "sidecar, run artifact, and normalized comparison"
+    }
+  ],
+  "repeatability": {
+    "ok": true,
+    "cold_restarts": 2,
+    "config_equal": true,
+    "command_hash_equal": true,
+    "immutable_identity_equal": true,
+    "endpoint_assertions_equal": true,
+    "run_ids_distinct": true,
+    "only_expected_differences": [
+      "run_id",
+      "docker_container_id"
+    ],
+    "evidence": "host/repeatability-comparison.json"
+  },
+  "phase_timings": {
+    "status": "retained_as_derived_engine_milestones",
+    "evidence": "host/phase-timings.json",
+    "run1_model_loading_seconds": 74.535111,
+    "run1_engine_init_seconds": 94.49,
+    "run2_model_loading_seconds": 7.206092,
+    "run2_engine_init_seconds": 21.91,
+    "ready_time_limitation": "first retained health probe is an upper bound, not the readiness transition"
+  },
+  "backend": {
+    "flashinfer_attention_observed": true,
+    "cutlass_fp8_observed": true,
+    "marlin_fallback_observed": false,
+    "flashinfer_moe": {
+      "applicable": false,
+      "observed": false,
+      "reason": "dense model"
+    }
+  },
+  "visible_ui": {
+    "surface": "in-app Chromium through a loopback SSH tunnel to Oxcart textual-serve",
+    "screenshot_count": 67,
+    "unique_content_hashes": 51,
+    "primary_journey_count": 41,
+    "current_sha_matrix_count": 26,
+    "journeys": {
+      "guided_create_pin_review_save": "pass",
+      "save_only_no_compute": "pass",
+      "cold_reload": "pass",
+      "two_real_launches": "pass",
+      "operator_stop": "pass",
+      "wrong_hostname_preflight": "pass",
+      "dead_target_mid_connect_responsiveness": "pass",
+      "target_model_build_flag_managers": "pass",
+      "config_picker": "pass",
+      "use_once_visible_apply": "pass",
+      "clone_disclosure_and_result": "pass",
+      "save_conflict_recovery": "pass",
+      "responsive_viewport_equivalents": [
+        "800px",
+        "1000px",
+        "1420px"
+      ]
+    },
+    "screenshot_caveats": {
+      "authoritative_run1_stopped": "screenshots/25a-run1-stop-check.jpg",
+      "run2_stopped_render_degraded": "screenshots/31a-run2-stop-check.jpg",
+      "not_stopped_proof": [
+        "screenshots/25-run1-stopping.jpg",
+        "screenshots/31-run2-stopped.jpg"
+      ]
+    }
+  },
+  "machine_acceptance": {
+    "use_once_consumption_and_scope": [
+      "tests/test_tui_profile_fidelity.py::test_model_use_once_is_visible_and_never_leaks_across_config_switch",
+      "tests/test_tui_profile_fidelity.py::test_model_use_once_is_consumed_once_but_shared_by_entire_launch_attempt",
+      "tests/test_tui_profile_fidelity.py::test_real_agent_model_use_once_restores_saved_profile_after_launch"
+    ],
+    "clone_fidelity": [
+      "tests/test_tui_profile_fidelity.py::test_tui_clone_uses_agent_primitive_and_preserves_maximal_process_profile",
+      "tests/test_tui_profile_fidelity.py::test_tui_clone_uses_agent_primitive_and_preserves_maximal_docker_profile",
+      "tests/test_tui_profile_fidelity.py::test_tui_clone_regenerates_owned_docker_identity_without_evicting_source",
+      "tests/test_tui_smoke.py::test_palette_clone_deployment_uses_full_fidelity_agent_clone"
+    ],
+    "save_conflict_recovery": [
+      "tests/test_new_deployment_review_fidelity.py::test_save_name_conflict_restores_the_human_draft_for_rename",
+      "tests/test_tui_smoke.py::test_new_deployment_flag_edits_survive_save_conflict_rename_and_review"
+    ],
+    "responsive_widths": "parametrized 80, 100, and 142 terminal/layout tests in tests/test_new_deployment_screen.py and tests/test_tui_smoke.py"
+  },
+  "negative_proof": {
+    "wrong_hostname": {
+      "result": "rejected_before_launch",
+      "run_artifacts_created": false,
+      "container_created": false,
+      "port_18004_created": false,
+      "ui_remained_responsive": true
+    },
+    "dead_ssh_target": {
+      "connecting_state_visible": true,
+      "manager_responsive_mid_connect": true,
+      "returned_to_local_without_deadlock": true
+    }
+  },
+  "cleanup": {
+    "owned_container_absent": true,
+    "port_18004_absent": true,
+    "remote_ui_port_8815_absent": true,
+    "local_tunnel_port_8815_absent": true,
+    "owned_daemon_not_running": true,
+    "gpu_processes_absent": true,
+    "unrelated_container_count": 18,
+    "unrelated_containers_unchanged": true,
+    "temporary_clone_deleted": true,
+    "temporary_conflict_profile_deleted": true,
+    "temporary_dead_target_deleted": true,
+    "remote_worktree_deleted": true,
+    "remote_root_deleted": true,
+    "local_tunnel_pid_absent": true,
+    "stale_mac_fake_process_pair_removed": true,
+    "shared_mac_daemon_touched_during_evidence": false,
+    "evidence": "host/final-resource-cleanup.json"
+  },
+  "textual_server_provenance": {
+    "status": "partial_historical_full_hardened_followup",
+    "save_run1_run2": "process closure retained; full create-time identity was not retained",
+    "wrong_host": "full pid/create_time/cwd/exe/cmdline identity and absence proof",
+    "matrix": "full identity, child absence, process absence, and listener absence proof",
+    "baseline_orphan": "identity-checked and removed; real daemon untouched",
+    "evidence": "host/textual-serve-lifecycle-gap.json"
+  },
+  "live_findings": [
+    {
+      "id": "bug-327",
+      "status": "fixed",
+      "class": "runtime UI crash",
+      "fixed_in_runtime_sha": true
+    },
+    {
+      "id": "bug-328",
+      "status": "fixed",
+      "class": "attached-run proof authority and shell failure propagation"
+    },
+    {
+      "id": "bug-329",
+      "status": "fixed",
+      "class": "textual-serve ownership and orphan cleanup"
+    }
+  ],
+  "quality_gates": {
+    "status": "pass",
+    "python": "Homebrew Python 3.11",
+    "ruff": "pass",
+    "mypy": {
+      "status": "pass",
+      "source_files": 75
+    },
+    "mypy_override_ratchet": {
+      "status": "pass",
+      "ignored_modules": 11
+    },
+    "pytest": {
+      "status": "pass",
+      "passed": 1569,
+      "duration_seconds": 290.92
+    },
+    "diff_check": "pass",
+    "post_suite_residue": "pass",
+    "evidence": "quality-gates.md"
+  },
+  "remote_validation": {
+    "current_sha_oxcart_safe_lane": {
+      "status": "pass",
+      "focused_tests_passed": 165,
+      "daemon_restart_live_run": "pass",
+      "disconnect_reconnect_resume": "pass",
+      "cleanup": "pass",
+      "evidence": "host/remote-validation-current-sha-rerun.md"
+    },
+    "first_attempt": {
+      "status": "setup_retry",
+      "observed": "agent start failed under the deliberately long runtime path",
+      "path_length_cause": "inference from the long AF_UNIX path and successful short-path rerun; raw agent-start.err was not retained",
+      "evidence": "host/remote-validation-current-sha.md"
+    }
+  },
+  "quickstarts": {
+    "current_sha_installed_tool": "pass",
+    "current_sha_cloned_repo": "pass",
+    "raw_terminal_transcripts_retained": false,
+    "records": [
+      "quickstarts/current-sha-installed-tool.md",
+      "quickstarts/current-sha-cloned-repo.md"
+    ],
+    "literal_unqualified_main": "merge_dependent"
+  },
+  "claim_audit": {
+    "all_nine_phase_implementations": "validated_after_current fixes",
+    "literal_whole_plan_release_dod": "not yet complete because external release actions remain",
+    "approximately_120_commits": "invalid",
+    "1417_tests_current": "stale; fresh result is 1569",
+    "all_walkthrough_processes_initially_clean": "invalid; two residue classes were found and removed",
+    "bug_307_cosmetic": "invalid; real generation/ownership race, now fixed",
+    "mac_june_9_daemon_and_pid_20556": "invalid at audit time",
+    "phase_10_optional": "valid",
+    "hostname_derived_commit_email": "valid for 101 runtime commits"
+  },
+  "external_boundaries": {
+    "current_sha_blackbird_live_lane": "not_run",
+    "owner_amended_oxcart_lane": "pass",
+    "literal_parent_plan_blackbird_before_tag": "requires owner confirmation or execution",
+    "merged_to_main": false,
+    "literal_main_quickstarts": "pending_merge",
+    "tag_created": false,
+    "phase_10": "optional_deferred"
+  },
+  "integrity": {
+    "all_json_valid": true,
+    "secret_scan": "pass",
+    "secret_scan_evidence": "secret-scan-summary.json",
+    "checksums": "checksums.sha256",
+    "checksums_verified": true
+  }
+}

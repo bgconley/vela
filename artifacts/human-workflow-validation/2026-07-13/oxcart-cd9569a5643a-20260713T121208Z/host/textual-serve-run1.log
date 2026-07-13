@@ -1,0 +1,17 @@
+___ ____ _  _ ___ _  _ ____ _       ____ ____ ____ _  _ ____ 
+ |  |___  \/   |  |  | |__| |    __ [__  |___ |__/ |  | |___ 
+ |  |___ _/\_  |  |__| |  | |___    ___] |___ |  \  \/  |___ v1.1.3
+
+Serving 
+'/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/ve
+nv/bin/vela --configs-dir 
+/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/con
+figs --target local' on http://127.0.0.1:8815
+
+Press Ctrl+C to quit
+INFO     127.0.0.1 [13/Jul/2026:12:24:35 +0000] "GET / HTTP/1.1" 200 4466 "-"   
+         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36    
+         (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"                    
+INFO     127.0.0.1 [13/Jul/2026:12:24:35 +0000] "GET /ws?width=98&height=44     
+         HTTP/1.1" 101 0 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)   
+         AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36" 

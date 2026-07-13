@@ -1,0 +1,333 @@
+{
+  "after": {
+    "datum-caddy-1": {
+      "container_id": "b04219091c723eb63b995fc2e050f70c435bf1a4190937dfec4d974e7acf75bb",
+      "exit_code": 0,
+      "image": "caddy:2-alpine@sha256:fce4f15aad23222c0ac78a1220adf63bae7b94355d5ea28eee53910624acedfa",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T17:35:39.875594162Z",
+      "status": "exited"
+    },
+    "datum-datum-api-1": {
+      "container_id": "6a02a69aa673d6e3489726852bdec4f69362266d08c79aed2131b76487ee9ad1",
+      "exit_code": 0,
+      "image": "datum-datum-api",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:18:00.858710238Z",
+      "status": "exited"
+    },
+    "datum-datum-frontend-1": {
+      "container_id": "7d9ac6e4c106cde0acc02ed43d80e6d9ab39372b400f9959770afc35313a50a1",
+      "exit_code": 0,
+      "image": "datum-datum-frontend",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T17:35:34.372066469Z",
+      "status": "exited"
+    },
+    "datum-datum-watcher-1": {
+      "container_id": "1eb27210462d94c3204de271da2b953108c478e47b064ca37122c72d72ecb922",
+      "exit_code": 137,
+      "image": "datum-datum-watcher",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:18:00.862573274Z",
+      "status": "exited"
+    },
+    "datum-paradedb-1": {
+      "container_id": "eaf040f880bab4f5a2561f3841c34411811b4084cd6f26f9697b816740522a71",
+      "exit_code": 0,
+      "image": "paradedb/paradedb:0.22.6@sha256:2359a3628682f2dfc4ee65ed59f6a993d7851ed3d820b0c030c397ff7168b620",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:17:55.135277153Z",
+      "status": "exited"
+    },
+    "gliner-empty-stub-9002": {
+      "container_id": "09f451da525506a42d6dad43189f625017f81f2dc83cc6f366a90c176bcb8cb8",
+      "exit_code": 137,
+      "image": "qwen3-embed-gateway:latest",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-08T09:45:02.082731906Z",
+      "status": "exited"
+    },
+    "litellm-proxy": {
+      "container_id": "85b617ee374041f3eca8aa735cee342617a6441070e23e7e06d5ef4be76da583",
+      "exit_code": 0,
+      "image": "ghcr.io/berriai/litellm-database@sha256:64696cd89e425c2b2d0e0c78cece7d52430185ef155a5b0a67557ab9a226af9b",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T09:59:16.318892632Z",
+      "status": "running"
+    },
+    "postgres-dev": {
+      "container_id": "4491ad0313f22910516e8ba8b2c4d978c1408f5ad2725ea82ef5411583695344",
+      "exit_code": 0,
+      "image": "oxcart/postgresql-shared:18.4-pgbackrest2.58.0",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:33.333340829Z",
+      "status": "running"
+    },
+    "postgres-prod": {
+      "container_id": "6d1870d3726ce8faff2bfcdcb98c38097f2bb2888c296563e6108a27f7810dfe",
+      "exit_code": 0,
+      "image": "oxcart/postgresql-shared:18.4-pgbackrest2.58.0",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:33.337223211Z",
+      "status": "running"
+    },
+    "qwen3-embed-triton-0p6b": {
+      "container_id": "6d50ab31c090ed1972b63c086506ab31ef9c6fda43522a4f8c1f3c17c3833762",
+      "exit_code": 137,
+      "image": "nvcr.io/nvidia/tritonserver:26.01-py3",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-08T09:31:15.356749237Z",
+      "status": "exited"
+    },
+    "qwen3-embed-unified-8080": {
+      "container_id": "cbcd00fd2d85b47a50ada200d2e355ce9171c81845b966b0158d7540a14d6bd5",
+      "exit_code": 137,
+      "image": "qwen3-embed-gateway:latest",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-08T09:35:38.952700233Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server": {
+      "container_id": "27288ac6cc5ea358d54c202b0eb3a1fd284bc51a6ee6e342f1e50e88d49ac2ec",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-09T07:29:33.974360573Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server-backup-20260702T231839Z": {
+      "container_id": "a312a8803016580f837970d41f511e28532f4a1113fb45c72826a0ac3aaf3a30",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-29T23:18:58.061306657Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server-backup-20260702T232602Z": {
+      "container_id": "b48b88f1df317c44ee0c53096d0bade8ea148b2365cfebe6584db875c5bfb6f1",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-02T23:18:43.447220842Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server-backup-20260702T233441Z": {
+      "container_id": "e25140db1754cbb72bbef2c184ba55ee76fa73652f27355bef5288bdaac9cbd2",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-02T23:26:06.611557614Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-oxcart-server": {
+      "container_id": "a9203d9188fe73e5b111de8c8c1af3407f5b2c4e943fd1b411f8a8474ed255cb",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:15:26.459731443Z",
+      "status": "exited"
+    },
+    "qwen36-open-webui": {
+      "container_id": "3e10de00496c8d38eb74908939bdbc4977fcadfcbbec9a9d2260abe13160d515",
+      "exit_code": 0,
+      "image": "ghcr.io/open-webui/open-webui:main",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:23.720856705Z",
+      "status": "running"
+    },
+    "technitium-oxcart": {
+      "container_id": "dd6272d892bce6c12a052404928643373c4714b628ae09c0659c2c2032b10483",
+      "exit_code": 0,
+      "image": "technitium/dns-server:latest",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:23.717076134Z",
+      "status": "running"
+    }
+  },
+  "before": {
+    "datum-caddy-1": {
+      "container_id": "b04219091c723eb63b995fc2e050f70c435bf1a4190937dfec4d974e7acf75bb",
+      "exit_code": 0,
+      "image": "caddy:2-alpine@sha256:fce4f15aad23222c0ac78a1220adf63bae7b94355d5ea28eee53910624acedfa",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T17:35:39.875594162Z",
+      "status": "exited"
+    },
+    "datum-datum-api-1": {
+      "container_id": "6a02a69aa673d6e3489726852bdec4f69362266d08c79aed2131b76487ee9ad1",
+      "exit_code": 0,
+      "image": "datum-datum-api",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:18:00.858710238Z",
+      "status": "exited"
+    },
+    "datum-datum-frontend-1": {
+      "container_id": "7d9ac6e4c106cde0acc02ed43d80e6d9ab39372b400f9959770afc35313a50a1",
+      "exit_code": 0,
+      "image": "datum-datum-frontend",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T17:35:34.372066469Z",
+      "status": "exited"
+    },
+    "datum-datum-watcher-1": {
+      "container_id": "1eb27210462d94c3204de271da2b953108c478e47b064ca37122c72d72ecb922",
+      "exit_code": 137,
+      "image": "datum-datum-watcher",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:18:00.862573274Z",
+      "status": "exited"
+    },
+    "datum-paradedb-1": {
+      "container_id": "eaf040f880bab4f5a2561f3841c34411811b4084cd6f26f9697b816740522a71",
+      "exit_code": 0,
+      "image": "paradedb/paradedb:0.22.6@sha256:2359a3628682f2dfc4ee65ed59f6a993d7851ed3d820b0c030c397ff7168b620",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:17:55.135277153Z",
+      "status": "exited"
+    },
+    "gliner-empty-stub-9002": {
+      "container_id": "09f451da525506a42d6dad43189f625017f81f2dc83cc6f366a90c176bcb8cb8",
+      "exit_code": 137,
+      "image": "qwen3-embed-gateway:latest",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-08T09:45:02.082731906Z",
+      "status": "exited"
+    },
+    "litellm-proxy": {
+      "container_id": "85b617ee374041f3eca8aa735cee342617a6441070e23e7e06d5ef4be76da583",
+      "exit_code": 0,
+      "image": "ghcr.io/berriai/litellm-database@sha256:64696cd89e425c2b2d0e0c78cece7d52430185ef155a5b0a67557ab9a226af9b",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T09:59:16.318892632Z",
+      "status": "running"
+    },
+    "postgres-dev": {
+      "container_id": "4491ad0313f22910516e8ba8b2c4d978c1408f5ad2725ea82ef5411583695344",
+      "exit_code": 0,
+      "image": "oxcart/postgresql-shared:18.4-pgbackrest2.58.0",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:33.333340829Z",
+      "status": "running"
+    },
+    "postgres-prod": {
+      "container_id": "6d1870d3726ce8faff2bfcdcb98c38097f2bb2888c296563e6108a27f7810dfe",
+      "exit_code": 0,
+      "image": "oxcart/postgresql-shared:18.4-pgbackrest2.58.0",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:33.337223211Z",
+      "status": "running"
+    },
+    "qwen3-embed-triton-0p6b": {
+      "container_id": "6d50ab31c090ed1972b63c086506ab31ef9c6fda43522a4f8c1f3c17c3833762",
+      "exit_code": 137,
+      "image": "nvcr.io/nvidia/tritonserver:26.01-py3",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-08T09:31:15.356749237Z",
+      "status": "exited"
+    },
+    "qwen3-embed-unified-8080": {
+      "container_id": "cbcd00fd2d85b47a50ada200d2e355ce9171c81845b966b0158d7540a14d6bd5",
+      "exit_code": 137,
+      "image": "qwen3-embed-gateway:latest",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-08T09:35:38.952700233Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server": {
+      "container_id": "27288ac6cc5ea358d54c202b0eb3a1fd284bc51a6ee6e342f1e50e88d49ac2ec",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-09T07:29:33.974360573Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server-backup-20260702T231839Z": {
+      "container_id": "a312a8803016580f837970d41f511e28532f4a1113fb45c72826a0ac3aaf3a30",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-29T23:18:58.061306657Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server-backup-20260702T232602Z": {
+      "container_id": "b48b88f1df317c44ee0c53096d0bade8ea148b2365cfebe6584db875c5bfb6f1",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-02T23:18:43.447220842Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-mtp-vl-oxcart-server-backup-20260702T233441Z": {
+      "container_id": "e25140db1754cbb72bbef2c184ba55ee76fa73652f27355bef5288bdaac9cbd2",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-07-02T23:26:06.611557614Z",
+      "status": "exited"
+    },
+    "qwen36-27b-fp8-oxcart-server": {
+      "container_id": "a9203d9188fe73e5b111de8c8c1af3407f5b2c4e943fd1b411f8a8474ed255cb",
+      "exit_code": 0,
+      "image": "vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "restart_count": 0,
+      "running": false,
+      "started_at": "2026-06-22T08:15:26.459731443Z",
+      "status": "exited"
+    },
+    "qwen36-open-webui": {
+      "container_id": "3e10de00496c8d38eb74908939bdbc4977fcadfcbbec9a9d2260abe13160d515",
+      "exit_code": 0,
+      "image": "ghcr.io/open-webui/open-webui:main",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:23.720856705Z",
+      "status": "running"
+    },
+    "technitium-oxcart": {
+      "container_id": "dd6272d892bce6c12a052404928643373c4714b628ae09c0659c2c2032b10483",
+      "exit_code": 0,
+      "image": "technitium/dns-server:latest",
+      "restart_count": 0,
+      "running": true,
+      "started_at": "2026-07-11T08:41:23.717076134Z",
+      "status": "running"
+    }
+  },
+  "failures": [],
+  "ok": true,
+  "phase": "postflight"
+}

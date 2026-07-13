@@ -1,6 +1,6 @@
 # Vela Human Workflow Completion Plan
 
-**Status:** In execution
+**Status:** Complete for the owner-amended Oxcart branch gate (2026-07-13); external release actions remain
 
 **Owner amendment:** For the live release proof, `oxcart` is both controller and target. The controller talks to the target through Vela's `local` transport on oxcart; no shared remote daemon may be restarted.
 
@@ -144,3 +144,31 @@ Then run the repository remote-validation/manual lane at the exact branch SHA, w
 ## Deferred work
 
 The original optional Phase 10 structural file splits remain deferred. They do not close a user workflow or fidelity gap and must not be interleaved with this completion effort.
+
+## Completion record — 2026-07-13
+
+All Gates A–F in this completion plan passed against runtime source
+`cd9569a5643a41b53e0ee4d133b0b6d2d616d9d7` with Oxcart as both controller and
+target through `local` transport.
+
+- The guided UI journey was driven visibly through create, recipe → Custom, exact
+  pin, Review, save-only, two cold restarts, two real launches, Stop, wrong-host,
+  dead-target, managers, Use-once, clone, conflict recovery, and responsive widths.
+- Both real launches returned `/health` 200, the exact sole served model id,
+  `VELA_TEXT_OK`, and `LEFT=RED; RIGHT=GREEN` for a real generated PNG.
+- Saved YAML, normalized preview, command hash, immutable runtime/model identity,
+  endpoint assertions, flags, mounts, and redacted environment match across runs;
+  only run and container ids differ.
+- Live findings bugs 327–329 were fixed and regression-pinned. Run-owned Oxcart
+  resources, the retained worktree/root, and the Mac loopback tunnel were removed.
+- Final gates: Ruff clean; mypy clean in 75 source files; override ratchet unchanged;
+  1569 tests passed; exact-SHA Oxcart remote lane passed 165 focused tests plus
+  restart/resume probes; both exact-SHA README quickstarts passed.
+- Durable report, manifest, screenshots, raw run artifacts, integrity summary, and
+  checksums live under
+  `artifacts/human-workflow-validation/2026-07-13/oxcart-cd9569a5643a-20260713T121208Z/`.
+
+This completion record does not declare the parent plan literally tag-ready. Merge
+to `main`, unqualified-main quickstarts, the parent plan's Blackbird-before-tag lane
+unless the owner permanently replaces it with the Oxcart amendment, and tag creation
+remain external release actions. Phase 10 remains optional and deferred.

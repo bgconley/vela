@@ -1,0 +1,99 @@
+{
+  "schema": "vela.derived-phase-timings.v1",
+  "method": "Launch time comes from status-runN.json. Engine milestones and reported durations come from the retained run log. Probe and post-stop times are the original UTC mtimes of the corresponding files in the retained Oxcart evidence root, captured before root deletion.",
+  "limitations": [
+    "The logs record engine milestones to whole seconds, so elapsed seconds derived from those timestamps are approximate to within one second.",
+    "The first retained health artifact was written after the UI had already shown READY; launch_to_first_retained_health_probe_seconds is an upper bound on READY time, not the readiness transition itself.",
+    "Application-startup and process-finished lines have no timestamp of their own; the adjacent timestamped server-start and shutdown markers are retained instead."
+  ],
+  "runs": [
+    {
+      "label": "run1",
+      "run_id": "7489df3a708842428332de3e984a012d",
+      "launch_started_at": "2026-07-13T12:24:49.290000Z",
+      "milestones": {
+        "first_child_log_at": "2026-07-13T12:25:05Z",
+        "engine_initializing_at": "2026-07-13T12:25:24Z",
+        "model_loading_started_at": "2026-07-13T12:25:31Z",
+        "model_loading_finished_at": "2026-07-13T12:26:46Z",
+        "engine_init_finished_at": "2026-07-13T12:28:21Z",
+        "server_start_marker_at": "2026-07-13T12:28:33Z",
+        "first_retained_health_probe_at": "2026-07-13T12:31:56.934431442Z",
+        "text_probe_at": "2026-07-13T12:33:32.596614930Z",
+        "vision_probe_at": "2026-07-13T12:33:33.187616067Z",
+        "shutdown_initiated_at": "2026-07-13T12:36:43Z",
+        "post_stop_proof_at": "2026-07-13T12:37:55.236124459Z",
+        "stopped_result_captured_at": "2026-07-13T12:40:27.160422018Z"
+      },
+      "reported_engine_durations_seconds": {
+        "model_loading": 74.535111,
+        "engine_profile_kv_cache_and_warmup": 94.49,
+        "compilation_within_engine_init": 78.62
+      },
+      "derived_elapsed_seconds_from_launch": {
+        "first_child_log": 15.71,
+        "engine_initializing": 34.71,
+        "model_loading_started": 41.71,
+        "model_loading_finished": 116.71,
+        "engine_init_finished": 211.71,
+        "server_start_marker": 223.71,
+        "first_retained_health_probe_upper_bound": 427.644,
+        "shutdown_initiated": 713.71,
+        "post_stop_proof": 785.946
+      },
+      "sources": [
+        "status-run1.json",
+        "run-artifacts/7489df3a708842428332de3e984a012d/7489df3a708842428332de3e984a012d.run.log",
+        "run1-health.json",
+        "run1-text-response.json",
+        "run1-vision-response.json",
+        "post-stop-state-run1.json",
+        "wait-run1.json"
+      ]
+    },
+    {
+      "label": "run2",
+      "run_id": "7da79f87c9b74c26b8961360815ef63f",
+      "launch_started_at": "2026-07-13T12:45:07.360000Z",
+      "milestones": {
+        "first_child_log_at": "2026-07-13T12:45:21Z",
+        "engine_initializing_at": "2026-07-13T12:45:39Z",
+        "model_loading_started_at": "2026-07-13T12:45:46Z",
+        "model_loading_finished_at": "2026-07-13T12:45:54Z",
+        "engine_init_finished_at": "2026-07-13T12:46:16Z",
+        "server_start_marker_at": "2026-07-13T12:46:28Z",
+        "first_retained_health_probe_at": "2026-07-13T12:47:44.724285522Z",
+        "text_probe_at": "2026-07-13T12:49:19.777473874Z",
+        "vision_probe_at": "2026-07-13T12:49:20.356475022Z",
+        "shutdown_initiated_at": "2026-07-13T12:50:45Z",
+        "post_stop_proof_at": "2026-07-13T12:51:41.775755720Z",
+        "stopped_result_captured_at": "2026-07-13T12:52:00.038791971Z"
+      },
+      "reported_engine_durations_seconds": {
+        "model_loading": 7.206092,
+        "engine_profile_kv_cache_and_warmup": 21.91,
+        "compilation_within_engine_init": 9.62
+      },
+      "derived_elapsed_seconds_from_launch": {
+        "first_child_log": 13.64,
+        "engine_initializing": 31.64,
+        "model_loading_started": 38.64,
+        "model_loading_finished": 46.64,
+        "engine_init_finished": 68.64,
+        "server_start_marker": 80.64,
+        "first_retained_health_probe_upper_bound": 157.364,
+        "shutdown_initiated": 337.64,
+        "post_stop_proof": 394.416
+      },
+      "sources": [
+        "status-run2.json",
+        "run-artifacts/7da79f87c9b74c26b8961360815ef63f/7da79f87c9b74c26b8961360815ef63f.run.log",
+        "run2-health.json",
+        "run2-text-response.json",
+        "run2-vision-response.json",
+        "post-stop-state-run2.json",
+        "wait-run2.json"
+      ]
+    }
+  ]
+}

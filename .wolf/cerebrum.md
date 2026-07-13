@@ -2,7 +2,7 @@
 
 > OpenWolf's learning memory. Updated automatically as the AI learns from interactions.
 > Do not edit manually unless correcting an error.
-> Last updated: 2026-06-02
+> Last updated: 2026-07-13
 
 ## User Preferences
 
@@ -562,4 +562,6 @@
 - **[Proof identity and timeout, bugs 324-325]** Review provenance comes from the final validated config and is redacted before the wire boundary. Backend proof binds opaque model entry ids to sidecar repo plus commit, and its timeout covers connect plus artifact read with cancellation-safe disconnect.
 - **[Nested secret surfaces, bug 326]** Apply one shared secret-key predicate to preview rendering, top-level and Docker env snapshots, saved-config validation, and runtime log scrub values. Checking only top-level `env` or only TOKEN/KEY leaks PASSWORD/SECRET values into screenshots and sidecars.
 - **[Literal UI trust boundary, bug 327]** Agent/config/provenance values are data, never Rich/Textual markup. Dynamic `Static` surfaces use `markup=False`; `Select` has no markup flag, so pass plain `rich.text.Text` labels to keep brackets literal without sacrificing built-in type-to-search. A string-only helper can appear fixed while silently degrading keyboard UX.
+- **[Attached-run authority, bug 328]** `vela runs list` is a detached-run history projection and is not the authority for an attached TUI launch. Live proof scans only the exact configured `RUNS_DIR`, requires the expected profile, `attached` mode, no exit-status artifact, and a system-verified sidecar, then fails unless exactly one match remains. Assign command substitution before a separate `export`; the export builtin can mask selector failure under `set -e`.
+- **[Visible-server ownership, bug 329]** A `textual-serve | tee` pipeline makes `$!` identify a pipeline member and can orphan both server and UI child. Launch the server with `exec`, retain PID/create-time/cwd/exe/full-cmdline identity, navigate the browser away, require recursive children absent, signal only the exact identity, and prove both process and listener absence before deleting the validation root.
 - **[Do not repeat: guard sequencing]** A preflight check that eventually returns `CONFIG_INVALID` is still unsafe if profile selection ran a configured executable first. Host-identity gates belong before build integrity and command/profile resolution, with an agent-level zero-call regression.

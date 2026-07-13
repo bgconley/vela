@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-13T11:44:30.829Z
-> Files: 226 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-13T14:15:34.890Z
+> Files: 225 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -24,10 +24,6 @@
 
 - `ci.yml` — CI: CI (~297 tok)
 - `remote-validation.yml` — CI: Remote Validation (~2370 tok)
-
-## artifacts/human-workflow-validation/2026-07-13/
-
-- `baseline.md` — Human Workflow Validation Baseline (~650 tok)
 
 ## artifacts/remote-validation/
 
@@ -58,7 +54,7 @@
 - `docker-runtime.md` — Docker Runtime (~2521 tok)
 - `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4954 tok)
 - `mypy-debt.md` — Mypy Debt (~261 tok)
-- `oxcart-local-validation.md` — Oxcart-local visible release validation (~6542 tok)
+- `oxcart-local-validation.md` — Oxcart-local visible release validation (~9030 tok)
 - `troubleshooting.md` — Vela troubleshooting (~2299 tok)
 - `tui.md` — Vela TUI key reference (~1193 tok)
 
@@ -101,7 +97,7 @@
 ## docs/plans/
 
 - `2026-07-09-vela-remediation.md` — Vela Remediation Implementation Plan (v1) (~13353 tok)
-- `2026-07-13-vela-human-workflow-completion.md` — Vela Human Workflow Completion Plan (~2751 tok)
+- `2026-07-13-vela-human-workflow-completion.md` — Vela Human Workflow Completion Plan (~3205 tok)
 - `2026-07-13-vela-remediation-closeout.md` — Vela Remediation Closeout Plan (~3681 tok)
 
 ## docs/specs/
@@ -222,7 +218,7 @@
 - `help.py` — HelpScreen: compose, on_mount, on_resize, action_close (~1962 tok)
 - `log_prompt.py` — LogPromptScreen: compose, on_mount, on_input_submitted, action_cancel (~473 tok)
 - `model_manager.py` — ModelManagerScreen: compose, on_mount, on_resize, action_previous + 8 more (~5471 tok)
-- `new_deployment.py` — NewDeploymentScreen: new_deployment_runtime_identity_error (~28135 tok)
+- `new_deployment.py` — NewDeploymentScreen: new_deployment_runtime_identity_error (~28496 tok)
 - `pin_model.py` — Pin Model — register a model so deployments can reference it by a stable id. (~4906 tok)
 - `target_edit.py` — TargetEditScreen: compose, on_mount, on_input_submitted, action_cancel (~1198 tok)
 - `target_manager.py` — from: compose, on_mount, action_previous, action_next + 10 more (~4433 tok)
@@ -256,7 +252,7 @@
 - `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~1812 tok)
 - `test_deployment_composer.py` — Tests: agent_composes_docker_deployment_draft_for_tui, agent_composes_generic_docker_with_fresh_container_name_from_docker_ps, agent_composer_skips... (~22393 tok)
 - `test_docker_supervisor.py` — Tests: docker_supervisor_writes_scrubbed_run_stderr_to_log, docker_supervisor_scrubs_container_logs_and_events, docker_supervisor_stops_container_w... (~3827 tok)
-- `test_docs.py` — Tests: tui_doc_matches_bindings, gen_tui_docs_stdout_prints_without_writing, gen_tui_docs_default_writes_file, troubleshooting_doc_covers_every_rem... (~4108 tok)
+- `test_docs.py` — Tests: tui_doc_matches_bindings, gen_tui_docs_stdout_prints_without_writing, gen_tui_docs_default_writes_file, troubleshooting_doc_covers_every_rem... (~4917 tok)
 - `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~1779 tok)
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
 - `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2779 tok)
@@ -269,8 +265,8 @@
 - `test_messages.py` — Tests: canonical_event_taxonomy_uses_textual_messages, message_payloads_match_engine_monitoring_contract, log_record_conversion_uses_progress_updat... (~699 tok)
 - `test_model_manager_screen.py` — Headless tests for the rebuilt ModelManagerScreen (Task 4.3, bug-237). (~5354 tok)
 - `test_mypy_debt.py` — Tests: mypy_override_ratchet_is_documented_and_enforced (~226 tok)
-- `test_new_deployment_review_fidelity.py` — Tests: review_summary_discloses_saved_identity_mounts_and_destructive_actions, review_renders_provenance_in_plain_language_and_redacts_secrets, fla... (~2971 tok)
-- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~20087 tok)
+- `test_new_deployment_review_fidelity.py` — Tests: review_summary_discloses_saved_identity_mounts_and_destructive_actions, review_renders_provenance_in_plain_language_and_redacts_secrets, rev... (~3280 tok)
+- `test_new_deployment_screen.py` — Headless tests for the refactored New Deployment wizard + review (Figma 56:2-58:2). (~21597 tok)
 - `test_oxcart_proof_assets.py` — Tests: checked_in_oxcart_profile_is_exact_and_pin_gated, oxcart_backend_evidence_accepts_exact_profile, oxcart_backend_evidence_accepts_scrubbed_ru... (~5422 tok)
 - `test_package_metadata.py` — Tests: model_download_progress_runtime_dependency_is_declared, model_download_huggingface_runtime_dependency_is_declared (~193 tok)
 - `test_phases.py` — Tests: success_fixture_produces_expected_phase_sequence, recorded_success_fixture_walks_current_vllm_startup_phases, recorded_hf_cache_miss_fixture... (~1710 tok)

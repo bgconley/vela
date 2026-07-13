@@ -1,0 +1,12 @@
+cwd=/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/source
+HF_HOME=/root/.cache/huggingface
+HF_HUB_CACHE=/root/.cache/huggingface/hub
+HF_HUB_OFFLINE=1
+PYTHONUNBUFFERED=1
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+SAFETENSORS_FAST_GPU=1
+TORCHINDUCTOR_CACHE_DIR=/root/.cache/torch
+TRITON_CACHE_DIR=/root/.cache/triton
+VLLM_API_KEY='••••'
+VLLM_CACHE_ROOT=/root/.cache/vllm
+docker run -d --name vela-oxcart-qwen36-27b-fp8-mtp-vl --rm --gpus all --network host --ipc=host --shm-size 32g -e HF_HOME -e HF_HUB_CACHE -e HF_HUB_OFFLINE -e PYTHONUNBUFFERED -e PYTORCH_CUDA_ALLOC_CONF -e SAFETENSORS_FAST_GPU -e TORCHINDUCTOR_CACHE_DIR -e TRITON_CACHE_DIR -e VLLM_API_KEY -e VLLM_CACHE_ROOT -v /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vllm-cache:/root/.cache/vllm -v /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/triton-cache:/root/.cache/triton -v /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/torch-compile-cache:/root/.cache/torch -v /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/flashinfer-cache:/root/.cache/flashinfer -v /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/tmp:/tmp/qwen36-27b-fp8-mtp-vl -v /tank/ai/models/qwen36-27b-fp8/hf-cache:/root/.cache/huggingface:rw --label ai.vela.managed=true --label ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046 Qwen/Qwen3.6-27B-FP8 --revision e89b16ebf1988b3d6befa7de50abc2d76f26eb09 --served-model-name qwen36-27b-fp8-oxcart --host 127.0.0.1 --port 18004 --gpu-memory-utilization 0.955 --max-model-len 262144 --dtype auto --kv-cache-dtype auto --max-num-seqs 4 --trust-remote-code --attention-backend FLASHINFER --mm-encoder-attn-backend FLASHINFER --safetensors-load-strategy prefetch --max-num-batched-tokens 8192 --enable-prefix-caching --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --limit-mm-per-prompt '{"image":16,"video":1}' --media-io-kwargs '{"video":{"num_frames":-1}}' --default-chat-template-kwargs '{"enable_thinking":true,"preserve_thinking":true}' --override-generation-config '{"temperature":1.0,"top_p":0.95,"top_k":20,"min_p":0.0}' --speculative-config '{"method":"mtp","num_speculative_tokens":2}' --compilation-config '{"cudagraph_capture_sizes":[1,2,3,6,9,12],"cudagraph_num_of_warmups":1}' --cudagraph-metrics --disable-uvicorn-access-log

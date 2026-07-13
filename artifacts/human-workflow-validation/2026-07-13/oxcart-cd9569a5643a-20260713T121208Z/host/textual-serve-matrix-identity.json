@@ -1,0 +1,11 @@
+{
+  "cmdline": [
+    "/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/venv/bin/python",
+    "-c",
+    "\nimport json, os, shlex\nfrom pathlib import Path\nimport psutil\nfrom textual_serve.server import Server\nroot = Path(os.environ[\"EVIDENCE\"])\nsession = os.environ[\"UI_SESSION\"]\nprocess = psutil.Process()\nidentity = {\n    \"pid\": process.pid,\n    \"create_time\": process.create_time(),\n    \"cwd\": process.cwd(),\n    \"exe\": process.exe(),\n    \"cmdline\": process.cmdline(),\n}\n(root / f\"textual-serve-{session}-identity.json\").write_text(json.dumps(identity, indent=2, sort_keys=True) + \"\\n\")\n(root / f\"textual-serve-{session}.pid\").write_text(f\"{process.pid}\\n\")\ncommand = shlex.join([os.path.join(os.environ[\"VENV\"], \"bin\", \"vela\"), \"--configs-dir\", os.environ[\"VELA_CONFIGS\"], \"--target\", \"local\"])\nServer(command, host=\"127.0.0.1\", port=int(os.environ[\"UI_PORT\"]), title=\"Vela current-SHA UX matrix\").serve()\n"
+  ],
+  "create_time": 1783948456.0,
+  "cwd": "/tank/work/validation/vela-oxcart-pilot-oxcart-cd9569a5643a-20260713T121208Z/source",
+  "exe": "/usr/bin/python3.12",
+  "pid": 1374828
+}

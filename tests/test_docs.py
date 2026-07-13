@@ -175,6 +175,69 @@ def test_oxcart_local_validation_runbook_pins_release_proof_and_safety_contracts
         assert phrase in runbook, f"Oxcart runbook missing safety/proof surface: {phrase!r}"
 
 
+def test_oxcart_runbook_fail_closes_attached_run_and_ui_lifecycle() -> None:
+    runbook = _read("docs/oxcart-local-validation.md")
+
+    # A live attached UI launch must come from the configured artifact authority,
+    # not an ambiguous history projection that also contains stopped rows.
+    for phrase in (
+        "from vela.engine.sidecar import load_sidecar, verify_sidecar_from_system",
+        'configured_runs_dir = Path(os.environ["RUNS_DIR"])',
+        "configured_runs_dir != expected_runs_dir",
+        'sidecar.config_name != os.environ["PROFILE"]',
+        'sidecar.launch_mode != "attached"',
+        'path.with_suffix(".exit-status").exists()',
+        "verify_sidecar_from_system(path)",
+        "unreadable sidecar candidate in exact RUNS_DIR",
+        "expected exactly one verified attached profile run",
+    ):
+        assert phrase in runbook
+    assert '"$VENV/bin/vela" runs list' not in runbook
+
+    # Assignment must receive command-substitution failure before export can mask
+    # the status under set -e. Pin the contract for both live launches.
+    assert 'RUN1_ID="$(identify_attached_run)"\nexport RUN1_ID' in runbook
+    assert 'RUN2_ID="$(identify_attached_run)"\nexport RUN2_ID' in runbook
+    assert "export RUN1_ID=\"$(" not in runbook
+    assert "export RUN2_ID=\"$(" not in runbook
+    assert not [
+        line for line in runbook.splitlines() if line.startswith("export ") and "$(" in line
+    ]
+
+    # The visible UI server is one exact exec-owned process, not a tee pipeline.
+    # Browser disconnect and full process identity checks precede the signal; all
+    # recorded sessions and the listener are rechecked before root deletion.
+    for phrase in (
+        'exec "$VENV/bin/python" -c',
+        "navigate the visible browser to `about:blank`",
+        '"cwd": process.cwd()',
+        '"cmdline": process.cmdline()',
+        "process.children(recursive=True)",
+        'kill -TERM "$UI_PID"',
+        'ss -H -ltn "sport = :$UI_PORT"',
+        "children_absent_before_stop",
+        "server_identity_absent_after_stop",
+        'for session in ("save", "run1", "run2", "wrong-host")',
+    ):
+        assert phrase in runbook
+    assert 'UI_PID="$("$VENV/bin/python"' in runbook
+    assert ')"\nexport UI_PID' in runbook
+    assert '2>&1 | tee "$EVIDENCE/textual-serve' not in runbook
+    assert runbook.rfind('ss -H -ltn "sport = :$UI_PORT"') < runbook.rfind(
+        "worktree remove --force"
+    )
+
+    # `agent status` intentionally exits nonzero after a successful final stop.
+    # Its JSON and return code remain evidence without aborting the cleanup shell.
+    for phrase in (
+        "DAEMON_STATUS_RC=0",
+        "|| DAEMON_STATUS_RC=$?",
+        '"$EVIDENCE/owned-daemon-after.rc"',
+        'status.get("status") != "not-running"',
+    ):
+        assert phrase in runbook
+
+
 def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     configuration = _read("docs/configuration.md")
     builds_models = _read("docs/builds-and-models.md")

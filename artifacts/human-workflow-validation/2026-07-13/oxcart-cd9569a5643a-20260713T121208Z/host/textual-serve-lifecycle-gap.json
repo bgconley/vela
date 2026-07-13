@@ -1,0 +1,44 @@
+{
+  "baseline_orphan_cleanup": {
+    "evidence": [
+      "listeners-before.txt",
+      "processes-before.txt",
+      "listeners-after.txt",
+      "processes-after.txt",
+      "matrix-final-listeners.txt"
+    ],
+    "finding": "The previous tee pipeline had left a listener on 127.0.0.1:8815 with bash/python/tee process group 1276411/1276412/1276413. Identity was verified against the old validation root before cleanup; the real Vela daemon was not touched.",
+    "listener_absent_at_final_postflight": true,
+    "listener_port": 8815,
+    "processes_absent_at_final_postflight": true
+  },
+  "finding": "The live run exposed that the prior tee/PID procedure did not retain full launch identity; the runbook and tests now require exec plus pid/create_time/cwd/exe/cmdline identity.",
+  "schema": "vela.textual-serve-lifecycle-gap.v1",
+  "sessions": [
+    {
+      "launch_identity_record": "partial: pid/cwd/cmdline were checked live before TERM but create_time JSON was not retained",
+      "log": "textual-serve-save.log",
+      "pid": 1290176,
+      "process_absent_after_stop": true,
+      "session": "save"
+    },
+    {
+      "launch_identity_record": "partial: pid/cwd/cmdline were checked live before TERM but create_time JSON was not retained",
+      "log": "textual-serve-run1.log",
+      "pid": 1295341,
+      "process_absent_after_stop": true,
+      "session": "run1"
+    },
+    {
+      "launch_identity_record": "partial: pid/cwd/cmdline were checked live before TERM but create_time JSON was not retained",
+      "log": "textual-serve-run2.log",
+      "pid": 1341775,
+      "process_absent_after_stop": true,
+      "session": "run2"
+    }
+  ],
+  "status": "cleaned-with-partial-identity-evidence",
+  "ui_port_absent_after_all_stops": true,
+  "matrix_session_uses_hardened_identity_proof": true,
+  "wrong_host_session_uses_hardened_identity_proof": true
+}

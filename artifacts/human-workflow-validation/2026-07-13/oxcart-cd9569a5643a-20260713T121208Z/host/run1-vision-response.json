@@ -1,0 +1,36 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "annotations": null,
+        "audio": null,
+        "content": "LEFT=RED; RIGHT=GREEN",
+        "function_call": null,
+        "reasoning": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": []
+      },
+      "stop_reason": null,
+      "token_ids": null
+    }
+  ],
+  "created": 1783946012,
+  "id": "chatcmpl-a9d6ae646be3d778",
+  "kv_transfer_params": null,
+  "model": "qwen36-27b-fp8-oxcart",
+  "object": "chat.completion",
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.20.2rc1.dev9+g01d4d1ad3-f9fc9b32",
+  "usage": {
+    "completion_tokens": 8,
+    "prompt_tokens": 103,
+    "prompt_tokens_details": null,
+    "total_tokens": 111
+  }
+}

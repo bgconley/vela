@@ -1,0 +1,26 @@
+{
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "max_tokens": 32,
+  "messages": [
+    {
+      "content": [
+        {
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAQklEQVR4nO3PwREAIAzDMMr+O8MUPX+kAZLzvLNrlg/u7vw+ATUBNQE1ATUBNQE1ATUBNQE1ATUBNQE1ATUBNQG1D+PwAj+uza+fAAAAAElFTkSuQmCC"
+          },
+          "type": "image_url"
+        },
+        {
+          "text": "Identify the two color halves using exactly LEFT=RED; RIGHT=GREEN.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "qwen36-27b-fp8-oxcart",
+  "seed": 7,
+  "temperature": 0
+}

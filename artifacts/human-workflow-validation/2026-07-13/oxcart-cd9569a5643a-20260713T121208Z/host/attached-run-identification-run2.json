@@ -1,0 +1,91 @@
+{
+  "agent_status_confirmed": true,
+  "captured_at": "2026-07-13T12:47:54.082727Z",
+  "criteria": {
+    "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+    "excluded_run_ids": [
+      "7489df3a708842428332de3e984a012d"
+    ],
+    "exit_status": "absent",
+    "identity_verifier": "vela.engine.sidecar.verify_sidecar_from_system",
+    "launch_mode": "attached",
+    "manifest_parent": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs",
+    "required_match_count": 1,
+    "runs_dir": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs"
+  },
+  "enumerated_sidecars": [
+    {
+      "checks": {
+        "config_matches": true,
+        "exit_status_absent": false,
+        "filename_matches_run_id": true,
+        "launch_mode_attached": true,
+        "live_identity_verified": false,
+        "manifest_exists": true,
+        "manifest_in_exact_runs_dir": true,
+        "run1_id_excluded": false
+      },
+      "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_container_id": "459cc9b97fc81a2ef6a7f06131a24e8c62f0112d7008d513735f2dd9d9149843",
+      "docker_container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_image_digest": "sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "exit_status_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7489df3a708842428332de3e984a012d.exit-status",
+      "exposure": "local",
+      "host": "127.0.0.1",
+      "launch_mode": "attached",
+      "manifest_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7489df3a708842428332de3e984a012d.manifest.json",
+      "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "model_ref": "01KXDPJ7NNB825TG9R2WANB0MS",
+      "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+      "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "port": 18004,
+      "run_id": "7489df3a708842428332de3e984a012d",
+      "runtime": "docker",
+      "selected": false,
+      "served_model_names": [
+        "qwen36-27b-fp8-oxcart"
+      ],
+      "sidecar_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7489df3a708842428332de3e984a012d.json",
+      "verification_error": "TrackedProcessMismatch: tracked docker container is unavailable: error: no such object: 459cc9b97fc81a2ef6a7f06131a24e8c62f0112d7008d513735f2dd9d9149843"
+    },
+    {
+      "checks": {
+        "config_matches": true,
+        "exit_status_absent": true,
+        "filename_matches_run_id": true,
+        "launch_mode_attached": true,
+        "live_identity_verified": true,
+        "manifest_exists": true,
+        "manifest_in_exact_runs_dir": true,
+        "run1_id_excluded": true
+      },
+      "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_container_id": "540c618d98ae186200dfed47db5665d24b18ff298aeb7071e0e3ff99e60f57e6",
+      "docker_container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_image_digest": "sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "exit_status_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.exit-status",
+      "exposure": "local",
+      "host": "127.0.0.1",
+      "launch_mode": "attached",
+      "manifest_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.manifest.json",
+      "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "model_ref": "01KXDPJ7NNB825TG9R2WANB0MS",
+      "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+      "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "port": 18004,
+      "run_id": "7da79f87c9b74c26b8961360815ef63f",
+      "runtime": "docker",
+      "selected": true,
+      "served_model_names": [
+        "qwen36-27b-fp8-oxcart"
+      ],
+      "sidecar_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.json",
+      "verification_error": null
+    }
+  ],
+  "match_count": 1,
+  "schema_version": 1,
+  "selected_manifest_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.manifest.json",
+  "selected_run_id": "7da79f87c9b74c26b8961360815ef63f",
+  "selected_sidecar_path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.json"
+}

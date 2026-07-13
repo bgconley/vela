@@ -23,12 +23,20 @@ evidence is invalid for an uncommitted tree or a different remote branch head.
 ```bash
 cd /path/to/vela
 test -z "$(git status --porcelain=v1)"
-export BRANCH="$(git branch --show-current)"
-export SHA="$(git rev-parse HEAD)"
+BRANCH="$(git branch --show-current)"
+export BRANCH
+SHA="$(git rev-parse HEAD)"
+export SHA
 test "${#SHA}" -eq 40
 git push origin "$BRANCH"
-export RUN_ID="oxcart-${SHA%${SHA#????????????}}-$(date -u +%Y%m%dT%H%M%SZ)"
-export LOCAL_EVIDENCE="$PWD/artifacts/human-workflow-validation/$(date -u +%F)/$RUN_ID"
+RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+export RUN_STAMP
+RUN_DATE="$(date -u +%F)"
+export RUN_DATE
+RUN_ID="oxcart-${SHA%${SHA#????????????}}-$RUN_STAMP"
+export RUN_ID
+LOCAL_EVIDENCE="$PWD/artifacts/human-workflow-validation/$RUN_DATE/$RUN_ID"
+export LOCAL_EVIDENCE
 mkdir -p "$LOCAL_EVIDENCE/screenshots"
 printf 'branch=%s\nsha=%s\nrun_id=%s\n' "$BRANCH" "$SHA" "$RUN_ID" \
   > "$LOCAL_EVIDENCE/requested-revision.txt"
@@ -124,7 +132,11 @@ nvidia-smi --query-gpu=index,uuid,name,memory.used,memory.total,utilization.gpu 
   --format=csv,noheader > "$EVIDENCE/gpus-before.csv"
 ss -ltn > "$EVIDENCE/listeners-before.txt"
 ps -eo pid=,ppid=,lstart=,comm= > "$EVIDENCE/processes-before.txt"
-"$VENV/bin/vela" agent status --json > "$EVIDENCE/owned-daemon-before.json"
+DAEMON_BEFORE_RC=0
+"$VENV/bin/vela" agent status --json \
+  > "$EVIDENCE/owned-daemon-before.json" || DAEMON_BEFORE_RC=$?
+printf '%s\n' "$DAEMON_BEFORE_RC" > "$EVIDENCE/owned-daemon-before.rc"
+test "$DAEMON_BEFORE_RC" -eq 1
 ```
 
 Preflight must be green before opening the UI. It fails closed unless Oxcart is
@@ -141,14 +153,47 @@ Start only the run-owned local daemon and retain its identity:
 
 ## 4. Serve the real UI through loopback only
 
-In a dedicated Oxcart shell with the same exported environment, run this in the
-foreground. Stop it with `Ctrl+C` only after closing the browser tab. Repeat the
-same command whenever the steps below say to cold-start the app.
+In a dedicated Oxcart shell with the same exported environment, assign a unique
+session label and run the server in the foreground. Use `save` initially, then
+`run1`, `run2`, and `wrong-host` for the later cold starts. The shell must
+`exec` the server directly: a `tee` pipeline obscures the server PID and can
+leave the pipeline, server, or child app alive after its SSH parent exits.
 
 ```bash
-"$VENV/bin/python" -c '
-import os, shlex
+export UI_SESSION=save
+case "$UI_SESSION" in
+  save|run1|run2|wrong-host) ;;
+  *) echo "unexpected UI_SESSION=$UI_SESSION" >&2; exit 1 ;;
+esac
+test ! -e "$EVIDENCE/textual-serve-$UI_SESSION.pid"
+if ss -H -ltn "sport = :$UI_PORT" | grep -q .; then
+  echo "UI port $UI_PORT is already listening" >&2
+  exit 1
+fi
+cd "$WORKTREE"
+exec "$VENV/bin/python" -c '
+import json, os, shlex
+from pathlib import Path
+
+import psutil
 from textual_serve.server import Server
+
+root = Path(os.environ["EVIDENCE"])
+session = os.environ["UI_SESSION"]
+pid_path = root / f"textual-serve-{session}.pid"
+identity_path = root / f"textual-serve-{session}-identity.json"
+process = psutil.Process()
+identity = {
+    "pid": process.pid,
+    "create_time": process.create_time(),
+    "cwd": process.cwd(),
+    "exe": process.exe(),
+    "cmdline": process.cmdline(),
+}
+identity_path.write_text(
+    json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+)
+pid_path.write_text(f"{process.pid}\n", encoding="utf-8")
 command = shlex.join([
     os.path.join(os.environ["VENV"], "bin", "vela"),
     "--configs-dir", os.environ["VELA_CONFIGS"],
@@ -156,8 +201,106 @@ command = shlex.join([
 ])
 Server(command, host="127.0.0.1", port=int(os.environ["UI_PORT"]),
        title="Vela Oxcart validation").serve()
-' 2>&1 | tee "$EVIDENCE/textual-serve.log"
+' > "$EVIDENCE/textual-serve-$UI_SESSION.log" 2>&1
 ```
+
+To stop a session, first navigate the visible browser to `about:blank` (or
+close its tab) so the Textual child app disconnects. In the Oxcart control
+shell, set the same `UI_SESSION` and run the exact-identity stop below. It
+compares PID, create time, cwd, executable, and the complete command line to the
+launch record before signaling anything. It also refuses to stop the server
+until every recursive child is absent.
+
+```bash
+export UI_SESSION=save  # Replace with the exact session being stopped.
+UI_PID="$("$VENV/bin/python" - <<'PY'
+import json, os, time
+from pathlib import Path
+
+import psutil
+
+root = Path(os.environ["EVIDENCE"])
+session = os.environ["UI_SESSION"]
+identity = json.loads(
+    (root / f"textual-serve-{session}-identity.json").read_text(encoding="utf-8")
+)
+pid_file = root / f"textual-serve-{session}.pid"
+pid = int(pid_file.read_text(encoding="utf-8").strip())
+if pid != identity["pid"]:
+    raise SystemExit("Textual PID file and launch identity disagree")
+process = psutil.Process(pid)
+actual = {
+    "pid": process.pid,
+    "create_time": process.create_time(),
+    "cwd": process.cwd(),
+    "exe": process.exe(),
+    "cmdline": process.cmdline(),
+}
+if actual != identity or actual["cwd"] != os.environ["WORKTREE"]:
+    raise SystemExit(f"refusing to signal mismatched Textual process: {actual!r}")
+deadline = time.monotonic() + 15
+children = process.children(recursive=True)
+while children and time.monotonic() < deadline:
+    time.sleep(0.1)
+    children = process.children(recursive=True)
+if children:
+    raise SystemExit(
+        "browser must navigate away before stop; Textual children remain: "
+        + repr([child.pid for child in children])
+    )
+(root / f"textual-serve-{session}-stop.json").write_text(
+    json.dumps(
+        {"identity_verified": True, "children_absent_before_stop": True, **actual},
+        indent=2,
+        sort_keys=True,
+    ) + "\n",
+    encoding="utf-8",
+)
+print(pid)
+PY
+)"
+export UI_PID
+kill -TERM "$UI_PID"
+"$VENV/bin/python" - <<'PY'
+import json, os, time
+from pathlib import Path
+
+import psutil
+
+root = Path(os.environ["EVIDENCE"])
+session = os.environ["UI_SESSION"]
+identity = json.loads(
+    (root / f"textual-serve-{session}-identity.json").read_text(encoding="utf-8")
+)
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
+    try:
+        process = psutil.Process(identity["pid"])
+        if abs(process.create_time() - identity["create_time"]) > 0.001:
+            break
+    except psutil.NoSuchProcess:
+        break
+    time.sleep(0.1)
+else:
+    raise SystemExit("exact Textual server identity remained alive after TERM")
+stop_path = root / f"textual-serve-{session}-stop.json"
+stop = json.loads(stop_path.read_text(encoding="utf-8"))
+stop["server_identity_absent_after_stop"] = True
+stop_path.write_text(
+    json.dumps(stop, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+)
+(root / f"textual-serve-{session}.pid").unlink(missing_ok=True)
+PY
+if ss -H -ltn "sport = :$UI_PORT" | grep -q .; then
+  echo "UI port $UI_PORT remained open after stopping $UI_SESSION" >&2
+  exit 1
+fi
+unset UI_PID
+```
+
+Do not delete the run root merely because an SSH command or terminal ended.
+Every UI session must have its `*-stop.json` proof, no matching server identity
+may remain alive, and listener `8815` must be absent before root deletion.
 
 On the Mac, open a second terminal and keep this tunnel in the foreground:
 
@@ -230,12 +373,17 @@ fi
 
 ## 6. Cold restart, launch, probe, Stop, and repeat
 
-Close the browser tab and stop `textual-serve`. Then cold-restart only the owned
-daemon. Do not run `vela agent restart` outside this isolated environment.
+Navigate the browser to `about:blank`, set `UI_SESSION=save`, and use the
+exact-identity UI stop from section 4. Then cold-restart only the owned daemon.
+Do not run `vela agent restart` outside this isolated environment.
 
 ```bash
 "$VENV/bin/vela" agent stop --json | tee "$EVIDENCE/owned-daemon-stop-1.json"
-"$VENV/bin/vela" agent status --json > "$EVIDENCE/owned-daemon-down-1.json"
+DAEMON_DOWN_1_RC=0
+"$VENV/bin/vela" agent status --json \
+  > "$EVIDENCE/owned-daemon-down-1.json" || DAEMON_DOWN_1_RC=$?
+printf '%s\n' "$DAEMON_DOWN_1_RC" > "$EVIDENCE/owned-daemon-down-1.rc"
+test "$DAEMON_DOWN_1_RC" -eq 1
 "$VENV/bin/vela" agent start --json | tee "$EVIDENCE/owned-daemon-start-1.json"
 "$VENV/bin/vela" agent status --json > "$EVIDENCE/owned-daemon-status-1.json"
 sha256sum "$PROFILE_PATH" > "$EVIDENCE/profile-run1.sha256"
@@ -245,23 +393,68 @@ cmp "$EVIDENCE/profile-saved.sha256" "$EVIDENCE/profile-run1.sha256"
 cmp "$EVIDENCE/preview-saved.txt" "$EVIDENCE/preview-run1.txt"
 ```
 
-Cold-start `textual-serve`, reconnect the browser, select the saved profile, and
-capture `06-cold-reload-selected`. Launch through the UI. At READY, capture the
-target/profile/model identity and complete phase timeline as `07-run1-ready`.
+Set `UI_SESSION=run1`, cold-start `textual-serve`, reconnect the browser, select
+the saved profile, and capture `06-cold-reload-selected`. Launch through the UI.
+At READY, capture the target/profile/model identity and complete phase timeline
+as `07-run1-ready`.
 
-While READY, capture the run id, runtime identity, and live probes:
+While READY, capture the run id, runtime identity, and live probes. Attached UI
+runs are not identified from CLI history: old stopped rows can make that view
+ambiguous. The helper below scans only the exact validation `RUNS_DIR`, loads
+each candidate with `load_sidecar`, requires the exact profile, `attached`
+launch mode, and no exit-status artifact, and then calls
+`verify_sidecar_from_system`. A matching but unverifiable live sidecar or any
+result other than exactly one candidate fails closed.
 
 ```bash
-"$VENV/bin/vela" runs list --target local --json > "$EVIDENCE/runs-run1.json"
-export RUN1_ID="$("$VENV/bin/python" - <<'PY'
-import json, os
-rows = json.load(open(os.path.join(os.environ["EVIDENCE"], "runs-run1.json")))["runs"]
-matches = [row["run_id"] for row in rows if row.get("config") == os.environ["PROFILE"]]
+identify_attached_run() {
+  "$VENV/bin/python" - <<'PY'
+import os
+from pathlib import Path
+
+from vela.engine.sidecar import load_sidecar, verify_sidecar_from_system
+
+expected_runs_dir = Path(
+    "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs"
+)
+configured_runs_dir = Path(os.environ["RUNS_DIR"])
+if configured_runs_dir != expected_runs_dir:
+    raise SystemExit(
+        f"RUNS_DIR changed: expected {expected_runs_dir}, got {configured_runs_dir}"
+    )
+runs_dir = configured_runs_dir.resolve(strict=True)
+if not runs_dir.is_dir():
+    raise SystemExit(f"RUNS_DIR is not a directory: {runs_dir}")
+
+matches = []
+for path in sorted(runs_dir.glob("*.json")):
+    if path.name.endswith(".manifest.json"):
+        continue
+    try:
+        sidecar = load_sidecar(path)
+    except Exception as exc:
+        raise SystemExit(f"unreadable sidecar candidate in exact RUNS_DIR: {path}") from exc
+    if sidecar.config_name != os.environ["PROFILE"]:
+        continue
+    if sidecar.launch_mode != "attached":
+        continue
+    if path.name != f"{sidecar.run_id}.json":
+        raise SystemExit(f"sidecar filename/run-id mismatch: {path}")
+    if path.with_suffix(".exit-status").exists():
+        continue
+    try:
+        verify_sidecar_from_system(path)
+    except Exception as exc:
+        raise SystemExit(f"matching live sidecar failed identity verification: {path}") from exc
+    matches.append(sidecar.run_id)
+
 if len(matches) != 1:
-    raise SystemExit(f"expected one active profile run, got {matches}")
+    raise SystemExit(f"expected exactly one verified attached profile run, got {matches}")
 print(matches[0])
 PY
-)"
+}
+RUN1_ID="$(identify_attached_run)"
+export RUN1_ID
 printf '%s\n' "$RUN1_ID" > "$EVIDENCE/run1-id.txt"
 docker inspect "$VALIDATION_CONTAINER" > "$EVIDENCE/docker-run1.json"
 nvidia-smi > "$EVIDENCE/nvidia-smi-run1.txt"
@@ -388,8 +581,9 @@ asyncio.run(main())
 PY
 ```
 
-Close the app/server, cold-restart the owned daemon again, recompute the hash and
-preview, and require equality:
+After Run 1 Stop and artifact capture, navigate the browser to `about:blank`,
+set `UI_SESSION=run1`, and use the section-4 exact-identity stop. Cold-restart
+the owned daemon again, recompute the hash and preview, and require equality:
 
 ```bash
 "$VENV/bin/vela" agent stop --json > "$EVIDENCE/owned-daemon-stop-2.json"
@@ -402,12 +596,23 @@ cmp "$EVIDENCE/profile-saved.sha256" "$EVIDENCE/profile-run2.sha256"
 cmp "$EVIDENCE/preview-saved.txt" "$EVIDENCE/preview-run2.txt"
 ```
 
-Cold-start the app, reselect the same profile, launch again, and capture
-`09-run2-ready`. Set `RUN_LABEL=run2`, run the endpoint probe again, capture
-`RUN2_ID` using the same `runs list` procedure, then Stop in the UI and capture
-`10-run2-stopped`. Run `backend_evidence_check.py` and the artifact-capture block
-again with `RUN2_ID`, writing `backend-run2.txt`, `run2-id.txt`, and
-`artifact-run2.json`.
+Set `UI_SESSION=run2`, cold-start the app, reselect the same profile, launch
+again, and capture `09-run2-ready`. Set `RUN_LABEL=run2` and run the endpoint
+probe again. While READY, identify the second run with the already-defined
+fail-closed sidecar helper; assignment and export remain separate so a Python
+failure cannot be masked by the `export` builtin:
+
+```bash
+RUN2_ID="$(identify_attached_run)"
+export RUN2_ID
+printf '%s\n' "$RUN2_ID" > "$EVIDENCE/run2-id.txt"
+docker inspect "$VALIDATION_CONTAINER" > "$EVIDENCE/docker-run2.json"
+nvidia-smi > "$EVIDENCE/nvidia-smi-run2.txt"
+```
+
+Then Stop in the UI and capture `10-run2-stopped`. Run
+`backend_evidence_check.py` and the artifact-capture block again with `RUN2_ID`,
+writing `backend-run2.txt` and `artifact-run2.json`.
 
 Compare the immutable execution identity while deliberately excluding the
 per-run container id:
@@ -476,8 +681,10 @@ PY
 
 ## 7. Visible wrong-host failure before any container action
 
-After Run 2 is stopped and `18004` is free, derive an isolated negative profile.
-It keeps the owned container identity but requires a hostname that cannot match:
+After Run 2 is stopped and `18004` is free, navigate the browser to
+`about:blank`, set `UI_SESSION=run2`, and use the section-4 exact-identity stop.
+Then derive an isolated negative profile. It keeps the owned container identity
+but requires a hostname that cannot match:
 
 ```bash
 export WRONG_PROFILE=oxcart-wrong-host-proof
@@ -495,9 +702,10 @@ PY
 if docker inspect "$VALIDATION_CONTAINER" > /dev/null 2>&1; then exit 1; fi
 ```
 
-Cold-start only the app so it discovers the file. Select the wrong-host profile
-and press Launch. It must show a hostname preflight error while the app remains
-responsive; open and close Help to prove responsiveness. Capture
+Set `UI_SESSION=wrong-host` and cold-start only the app so it discovers the
+file. Select the wrong-host profile and press Launch. It must show a hostname
+preflight error while the app remains responsive; open and close Help to prove
+responsiveness. Capture
 `11-wrong-host-failed` and `12-after-failure-responsive`. Then prove no container
 or port was created:
 
@@ -518,12 +726,31 @@ rm "$VELA_CONFIGS/$WRONG_PROFILE.yaml"
 
 ## 8. Stop, reconcile, and copy evidence
 
-Close the browser and `textual-serve`, stop only the isolated daemon, and take
-the final inventory:
+Navigate the browser to `about:blank`, set `UI_SESSION=wrong-host`, and use the
+section-4 exact-identity stop. Then stop only the isolated daemon and take the
+final inventory. A stopped daemon intentionally makes `agent status` exit 1;
+capture that return code separately so `set -e` cannot abort expected cleanup,
+then require the recorded JSON to say `not-running`.
 
 ```bash
 "$VENV/bin/vela" agent stop --json | tee "$EVIDENCE/owned-daemon-stop-final.json"
-"$VENV/bin/vela" agent status --json > "$EVIDENCE/owned-daemon-after.json"
+DAEMON_STATUS_RC=0
+"$VENV/bin/vela" agent status --json \
+  > "$EVIDENCE/owned-daemon-after.json" || DAEMON_STATUS_RC=$?
+printf '%s\n' "$DAEMON_STATUS_RC" > "$EVIDENCE/owned-daemon-after.rc"
+test "$DAEMON_STATUS_RC" -eq 1
+"$VENV/bin/python" - <<'PY'
+import json, os
+from pathlib import Path
+
+status = json.loads(
+    (Path(os.environ["EVIDENCE"]) / "owned-daemon-after.json").read_text(
+        encoding="utf-8"
+    )
+)
+if status.get("status") != "not-running":
+    raise SystemExit(f"owned daemon did not stop cleanly: {status!r}")
+PY
 docker ps -a --no-trunc --format '{{json .}}' | sort \
   > "$EVIDENCE/containers-after.jsonl"
 nvidia-smi --query-gpu=index,uuid,name,memory.used,memory.total,utilization.gpu \
@@ -587,7 +814,13 @@ required = [
     "host/resolved-command-environment.json",
     "host/resolved-command-environment.sha256",
     "host/run-artifacts-index.json",
+    "host/owned-daemon-after.json", "host/owned-daemon-after.rc",
 ]
+for session in ("save", "run1", "run2", "wrong-host"):
+    required.extend([
+        f"host/textual-serve-{session}-identity.json",
+        f"host/textual-serve-{session}-stop.json",
+    ])
 missing = [name for name in required if not (root / name).is_file()]
 screens = sorted(str(path.relative_to(root)) for path in (root / "screenshots").iterdir()
                  if path.is_file())
@@ -626,9 +859,50 @@ find . -type f ! -name checksums.sha256 -print0 | sort -z \
 shasum -a 256 -c checksums.sha256
 ```
 
-After the checksums verify locally, remove only the run-owned remote resources:
+After the checksums verify locally, return to Oxcart and revalidate every
+recorded UI identity immediately before root deletion. This gate requires all
+four exact PID/cwd/cmdline records to match their stop proofs, confirms child
+absence, rejects any still-live recorded identity, rejects leftover PID files,
+and requires listener `8815` to be absent. Only then remove the run-owned remote
+resources:
 
 ```bash
+"$VENV/bin/python" - <<'PY'
+import json, os
+from pathlib import Path
+
+import psutil
+
+root = Path(os.environ["EVIDENCE"])
+worktree = os.environ["WORKTREE"]
+for session in ("save", "run1", "run2", "wrong-host"):
+    identity = json.loads(
+        (root / f"textual-serve-{session}-identity.json").read_text(encoding="utf-8")
+    )
+    stop = json.loads(
+        (root / f"textual-serve-{session}-stop.json").read_text(encoding="utf-8")
+    )
+    exact = {key: stop.get(key) for key in ("pid", "create_time", "cwd", "exe", "cmdline")}
+    if exact != identity or identity["cwd"] != worktree:
+        raise SystemExit(f"Textual identity/stop mismatch for {session}: {exact!r}")
+    if not stop.get("children_absent_before_stop"):
+        raise SystemExit(f"Textual child absence was not proved for {session}")
+    if not stop.get("server_identity_absent_after_stop"):
+        raise SystemExit(f"Textual server absence was not proved for {session}")
+    try:
+        process = psutil.Process(identity["pid"])
+        if abs(process.create_time() - identity["create_time"]) <= 0.001:
+            raise SystemExit(f"recorded Textual server is still alive for {session}")
+    except psutil.NoSuchProcess:
+        pass
+leftover_pids = sorted(root.glob("textual-serve-*.pid"))
+if leftover_pids:
+    raise SystemExit(f"Textual PID files remain: {leftover_pids}")
+PY
+if ss -H -ltn "sport = :$UI_PORT" | grep -q .; then
+  echo "refusing root deletion: UI port $UI_PORT is still listening" >&2
+  exit 1
+fi
 git -C /home/bgconley/repos/lab-tui worktree remove --force \
   "/tank/work/validation/vela-oxcart-pilot-$RUN_ID/source"
 rm -rf "/tank/work/validation/vela-oxcart-pilot-$RUN_ID"

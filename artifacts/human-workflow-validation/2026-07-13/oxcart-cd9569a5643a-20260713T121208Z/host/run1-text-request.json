@@ -1,0 +1,15 @@
+{
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "max_tokens": 32,
+  "messages": [
+    {
+      "content": "Reply with exactly VELA_TEXT_OK and nothing else.",
+      "role": "user"
+    }
+  ],
+  "model": "qwen36-27b-fp8-oxcart",
+  "seed": 7,
+  "temperature": 0
+}

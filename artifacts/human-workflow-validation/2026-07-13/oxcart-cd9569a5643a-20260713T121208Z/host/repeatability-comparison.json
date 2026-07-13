@@ -1,0 +1,307 @@
+{
+  "command_hash_equal": true,
+  "config_equal": true,
+  "endpoint_assertions": {
+    "run1": {
+      "health": {
+        "body": "",
+        "status_code": 200
+      },
+      "model_ids": [
+        "qwen36-27b-fp8-oxcart"
+      ],
+      "text_request": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 32,
+        "messages": [
+          {
+            "content": "Reply with exactly VELA_TEXT_OK and nothing else.",
+            "role": "user"
+          }
+        ],
+        "model": "qwen36-27b-fp8-oxcart",
+        "seed": 7,
+        "temperature": 0
+      },
+      "text_result": {
+        "content": "VELA_TEXT_OK",
+        "finish_reason": "stop",
+        "model": "qwen36-27b-fp8-oxcart"
+      },
+      "vision_request_without_data": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 32,
+        "model": "qwen36-27b-fp8-oxcart",
+        "png": {
+          "bytes": 123,
+          "data_url_prefix": "data:image/png;base64",
+          "format": "PNG",
+          "left_pixel": [
+            255,
+            0,
+            0
+          ],
+          "mode": "RGB",
+          "right_pixel": [
+            0,
+            255,
+            0
+          ],
+          "sha256": "21ab0d7b6f3967f4f2f6baccbdafdaeee667b97d8dfcc027b71b0fa6a9af8c57",
+          "size": [
+            64,
+            32
+          ]
+        },
+        "prompt": "Identify the two color halves using exactly LEFT=RED; RIGHT=GREEN.",
+        "seed": 7,
+        "temperature": 0
+      },
+      "vision_result": {
+        "content": "LEFT=RED; RIGHT=GREEN",
+        "finish_reason": "stop",
+        "model": "qwen36-27b-fp8-oxcart"
+      }
+    },
+    "run2": {
+      "health": {
+        "body": "",
+        "status_code": 200
+      },
+      "model_ids": [
+        "qwen36-27b-fp8-oxcart"
+      ],
+      "text_request": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 32,
+        "messages": [
+          {
+            "content": "Reply with exactly VELA_TEXT_OK and nothing else.",
+            "role": "user"
+          }
+        ],
+        "model": "qwen36-27b-fp8-oxcart",
+        "seed": 7,
+        "temperature": 0
+      },
+      "text_result": {
+        "content": "VELA_TEXT_OK",
+        "finish_reason": "stop",
+        "model": "qwen36-27b-fp8-oxcart"
+      },
+      "vision_request_without_data": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 32,
+        "model": "qwen36-27b-fp8-oxcart",
+        "png": {
+          "bytes": 123,
+          "data_url_prefix": "data:image/png;base64",
+          "format": "PNG",
+          "left_pixel": [
+            255,
+            0,
+            0
+          ],
+          "mode": "RGB",
+          "right_pixel": [
+            0,
+            255,
+            0
+          ],
+          "sha256": "21ab0d7b6f3967f4f2f6baccbdafdaeee667b97d8dfcc027b71b0fa6a9af8c57",
+          "size": [
+            64,
+            32
+          ]
+        },
+        "prompt": "Identify the two color halves using exactly LEFT=RED; RIGHT=GREEN.",
+        "seed": 7,
+        "temperature": 0
+      },
+      "vision_result": {
+        "content": "LEFT=RED; RIGHT=GREEN",
+        "finish_reason": "stop",
+        "model": "qwen36-27b-fp8-oxcart"
+      }
+    }
+  },
+  "endpoint_assertions_equal": true,
+  "equal": true,
+  "immutable_identity": {
+    "run1": {
+      "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_extra_run_args": [
+        "--label",
+        "ai.vela.managed=true",
+        "--label",
+        "ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl"
+      ],
+      "docker_image_digest": "sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "endpoint": {
+        "exposure": "local",
+        "host": "127.0.0.1",
+        "port": 18004
+      },
+      "environment_after_redaction": {
+        "docker_env": {
+          "HF_HOME": "/root/.cache/huggingface",
+          "HF_HUB_CACHE": "/root/.cache/huggingface/hub",
+          "HF_HUB_OFFLINE": "1",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "SAFETENSORS_FAST_GPU": "1",
+          "TORCHINDUCTOR_CACHE_DIR": "/root/.cache/torch",
+          "TRITON_CACHE_DIR": "/root/.cache/triton",
+          "VLLM_CACHE_ROOT": "/root/.cache/vllm"
+        },
+        "env": {},
+        "server_api_key": null
+      },
+      "flags": [
+        "--trust-remote-code",
+        "--attention-backend",
+        "FLASHINFER",
+        "--mm-encoder-attn-backend",
+        "FLASHINFER",
+        "--safetensors-load-strategy",
+        "prefetch",
+        "--max-num-batched-tokens",
+        "8192",
+        "--enable-prefix-caching",
+        "--reasoning-parser",
+        "qwen3",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "qwen3_coder",
+        "--limit-mm-per-prompt",
+        "{\"image\":16,\"video\":1}",
+        "--media-io-kwargs",
+        "{\"video\":{\"num_frames\":-1}}",
+        "--default-chat-template-kwargs",
+        "{\"enable_thinking\":true,\"preserve_thinking\":true}",
+        "--override-generation-config",
+        "{\"temperature\":1.0,\"top_p\":0.95,\"top_k\":20,\"min_p\":0.0}",
+        "--speculative-config",
+        "{\"method\":\"mtp\",\"num_speculative_tokens\":2}",
+        "--compilation-config",
+        "{\"cudagraph_capture_sizes\":[1,2,3,6,9,12],\"cudagraph_num_of_warmups\":1}",
+        "--cudagraph-metrics",
+        "--disable-uvicorn-access-log"
+      ],
+      "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "model_entry_id": "01KXDPJ7NNB825TG9R2WANB0MS",
+      "model_ref": "01KXDPJ7NNB825TG9R2WANB0MS",
+      "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+      "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "mounts": [
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vllm-cache:/root/.cache/vllm",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/triton-cache:/root/.cache/triton",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/torch-compile-cache:/root/.cache/torch",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/flashinfer-cache:/root/.cache/flashinfer",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/tmp:/tmp/qwen36-27b-fp8-mtp-vl"
+      ],
+      "runtime": "docker",
+      "served_model_names": [
+        "qwen36-27b-fp8-oxcart"
+      ]
+    },
+    "run2": {
+      "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+      "docker_extra_run_args": [
+        "--label",
+        "ai.vela.managed=true",
+        "--label",
+        "ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl"
+      ],
+      "docker_image_digest": "sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+      "endpoint": {
+        "exposure": "local",
+        "host": "127.0.0.1",
+        "port": 18004
+      },
+      "environment_after_redaction": {
+        "docker_env": {
+          "HF_HOME": "/root/.cache/huggingface",
+          "HF_HUB_CACHE": "/root/.cache/huggingface/hub",
+          "HF_HUB_OFFLINE": "1",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "SAFETENSORS_FAST_GPU": "1",
+          "TORCHINDUCTOR_CACHE_DIR": "/root/.cache/torch",
+          "TRITON_CACHE_DIR": "/root/.cache/triton",
+          "VLLM_CACHE_ROOT": "/root/.cache/vllm"
+        },
+        "env": {},
+        "server_api_key": null
+      },
+      "flags": [
+        "--trust-remote-code",
+        "--attention-backend",
+        "FLASHINFER",
+        "--mm-encoder-attn-backend",
+        "FLASHINFER",
+        "--safetensors-load-strategy",
+        "prefetch",
+        "--max-num-batched-tokens",
+        "8192",
+        "--enable-prefix-caching",
+        "--reasoning-parser",
+        "qwen3",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "qwen3_coder",
+        "--limit-mm-per-prompt",
+        "{\"image\":16,\"video\":1}",
+        "--media-io-kwargs",
+        "{\"video\":{\"num_frames\":-1}}",
+        "--default-chat-template-kwargs",
+        "{\"enable_thinking\":true,\"preserve_thinking\":true}",
+        "--override-generation-config",
+        "{\"temperature\":1.0,\"top_p\":0.95,\"top_k\":20,\"min_p\":0.0}",
+        "--speculative-config",
+        "{\"method\":\"mtp\",\"num_speculative_tokens\":2}",
+        "--compilation-config",
+        "{\"cudagraph_capture_sizes\":[1,2,3,6,9,12],\"cudagraph_num_of_warmups\":1}",
+        "--cudagraph-metrics",
+        "--disable-uvicorn-access-log"
+      ],
+      "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "model_entry_id": "01KXDPJ7NNB825TG9R2WANB0MS",
+      "model_ref": "01KXDPJ7NNB825TG9R2WANB0MS",
+      "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+      "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+      "mounts": [
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vllm-cache:/root/.cache/vllm",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/triton-cache:/root/.cache/triton",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/torch-compile-cache:/root/.cache/torch",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/flashinfer-cache:/root/.cache/flashinfer",
+        "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/tmp:/tmp/qwen36-27b-fp8-mtp-vl"
+      ],
+      "runtime": "docker",
+      "served_model_names": [
+        "qwen36-27b-fp8-oxcart"
+      ]
+    }
+  },
+  "immutable_identity_equal": true,
+  "ok": true,
+  "per_run_exclusions": {
+    "run1": {
+      "docker_container_id": "459cc9b97fc81a2ef6a7f06131a24e8c62f0112d7008d513735f2dd9d9149843",
+      "run_id": "7489df3a708842428332de3e984a012d"
+    },
+    "run2": {
+      "docker_container_id": "540c618d98ae186200dfed47db5665d24b18ff298aeb7071e0e3ff99e60f57e6",
+      "run_id": "7da79f87c9b74c26b8961360815ef63f"
+    }
+  },
+  "run_ids_distinct": true
+}

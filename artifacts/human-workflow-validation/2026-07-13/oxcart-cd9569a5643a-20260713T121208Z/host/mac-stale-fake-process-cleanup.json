@@ -1,0 +1,55 @@
+{
+  "child_absent_after": true,
+  "classification": "stale_fake_test_supervisor_with_missing_sidecar_root",
+  "expected_and_actual_identity_before": {
+    "child": {
+      "cmdline": [
+        "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+        "/Users/brennanconley/vibecode/lab-tui/scripts/fake_vllm_child.py",
+        "serve",
+        "fake/model",
+        "--served-model-name",
+        "model",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "60821"
+      ],
+      "create_time": 1783939883.960976,
+      "pgid": 49318,
+      "pid": 49318,
+      "ppid": 49315
+    },
+    "supervisor": {
+      "cmdline": [
+        "/Users/brennanconley/vibecode/lab-tui/.venv/bin/python",
+        "-m",
+        "vela.engine.supervisor",
+        "--payload",
+        "/var/folders/ly/5hgrbf0n3rz7hlqwlt1xn9mr0000gn/T/vela-test-state-_rjchkme/state/vela/runs/dff93de331834c6890d646db53998449.supervisor-payload.json"
+      ],
+      "create_time": 1783939883.829231,
+      "pgid": 49315,
+      "pid": 49315,
+      "ppid": 1
+    }
+  },
+  "listeners_after": [],
+  "listeners_before": [
+    {
+      "address": "127.0.0.1:60821",
+      "pid": 49318
+    }
+  ],
+  "port_60821_absent_after": true,
+  "real_daemon_touched": false,
+  "schema": "vela.owned-process-cleanup.v1",
+  "signals": [
+    {
+      "pgid": 49318,
+      "signal": "SIGTERM",
+      "target": "child_process_group"
+    }
+  ],
+  "supervisor_absent_after": true
+}

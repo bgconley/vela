@@ -1,0 +1,177 @@
+{
+  "backend": {
+    "FLASHINFER_MOE": {
+      "applicable": false,
+      "observed": false,
+      "reason": "not required by remediation plan or registered Oxcart backend rule"
+    },
+    "cli_stdout": "BACKEND_EVIDENCE_OK config=oxcart-qwen36-27b-fp8-mtp-vl run_id=7da79f87c9b74c26b8961360815ef63f",
+    "structured": {
+      "checked": true,
+      "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+      "forbidden": {
+        "marlin_fallback": false
+      },
+      "required": {
+        "cutlass_fp8": true,
+        "flashinfer_attention": true
+      }
+    }
+  },
+  "clean_shutdown": {
+    "application_shutdown_complete": true,
+    "engine_shutdown_complete": true,
+    "server_process_finished": true
+  },
+  "command_hash": "sha256:79c16f1c2aded2f748dadf14a5e12652c999a413d0a4a8da027ba26b3f713173",
+  "events": {
+    "count": 259,
+    "log_inodes": [
+      516
+    ]
+  },
+  "files": {
+    "7da79f87c9b74c26b8961360815ef63f.events.ndjson": {
+      "bytes": 50997,
+      "sha256": "f2bc39f361aa15fd203b9ce1147242ebda7998ab3ac8c69e08a615dc641bd176"
+    },
+    "7da79f87c9b74c26b8961360815ef63f.exit-status": {
+      "bytes": 108,
+      "sha256": "97720ea94f0a73047ed57a96fda21de59f1ad7b45592a21d524c17d684ebc7f6"
+    },
+    "7da79f87c9b74c26b8961360815ef63f.json": {
+      "bytes": 8478,
+      "sha256": "bfac511c625e76e5cfe1d7189fb1afabb1a650c4a44b5b7d9a9af40eb4d459e0"
+    },
+    "7da79f87c9b74c26b8961360815ef63f.manifest.json": {
+      "bytes": 199,
+      "sha256": "0b1c91c31b2a4a9c9bb3f4f679c39296792e2973c6230b3f317f09465d963325"
+    },
+    "7da79f87c9b74c26b8961360815ef63f.run.log": {
+      "bytes": 30279,
+      "sha256": "68907ac08958d06b6c6a51f5e177656c58f8c039096f5690f2173caac11045cf"
+    },
+    "artifact-run2.json": {
+      "bytes": 35571,
+      "sha256": "c6c457d60f3fed6dc699a1b49e20c6637e90d09c4d0800a31c1be240d2b4530e"
+    },
+    "backend-run2.txt": {
+      "bytes": 96,
+      "sha256": "71c4a0f34d263fbd21184d0a4efbe3944f54752ad2d538a7038c09de46053e93"
+    },
+    "post-stop-state-run2.json": {
+      "bytes": 297,
+      "sha256": "31859143dbb70aebec8aaf31edcb73e27ad6931c7aff656e2c6efc3f23163fb5"
+    },
+    "wait-run2.json": {
+      "bytes": 115,
+      "sha256": "d723ba5b7d26724dfaa27e343a540c4de33af4dda2602e54b230395cbc516b34"
+    }
+  },
+  "identity": {
+    "config_name": "oxcart-qwen36-27b-fp8-mtp-vl",
+    "docker_container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+    "docker_extra_run_args": [
+      "--label",
+      "ai.vela.managed=true",
+      "--label",
+      "ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl"
+    ],
+    "docker_image_digest": "sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046",
+    "endpoint": {
+      "exposure": "local",
+      "host": "127.0.0.1",
+      "port": 18004
+    },
+    "environment_after_redaction": {
+      "docker_env": {
+        "HF_HOME": "/root/.cache/huggingface",
+        "HF_HUB_CACHE": "/root/.cache/huggingface/hub",
+        "HF_HUB_OFFLINE": "1",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+        "SAFETENSORS_FAST_GPU": "1",
+        "TORCHINDUCTOR_CACHE_DIR": "/root/.cache/torch",
+        "TRITON_CACHE_DIR": "/root/.cache/triton",
+        "VLLM_CACHE_ROOT": "/root/.cache/vllm"
+      },
+      "env": {},
+      "server_api_key": null
+    },
+    "flags": [
+      "--trust-remote-code",
+      "--attention-backend",
+      "FLASHINFER",
+      "--mm-encoder-attn-backend",
+      "FLASHINFER",
+      "--safetensors-load-strategy",
+      "prefetch",
+      "--max-num-batched-tokens",
+      "8192",
+      "--enable-prefix-caching",
+      "--reasoning-parser",
+      "qwen3",
+      "--enable-auto-tool-choice",
+      "--tool-call-parser",
+      "qwen3_coder",
+      "--limit-mm-per-prompt",
+      "{\"image\":16,\"video\":1}",
+      "--media-io-kwargs",
+      "{\"video\":{\"num_frames\":-1}}",
+      "--default-chat-template-kwargs",
+      "{\"enable_thinking\":true,\"preserve_thinking\":true}",
+      "--override-generation-config",
+      "{\"temperature\":1.0,\"top_p\":0.95,\"top_k\":20,\"min_p\":0.0}",
+      "--speculative-config",
+      "{\"method\":\"mtp\",\"num_speculative_tokens\":2}",
+      "--compilation-config",
+      "{\"cudagraph_capture_sizes\":[1,2,3,6,9,12],\"cudagraph_num_of_warmups\":1}",
+      "--cudagraph-metrics",
+      "--disable-uvicorn-access-log"
+    ],
+    "model_commit_sha": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+    "model_entry_id": "01KXDPJ7NNB825TG9R2WANB0MS",
+    "model_ref": "01KXDPJ7NNB825TG9R2WANB0MS",
+    "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+    "model_revision": "e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+    "mounts": [
+      "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vllm-cache:/root/.cache/vllm",
+      "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/triton-cache:/root/.cache/triton",
+      "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/torch-compile-cache:/root/.cache/torch",
+      "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/flashinfer-cache:/root/.cache/flashinfer",
+      "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/tmp:/tmp/qwen36-27b-fp8-mtp-vl"
+    ],
+    "runtime": "docker",
+    "served_model_names": [
+      "qwen36-27b-fp8-oxcart"
+    ]
+  },
+  "label": "run2",
+  "manifest": {
+    "active_log": {
+      "inode": 516,
+      "path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.run.log",
+      "rotated_at": null
+    },
+    "path": "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs/7da79f87c9b74c26b8961360815ef63f.manifest.json",
+    "rotated": []
+  },
+  "ok": true,
+  "per_run_container_id": "540c618d98ae186200dfed47db5665d24b18ff298aeb7071e0e3ff99e60f57e6",
+  "post_stop": {
+    "checked_at": "2026-07-13T12:51:41.776462+00:00",
+    "container_absent": true,
+    "container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+    "gpu_csv": [
+      "2026/07/13 12:51:41.747, 0, GPU-aebb15f2-0592-40da-7d2e-77d70241825c, 2, 97887, 0"
+    ],
+    "port": 18004,
+    "port_listener_absent": true
+  },
+  "run_id": "7da79f87c9b74c26b8961360815ef63f",
+  "terminal": {
+    "intentional": true,
+    "phase": "STOPPED",
+    "returncode": 0,
+    "run_id": "7da79f87c9b74c26b8961360815ef63f"
+  }
+}
