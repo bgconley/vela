@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -38,6 +40,14 @@ def _load_backend_evidence_check():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _remote_python_probe(marker: str) -> str:
+    """Extract one executable Python heredoc from the remote shell runbook."""
+    script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
+    after_marker = script.split(marker, 1)[1]
+    heredoc = after_marker.split("<<'PY'\n", 1)[1]
+    return heredoc.split("\nPY\n", 1)[0]
 
 
 def test_remote_validation_uses_textual_smoke_for_real_config() -> None:
@@ -78,13 +88,22 @@ def test_backend_evidence_reads_stopped_smoke_run_artifact() -> None:
     assert 'client.call("reattach"' not in script
 
 
-def test_remote_validation_pulls_committed_git_state_before_tests() -> None:
+def test_remote_validation_checks_out_exact_expected_revision_before_tests() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
-    pull_command = 'git -C "$remote_path" pull --ff-only origin "$remote_branch"'
-    install_command = '"$venv_python" -m pip install -e ".[dev]"'
-    assert pull_command in script
-    assert script.index(pull_command) < script.index(install_command)
+    checkout_command = 'git -C "$remote_source_path" worktree add --detach'
+    compare_command = 'if [[ "$remote_head" != "$remote_expected_sha" ]]; then'
+    install_command = '"$venv_python" -m pip install ".[dev]"'
+    assert 'remote_expected_sha="${VELA_REMOTE_EXPECTED_SHA:-}"' in script
+    assert checkout_command in script
+    assert compare_command in script
+    assert "remote revision mismatch" in script
+    assert "exit 36" in script
+    assert 'source=owned-worktree' in script
+    assert 'git status --porcelain --untracked-files=all' in script
+    assert 'pip install -e ".[dev]"' not in script
+    assert script.index(checkout_command) < script.index(compare_command)
+    assert script.index(compare_command) < script.index(install_command)
 
 
 def test_remote_validation_workflow_uses_remote_safe_pytest_slice() -> None:
@@ -129,14 +148,23 @@ def test_remote_validation_workflow_uploads_only_fresh_artifact() -> None:
     assert "path: artifacts/remote-validation/*.md" not in workflow
 
 
-def test_remote_validation_restarts_daemon_after_install() -> None:
+def test_remote_validation_uses_isolated_daemon_after_install() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
 
-    install_command = '"$venv_python" -m pip install -e ".[dev]"'
+    install_command = '"$venv_python" -m pip install ".[dev]"'
+    isolate_command = 'export VELA_AGENT_RUNTIME_DIR="$remote_agent_runtime_dir"'
     restart_command = '"$venv_bin/vela" agent restart'
     list_command = '"$venv_bin/vela" list'
+    isolated_runtime = (
+        'remote_agent_runtime_dir="${VELA_REMOTE_AGENT_RUNTIME_DIR:-'
+        '$remote_venv/agent-runtime}"'
+    )
+    assert isolated_runtime in script
+    assert 'trap cleanup_remote_validation EXIT' in script
+    assert '--socket "$remote_agent_runtime_dir/agent.sock"' in script
     assert restart_command in script
-    assert script.index(install_command) < script.index(restart_command)
+    assert script.index(install_command) < script.index(isolate_command)
+    assert script.index(isolate_command) < script.index(restart_command)
     assert script.index(restart_command) < script.index(list_command)
 
 
@@ -170,12 +198,155 @@ def test_remote_validation_exercises_disconnect_reconnect_resume() -> None:
     assert "DISCONNECT_RECONNECT_RESUME_OK" in script
 
 
+def test_daemon_restart_probe_cleans_owned_run_after_post_launch_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed always-run probe must not strand its detached fake child."""
+    from vela.transport import subprocess as transport_subprocess
+
+    owned: dict[str, str] = {}
+    clients: list[ProbeClient] = []
+
+    class ProbeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            clients.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params: dict[str, object]):
+            self.calls.append((method, params))
+            if method == "launch":
+                owned["run_id"] = str(params["run_id"])
+                return {"run_id": owned["run_id"]}
+            if method == "health" and self is clients[0]:
+                raise RuntimeError("injected daemon probe failure")
+            if method == "discover_runs":
+                return {"runs": [{"run_id": owned["run_id"]}]}
+            if method == "wait":
+                return {"returncode": 0}
+            return {}
+
+    monkeypatch.setattr(transport_subprocess, "SubprocessTargetClient", ProbeClient)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["daemon-restart-probe", str(tmp_path), str(tmp_path / "venv-bin")],
+    )
+
+    source = _remote_python_probe('echo "== Daemon restart live-run survival =="')
+    with pytest.raises(RuntimeError, match="injected daemon probe failure"):
+        exec(compile(source, "<daemon-restart-probe>", "exec"), {"__name__": "probe"})
+
+    assert len(clients) == 2
+    cleanup_calls = clients[1].calls
+    assert [method for method, _params in cleanup_calls] == [
+        "discover_runs",
+        "reattach",
+        "stop",
+        "wait",
+    ]
+    discover_params = cleanup_calls[0][1]
+    assert len(discover_params["runs_dirs"]) == 1
+    assert str(discover_params["runs_dirs"][0]).endswith("/runs")
+    assert cleanup_calls[1][1] == {"run_id": owned["run_id"]}
+    assert cleanup_calls[2][1]["run_id"] == owned["run_id"]
+    assert cleanup_calls[3][1] == {"run_id": owned["run_id"]}
+    assert not list(tmp_path.glob("vela-daemon-restart-*"))
+
+
+def test_disconnect_reconnect_probe_cleans_owned_run_after_first_stream_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cleanup must cover the early stream window before the normal stop finally."""
+    from vela.transport import subprocess as transport_subprocess
+
+    owned: dict[str, str] = {}
+    clients: list[ProbeClient] = []
+
+    class FailingEvents:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("injected reconnect probe failure")
+
+        async def aclose(self) -> None:
+            return None
+
+    class ProbeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.connected = False
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            clients.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params: dict[str, object]):
+            self.calls.append((method, params))
+            if method == "launch":
+                owned["run_id"] = str(params["run_id"])
+                return {"run_id": owned["run_id"]}
+            if method == "tail_detached":
+                return {}
+            if method == "discover_runs":
+                return {"runs": [{"run_id": owned["run_id"]}]}
+            if method == "wait":
+                return {"returncode": 0}
+            return {}
+
+        def subscribe(self, *_args, **_kwargs):
+            return FailingEvents()
+
+    monkeypatch.setattr(transport_subprocess, "SubprocessTargetClient", ProbeClient)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["disconnect-reconnect-probe", str(tmp_path), str(tmp_path / "venv-bin")],
+    )
+
+    source = _remote_python_probe('echo "== Disconnect/reconnect stream resume =="')
+    with pytest.raises(RuntimeError, match="injected reconnect probe failure"):
+        exec(
+            compile(source, "<disconnect-reconnect-probe>", "exec"),
+            {"__name__": "probe"},
+        )
+
+    assert len(clients) == 2
+    cleanup_calls = clients[1].calls
+    assert [method for method, _params in cleanup_calls] == [
+        "discover_runs",
+        "reattach",
+        "stop",
+        "wait",
+    ]
+    discover_params = cleanup_calls[0][1]
+    assert len(discover_params["runs_dirs"]) == 1
+    assert str(discover_params["runs_dirs"][0]).endswith("/runs")
+    assert cleanup_calls[1][1] == {"run_id": owned["run_id"]}
+    assert cleanup_calls[2][1]["run_id"] == owned["run_id"]
+    assert cleanup_calls[3][1] == {"run_id": owned["run_id"]}
+    assert not list(tmp_path.glob("vela-disconnect-reconnect-*"))
+
+
 def test_gpu_workflow_docs_record_tested_vllm_range_and_textual_serve() -> None:
     docs = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 
     assert "commit locally" in docs
-    assert "git push origin main" in docs
-    assert "git pull --ff-only origin main" in docs
+    assert 'git push origin "$branch"' in docs
+    assert 'export VELA_REMOTE_EXPECTED_SHA="$(git rev-parse HEAD)"' in docs
+    assert "checks it out detached" in docs
     assert "rsync_to_gpu.sh" not in docs
     assert "qwen36-27b-fp8-kvfp8-rp6000-blackbird" in docs
     assert "10.25.0.51" in docs
@@ -304,7 +475,7 @@ def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Pat
     assert 'remote_timeout="$2"' in remote_script
     assert 'remote_python="${3:-auto}"' in remote_script
     assert 'remote_venv="${4:-/tank/venvs/vela}"' in remote_script
-    assert '"$venv_python" -m pip install -e ".[dev]"' in remote_script
+    assert '"$venv_python" -m pip install ".[dev]"' in remote_script
     assert 'export PATH="$venv_bin:$PATH"' in remote_script
     assert (
         'timeout "$remote_timeout" "$venv_bin/vela" smoke-tui "$real_config"'
@@ -421,7 +592,7 @@ def test_remote_validation_can_run_real_model_resume_check(tmp_path: Path) -> No
         "VELA_REMOTE_REAL_RESUME_CONFIG=qwen-real",
         "bash",
     ]
-    assert "== Real model resume/daemon restart ==" in remote_script
+    assert "== Real model resume/recovery ==" in remote_script
     assert '"$venv_python" scripts/real_model_resume_check.py' in remote_script
     assert '"$remote_real_resume_config"' in remote_script
     assert 'resume_config_file="configs/${remote_real_resume_config}.yaml"' in remote_script
@@ -481,7 +652,7 @@ def test_remote_validation_checks_backend_evidence_after_real_resume_restart(
         '"$remote_real_resume_config" "$resume_run_id"'
     )
     assert "resume_run_id=" in remote_script
-    assert "REAL_MODEL_DAEMON_RESTART_OK" in remote_script
+    assert "REAL_MODEL_RECOVERY_OK" in remote_script
     assert resume in remote_script
     assert backend in remote_script
     assert remote_script.index(resume) < remote_script.index(backend)
@@ -546,7 +717,7 @@ def test_remote_validation_runs_real_config_before_real_resume() -> None:
     )
     real_resume_block = (
         'if [[ -n "$remote_real_resume_config" ]]; then\n'
-        '  echo "== Real model resume/daemon restart =="'
+        '  echo "== Real model resume/recovery =="'
     )
     assert script.index(real_config_block) < script.index(real_resume_block)
 
@@ -1025,7 +1196,7 @@ def test_real_model_resume_check_fails_fast_on_health_errors() -> None:
     assert 'last.get("phase") in {"ERROR", "STOPPED"}' in script
 
 
-def test_real_model_resume_check_validates_ssh_opts_before_agent_restart(
+def test_real_model_resume_check_reconnects_without_restarting_ssh_target_daemon(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _load_real_model_resume_check()
@@ -1045,8 +1216,187 @@ def test_real_model_resume_check_validates_ssh_opts_before_agent_restart(
         ssh_opts_env="VELA_SSH_OPTS",
     )
 
-    with pytest.raises(ValueError, match="command-bearing SSH option"):
-        module._restart_target_agent(target)
+    assert module._restart_target_agent(target) == "ssh-reconnect"
+
+
+@pytest.mark.asyncio
+async def test_real_model_resume_check_cleans_up_its_run_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_real_model_resume_check()
+    cleanup_calls: list[tuple[str, str, tuple[str, ...], bool]] = []
+
+    async def fail_validation(*_args, cleanup_context, **_kwargs) -> None:
+        cleanup_context.runs_dirs = ["/custom/real-model-runs"]
+        cleanup_context.launch_attempted = True
+        raise RuntimeError("cursor replay failed")
+
+    async def cleanup(
+        target_name: str,
+        run_id: str,
+        *,
+        runs_dirs: list[str],
+        launch_attempted: bool,
+    ) -> str:
+        cleanup_calls.append(
+            (target_name, run_id, tuple(runs_dirs), launch_attempted)
+        )
+        return "stopped:returncode=0"
+
+    monkeypatch.setattr(module, "_run_validation", fail_validation)
+    monkeypatch.setattr(module, "_cleanup_failed_run", cleanup)
+
+    with pytest.raises(RuntimeError, match="cursor replay failed"):
+        await module._run(
+            "real-config",
+            target_name="blackbird",
+            timeout=30.0,
+            build=None,
+            model_ref=None,
+            revision=None,
+        )
+
+    assert len(cleanup_calls) == 1
+    assert cleanup_calls[0][0] == "blackbird"
+    assert cleanup_calls[0][1].startswith("real-resume-")
+    assert cleanup_calls[0][2] == ("/custom/real-model-runs",)
+    assert cleanup_calls[0][3] is True
+
+
+@pytest.mark.asyncio
+async def test_real_model_resume_cleanup_rediscovers_and_stops_only_owned_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_real_model_resume_check()
+
+    class CleanupClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params: dict[str, object]):
+            self.calls.append((method, params))
+            if method == "discover_runs":
+                return {"runs": [{"run_id": "owned-run"}]}
+            if method == "wait":
+                return {"returncode": 0}
+            return {}
+
+    client = CleanupClient()
+    target = TargetConfig(name="blackbird", transport=TransportKind.SSH, host="gpu")
+    monkeypatch.setattr(module, "_new_client", lambda _name: (target, client))
+
+    result = await module._cleanup_failed_run(
+        "blackbird",
+        "owned-run",
+        runs_dirs=["/custom/real-model-runs"],
+        launch_attempted=True,
+    )
+
+    assert result == "stopped:returncode=0"
+    assert [method for method, _params in client.calls] == [
+        "discover_runs",
+        "reattach",
+        "stop",
+        "wait",
+    ]
+    assert client.calls[0][1] == {"runs_dirs": ["/custom/real-model-runs"]}
+    stop_params = dict(client.calls[2][1])
+    assert stop_params == {
+        "run_id": "owned-run",
+        "interrupt_timeout": 2,
+        "terminate_timeout": 2,
+    }
+    assert client.connected is False
+
+
+@pytest.mark.asyncio
+async def test_real_model_resume_cleanup_not_found_after_launch_is_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_real_model_resume_check()
+
+    async def fail_validation(*_args, cleanup_context, **_kwargs) -> None:
+        cleanup_context.runs_dirs = ["/custom/real-model-runs"]
+        cleanup_context.launch_attempted = True
+        raise RuntimeError("launch response was lost")
+
+    async def cleanup(
+        _target_name: str,
+        _run_id: str,
+        *,
+        runs_dirs: list[str],
+        launch_attempted: bool,
+    ) -> str:
+        assert runs_dirs == ["/custom/real-model-runs"]
+        assert launch_attempted is True
+        return "not-found-after-launch"
+
+    monkeypatch.setattr(module, "_run_validation", fail_validation)
+    monkeypatch.setattr(module, "_cleanup_failed_run", cleanup)
+
+    with pytest.raises(RuntimeError, match="launch response was lost"):
+        await module._run(
+            "real-config",
+            target_name="blackbird",
+            timeout=30.0,
+            build=None,
+            model_ref=None,
+            revision=None,
+        )
+
+    stderr = capsys.readouterr().err
+    assert "REAL_MODEL_CLEANUP_WARNING" in stderr
+    assert "result=not-found-after-launch" in stderr
+    assert "REAL_MODEL_CLEANUP_OK" not in stderr
+
+
+@pytest.mark.asyncio
+async def test_real_model_resume_cleanup_does_not_claim_missing_launched_run_clean(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_real_model_resume_check()
+
+    class MissingRunClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params: dict[str, object]):
+            self.calls.append((method, params))
+            return {"runs": []}
+
+    client = MissingRunClient()
+    target = TargetConfig(name="blackbird", transport=TransportKind.SSH, host="gpu")
+    monkeypatch.setattr(module, "_new_client", lambda _name: (target, client))
+
+    result = await module._cleanup_failed_run(
+        "blackbird",
+        "missing-owned-run",
+        runs_dirs=["/custom/real-model-runs"],
+        launch_attempted=True,
+    )
+
+    assert result == "not-found-after-launch"
+    assert client.calls == [
+        ("discover_runs", {"runs_dirs": ["/custom/real-model-runs"]})
+    ]
+    assert client.connected is False
 
 
 def test_gated_model_auth_check_uses_isolated_agent_and_disables_implicit_token() -> None:
@@ -1346,6 +1696,12 @@ def test_manual_remote_validation_workflow_executes_script_and_uploads_artifact(
     assert "VELA_SSH_OPTS=-A -i $key_path" in text
     assert "scripts/run_remote_tests.sh" in text
     assert "VELA_REMOTE_ARTIFACT_DIR" in text
+    assert "VELA_REMOTE_BRANCH: ${{ github.ref_name }}" in text
+    assert "VELA_REMOTE_EXPECTED_SHA: ${{ github.sha }}" in text
+    assert (
+        "secrets.VELA_REMOTE_SSH_KEY || "
+        "secrets.VLLM_LOADER_REMOTE_SSH_KEY" in text
+    )
     assert "actions/upload-artifact" in text
     assert "remote-validation-artifacts" in text
 
@@ -1453,11 +1809,180 @@ def test_rsync_to_gpu_accepts_ssh_options_for_gpu_keys(tmp_path: Path) -> None:
     assert args[rsh_index + 1] == "ssh -i /tmp/gpu-key -o BatchMode=yes"
 
 
-def test_remote_validation_supports_branch_override() -> None:
-    # VELA_REMOTE_BRANCH reaches the remote script (default main stays
-    # byte-identical: no env injection when unset).
+def test_remote_validation_supports_exact_branch_revision_override() -> None:
     script = Path("scripts/run_remote_tests.sh").read_text(encoding="utf-8")
     assert 'remote_branch="${VELA_REMOTE_BRANCH:-main}"' in script
-    assert 'git -C "$remote_path" fetch origin "$remote_branch"' in script
-    assert 'git -C "$remote_path" checkout "$remote_branch"' in script
-    assert 'if [[ "$remote_branch_local" != "main" ]]; then' in script
+    assert 'remote_expected_sha="${VELA_REMOTE_EXPECTED_SHA:-}"' in script
+    assert 'VELA_REMOTE_BRANCH=$remote_branch_local' in script
+    assert 'VELA_REMOTE_EXPECTED_SHA=$remote_expected_sha_local' in script
+    assert (
+        '"refs/heads/$remote_branch:refs/remotes/origin/$remote_branch"'
+        in script
+    )
+    assert 'git -C "$remote_source_path" worktree add --detach' in script
+    assert 'remote_head="$(git rev-parse HEAD)"' in script
+    assert 'REMOTE_REVISION_OK expected=$remote_expected_sha actual=$remote_head' in script
+
+
+def test_remote_validation_fails_closed_on_remote_revision_mismatch(
+    tmp_path: Path,
+) -> None:
+    origin = tmp_path / "origin.git"
+    source = tmp_path / "source"
+    remote = tmp_path / "remote"
+    subprocess.run(["git", "init", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "init", "-b", "main", str(source)], check=True)
+    (source / "README").write_text("revision proof\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "README"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(source),
+            "-c",
+            "user.name=Vela Test",
+            "-c",
+            "user.email=vela@example.invalid",
+            "commit",
+            "-m",
+            "seed",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source), "remote", "add", "origin", str(origin)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source), "push", "-u", "origin", "main"],
+        check=True,
+    )
+    subprocess.run(["git", "clone", "-b", "main", str(origin), str(remote)], check=True)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ssh = bin_dir / "ssh"
+    ssh.write_text(
+        "#!/usr/bin/env bash\nshift\nexec \"$@\"\n",
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        VELA_REMOTE_EXPECTED_SHA="0" * 40,
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "fake-host", str(remote)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 36
+    assert "remote revision mismatch" in result.stderr
+
+
+def test_remote_validation_installs_exact_sha_from_clean_owned_worktree(
+    tmp_path: Path,
+) -> None:
+    origin = tmp_path / "origin.git"
+    source = tmp_path / "source"
+    remote = tmp_path / "remote"
+    subprocess.run(["git", "init", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "init", "-b", "main", str(source)], check=True)
+    (source / "README").write_text("certified revision\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "README"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(source),
+            "-c",
+            "user.name=Vela Test",
+            "-c",
+            "user.email=vela@example.invalid",
+            "commit",
+            "-m",
+            "seed",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source), "remote", "add", "origin", str(origin)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source), "push", "-u", "origin", "main"],
+        check=True,
+    )
+    subprocess.run(["git", "clone", "-b", "main", str(origin), str(remote)], check=True)
+    expected_sha = subprocess.check_output(
+        ["git", "-C", str(remote), "rev-parse", "HEAD"], text=True
+    ).strip()
+
+    # A tracked edit and untracked source poison the reusable controller checkout.
+    # The validation must neither execute them nor destroy them.
+    (remote / "README").write_text("dirty controller checkout\n", encoding="utf-8")
+    (remote / "POISON").write_text("must not enter validation\n", encoding="utf-8")
+
+    fake_venv = tmp_path / "venv"
+    fake_bin = fake_venv / "bin"
+    fake_bin.mkdir(parents=True)
+    checkout_capture = tmp_path / "checkout-path"
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "--version" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "install" ]]; then
+  printf '%s\n' "$PWD" > "$CHECKOUT_CAPTURE"
+  [[ ! -e POISON ]] || exit 91
+  [[ "$(cat README)" == "certified revision" ]] || exit 92
+  exit 73
+fi
+exit 70
+""",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ssh = bin_dir / "ssh"
+    ssh.write_text("#!/usr/bin/env bash\nshift\nexec \"$@\"\n", encoding="utf-8")
+    ssh.chmod(0o755)
+    env = _script_test_env(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        CHECKOUT_CAPTURE=str(checkout_capture),
+        VELA_REMOTE_EXPECTED_SHA=expected_sha,
+        VELA_REMOTE_VENV=str(fake_venv),
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_remote_tests.sh", "fake-host", str(remote)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 73, result.stdout + result.stderr
+    validation_checkout = Path(checkout_capture.read_text(encoding="utf-8").strip())
+    assert validation_checkout != remote
+    assert not validation_checkout.exists(), "owned worktree must be removed on failure"
+    assert (remote / "README").read_text(encoding="utf-8") == "dirty controller checkout\n"
+    assert (remote / "POISON").is_file()
+
+
+def test_fast_remote_validation_profile_clears_real_resume_inputs() -> None:
+    workflow = Path(".github/workflows/remote-validation.yml").read_text(
+        encoding="utf-8"
+    )
+
+    fast = 'if [[ "$VALIDATION_PROFILE" == "fast" ]]; then'
+    clear_resume = "unset VELA_REMOTE_REAL_RESUME_CONFIG"
+    invoke = 'bash scripts/run_remote_tests.sh "${args[@]}"'
+    assert workflow.index(fast) < workflow.index(clear_resume) < workflow.index(invoke)

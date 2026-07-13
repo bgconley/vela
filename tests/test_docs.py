@@ -239,7 +239,8 @@ def test_v15_docs_cover_native_docker_and_composer_surfaces() -> None:
     assert "2026-06-06-p620-blackbird-native-docker-fp8" in gpu_workflow
     assert "2026-06-06-p620-blackbird-native-docker-bf16" in gpu_workflow
     assert "VELA_SMOKE_RUN_ID" in gpu_workflow
-    assert "REAL_MODEL_DAEMON_RESTART_OK" in gpu_workflow
+    assert "REAL_MODEL_RECOVERY_OK" in gpu_workflow
+    assert "mode=ssh-reconnect" in gpu_workflow
     assert "run_id=<run_id>" in gpu_workflow
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import shlex
 import subprocess
 import sys
 import uuid
@@ -12,17 +11,18 @@ from typing import Any
 
 from vela.config.targets import TargetConfig, TransportKind, load_targets_file
 from vela.transport.client import TargetClient
-from vela.transport.factory import (
-    DEFAULT_SSH_CONTROL_OPTIONS,
-    _ssh_option_present,
-    _ssh_options_from_env,
-    target_client_for_config,
-)
+from vela.transport.factory import target_client_for_config
+
+
+class _CleanupContext:
+    def __init__(self) -> None:
+        self.runs_dirs: list[str] = []
+        self.launch_attempted = False
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run real-model disconnect/resume and daemon-restart validation."
+        description="Run real-model disconnect, resume, and recovery validation."
     )
     parser.add_argument("config_name")
     parser.add_argument("--target", default="local")
@@ -148,45 +148,24 @@ async def _close_events(events) -> None:
         await events.aclose()
 
 
-def _restart_target_agent(target: TargetConfig) -> None:
+def _restart_target_agent(target: TargetConfig) -> str:
     if target.transport is TransportKind.SSH:
-        if target.host is None:
-            raise RuntimeError(f"ssh target {target.name!r} has no host")
-        ssh_cmd = [
-            "ssh",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ServerAliveInterval=15",
-            "-o",
-            "ServerAliveCountMax=3",
-        ]
-        ssh_opts = _ssh_options_from_env(target)
-        ssh_cmd.extend(ssh_opts)
-        for key, value in DEFAULT_SSH_CONTROL_OPTIONS.items():
-            if not _ssh_option_present(ssh_opts, key):
-                ssh_cmd.extend(["-o", f"{key}={value}"])
-        remote_command = "vela agent restart"
-        if target.venv is not None:
-            remote_command = (
-                f"PATH={shlex.quote(str(target.venv / 'bin'))}:$PATH "
-                f"{remote_command}"
-            )
-        if target.workdir is not None:
-            remote_command = (
-                f"cd {shlex.quote(str(target.workdir))} && {remote_command}"
-            )
-        subprocess.run([*ssh_cmd, target.host, remote_command], check=True)
-        return
+        # An SSH target creates one `vela agent connect` process per client.
+        # Recreating the client below is the recovery boundary. Restarting a
+        # host-level daemon here would disrupt unrelated runs on a shared GPU.
+        return "ssh-reconnect"
     subprocess.run(
         [sys.executable, "-m", "vela.cli", "agent", "restart"],
         check=True,
     )
+    return "local-daemon-restart"
 
 
-async def _run(
+async def _run_validation(
     config_name: str,
     *,
+    run_id: str,
+    cleanup_context: _CleanupContext,
     target_name: str,
     timeout: float,
     build: str | None,
@@ -195,7 +174,6 @@ async def _run(
     configs_dir: str | None = None,
 ) -> None:
     target, client = _new_client(target_name)
-    run_id = f"real-resume-{uuid.uuid4().hex}"
     base_params = _launch_params(
         config_name,
         build=build,
@@ -210,6 +188,10 @@ async def _run(
         prepared = await client.call("prepare_launch", base_params)
         _reject_fake_config(prepared)
         runs_dirs = _runs_dirs_from_prepared(prepared)
+        cleanup_context.runs_dirs = list(runs_dirs)
+        # Set this before awaiting the launch response: the target may own the
+        # run even if the response is lost or the controller is cancelled.
+        cleanup_context.launch_attempted = True
         await client.call("launch", {**base_params, "run_id": run_id})
         events = client.subscribe([run_id], resume_from="start")
         tail_task = asyncio.create_task(
@@ -266,7 +248,7 @@ async def _run(
         f"url={health.get('reachable_url')}"
     )
 
-    _restart_target_agent(target)
+    recovery_mode = _restart_target_agent(target)
 
     _, client = _new_client(target_name)
     await client.connect()
@@ -280,7 +262,7 @@ async def _run(
         }
         if run_id not in discovered_ids:
             raise RuntimeError(
-                f"run {run_id} not rediscovered after daemon restart: {discovered}"
+                f"run {run_id} not rediscovered after {recovery_mode}: {discovered}"
             )
         await client.call("reattach", {"run_id": run_id})
         health_after_restart = await _wait_ready(client, run_id, timeout=120.0)
@@ -299,10 +281,100 @@ async def _run(
                 await client.disconnect()
 
     print(
-        "REAL_MODEL_DAEMON_RESTART_OK "
-        f"run_id={run_id} url={health_after_restart.get('reachable_url')} "
+        "REAL_MODEL_RECOVERY_OK "
+        f"mode={recovery_mode} run_id={run_id} "
+        f"url={health_after_restart.get('reachable_url')} "
         f"returncode={waited.get('returncode')}"
     )
+
+
+async def _cleanup_failed_run(
+    target_name: str,
+    run_id: str,
+    *,
+    runs_dirs: list[str],
+    launch_attempted: bool,
+) -> str:
+    """Best-effort, identity-safe cleanup for a run owned by this probe."""
+    if not launch_attempted:
+        return "not-launched"
+    client: TargetClient | None = None
+    try:
+        _, client = _new_client(target_name)
+        await client.connect()
+        discover_params = {"runs_dirs": list(runs_dirs)} if runs_dirs else {}
+        discovered = await client.call("discover_runs", discover_params)
+        discovered_ids = {
+            str(run.get("run_id"))
+            for run in discovered.get("runs", [])
+            if isinstance(run, dict)
+        }
+        if run_id not in discovered_ids:
+            # Absence is not proof of cleanup once launch was attempted: a
+            # custom runs_dir may be temporarily unavailable or discovery may
+            # lag a target that accepted the launch.
+            return "not-found-after-launch"
+        await client.call("reattach", {"run_id": run_id})
+        await client.call(
+            "stop",
+            {
+                "run_id": run_id,
+                "interrupt_timeout": 2,
+                "terminate_timeout": 2,
+            },
+        )
+        waited = await client.call("wait", {"run_id": run_id})
+        return f"stopped:returncode={waited.get('returncode')}"
+    except Exception as exc:
+        return f"cleanup-failed:{type(exc).__name__}"
+    finally:
+        if client is not None and client.connected:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+
+
+async def _run(
+    config_name: str,
+    *,
+    target_name: str,
+    timeout: float,
+    build: str | None,
+    model_ref: str | None,
+    revision: str | None,
+    configs_dir: str | None = None,
+) -> None:
+    run_id = f"real-resume-{uuid.uuid4().hex}"
+    cleanup_context = _CleanupContext()
+    completed = False
+    try:
+        await _run_validation(
+            config_name,
+            run_id=run_id,
+            cleanup_context=cleanup_context,
+            target_name=target_name,
+            timeout=timeout,
+            build=build,
+            model_ref=model_ref,
+            revision=revision,
+            configs_dir=configs_dir,
+        )
+        completed = True
+    finally:
+        if not completed:
+            result = await asyncio.shield(
+                _cleanup_failed_run(
+                    target_name,
+                    run_id,
+                    runs_dirs=cleanup_context.runs_dirs,
+                    launch_attempted=cleanup_context.launch_attempted,
+                )
+            )
+            marker = (
+                "REAL_MODEL_CLEANUP_OK"
+                if result == "not-launched" or result.startswith("stopped:")
+                else "REAL_MODEL_CLEANUP_WARNING"
+            )
+            print(f"{marker} run_id={run_id} result={result}", file=sys.stderr)
 
 
 def main() -> int:

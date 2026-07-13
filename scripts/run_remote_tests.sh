@@ -9,7 +9,7 @@ Usage:
 Runs the GPU-box validation flow after local commit/push; the GPU node pulls from git.
 
 The default flow is safe on machines without vLLM/GPU access:
-  - install editable dev package
+  - install the dev package from a clean owned worktree
   - run the no-GPU pytest suite
   - run CLI preview/list checks
   - print host GPU/vLLM profile diagnostics
@@ -35,6 +35,9 @@ Optional real artifact validation is enabled by local environment variables:
   - VELA_REMOTE_ARTIFACT=1 writes a dated Markdown validation record
   - VELA_REMOTE_ARTIFACT_DIR overrides artifacts/remote-validation
   - VELA_REMOTE_ARTIFACT_NAME writes a deterministic artifact filename
+  - VELA_REMOTE_BRANCH selects the published branch to fetch (default: main)
+  - VELA_REMOTE_EXPECTED_SHA pins and verifies the exact remote revision
+  - VELA_REMOTE_AGENT_RUNTIME_DIR overrides the isolated validation daemon dir
 
 Example:
   scripts/run_remote_tests.sh blackbird /srv/vela
@@ -66,6 +69,7 @@ remote_real_resume_config="${VELA_REMOTE_REAL_RESUME_CONFIG:-}"
 remote_gated_model_repo="${VELA_REMOTE_GATED_MODEL_REPO:-}"
 remote_gated_model_id="${VELA_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
 remote_gated_model_revision="${VELA_REMOTE_GATED_MODEL_REVISION:-}"
+remote_agent_runtime_dir_local="${VELA_REMOTE_AGENT_RUNTIME_DIR:-}"
 artifact_enabled="${VELA_REMOTE_ARTIFACT:-}"
 artifact_dir="${VELA_REMOTE_ARTIFACT_DIR:-}"
 artifact_name="${VELA_REMOTE_ARTIFACT_NAME:-}"
@@ -87,9 +91,16 @@ if [[ -n "${VELA_SSH_OPTS:-}" ]]; then
 fi
 ssh_cmd+=("$host")
 remote_branch_local="${VELA_REMOTE_BRANCH:-main}"
+remote_expected_sha_local="${VELA_REMOTE_EXPECTED_SHA:-}"
 remote_env=()
 if [[ "$remote_branch_local" != "main" ]]; then
   remote_env+=("$(quote_remote_word "VELA_REMOTE_BRANCH=$remote_branch_local")")
+fi
+if [[ -n "$remote_expected_sha_local" ]]; then
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_EXPECTED_SHA=$remote_expected_sha_local")")
+fi
+if [[ -n "$remote_agent_runtime_dir_local" ]]; then
+  remote_env+=("$(quote_remote_word "VELA_REMOTE_AGENT_RUNTIME_DIR=$remote_agent_runtime_dir_local")")
 fi
 if [[ -n "$remote_target" ]]; then
   remote_env+=("$(quote_remote_word "VELA_REMOTE_TARGET=$remote_target")")
@@ -175,6 +186,8 @@ remote_real_resume_config="${VELA_REMOTE_REAL_RESUME_CONFIG:-}"
 remote_gated_model_repo="${VELA_REMOTE_GATED_MODEL_REPO:-}"
 remote_gated_model_id="${VELA_REMOTE_GATED_MODEL_ID:-remote-gated-model}"
 remote_gated_model_revision="${VELA_REMOTE_GATED_MODEL_REVISION:-}"
+remote_expected_sha="${VELA_REMOTE_EXPECTED_SHA:-}"
+remote_agent_runtime_dir="${VELA_REMOTE_AGENT_RUNTIME_DIR:-$remote_venv/agent-runtime}"
 read -r -a pytest_args <<< "$remote_pytest_args"
 target_args=()
 if [[ -n "$remote_target" ]]; then
@@ -203,13 +216,59 @@ if [[ "$remote_python" == "auto" ]]; then
   fi
 fi
 
-cd "$remote_path"
+remote_source_path="$remote_path"
+validation_root=""
+validation_worktree=""
+cleanup_remote_validation() {
+  status=$?
+  trap - EXIT
+  if [[ -n "${venv_bin:-}" && -x "${venv_bin}/vela" ]]; then
+    "${venv_bin}/vela" agent stop \
+      --socket "$remote_agent_runtime_dir/agent.sock" --json >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$validation_worktree" ]]; then
+    git -C "$remote_source_path" worktree remove --force \
+      "$validation_worktree" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$validation_root" ]]; then
+    rmdir "$validation_root" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+trap cleanup_remote_validation EXIT
+
+cd "$remote_source_path"
 remote_branch="${VELA_REMOTE_BRANCH:-main}"
-echo "== Remote git pull ($remote_branch) =="
-git -C "$remote_path" rev-parse --is-inside-work-tree >/dev/null
-git -C "$remote_path" fetch origin "$remote_branch"
-git -C "$remote_path" checkout "$remote_branch"
-git -C "$remote_path" pull --ff-only origin "$remote_branch"
+echo "== Remote git revision ($remote_branch) =="
+git -C "$remote_source_path" rev-parse --is-inside-work-tree >/dev/null
+git -C "$remote_source_path" fetch --no-tags origin \
+  "refs/heads/$remote_branch:refs/remotes/origin/$remote_branch"
+if [[ -n "$remote_expected_sha" ]]; then
+  remote_branch_head="$(git -C "$remote_source_path" rev-parse "refs/remotes/origin/$remote_branch")"
+  if [[ "$remote_branch_head" != "$remote_expected_sha" ]]; then
+    echo "remote revision mismatch: expected=$remote_expected_sha branch_head=$remote_branch_head" >&2
+    exit 36
+  fi
+else
+  remote_expected_sha="$(git -C "$remote_source_path" rev-parse "refs/remotes/origin/$remote_branch")"
+fi
+
+validation_root="$(mktemp -d "${TMPDIR:-/tmp}/vela-remote-validation.XXXXXX")"
+validation_worktree="$validation_root/checkout"
+git -C "$remote_source_path" worktree add --detach \
+  "$validation_worktree" "$remote_expected_sha"
+remote_path="$validation_worktree"
+cd "$remote_path"
+remote_head="$(git rev-parse HEAD)"
+if [[ "$remote_head" != "$remote_expected_sha" ]]; then
+  echo "remote revision mismatch: expected=$remote_expected_sha actual=$remote_head" >&2
+  exit 36
+fi
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  echo "remote revision checkout is not pristine: $remote_path" >&2
+  exit 37
+fi
+echo "REMOTE_REVISION_OK expected=$remote_expected_sha actual=$remote_head branch=$remote_branch source=owned-worktree"
 venv_python="$remote_venv/bin/python"
 venv_bin="$remote_venv/bin"
 if [[ ! -x "$venv_python" ]]; then
@@ -225,7 +284,9 @@ if ! "$venv_python" -m pip --version >/dev/null 2>&1; then
   exit 127
 fi
 export PATH="$venv_bin:$PATH"
-"$venv_python" -m pip install -e ".[dev]"
+"$venv_python" -m pip install ".[dev]"
+mkdir -p "$remote_agent_runtime_dir"
+export VELA_AGENT_RUNTIME_DIR="$remote_agent_runtime_dir"
 echo "== Remote agent restart =="
 "$venv_bin/vela" agent restart
 echo "== Remote host =="
@@ -259,6 +320,7 @@ fi
 echo "== Daemon restart live-run survival =="
 "$venv_python" - "$remote_path" "$venv_bin" <<'PY'
 import asyncio
+import contextlib
 import shutil
 import socket
 import subprocess
@@ -300,6 +362,40 @@ async def _wait_ready(client: SubprocessTargetClient, run_id: str) -> dict:
     raise RuntimeError(f"run did not become ready after daemon restart test: {run_id}")
 
 
+async def _cleanup_owned_run(run_id: str, runs_dir: Path) -> str:
+    """Best-effort cleanup through a fresh agent without masking probe errors."""
+    client = _agent_client()
+    try:
+        await client.connect()
+        discovered = await client.call(
+            "discover_runs", {"runs_dirs": [str(runs_dir)]}
+        )
+        discovered_ids = {
+            str(run.get("run_id"))
+            for run in discovered.get("runs", [])
+            if isinstance(run, dict)
+        }
+        if run_id not in discovered_ids:
+            return "not-found"
+        await client.call("reattach", {"run_id": run_id})
+        await client.call(
+            "stop",
+            {
+                "run_id": run_id,
+                "interrupt_timeout": 2,
+                "terminate_timeout": 2,
+            },
+        )
+        waited = await client.call("wait", {"run_id": run_id})
+        return f"stopped:returncode={waited.get('returncode')}"
+    except Exception as exc:
+        return f"cleanup-failed:{type(exc).__name__}"
+    finally:
+        if client.connected:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+
+
 async def _main() -> None:
     port = _free_port()
     config_path.write_text(
@@ -324,59 +420,76 @@ launch:
     )
 
     run_id = f"daemon-restart-{uuid.uuid4().hex}"
-    client = _agent_client()
-    await client.connect()
+    completed = False
     try:
-        await client.call(
-            "launch",
-            {
-                "run_id": run_id,
-                "name": config_name,
-                "configs_dir": str(tmp_root),
-            },
-        )
-        await _wait_ready(client, run_id)
-    finally:
-        await client.disconnect()
-
-    subprocess.run([str(venv_bin / "vela"), "agent", "restart"], check=True)
-
-    client = _agent_client()
-    await client.connect()
-    try:
-        discovered = await client.call("discover_runs", {"runs_dirs": [str(runs_dir)]})
-        discovered_ids = {
-            str(run.get("run_id"))
-            for run in discovered.get("runs", [])
-            if isinstance(run, dict)
-        }
-        if run_id not in discovered_ids:
-            raise RuntimeError(
-                f"run {run_id} not rediscovered after daemon restart: {discovered}"
+        client = _agent_client()
+        await client.connect()
+        try:
+            await client.call(
+                "launch",
+                {
+                    "run_id": run_id,
+                    "name": config_name,
+                    "configs_dir": str(tmp_root),
+                },
             )
-        reattached = await client.call("reattach", {"run_id": run_id})
-        if str(reattached.get("run_id")) != run_id:
-            raise RuntimeError(f"reattach returned wrong run: {reattached}")
-        health = await _wait_ready(client, run_id)
-        await client.call(
-            "stop",
-            {
-                "run_id": run_id,
-                "interrupt_timeout": 2,
-                "terminate_timeout": 2,
-            },
-        )
-        waited = await client.call("wait", {"run_id": run_id})
-    finally:
-        await client.disconnect()
+            await _wait_ready(client, run_id)
+        finally:
+            if client.connected:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
 
-    shutil.rmtree(tmp_root, ignore_errors=True)
-    print(
-        "DAEMON_RESTART_LIVE_RUN_OK "
-        f"run_id={run_id} port={port} "
-        f"url={health.get('reachable_url')} "
-        f"returncode={waited.get('returncode')}"
-    )
+        subprocess.run([str(venv_bin / "vela"), "agent", "restart"], check=True)
+
+        client = _agent_client()
+        await client.connect()
+        try:
+            discovered = await client.call(
+                "discover_runs", {"runs_dirs": [str(runs_dir)]}
+            )
+            discovered_ids = {
+                str(run.get("run_id"))
+                for run in discovered.get("runs", [])
+                if isinstance(run, dict)
+            }
+            if run_id not in discovered_ids:
+                raise RuntimeError(
+                    f"run {run_id} not rediscovered after daemon restart: {discovered}"
+                )
+            reattached = await client.call("reattach", {"run_id": run_id})
+            if str(reattached.get("run_id")) != run_id:
+                raise RuntimeError(f"reattach returned wrong run: {reattached}")
+            health = await _wait_ready(client, run_id)
+            await client.call(
+                "stop",
+                {
+                    "run_id": run_id,
+                    "interrupt_timeout": 2,
+                    "terminate_timeout": 2,
+                },
+            )
+            waited = await client.call("wait", {"run_id": run_id})
+        finally:
+            if client.connected:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
+
+        print(
+            "DAEMON_RESTART_LIVE_RUN_OK "
+            f"run_id={run_id} port={port} "
+            f"url={health.get('reachable_url')} "
+            f"returncode={waited.get('returncode')}"
+        )
+        completed = True
+    finally:
+        if not completed:
+            result = await asyncio.shield(_cleanup_owned_run(run_id, runs_dir))
+            with contextlib.suppress(Exception):
+                print(
+                    f"DAEMON_RESTART_FAKE_CLEANUP run_id={run_id} result={result}",
+                    file=sys.stderr,
+                )
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 asyncio.run(_main())
@@ -468,8 +581,41 @@ async def _close_events(events) -> None:
         await events.aclose()
 
 
-async def _main() -> None:
-    port = _free_port()
+async def _cleanup_owned_run(run_id: str, runs_dir: Path) -> str:
+    """Best-effort cleanup through a fresh agent without masking probe errors."""
+    client = _agent_client()
+    try:
+        await client.connect()
+        discovered = await client.call(
+            "discover_runs", {"runs_dirs": [str(runs_dir)]}
+        )
+        discovered_ids = {
+            str(run.get("run_id"))
+            for run in discovered.get("runs", [])
+            if isinstance(run, dict)
+        }
+        if run_id not in discovered_ids:
+            return "not-found"
+        await client.call("reattach", {"run_id": run_id})
+        await client.call(
+            "stop",
+            {
+                "run_id": run_id,
+                "interrupt_timeout": 2,
+                "terminate_timeout": 2,
+            },
+        )
+        waited = await client.call("wait", {"run_id": run_id})
+        return f"stopped:returncode={waited.get('returncode')}"
+    except Exception as exc:
+        return f"cleanup-failed:{type(exc).__name__}"
+    finally:
+        if client.connected:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+
+
+async def _run_probe(run_id: str, port: int) -> None:
     config_path.write_text(
         f"""
 name: {config_name}
@@ -494,7 +640,6 @@ extra_args:
         encoding="utf-8",
     )
 
-    run_id = f"disconnect-reconnect-{uuid.uuid4().hex}"
     first_cursor: dict[str, int] = {}
     first_text = ""
     first_seq = 0
@@ -607,7 +752,6 @@ extra_args:
                 )
             await client.disconnect()
 
-    shutil.rmtree(tmp_root, ignore_errors=True)
     print(
         "DISCONNECT_RECONNECT_RESUME_OK "
         f"run_id={run_id} first_seq={first_seq} "
@@ -616,6 +760,24 @@ extra_args:
         f"url={health.get('reachable_url')} "
         f"returncode={waited.get('returncode')}"
     )
+
+
+async def _main() -> None:
+    port = _free_port()
+    run_id = f"disconnect-reconnect-{uuid.uuid4().hex}"
+    completed = False
+    try:
+        await _run_probe(run_id, port)
+        completed = True
+    finally:
+        if not completed:
+            result = await asyncio.shield(_cleanup_owned_run(run_id, runs_dir))
+            with contextlib.suppress(Exception):
+                print(
+                    f"DISCONNECT_RECONNECT_FAKE_CLEANUP run_id={run_id} result={result}",
+                    file=sys.stderr,
+                )
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 asyncio.run(_main())
@@ -701,7 +863,7 @@ PY
 }
 
 if [[ -n "$remote_real_resume_config" ]]; then
-  echo "== Real model resume/daemon restart =="
+  echo "== Real model resume/recovery =="
   resume_config_file="configs/${remote_real_resume_config}.yaml"
   resume_config_runtime="$(resume_config_runtime "$resume_config_file")"
   resume_configs_dir=""
@@ -749,7 +911,7 @@ PY
   resume_output="$(mktemp)"
   "$venv_python" scripts/real_model_resume_check.py "${real_resume_args[@]}" | tee "$resume_output"
   resume_run_id="$(awk '
-    $1 == "REAL_MODEL_DAEMON_RESTART_OK" {
+    $1 == "REAL_MODEL_RECOVERY_OK" {
       for (i = 2; i <= NF; i++) {
         if ($i ~ /^run_id=/) {
           sub(/^run_id=/, "", $i)
@@ -761,7 +923,7 @@ PY
   ' "$resume_output")"
   rm -f "$resume_output"
   if [[ -z "$resume_run_id" ]]; then
-    echo "ERROR: real model resume check did not report daemon-restart run_id"
+    echo "ERROR: real model resume check did not report recovery run_id"
     [[ -n "$resume_configs_dir" ]] && rm -rf "$resume_configs_dir"
     exit 35
   fi
@@ -797,6 +959,12 @@ if [[ "$artifact_enabled" == "1" ]]; then
     echo
     echo "- Started: \`$start_utc\`"
     echo "- Local commit: \`$local_head\` (\`$local_head_full\`)"
+    echo "- Requested branch: \`$remote_branch_local\`"
+    if [[ -n "$remote_expected_sha_local" ]]; then
+      echo "- Expected remote commit: \`$remote_expected_sha_local\`"
+    else
+      echo "- Expected remote commit: _(resolved from branch on remote)_"
+    fi
     echo "- Host: \`$host\`"
     echo "- Remote path: \`$remote_path\`"
     echo "- Remote venv: \`$remote_venv\`"

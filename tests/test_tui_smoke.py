@@ -2254,6 +2254,246 @@ async def test_keepalive_survives_reconnect_and_still_detects_drops(
 
 
 @pytest.mark.asyncio
+async def test_stale_keepalive_ping_failure_cannot_disconnect_new_target(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A keepalive owns the client/generation it started with. If its old ping
+    # fails after a target switch completes, the failure must not mark or
+    # disconnect the newly selected target.
+    ping_started = asyncio.Event()
+    release_ping_failure = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class OldLocalClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.disconnect_calls = 0
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {"source": "old-local"}
+
+        async def disconnect(self) -> None:
+            self.disconnect_calls += 1
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            ping_started.set()
+            await release_ping_failure.wait()
+            raise ConnectionError("old local ping failed")
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive race test should not subscribe")
+
+    class NewBlackbirdClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.disconnect_calls = 0
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {"source": "new-blackbird"}
+
+        async def disconnect(self) -> None:
+            self.disconnect_calls += 1
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive race test should not subscribe")
+
+    old_client = OldLocalClient()
+    new_client = NewBlackbirdClient()
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: new_client,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=old_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        stale_keepalive = asyncio.create_task(app._target_keepalive_once())
+        await ping_started.wait()
+
+        await app._switch_target("blackbird")
+        assert app.target_name == "blackbird"
+        assert app.target_connection_state == "connected"
+        assert app._target_client is new_client
+
+        release_ping_failure.set()
+        await stale_keepalive
+
+        assert app.target_name == "blackbird"
+        assert app.target_connection_state == "connected"
+        assert app.target_connection_detail == ""
+        assert app._target_agent_info == {"source": "new-blackbird"}
+        assert new_client.connected
+        assert new_client.disconnect_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_stale_keepalive_connect_completion_is_a_silent_return(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A reconnecting keepalive can finish its old connect after a newer target
+    # is live. _ensure_target_client_connected raises _StaleTargetOperation in
+    # that case; the keepalive must consume it without disconnecting the winner.
+    stale_connect_started = asyncio.Event()
+    release_stale_connect = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class OldLocalClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.block_connect = False
+
+        async def connect(self) -> dict[str, object]:
+            if self.block_connect:
+                stale_connect_started.set()
+                await release_stale_connect.wait()
+            self.connected = True
+            return {"source": "old-local"}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive race test should not subscribe")
+
+    class NewBlackbirdClient:
+        def __init__(self) -> None:
+            self.connected = False
+            self.disconnect_calls = 0
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {"source": "new-blackbird"}
+
+        async def disconnect(self) -> None:
+            self.disconnect_calls += 1
+            self.connected = False
+
+        async def ping(self) -> dict[str, object]:
+            return {"ok": True}
+
+        async def call(self, method: str, _params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("keepalive race test should not subscribe")
+
+    old_client = OldLocalClient()
+    new_client = NewBlackbirdClient()
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: new_client,
+    )
+    app = VelaApp(
+        configs_dir=config_dir,
+        target_client=old_client,
+        target_ping_interval_seconds=None,
+    )
+
+    async with app.run_test():
+        await _wait_for_target_connection_state(app, "connected")
+        await old_client.disconnect()
+        app.target_connection_state = "disconnected"
+        old_client.block_connect = True
+        stale_keepalive = asyncio.create_task(app._target_keepalive_once())
+        await stale_connect_started.wait()
+
+        await app._switch_target("blackbird")
+        assert app.target_name == "blackbird"
+        assert app.target_connection_state == "connected"
+
+        release_stale_connect.set()
+        await stale_keepalive
+
+        assert app.target_name == "blackbird"
+        assert app.target_connection_state == "connected"
+        assert app.target_connection_detail == ""
+        assert app._target_agent_info == {"source": "new-blackbird"}
+        assert new_client.connected
+        assert new_client.disconnect_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_keepalive_recovery_transition_reloads_registry(
     config_dir: Path,
 ) -> None:
@@ -2391,7 +2631,7 @@ async def test_keepalive_flip_discards_reload_after_target_switch(config_dir: Pa
         app.registry = fresh
         base_generation = app._target_generation
 
-        async def racing_reload() -> tui_app_module.ConfigRegistry:
+        async def racing_reload(**_kwargs: object) -> tui_app_module.ConfigRegistry:
             # A target switch commits mid-reload (bumps the generation); the stale
             # reload then resolves with the OLD target's configs.
             app._target_generation = base_generation + 1
@@ -2479,7 +2719,7 @@ async def test_keepalive_flip_discards_preview_after_target_switch(config_dir: P
         app.current_config = None
         app.registry = tui_app_module.ConfigRegistry()
 
-        async def reload() -> tui_app_module.ConfigRegistry:
+        async def reload(**_kwargs: object) -> tui_app_module.ConfigRegistry:
             # The reload itself does NOT switch; the switch lands during the preview.
             return old_registry
 
@@ -2551,7 +2791,7 @@ async def test_keepalive_flip_preview_link_failure_keeps_loop_alive(config_dir: 
         app.current_config = None
         app.registry = tui_app_module.ConfigRegistry()
 
-        async def reload() -> tui_app_module.ConfigRegistry:
+        async def reload(**_kwargs: object) -> tui_app_module.ConfigRegistry:
             return old_registry
 
         app._load_registry_from_agent = reload  # type: ignore[method-assign]
@@ -8401,7 +8641,7 @@ def test_confirm_and_log_prompt_use_canonical_tokens() -> None:
         assert not hasattr(confirm_mod, legacy), f"confirm still binds legacy {legacy}"
     for canonical in ("CYAN", "GREEN", "AMBER", "TEXT_SECONDARY", "TEXT_PRIMARY"):
         assert hasattr(confirm_mod, canonical), f"confirm missing canonical {canonical}"
-    # BAD stays (destructive color, matches the app + target_edit).
+    # BAD stays for ConfirmScreen's app-wide destructive-action color.
     assert hasattr(confirm_mod, "BAD")
 
     assert not hasattr(log_prompt_mod, "TEXT"), "log_prompt still binds legacy TEXT"
@@ -10968,6 +11208,361 @@ async def test_target_switch_shows_connecting_verb_then_restores(
             "connecting verb did not clear after the registry load released",
         )
         assert app.target_name == "blackbird"
+
+
+@pytest.mark.asyncio
+async def test_stale_target_switch_error_is_dropped_after_newer_switch_completes(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bug-307: force the abandoned SSH switch to fail only AFTER a newer switch
+    # back to local is fully connected. The stale error must not relabel the
+    # current local target or recommend the SSH remediation for it.
+    blackbird_call_started = asyncio.Event()
+    allow_blackbird_failure = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                if self.target.name == "blackbird":
+                    blackbird_call_started.set()
+                    await allow_blackbird_failure.wait()
+                    raise TargetCallError(
+                        "agent-unreachable",
+                        "abandoned ssh connect failed",
+                        {"transport": "ssh"},
+                    )
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target switch test should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: FactoryTargetClient(target),
+    )
+
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(144, 45)) as pilot:
+        await _wait_for_target_connection_state(app, "connected")
+        abandoned = asyncio.create_task(app._switch_target("blackbird"))
+        await blackbird_call_started.wait()
+
+        newer = asyncio.create_task(app._switch_target("local"))
+        await newer
+        assert app.target_name == "local"
+        assert app.target_connection_state == "connected"
+
+        allow_blackbird_failure.set()
+        await abandoned
+        await pilot.pause()
+
+        assert app.target_name == "local"
+        assert app.target_connection_state == "connected"
+        assert "AGENT_UNREACHABLE" not in app.error_text
+        assert "setup-ssh local" not in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_stale_target_switch_waiting_on_disconnect_cannot_overwrite_newer_target(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The first switch is suspended while disconnecting the original local client.
+    # A newer local switch commits completely before that old disconnect returns.
+    # Releasing the abandoned switch must not let it install blackbird afterward.
+    old_disconnect_started = asyncio.Event()
+    allow_old_disconnect = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+    clients: list[FactoryTargetClient] = []
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+            self.disconnect_calls = 0
+            clients.append(self)
+
+        async def connect(self) -> dict[str, object]:
+            self.connected = True
+            return {"source": self.target.name}
+
+        async def disconnect(self) -> None:
+            self.disconnect_calls += 1
+            if self is clients[0] and self.disconnect_calls == 1:
+                old_disconnect_started.set()
+                await allow_old_disconnect.wait()
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target switch race test should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: FactoryTargetClient(target),
+    )
+
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(144, 45)):
+        await _wait_for_target_connection_state(app, "connected")
+        abandoned = asyncio.create_task(app._switch_target("blackbird"))
+        await old_disconnect_started.wait()
+
+        newer = asyncio.create_task(app._switch_target("local"))
+        await newer
+        current_client = app._target_client
+        assert app.target_name == "local"
+        assert app.target_connection_state == "connected"
+
+        allow_old_disconnect.set()
+        await abandoned
+
+        assert app.target_name == "local"
+        assert app._target_client is current_client
+        assert app.target_connection_state == "connected"
+        assert app._target_agent_info == {"source": "local"}
+
+
+@pytest.mark.asyncio
+async def test_stale_target_connect_runtime_error_cannot_rebanner_newer_target(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The abandoned SSH connect raises a transport RuntimeError only after a newer
+    # local switch is connected. The old failure is neither current nor actionable.
+    ssh_connect_started = asyncio.Event()
+    allow_ssh_failure = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+
+        async def connect(self) -> dict[str, object]:
+            if self.target.name == "blackbird":
+                ssh_connect_started.set()
+                await allow_ssh_failure.wait()
+                raise RuntimeError("abandoned ssh handshake failed")
+            self.connected = True
+            return {"source": "local"}
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target switch race test should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: FactoryTargetClient(target),
+    )
+
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(144, 45)):
+        await _wait_for_target_connection_state(app, "connected")
+        abandoned = asyncio.create_task(app._switch_target("blackbird"))
+        await ssh_connect_started.wait()
+
+        await app._switch_target("local")
+        assert app.target_name == "local"
+        assert app.target_connection_state == "connected"
+
+        allow_ssh_failure.set()
+        await abandoned
+
+        assert app.target_name == "local"
+        assert app.target_connection_state == "connected"
+        assert app.target_connection_detail == ""
+        assert app._target_agent_info == {"source": "local"}
+        assert "AGENT_UNREACHABLE" not in app.error_text
+        assert "setup-ssh local" not in app.error_text
+
+
+@pytest.mark.asyncio
+async def test_stale_target_connect_success_cannot_mutate_newer_agent_state(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A stale connect can also finish successfully. Its agent metadata and daemon
+    # identity still belong to the abandoned generation and must be discarded.
+    ssh_connect_started = asyncio.Event()
+    allow_ssh_success = asyncio.Event()
+    blackbird = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="user@gpu-host",
+    )
+
+    class FakeTargetsRegistry:
+        def by_name(self, name: str) -> TargetConfig:
+            if name == "local":
+                return TargetConfig(name="local")
+            if name == "blackbird":
+                return blackbird
+            raise KeyError(name)
+
+    class FactoryTargetClient:
+        def __init__(self, target: TargetConfig) -> None:
+            self.target = target
+            self.connected = False
+
+        async def connect(self) -> dict[str, object]:
+            if self.target.name == "blackbird":
+                ssh_connect_started.set()
+                await allow_ssh_success.wait()
+                self.connected = True
+                return {
+                    "source": "stale-blackbird",
+                    "daemon_start_ts": "2026-01-01T00:00:00Z",
+                }
+            self.connected = True
+            return {
+                "source": "fresh-local",
+                "daemon_start_ts": "2026-07-13T00:00:00Z",
+            }
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            if method == "discover_runs":
+                return {"runs": []}
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("target switch race test should not subscribe")
+
+    monkeypatch.setattr(
+        tui_app_module,
+        "load_targets_file",
+        lambda: FakeTargetsRegistry(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app_module,
+        "target_client_for_config",
+        lambda target, **_kwargs: FactoryTargetClient(target),
+    )
+
+    app = VelaApp(configs_dir=config_dir, target_ping_interval_seconds=None)
+
+    async with app.run_test(size=(144, 45)):
+        await _wait_for_target_connection_state(app, "connected")
+        abandoned = asyncio.create_task(app._switch_target("blackbird"))
+        await ssh_connect_started.wait()
+
+        await app._switch_target("local")
+        assert app._target_agent_info["source"] == "fresh-local"
+        assert not app.target_agent_restarted
+
+        allow_ssh_success.set()
+        await abandoned
+
+        assert app.target_name == "local"
+        assert app.target_connection_state == "connected"
+        assert app.target_connection_detail == ""
+        assert app._target_agent_info == {
+            "source": "fresh-local",
+            "daemon_start_ts": "2026-07-13T00:00:00Z",
+        }
+        assert app._target_daemon_start_ts == "2026-07-13T00:00:00Z"
+        assert not app.target_agent_restarted
 
 
 @pytest.mark.asyncio
@@ -17513,12 +18108,21 @@ async def test_responsive_layout_keeps_log_visible_on_narrow_terminals(
         assert log.display is True
 
 
-# bug-237: unchecked vs checked Checkbox states must be unambiguous. The dim
-# slate box (#56707c = TEXT_FAINT) reads clearly as "off"; the green box
-# (#67e8a5 = GREEN) reads clearly as "on". Assert the resolved component style,
-# not pixels. Default Textual gives BOTH states the same near-invisible bg.
-_CHECKBOX_OFF_BG = Color.parse("#56707c")
-_CHECKBOX_ON_BG = Color.parse("#67e8a5")
+# bug-237: unchecked vs checked Checkbox states must be literal and
+# unambiguous: dim ``[ ]`` versus green ``[✓]``. Assert both the rendered glyph
+# and resolved component color so a regression to Textual's block/X control (or
+# a same-color invisible check) cannot satisfy the contract.
+_CHECKBOX_OFF_COLOR = Color.parse("#56707c")
+_CHECKBOX_ON_COLOR = Color.parse("#67e8a5")
+
+
+def _assert_checkbox_state(
+    checkbox: Checkbox, *, glyph: str, color: Color, dim: bool
+) -> None:
+    assert checkbox.render().plain.startswith(glyph)
+    style = checkbox.get_component_styles("toggle--button")
+    assert style.color == color
+    assert style.text_style.dim is dim
 
 
 @pytest.mark.asyncio
@@ -17561,14 +18165,15 @@ async def test_flag_manager_changed_only_checkbox_states_are_visible(
         assert app.screen.id == "flag-manager"
         checkbox = app.screen.query_one("#flag-manager-changed-only", Checkbox)
 
-        off = checkbox.get_component_styles("toggle--button")
-        assert off.background == _CHECKBOX_OFF_BG
-        assert off.background != _CHECKBOX_ON_BG
+        _assert_checkbox_state(
+            checkbox, glyph="[ ]", color=_CHECKBOX_OFF_COLOR, dim=True
+        )
 
         checkbox.value = True
         await pilot.pause()
-        on = checkbox.get_component_styles("toggle--button")
-        assert on.background == _CHECKBOX_ON_BG
+        _assert_checkbox_state(
+            checkbox, glyph="[✓]", color=_CHECKBOX_ON_COLOR, dim=False
+        )
 
 
 @pytest.mark.asyncio
@@ -17617,14 +18222,15 @@ async def test_wizard_download_now_checkbox_states_are_visible(config_dir: Path)
         assert app.screen.id == "new-deployment"
         checkbox = app.screen.query_one("#new-deployment-download-now", Checkbox)
 
-        off = checkbox.get_component_styles("toggle--button")
-        assert off.background == _CHECKBOX_OFF_BG
-        assert off.background != _CHECKBOX_ON_BG
+        _assert_checkbox_state(
+            checkbox, glyph="[ ]", color=_CHECKBOX_OFF_COLOR, dim=True
+        )
 
         checkbox.value = True
         await pilot.pause()
-        on = checkbox.get_component_styles("toggle--button")
-        assert on.background == _CHECKBOX_ON_BG
+        _assert_checkbox_state(
+            checkbox, glyph="[✓]", color=_CHECKBOX_ON_COLOR, dim=False
+        )
 
 
 # --- Task 4.5: adaptive truthful top chrome (bug-237) ---

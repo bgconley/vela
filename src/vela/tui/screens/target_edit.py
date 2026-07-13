@@ -10,7 +10,14 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from vela.config.targets import TargetConfig
-from vela.tui.theme import BAD, BG_BASE, BG_PANEL, BORDER_STRONG, MODAL_PANEL_CSS, TEXT
+from vela.tui.theme import (
+    BG_BASE,
+    BG_PANEL,
+    BORDER_STRONG,
+    MODAL_PANEL_CSS,
+    RED,
+    TEXT_PRIMARY,
+)
 
 
 class TargetEditScreen(ModalScreen[TargetConfig | None]):
@@ -29,13 +36,13 @@ class TargetEditScreen(ModalScreen[TargetConfig | None]):
 
     #target-edit-title {{
         margin-bottom: 1;
-        color: {TEXT};
+        color: {TEXT_PRIMARY};
         text-style: bold;
     }}
 
     #target-edit-error {{
         margin-top: 1;
-        color: {BAD};
+        color: {RED};
     }}
     """
 

@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Checkbox, Input, Select, Static
+from textual.widgets import Input, Select, Static
 
 from vela.config.schema import ModelConfig
 from vela.engine.command_builder import ENGINE_VALUE_FIELDS
@@ -27,7 +27,7 @@ from vela.tui.theme import (
     TEXT_SECONDARY,
     VIOLET,
 )
-from vela.tui.widgets import KeyHintBar
+from vela.tui.widgets import Checkbox, KeyHintBar
 from vela.tui.widgets.tags import is_recipe_flag, source_tag
 
 # Plain-language, one-line descriptions for the modeled engine flags (the

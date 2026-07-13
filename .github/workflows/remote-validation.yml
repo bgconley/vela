@@ -28,7 +28,7 @@ on:
         required: false
         default: ""
       real_resume_config:
-        description: "Optional real config for resume/daemon-restart validation (blank = VELA_REMOTE_REAL_RESUME_CONFIG repo variable)"
+        description: "Optional real config for resume/recovery validation (blank = VELA_REMOTE_REAL_RESUME_CONFIG repo variable)"
         required: false
         default: ""
       remote_venv:
@@ -86,6 +86,8 @@ jobs:
       REMOTE_VALIDATION_REAL_CONFIG: ${{ github.event.inputs.real_config || vars.VELA_REMOTE_REAL_CONFIG }}
       VELA_REMOTE_ARTIFACT: "1"
       VELA_REMOTE_ARTIFACT_DIR: artifacts/remote-validation
+      VELA_REMOTE_BRANCH: ${{ github.ref_name }}
+      VELA_REMOTE_EXPECTED_SHA: ${{ github.sha }}
       VELA_REMOTE_TIMEOUT: ${{ github.event.inputs.remote_timeout || vars.VELA_REMOTE_TIMEOUT || '2700' }}
       VELA_REMOTE_VENV: ${{ github.event.inputs.remote_venv || vars.VELA_REMOTE_VENV }}
       VELA_REMOTE_TARGET: ${{ github.event.inputs.remote_target || vars.VELA_REMOTE_TARGET }}
@@ -99,7 +101,7 @@ jobs:
       VELA_REMOTE_GATED_MODEL_REVISION: ${{ github.event.inputs.gated_model_revision || vars.VELA_REMOTE_GATED_MODEL_REVISION || '' }}
       VELA_REMOTE_REAL_RESUME_CONFIG: ${{ github.event.inputs.real_resume_config || vars.VELA_REMOTE_REAL_RESUME_CONFIG }}
       VELA_REMOTE_PYTEST_ARGS: ${{ vars.VELA_REMOTE_PYTEST_ARGS || '-q tests/test_remote_workflow.py tests/test_transport_factory.py tests/test_targets.py' }}
-      VELA_REMOTE_SSH_KEY: ${{ secrets.VELA_REMOTE_SSH_KEY }}
+      VELA_REMOTE_SSH_KEY: ${{ secrets.VELA_REMOTE_SSH_KEY || secrets.VLLM_LOADER_REMOTE_SSH_KEY }}
 
     steps:
       - name: Check out repository

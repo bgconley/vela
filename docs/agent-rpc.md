@@ -102,8 +102,8 @@ The controller exposes detached-run management as thin wrappers over these
 methods, so operators never touch target paths directly:
 
 - `vela runs list` wraps `discover_runs` (enriched per run via `status`) and
-  shows run id, config, phase, ready url, and served model — never the sidecar
-  path or PID.
+  shows run id, config, phase, ready url, controller-safe UTC start time, and
+  served model — never the sidecar path or PID.
 - `vela stop RUN_ID|CONFIG` resolves the unique live run and wraps `stop` (or
   `kill` with `--kill`).
 - `vela logs RUN_ID` replays the agent-scrubbed durable log via

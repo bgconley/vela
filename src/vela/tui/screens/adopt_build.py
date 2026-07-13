@@ -6,7 +6,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Checkbox, Input, Select, Static
+from textual.widgets import Input, Select, Static
 
 from vela.tui.theme import (
     BG_BASE,
@@ -20,7 +20,7 @@ from vela.tui.theme import (
     TEXT_FAINT,
     TEXT_SECONDARY,
 )
-from vela.tui.widgets import Field, KeyHintBar, ValidationCard
+from vela.tui.widgets import Checkbox, Field, KeyHintBar, ValidationCard
 
 
 class AdoptBuildScreen(ModalScreen[dict[str, Any] | None]):

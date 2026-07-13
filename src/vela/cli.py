@@ -3861,7 +3861,16 @@ def runs_list(
         return
     for row in rows:
         typer.echo(
-            "\t".join([row["run_id"], row["config"], row["phase"], row["url"], row["model"]])
+            "\t".join(
+                [
+                    row["run_id"],
+                    row["config"],
+                    row["phase"],
+                    row["url"],
+                    row["started"],
+                    row["model"],
+                ]
+            )
         )
 
 
@@ -3869,8 +3878,9 @@ def _collect_runs_for_target(target: str) -> list[dict[str, str]]:
     """Discover active detached runs and enrich each with scrubbed status fields.
 
     Only fields safe for a controller surface are surfaced — run id, config name,
-    liveness, reachable url, and the served model (a pid-safe identity). Sidecar
-    paths and PIDs are never read out of the status payload (bug-225).
+    liveness, reachable url, start time, and the served model (a pid-safe identity).
+    Sidecar paths, raw process timestamps, and PIDs are never read out of the status
+    payload (bug-225).
 
     The whole sweep (discover_runs plus one status per run) reuses a single
     connection: opening one client and looping the calls avoids N+1 SSH handshakes
@@ -3895,7 +3905,7 @@ async def _collect_runs_for_target_async(client: TargetClient) -> list[dict[str,
             for summary in discovered.get("runs", []):
                 run_id = str(summary.get("run_id") or "")
                 config = str(summary.get("config_name") or "")
-                phase, url, model = "running", "-", "-"
+                phase, url, started, model = "running", "-", "-", "-"
                 try:
                     status = await client.call("status", {"run_id": run_id})
                 except (TargetCallError, AgentTokenError):
@@ -3904,6 +3914,9 @@ async def _collect_runs_for_target_async(client: TargetClient) -> list[dict[str,
                 else:
                     sidecar = status.get("sidecar") or {}
                     url = str(sidecar.get("reachable_url") or "-")
+                    started_value = status.get("started")
+                    if isinstance(started_value, str) and started_value.strip():
+                        started = started_value.strip()
                     served = sidecar.get("served_model_names") or []
                     model = str(served[0]) if served else "-"
                 rows.append(
@@ -3912,6 +3925,7 @@ async def _collect_runs_for_target_async(client: TargetClient) -> list[dict[str,
                         "config": config,
                         "phase": phase,
                         "url": url,
+                        "started": started,
                         "model": model,
                     }
                 )

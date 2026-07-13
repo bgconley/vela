@@ -18,7 +18,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Checkbox, Input, Select, Static
+from textual.widgets import Input, Select, Static
 
 from vela.tui.theme import (
     BG_BASE,
@@ -32,7 +32,7 @@ from vela.tui.theme import (
     TEXT_FAINT,
     TEXT_SECONDARY,
 )
-from vela.tui.widgets import Field, KeyHintBar
+from vela.tui.widgets import Checkbox, Field, KeyHintBar
 
 _HF_FIELDS = {"repo-id", "revision", "commit-sha"}
 _SOURCE_FIELDS = {

@@ -102,8 +102,9 @@ vela targets test gpu-node
 `bootstrap` writes the target to the controller's `~/.config/vela/targets.yaml`
 for you; `--install` installs the Vela agent into the target's managed venv (drop
 it when the agent is already on the host). `local` is always implicit. An SSH
-target runs `vela agent connect` on the remote host, and the remote daemon
-performs all host-local work.
+target runs `vela agent connect` on the remote host; that per-connection agent
+process performs the host-local work. It does not require or restart a shared
+host daemon.
 
 Make a target the default so you can omit `--target`:
 

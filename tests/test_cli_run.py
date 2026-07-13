@@ -2957,13 +2957,14 @@ def test_cli_runs_list_uses_single_connection_for_all_runs(
 
 
 def test_cli_runs_list_renders_scrubbed_table(monkeypatch: pytest.MonkeyPatch) -> None:
-    # 7.2: `vela runs list` shows run_id, config, phase, ready url, and a pid-safe
-    # identity (served model) — never the sidecar path or PID (bug-225). Mocked at the
-    # client layer (Phase-9) because the sweep now reuses one connection.
+    # 7.2: `vela runs list` shows run_id, config, phase, ready url, started, and a
+    # pid-safe identity (served model) — never the sidecar path or PID (bug-225).
+    # Mocked at the client layer (Phase-9) because the sweep reuses one connection.
     runs = [{"run_id": "01RUNA", "config_name": "llama"}]
     status_by_run = {
         "01RUNA": {
             "run_id": "01RUNA",
+            "started": "2026-07-13T14:15:16Z",
             "config": {"name": "llama"},
             "sidecar": {
                 "config_name": "llama",
@@ -2986,10 +2987,14 @@ def test_cli_runs_list_renders_scrubbed_table(monkeypatch: pytest.MonkeyPatch) -
     result = CliRunner().invoke(cli_module.app, ["runs", "list"])
 
     assert result.exit_code == 0, result.output
-    assert "01RUNA" in result.output
-    assert "llama" in result.output
-    assert "http://127.0.0.1:8000" in result.output
-    assert "meta/llama" in result.output
+    assert result.output.rstrip("\n").split("\t") == [
+        "01RUNA",
+        "llama",
+        "running",
+        "http://127.0.0.1:8000",
+        "2026-07-13T14:15:16Z",
+        "meta/llama",
+    ]
     # bug-225: no sidecar paths / PIDs leak into a controller surface.
     assert "/home/bg" not in result.output
     assert "4242" not in result.output
@@ -2998,6 +3003,64 @@ def test_cli_runs_list_renders_scrubbed_table(monkeypatch: pytest.MonkeyPatch) -
     assert ("status", {"run_id": "01RUNA"}) in client.calls
     # One connection reused for discover + status (no N+1 handshake).
     assert client.connect_count == 1
+
+
+def test_cli_runs_list_json_includes_started_without_identity_leaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runs = [{"run_id": "01RUNA", "config_name": "llama"}]
+    status_by_run = {
+        "01RUNA": {
+            "run_id": "01RUNA",
+            "started": "2026-07-13T14:15:16.123456Z",
+            "sidecar": {
+                "reachable_url": "http://127.0.0.1:8000",
+                "served_model_names": ["meta/llama"],
+                # These hostile fixture fields must not be copied to controller output.
+                "sidecar_path": "/home/bg/.local/state/vela/runs/01RUNA.json",
+                "pid": 4242,
+            },
+        }
+    }
+    client = _RecordingRunsClient(runs, status_by_run)
+    monkeypatch.setattr(
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["runs", "list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "runs": [
+            {
+                "run_id": "01RUNA",
+                "config": "llama",
+                "phase": "running",
+                "url": "http://127.0.0.1:8000",
+                "started": "2026-07-13T14:15:16.123456Z",
+                "model": "meta/llama",
+            }
+        ]
+    }
+    assert client.connect_count == 1
+    assert client.disconnect_count == 1
+
+
+def test_cli_runs_list_marks_unknown_started_for_older_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An older daemon remains listable without inventing a launch time."""
+    runs = [{"run_id": "01RUNA", "config_name": "llama"}]
+    status_by_run = {"01RUNA": {"sidecar": {}}}
+    client = _RecordingRunsClient(runs, status_by_run)
+    monkeypatch.setattr(
+        cli_module, "_target_client_for_name_or_exit", lambda target_name: client
+    )
+
+    result = CliRunner().invoke(cli_module.app, ["runs", "list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["runs"][0]["started"] == "-"
 
 
 def test_cli_runs_list_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:

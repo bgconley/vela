@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Checkbox, Input, Select, Static
+from textual.widgets import Input, Select, Static
 
 from vela.tui.theme import (
     AMBER,
@@ -24,7 +24,7 @@ from vela.tui.theme import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
-from vela.tui.widgets import KeyHintBar, StepIndicator
+from vela.tui.widgets import Checkbox, KeyHintBar, StepIndicator
 
 
 def _recipe_name(recipe: dict[str, Any]) -> str:

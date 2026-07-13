@@ -614,6 +614,12 @@ def _runtime_command(
     docker = dict(recipe.docker) if recipe is not None else {}
     docker["image"] = image
     docker.setdefault("container_name", f"vela-{name}")
+    requested_hf_cache = _requested_docker_hf_cache(spec)
+    if requested_hf_cache is not None:
+        # The compose input's runtime mapping is the Docker spec. Apply this
+        # after recipe seeding so an operator-selected target cache has the
+        # same explicit-over-derived precedence as the rest of the composer.
+        docker["hf_cache"] = requested_hf_cache
     # A generic docker deployment of an hf_repo model gets the agent's HF cache
     # mounted by default (H3): registry downloads land in that cache, so without
     # the mount every fresh container re-downloads the weights. A matched lab
@@ -1094,6 +1100,13 @@ def _requested_docker_image(spec: dict[str, Any]) -> str | None:
         if image:
             return image
     return _optional_str(spec.get("image"))
+
+
+def _requested_docker_hf_cache(spec: dict[str, Any]) -> str | None:
+    runtime = spec.get("runtime")
+    if not isinstance(runtime, dict):
+        return None
+    return _optional_str(runtime.get("hf_cache"))
 
 
 def _recipe_runtime_warnings(

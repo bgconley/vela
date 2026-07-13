@@ -14,14 +14,28 @@ no-vLLM by default.
 git status --short
 git add -A
 git commit -m "describe the validation change"
-git push origin main
+branch="$(git branch --show-current)"
+git push origin "$branch"
+export VELA_REMOTE_BRANCH="$branch"
+export VELA_REMOTE_EXPECTED_SHA="$(git rev-parse HEAD)"
 ```
 
 Before any new GPU-node test, commit locally and push the commit to the remote.
 The GPU host should be a normal clone of this repo; `scripts/run_remote_tests.sh`
-runs `git pull --ff-only origin main` on the GPU node before it installs the
-editable package or starts validation. Machine-specific secrets should stay on
-the GPU host. Do not put `HF_TOKEN` or API keys in example configs.
+fetches `VELA_REMOTE_BRANCH` (default `main`) before it installs the editable
+package or starts validation. When `VELA_REMOTE_EXPECTED_SHA` is set, the script
+requires that exact SHA to be the fetched branch head, checks it out detached,
+in a fresh owned worktree, verifies the resulting remote `HEAD`, and requires a
+pristine tree; a mismatch or dirty validation tree fails before installation or
+validation. The reusable controller checkout is neither executed nor cleaned.
+The package install is non-editable, so removing the owned worktree on exit does
+not leave the validation virtualenv pointing at a deleted source directory.
+Without an expected SHA, the script resolves the fetched branch head into the
+same fresh-worktree flow and reports that revision. Prefer setting both
+variables for release evidence so the run cannot silently validate a different
+commit.
+Machine-specific secrets should stay on the GPU host. Do not put `HF_TOKEN` or
+API keys in example configs.
 
 If the GPU host needs a specific SSH key or options, set them for validation:
 
@@ -52,6 +66,11 @@ that venv. Override the venv path only when the host has a different ZFS layout:
 VELA_REMOTE_VENV=/tank/venvs/custom-vela \
   scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
+
+Every run also exports a validation-only `VELA_AGENT_RUNTIME_DIR` under that
+venv and stops that isolated agent on shell exit. The script never restarts the
+validation host's default/shared socket daemon. Override the isolated directory
+with `VELA_REMOTE_AGENT_RUNTIME_DIR` only when the host layout requires it.
 
 The venv is created with `/tank/preproc/venv/bin/python` when that seed
 interpreter exists, otherwise `python3`, then `python`. Override the seed
@@ -131,8 +150,11 @@ VELA_REMOTE_TARGET=blackbird \
 
 To write the reviewable validation record required for pre-release signoff, use
 the same command with artifact capture enabled. The script records the local
-commit, target host/path, optional build/model/config knobs, full remote output,
-and final exit status in a fresh Markdown file:
+commit, requested branch, expected remote commit, target host/path, optional
+build/model/config knobs, full remote output, and final exit status in a fresh
+Markdown file. The output includes a `REMOTE_REVISION_OK` line with expected
+and actual remote SHAs, so the artifact carries the checked-out revision's
+provenance rather than relying only on the controller checkout:
 
 ```bash
 VELA_REMOTE_ARTIFACT=1 \
@@ -147,16 +169,25 @@ VELA_REMOTE_MODEL_REVISION=main \
 The same lane is available as the GitHub Actions workflow `Remote Validation`.
 It runs `scripts/run_remote_tests.sh` instead of grepping for script text and
 uploads the generated Markdown under `remote-validation-artifacts`. The workflow
-supports manual dispatch and a nightly schedule on a self-hosted runner. It has
-a concurrency group so the validation lane does not double-book the Blackwell.
-Use the `full` profile for Qwen smoke plus real resume/restart validation, and
-the `fast` profile for build/model proof without the long Qwen/resume pass. If
-the runner needs a private key, store it as the `VELA_REMOTE_SSH_KEY`
-secret. Keep this workflow restricted to trusted branches/tags/manual use; do
-not run untrusted fork PR code on a GPU host with lab-network access. The
-workflow also accepts `gated_model_repo`, `gated_model_id`, and
-`gated_model_revision` inputs, or the matching
-`VELA_REMOTE_GATED_MODEL_REPO` repo variable family, for the no-token
+is dispatch-only: there is no nightly or other scheduled trigger. It has a
+concurrency group so manual validations do not double-book the Blackwell. Each
+dispatch passes `github.ref_name` as `VELA_REMOTE_BRANCH` and `github.sha` as
+`VELA_REMOTE_EXPECTED_SHA`; the remote script fails closed unless the selected
+remote branch head and checked-out `HEAD` both equal that workflow SHA. The
+artifact header records the branch and expected SHA, and its captured output
+records the verified actual SHA.
+
+Use the `fast` profile for the safer, shorter lane: it clears the real config
+and real-resume settings, so it runs the no-GPU checks and requested
+build/model/auth proof without a Qwen launch or live-run recovery exercise. Use
+`full` only when the configured Qwen smoke and real recovery surfaces are
+intended. If the runner needs a private key, prefer the
+`VELA_REMOTE_SSH_KEY` secret. The workflow also accepts the repository's
+pre-rename SSH secret as a compatibility fallback. Keep this workflow
+restricted to trusted branches/tags/manual use; do not run untrusted fork code
+on a GPU host with lab-network access. The workflow also accepts
+`gated_model_repo`, `gated_model_id`, and `gated_model_revision` inputs, or the
+matching `VELA_REMOTE_GATED_MODEL_REPO` repo variable family, for the no-token
 gated auth probe.
 
 To cover the final real-model reconnect surface, set
@@ -166,17 +197,29 @@ tiny HF Llama model through the pinned Blackbird Docker image and target-local
 caches, so it does not depend on `vllm` being installed on the target PATH. The
 script pushes the checked-in config YAML to the selected target before launch
 (stripping only advisory vLLM stack provenance in the pushed compatibility copy
-for older target agents), disconnects and resumes by log cursor, restarts the
-target daemon while the model is still live, rediscovers and reattaches the run,
-verifies health, then stops it:
+for older target agents), disconnects and resumes by log cursor, exercises the
+appropriate recovery boundary while the model is still live, rediscovers and
+reattaches the run, verifies health, then stops it.
+
+If any resume, rediscovery, reattach, or health assertion fails after launch,
+the helper opens a fresh client, rediscovers its unique run id, and performs a
+best-effort stop/wait before preserving the original failure.
+
+For an SSH target such as Blackbird, every client connection starts a fresh
+`vela agent connect` process. The recovery helper therefore disconnects and
+reconnects through a new per-connection agent. It never restarts the shared
+Blackbird host daemon. For a local target, the helper may restart that local
+daemon before rediscovery. This distinction is a safety requirement: an SSH
+recovery proof must not disrupt unrelated runs owned by the shared daemon.
 
 The remote backend-evidence gate depends on structured run id markers, not loose
 log scraping. `smoke-tui` must emit a tab-separated
 `VELA_SMOKE_RUN_ID	<run_id>` line for the initial real-config smoke. The
-real-model resume helper must emit `REAL_MODEL_DAEMON_RESTART_OK` with a
-whitespace-delimited `run_id=<run_id>` token after the daemon-restart reattach
-passes. `scripts/run_remote_tests.sh` fails closed if either marker is absent
-before invoking `scripts/backend_evidence_check.py`. Registered Blackbird
+real-model resume helper must emit `REAL_MODEL_RECOVERY_OK` with
+whitespace-delimited `mode=<mode>` and `run_id=<run_id>` tokens after recovery:
+`mode=ssh-reconnect` for an SSH target or `mode=local-daemon-restart` for a
+local target. `scripts/run_remote_tests.sh` fails closed if either marker is
+absent before invoking `scripts/backend_evidence_check.py`. Registered Blackbird
 recipes use pinned backend-evidence rules. Recipe-shaped FP8/BF16 configs that
 miss those anchors fail closed with `unproven-fp8-recipe-anchors` or
 `unproven-bf16-recipe-image`; set `BACKEND_EVIDENCE_ALLOW_UNPROVEN=1` only for
@@ -231,8 +274,11 @@ The remote command invokes
 `vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
 from P620.
 
-The latest P620-to-Blackbird validation records are kept in sync with the
-README "Latest validation artifacts" list (the same commit appears in both):
+The following archived P620-to-Blackbird validation records are kept in sync
+with the README "Latest validation artifacts" list (the same commit appears in
+both). These are historical evidence: descriptions that mention a Blackbird
+daemon restart record what the older helper actually exercised and do not
+describe the current SSH-reconnect safety design:
 
 - Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-35-02Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
   covers the P620 controller to Blackbird target path, the entire 1118-test
@@ -292,7 +338,10 @@ uses the managed build/model labels shown above.
 Direct Mac to Blackbird validation is still useful for host-local checks:
 
 ```bash
-git push origin main
+branch="$(git branch --show-current)"
+git push origin "$branch"
+export VELA_REMOTE_BRANCH="$branch"
+export VELA_REMOTE_EXPECTED_SHA="$(git rev-parse HEAD)"
 VELA_REMOTE_VENV=/home/bgconley/venvs/lab-tui \
   scripts/run_remote_tests.sh bgconley@10.25.0.51 /home/bgconley/repos/lab-tui \
   qwen36-27b-fp8-kvfp8-rp6000-blackbird

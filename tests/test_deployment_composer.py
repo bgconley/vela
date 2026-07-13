@@ -1643,6 +1643,38 @@ def test_generic_docker_bare_hf_repo_model_mounts_agent_hf_cache_by_default(
     assert docker["hf_cache"] == _AGENT_HF_HOME
 
 
+def test_generic_docker_explicit_hf_cache_wins_and_is_shown_in_preview(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    custom_hf_cache = tmp_path / "operator-hf-cache"
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "custom-cache-docker",
+            "runtime": {
+                "kind": "docker",
+                "image": "vllm/vllm-openai@sha256:abc",
+                "hf_cache": str(custom_hf_cache),
+            },
+            "model": "Qwen/Qwen3-8B",
+        },
+    )
+
+    config = result["config"]
+    assert config["command"]["docker"]["hf_cache"] == str(custom_hf_cache)
+
+    preview = _call(
+        agent,
+        "preview",
+        {"config": config, "configs_dir": str(config_dir)},
+    )["preview"]
+    assert f"{custom_hf_cache}:/root/.cache/huggingface:rw" in preview
+
+
 def test_generic_docker_bare_local_path_model_has_no_auto_hf_cache_mount(
     config_dir: Path, tmp_path: Path
 ) -> None:
@@ -1709,6 +1741,30 @@ def test_fp8_recipe_docker_keeps_recipe_hf_cache_over_agent_default(
     docker = result["config"]["command"]["docker"]
     assert docker["hf_cache"] == "/home/bgconley/models/qwen36-dual-fp8-vlm/hf-cache"
     assert docker["hf_cache"] != _AGENT_HF_HOME
+
+
+def test_explicit_hf_cache_overrides_recipe_without_discarding_recipe_settings(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    custom_hf_cache = tmp_path / "operator-recipe-cache"
+    agent = LocalAgent()
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "target": "blackbird",
+            "runtime": {"kind": "docker", "hf_cache": str(custom_hf_cache)},
+            "model": "Qwen/Qwen3.6-27B-FP8",
+        },
+    )
+
+    docker = result["config"]["command"]["docker"]
+    assert docker["hf_cache"] == str(custom_hf_cache)
+    assert docker["image"] == BLACKBIRD_IMAGE
+    assert docker["env"]["FLASHINFER_CUDA_ARCH_LIST"] == "12.0f"
 
 
 def test_bf16_recipe_docker_does_not_inject_agent_hf_cache_default(

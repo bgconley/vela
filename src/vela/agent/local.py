@@ -5980,12 +5980,31 @@ def _detached_run_payload(run: LocalDetachedRun) -> dict[str, Any]:
             sidecar_payload[key] = value
     return {
         "run_id": run.run_id,
+        "started": _sidecar_started_at(sidecar),
         "config": run.config.model_dump(mode="json"),
         "sidecar": sidecar_payload,
         "fsm": {
             "vllm_version_profile": sidecar.vllm_version_profile,
         },
     }
+
+
+def _sidecar_started_at(sidecar: Sidecar) -> str:
+    """Return a controller-safe UTC run start without exposing process identity."""
+    if sidecar.runtime == "docker":
+        timestamp = sidecar.supervisor_create_time or 0.0
+    else:
+        timestamp = sidecar.process_create_time
+    if timestamp <= 0:
+        return "-"
+    try:
+        return (
+            datetime.fromtimestamp(timestamp, timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    except (OSError, OverflowError, ValueError):
+        return "-"
 
 
 def _build_payload(result: CommandBuildResult) -> dict[str, Any]:

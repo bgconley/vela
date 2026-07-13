@@ -23,6 +23,15 @@ class _Host(App):
     pass
 
 
+def test_target_edit_uses_only_canonical_palette_tokens() -> None:
+    import vela.tui.screens.target_edit as target_edit_module
+
+    for legacy in ("BAD", "TEXT"):
+        assert not hasattr(target_edit_module, legacy)
+    for canonical in ("RED", "TEXT_PRIMARY"):
+        assert hasattr(target_edit_module, canonical)
+
+
 @pytest.mark.asyncio
 async def test_target_edit_panel_uses_shared_frame_and_fits_at_80x24() -> None:
     # bug-237: the panel adopts the shared frame; the fixed `width: 96` box

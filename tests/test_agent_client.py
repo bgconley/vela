@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
@@ -2082,6 +2083,14 @@ async def test_local_agent_docker_launch_records_sidecar_and_stops_with_docker(
     sidecar = agent._detached_runs["docker-run-1"].sidecar
     assert launch["run_id"] == "docker-run-1"
     assert reattached["sidecar"]["config_name"] == "docker"
+    expected_started = datetime.fromtimestamp(
+        sidecar.supervisor_create_time or 0.0, timezone.utc
+    ).isoformat().replace("+00:00", "Z")
+    assert reattached["started"] == expected_started
+    assert reattached["started"] != "1970-01-01T00:00:00Z"
+    assert "process_create_time" not in reattached
+    assert "supervisor_create_time" not in reattached
+    assert "pid" not in reattached
     assert sidecar.runtime == "docker"
     assert sidecar.docker_container_name == "vela-qwen"
     assert sidecar.docker_container_id == "container-123"
@@ -3225,7 +3234,10 @@ async def test_target_client_discovers_and_reattaches_detached_runs_by_run_id(
         ]
     }
     assert status == reattached
+    assert status["started"] == "1970-01-01T00:00:01Z"
     assert "sidecar_path" not in status
+    assert "process_create_time" not in status
+    assert "pid" not in status
     assert "manifest" not in status
     json.dumps(status)
     json.dumps(discovered)

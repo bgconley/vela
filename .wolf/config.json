@@ -10,6 +10,10 @@
       "exclude_patterns": [
         "node_modules",
         ".git",
+        ".DS_Store",
+        ".firecrawl",
+        ".claude/settings.local.json",
+        "settings.local.json",
         "dist",
         "build",
         ".wolf",

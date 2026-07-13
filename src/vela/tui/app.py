@@ -201,6 +201,12 @@ PROGRESS_SUPPRESSED_PHASES = frozenset(
 
 # Result type for the shared _with_agent_busy RPC wrapper.
 _T = TypeVar("_T")
+
+
+class _StaleTargetOperation(RuntimeError):
+    """An abandoned target operation completed after its ownership changed."""
+
+
 WORKFLOW_PHASES = (
     Phase.STARTING,
     Phase.RESOLVING_MODEL,
@@ -569,20 +575,18 @@ class VelaApp(App):
 
     CSS = """
     Screen { layout: vertical; background: #091015; color: #e8f1f2; }
-    /* bug-237: unambiguous Checkbox states via theme tokens. Unchecked reads as
-       a dim slate block (TEXT_FAINT #56707c); checked is bright green
-       (GREEN #67e8a5) with a dark glyph (TEXT_ON_ACCENT #06120c). Default
-       Textual gives both states the SAME near-invisible background. Global so
-       every modal Checkbox (wizard Download-now, Flag Manager Changed-only, …)
-       inherits it. */
+    /* bug-237: the shared Checkbox renders literal [ ] / [✓] glyphs. Keep the
+       unchecked glyph dim and the checked glyph green everywhere (wizard
+       Download-now, Flag Manager Changed-only, and all other checkbox fields). */
     Checkbox > .toggle--button {
         color: #56707c;
-        background: #56707c;
-        text-style: bold;
+        background: transparent;
+        text-style: dim;
     }
     Checkbox.-on > .toggle--button {
-        color: #06120c;
-        background: #67e8a5;
+        color: #67e8a5;
+        background: transparent;
+        text-style: bold not dim;
     }
     #terminal-shell {
         height: 1fr;
@@ -2765,15 +2769,29 @@ class VelaApp(App):
         # OLD target so its result can't overwrite this switch's fresh state
         # (Phase-3 carry-forward).
         self._target_generation += 1
+        switch_generation = self._target_generation
+        previous_target_client = self._target_client
 
         try:
-            await self._target_client.disconnect()
+            await previous_target_client.disconnect()
         except Exception as exc:
+            if self._target_generation != switch_generation:
+                self._debug_event(
+                    "target.stale_disconnect_error_dropped",
+                    expected_generation=switch_generation,
+                    current_generation=self._target_generation,
+                    error=str(exc),
+                )
+                return
             self._debug_event(
                 "target.disconnect_failed",
                 target=self.target_name,
                 error=str(exc),
             )
+        if self._target_generation != switch_generation:
+            # A newer switch completed while this one was disconnecting the client
+            # it originally owned. Do not install this abandoned target afterward.
+            return
 
         self.target_name = target_config.name
         self._target_config = target_config
@@ -2805,17 +2823,35 @@ class VelaApp(App):
         # overlay — otherwise a slow SSH handshake is a silent wait (Part A #5).
         # _load_registry_from_agent self-guards TargetCallError (banner + empty
         # registry), so the None sentinel is defensive only.
-        registry = await self._with_agent_busy(
-            f"connecting to {self.target_name}…",
-            self._load_registry_from_agent(),
-        )
+        try:
+            registry = await self._with_agent_busy(
+                f"connecting to {self.target_name}…",
+                self._load_registry_from_agent(
+                    expected_target_generation=switch_generation,
+                ),
+            )
+        except _StaleTargetOperation:
+            return
+        if self._target_generation != switch_generation:
+            # A newer switch owns every target-backed field now. The abandoned
+            # worker may finish after its transport is disconnected, but it must
+            # not overwrite or re-banner the current target (bug-307).
+            return
         self.registry = registry if registry is not None else ConfigRegistry()
         if self.registry.valid:
             self.current_config = self.registry.valid[0].config
-            await self._refresh_selected_config_preview()
+            await self._refresh_selected_config_preview(
+                expected_target_generation=switch_generation,
+            )
+            if self._target_generation != switch_generation:
+                return
         else:
             self.config_summary = self._render_config_summary_plain()
-        await self._refresh_detached_runs()
+        await self._refresh_detached_runs(
+            expected_target_generation=switch_generation,
+        )
+        if self._target_generation != switch_generation:
+            return
         self._refresh_target_backed_views()
 
     def _refresh_target_backed_views(self) -> None:
@@ -4570,29 +4606,47 @@ class VelaApp(App):
             parts.append(str(cfg.engine.kv_cache_dtype).upper())
         return " ".join(parts)
 
-    async def _refresh_selected_config_preview(self) -> None:
+    async def _refresh_selected_config_preview(
+        self,
+        *,
+        expected_target_generation: int | None = None,
+    ) -> None:
         if self.current_config is None:
             self.selected_config_preview = ""
             self.selected_config_metadata = {}
             return
+        config = self.current_config
         try:
             result = await self._target_call(
                 "preview",
                 self._agent_params(
-                    name=self.current_config.name,
+                    name=config.name,
                     configs_dir=self.configs_dir,
                     **self._launch_overrides,
                 ),
+                expected_target_generation=expected_target_generation,
             )
+            if (
+                expected_target_generation is not None
+                and self._target_generation != expected_target_generation
+            ):
+                return
             self.selected_config_preview = str(result["preview"])
-            self._config_preview_cache[self.current_config.name] = (
+            self._config_preview_cache[config.name] = (
                 self.selected_config_preview
             )
             metadata = result.get("metadata")
             self.selected_config_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        except _StaleTargetOperation:
+            return
         except TargetCallError as exc:
+            if (
+                expected_target_generation is not None
+                and self._target_generation != expected_target_generation
+            ):
+                return
             self.selected_config_preview = f"Preview unavailable: {exc}"
-            self._config_preview_cache[self.current_config.name] = (
+            self._config_preview_cache[config.name] = (
                 self.selected_config_preview
             )
             self.selected_config_metadata = {}
@@ -4629,7 +4683,10 @@ class VelaApp(App):
                     configs_dir=self.configs_dir,
                     **self._launch_overrides,
                 ),
+                expected_target_generation=generation,
             )
+        except _StaleTargetOperation:
+            return
         except TargetCallError as exc:
             preview = f"Preview unavailable: {exc}"
             metadata: dict[str, Any] = {}
@@ -4658,18 +4715,26 @@ class VelaApp(App):
         except WIDGET_MISSING_EXCEPTIONS:
             return
 
-    async def _load_registry_from_agent(self) -> ConfigRegistry:
+    async def _load_registry_from_agent(
+        self,
+        *,
+        expected_target_generation: int | None = None,
+    ) -> ConfigRegistry:
         try:
             result = await self._target_call(
                 "list_configs",
                 self._agent_params(configs_dir=self.configs_dir),
+                expected_target_generation=expected_target_generation,
             )
         except TargetCallError as exc:
             # Any agent error at registry load is a connection-surface problem, never a
             # reason to crash the TUI out of on_mount (bug-233). Route every code through
             # the same connection-error banner + empty-registry sentinel that the
             # version-mismatch / agent-unreachable codes already used.
-            self._mark_target_connection_error(exc)
+            self._mark_target_connection_error_if_current(
+                exc,
+                expected_target_generation=expected_target_generation,
+            )
             return ConfigRegistry()
         return _config_registry_from_agent_payload(result)
 
@@ -4693,19 +4758,46 @@ class VelaApp(App):
         params["terminate_timeout"] = 2
         return params
 
-    async def _ensure_target_client_connected(self) -> None:
+    async def _ensure_target_client_connected(
+        self,
+        *,
+        expected_target_generation: int | None = None,
+        expected_target_client: Any | None = None,
+    ) -> None:
+        target_client = (
+            self._target_client
+            if expected_target_client is None
+            else expected_target_client
+        )
+        self._raise_if_target_operation_stale(
+            expected_target_generation=expected_target_generation,
+            expected_target_client=target_client,
+        )
         agent_restarted = False
-        if not getattr(self._target_client, "connected", False):
+        if not getattr(target_client, "connected", False):
             self.target_connection_state = (
                 "reconnecting" if self._target_has_connected_once else "connecting"
             )
             self._refresh_chrome()
             try:
-                agent_info = await self._target_client.connect()
+                agent_info = await target_client.connect()
             except TargetCallError as exc:
-                self._mark_target_connection_error(exc)
+                self._raise_if_target_operation_stale(
+                    expected_target_generation=expected_target_generation,
+                    expected_target_client=target_client,
+                    error=exc,
+                )
+                self._mark_target_connection_error_if_current(
+                    exc,
+                    expected_target_generation=expected_target_generation,
+                )
                 raise
             except Exception as exc:
+                self._raise_if_target_operation_stale(
+                    expected_target_generation=expected_target_generation,
+                    expected_target_client=target_client,
+                    error=exc,
+                )
                 self.target_connection_state = "unreachable"
                 self.target_connection_detail = str(exc)
                 self._refresh_chrome()
@@ -4714,6 +4806,10 @@ class VelaApp(App):
                     style=f"bold {BAD}",
                 )
                 raise
+            self._raise_if_target_operation_stale(
+                expected_target_generation=expected_target_generation,
+                expected_target_client=target_client,
+            )
             if isinstance(agent_info, dict):
                 self._target_agent_info = dict(agent_info)
                 self._target_last_seen_at = _target_seen_timestamp(agent_info)
@@ -4735,6 +4831,10 @@ class VelaApp(App):
                             daemon_start_ts=daemon_start_ts,
                         )
                     self._target_daemon_start_ts = daemon_start_ts
+        self._raise_if_target_operation_stale(
+            expected_target_generation=expected_target_generation,
+            expected_target_client=target_client,
+        )
         self._target_has_connected_once = True
         self.target_connection_state = "connected"
         self.target_connection_detail = (
@@ -4742,7 +4842,9 @@ class VelaApp(App):
         )
         self._refresh_chrome()
         if agent_restarted:
-            await self._refresh_detached_runs()
+            await self._refresh_detached_runs(
+                expected_target_generation=expected_target_generation,
+            )
 
     def _mark_target_connection_error(self, exc: TargetCallError) -> None:
         if exc.code == "version-mismatch":
@@ -4765,6 +4867,51 @@ class VelaApp(App):
             style=f"bold {BAD}",
         )
 
+    def _mark_target_connection_error_if_current(
+        self,
+        exc: TargetCallError,
+        *,
+        expected_target_generation: int | None,
+    ) -> bool:
+        """Render ``exc`` only when it belongs to the current target generation."""
+        if (
+            expected_target_generation is not None
+            and expected_target_generation != self._target_generation
+        ):
+            self._debug_event(
+                "target.stale_connection_error_dropped",
+                expected_generation=expected_target_generation,
+                current_generation=self._target_generation,
+                error=str(exc),
+            )
+            return False
+        self._mark_target_connection_error(exc)
+        return True
+
+    def _raise_if_target_operation_stale(
+        self,
+        *,
+        expected_target_generation: int | None,
+        expected_target_client: Any,
+        error: Exception | None = None,
+    ) -> None:
+        """Stop an old generation/client from mutating the current target state."""
+        generation_changed = (
+            expected_target_generation is not None
+            and expected_target_generation != self._target_generation
+        )
+        client_changed = self._target_client is not expected_target_client
+        if not generation_changed and not client_changed:
+            return
+        self._debug_event(
+            "target.stale_operation_dropped",
+            expected_generation=expected_target_generation,
+            current_generation=self._target_generation,
+            client_changed=client_changed,
+            error=str(error) if error is not None else "",
+        )
+        raise _StaleTargetOperation("target operation no longer owns current state")
+
     def _target_is_local_socket(self) -> bool:
         return (
             self._target_config.transport is TransportKind.LOCAL
@@ -4785,10 +4932,35 @@ class VelaApp(App):
             self.notify(banner, severity="warning", timeout=12.0)
 
     async def _target_call(
-        self, method: str, params: dict[str, Any] | None = None
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        expected_target_generation: int | None = None,
     ) -> dict[str, Any]:
-        await self._ensure_target_client_connected()
-        return await self._target_client.call(method, params)
+        target_client = self._target_client
+        await self._ensure_target_client_connected(
+            expected_target_generation=expected_target_generation,
+            expected_target_client=target_client,
+        )
+        self._raise_if_target_operation_stale(
+            expected_target_generation=expected_target_generation,
+            expected_target_client=target_client,
+        )
+        try:
+            result = await target_client.call(method, params)
+        except Exception as exc:
+            self._raise_if_target_operation_stale(
+                expected_target_generation=expected_target_generation,
+                expected_target_client=target_client,
+                error=exc,
+            )
+            raise
+        self._raise_if_target_operation_stale(
+            expected_target_generation=expected_target_generation,
+            expected_target_client=target_client,
+        )
+        return result
 
     async def _with_agent_busy(self, verb: str, awaitable: Awaitable[_T]) -> _T | None:
         """Run an agent RPC (or compound coroutine) behind the busy badge.
@@ -4877,20 +5049,42 @@ class VelaApp(App):
         )
 
     async def _target_keepalive_once(self) -> None:
+        # A keepalive tick owns the target generation and client it starts with.
+        # Capture them before the first await so a delayed reconnect/ping cannot
+        # mutate or disconnect a newer target selected while it was in flight.
+        generation = self._target_generation
+        target_client = self._target_client
         # Capture the state BEFORE _ensure_target_client_connected, which sets it
         # to "connected" on a successful reconnect — so the else-branch can still
         # tell a non-connected -> connected FLIP from a steady-state ping.
         was_connected = self.target_connection_state == "connected"
         try:
-            await self._ensure_target_client_connected()
+            await self._ensure_target_client_connected(
+                expected_target_generation=generation,
+                expected_target_client=target_client,
+            )
             ping = await asyncio.wait_for(
-                self._target_client.ping(),
+                target_client.ping(),
                 timeout=self._target_ping_timeout_seconds,
             )
+            self._raise_if_target_operation_stale(
+                expected_target_generation=generation,
+                expected_target_client=target_client,
+            )
+        except _StaleTargetOperation:
+            return
         except asyncio.TimeoutError:
-            await self._mark_target_disconnected("ping timeout")
+            await self._mark_target_disconnected(
+                "ping timeout",
+                expected_target_generation=generation,
+                expected_target_client=target_client,
+            )
         except Exception as exc:
-            await self._mark_target_disconnected(str(exc))
+            await self._mark_target_disconnected(
+                str(exc),
+                expected_target_generation=generation,
+                expected_target_client=target_client,
+            )
         else:
             if isinstance(ping, dict):
                 self._target_last_seen_at = _target_seen_timestamp(ping)
@@ -4901,9 +5095,12 @@ class VelaApp(App):
                 # changed while the link was down) and re-render the target-backed
                 # views so a frozen offline card is replaced, not just chrome
                 # (bug-253). _load_registry_from_agent self-guards TargetCallError.
-                generation = self._target_generation
                 try:
-                    registry = await self._load_registry_from_agent()
+                    registry = await self._load_registry_from_agent(
+                        expected_target_generation=generation,
+                    )
+                except _StaleTargetOperation:
+                    return
                 except RuntimeError as exc:
                     # A concurrent _switch_target's disconnect() can fail this in-flight
                     # list_configs future with RuntimeError (transport/socket.py:143);
@@ -4913,7 +5110,10 @@ class VelaApp(App):
                     # prevents stale state from a switch that lands mid-reload (bug-301).
                     self._debug_event("keepalive.registry_reload_link_failed", error=str(exc))
                     return
-                if self._target_generation != generation:
+                if (
+                    self._target_generation != generation
+                    or self._target_client is not target_client
+                ):
                     # A target switch landed during the reload await; discard the
                     # stale result so it can't overwrite the switch's fresh state
                     # (Phase-3 carry-forward).
@@ -4928,7 +5128,25 @@ class VelaApp(App):
             else:
                 self._refresh_chrome()
 
-    async def _mark_target_disconnected(self, detail: str) -> None:
+    async def _mark_target_disconnected(
+        self,
+        detail: str,
+        *,
+        expected_target_generation: int | None = None,
+        expected_target_client: Any | None = None,
+    ) -> None:
+        target_client = (
+            self._target_client
+            if expected_target_client is None
+            else expected_target_client
+        )
+        try:
+            self._raise_if_target_operation_stale(
+                expected_target_generation=expected_target_generation,
+                expected_target_client=target_client,
+            )
+        except _StaleTargetOperation:
+            return
         self.target_connection_state = "disconnected"
         self.target_connection_detail = detail
         # Re-render the whole target-backed dashboard (not just chrome) so the
@@ -4938,14 +5156,29 @@ class VelaApp(App):
         # An open Target Manager must render the drop truthfully too (bug-257).
         self._refresh_open_target_manager()
         try:
-            await self._target_client.disconnect()
+            await target_client.disconnect()
         except Exception:
             return
 
-    async def _refresh_detached_runs(self) -> None:
+    async def _refresh_detached_runs(
+        self,
+        *,
+        expected_target_generation: int | None = None,
+    ) -> None:
         try:
-            result = await self._target_call("discover_runs", {})
+            result = await self._target_call(
+                "discover_runs",
+                {},
+                expected_target_generation=expected_target_generation,
+            )
+        except _StaleTargetOperation:
+            return
         except Exception as exc:
+            if (
+                expected_target_generation is not None
+                and self._target_generation != expected_target_generation
+            ):
+                return
             self.detached_run_summaries = []
             self._debug_event("detached.discovery_failed", error=str(exc))
             return
