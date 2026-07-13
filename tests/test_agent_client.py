@@ -2658,6 +2658,64 @@ def test_local_agent_passes_typed_resource_identity_to_detached_supervisor(
     assert seen["vllm_version_profile"] == "0.11"
 
 
+def test_local_agent_passes_all_secret_environment_values_to_log_scrubbing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_start_detached(_cfg, _build, **kwargs):
+        seen.update(kwargs)
+        return DetachedLaunch(
+            run_id="run-secret-scrub",
+            supervisor_pid=123,
+            sidecar_path=tmp_path / "run-secret-scrub.json",
+            manifest_path=tmp_path / "run-secret-scrub.manifest.json",
+            log_path=tmp_path / "run-secret-scrub.run.log",
+        )
+
+    monkeypatch.setattr(local_agent_module, "start_detached", fake_start_detached)
+    model_cfg = ModelConfig.model_validate(
+        {
+            "name": "secret-scrub",
+            "model": "org/model",
+            "env": {"TOP_PASSWORD": "top-secret"},
+            "server": {"api_key": "sk-server"},
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "env": {"SERVICE_SECRET": "docker-secret"},
+                },
+            },
+            "launch": {"runs_dir": str(tmp_path)},
+        }
+    )
+    prepared = {
+        "config": model_cfg.model_dump(mode="json"),
+        "build": {
+            "argv": ["docker", "run", "vllm/vllm-openai@sha256:abc"],
+            "env": {
+                "TOP_PASSWORD": "top-secret",
+                "SERVICE_SECRET": "docker-secret",
+                "SAFE_SETTING": "visible",
+            },
+            "cwd": str(tmp_path),
+            "warnings": [],
+            "preview": "",
+            "metadata": {
+                "runtime": "docker",
+                "vllm_version": "0.20.0",
+                "vllm_version_profile": "current",
+            },
+        },
+    }
+
+    LocalAgent()._spawn_detached_supervisor(prepared, run_id="run-secret-scrub")
+
+    assert seen["secrets"] == ["sk-server", "top-secret", "docker-secret"]
+
+
 @pytest.mark.asyncio
 async def test_target_client_detached_launch_can_reattach_by_run_id(
     config_dir: Path,
@@ -7439,7 +7497,7 @@ def test_download_hf_model_clears_stale_last_download_on_matching_download(
 def test_pin_model_bare_repin_upserts_explicit_main_pin(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_registry_module.pin_model(
-        {"repo_id": "org/repo", "commit_sha": "aaa111", "revision": "main"},
+        {"repo_id": "org/repo", "commit_sha": "abc123", "revision": "main"},
         registry_path,
     )
     second = model_registry_module.pin_model(
@@ -7453,7 +7511,7 @@ def test_pin_model_bare_repin_upserts_explicit_main_pin(tmp_path: Path) -> None:
 def test_model_ref_still_resolves_after_bare_repin_of_main_pin(tmp_path: Path) -> None:
     registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
     model_registry_module.pin_model(
-        {"repo_id": "org/repo", "commit_sha": "aaa111", "revision": "main"},
+        {"repo_id": "org/repo", "commit_sha": "abc123", "revision": "main"},
         registry_path,
     )
     model_registry_module.pin_model(
@@ -7624,6 +7682,127 @@ def test_pin_model_with_commit_sha_still_detects_gating(
     assert entry["commit_sha"] == "pinned123"
     assert calls == [{"repo_id": "org/gated", "revision": None}]
     assert pinned["entry"]["token_required"] is True
+
+
+def test_pin_model_rejects_revision_and_commit_sha_that_do_not_correspond(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    calls: list[tuple[str, str | None]] = []
+
+    def mismatched_info(repo_id: str, revision: str | None = None) -> object:
+        calls.append((repo_id, revision))
+        return SimpleNamespace(sha="resolved999", gated=False)
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", mismatched_info)
+
+    with pytest.raises(model_registry_module.ModelRegistryError) as exc_info:
+        model_registry_module.pin_model(
+            {
+                "entry_id": "requested-pin",
+                "repo_id": "org/repo",
+                "revision": "release-v2",
+                "commit_sha": "pinned123",
+            },
+            registry_path,
+        )
+
+    assert calls == [("org/repo", "release-v2")]
+    assert exc_info.value.code == "invalid-config"
+    assert exc_info.value.message == (
+        "revision release-v2 for org/repo resolves to resolved999, "
+        "not supplied commit pinned123"
+    )
+    assert exc_info.value.details == {
+        "model_ref": "requested-pin",
+        "repo_id": "org/repo",
+        "revision": "release-v2",
+        "supplied_commit_sha": "pinned123",
+        "resolved_commit_sha": "resolved999",
+        "reason": "revision-commit-mismatch",
+    }
+
+
+def test_pin_model_accepts_revision_and_commit_sha_proven_online(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    calls: list[tuple[str, str | None]] = []
+
+    def matching_info(repo_id: str, revision: str | None = None) -> object:
+        calls.append((repo_id, revision))
+        return SimpleNamespace(sha="pinned123", gated=False)
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", matching_info)
+    pinned = model_registry_module.pin_model(
+        {
+            "repo_id": "org/repo",
+            "revision": "release-v2",
+            "commit_sha": "pinned123",
+        },
+        registry_path,
+    )
+
+    assert calls == [("org/repo", "release-v2")]
+    assert pinned["entry"]["revision"] == "release-v2"
+    assert pinned["entry"]["commit_sha"] == "pinned123"
+    assert pinned["entry"].get("validated", True) is True
+
+
+def test_pin_model_rejects_unverified_revision_and_commit_sha_online(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def network_boom(repo_id: str, revision: str | None = None) -> object:
+        raise RuntimeError("ConnectTimeout: network timed out")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", network_boom)
+
+    with pytest.raises(model_registry_module.ModelRegistryError) as exc_info:
+        model_registry_module.pin_model(
+            {
+                "entry_id": "requested-pin",
+                "repo_id": "org/repo",
+                "revision": "release-v2",
+                "commit_sha": "pinned123",
+            },
+            registry_path,
+        )
+
+    assert exc_info.value.code == "model-unavailable"
+    assert "unable to verify revision release-v2" in exc_info.value.message
+    assert exc_info.value.details == {
+        "model_ref": "requested-pin",
+        "repo_id": "org/repo",
+        "revision": "release-v2",
+        "supplied_commit_sha": "pinned123",
+        "reason": "revision-commit-unverified",
+    }
+
+
+def test_pin_model_offline_preserves_unverified_revision_and_commit_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+
+    def boom(repo_id: str, revision: str | None = None) -> object:
+        raise AssertionError("offline pin must not resolve")
+
+    monkeypatch.setattr(model_registry_module, "_hf_model_info", boom)
+    pinned = model_registry_module.pin_model(
+        {
+            "repo_id": "org/repo",
+            "revision": "release-v2",
+            "commit_sha": "pinned123",
+            "offline": "true",
+        },
+        registry_path,
+    )
+
+    assert pinned["entry"]["revision"] == "release-v2"
+    assert pinned["entry"]["commit_sha"] == "pinned123"
+    assert pinned["entry"]["validated"] is False
 
 
 def test_pin_model_offline_skips_resolution_and_marks_unvalidated(
@@ -9964,6 +10143,242 @@ async def test_agent_prepare_launch_resolves_hf_model_ref_handoff(
 
 
 @pytest.mark.asyncio
+async def test_agent_prepare_launch_rejects_saved_revision_after_model_ref_repin(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "bbb222",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "repinned-model.yaml",
+        """
+        name: repinned-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01MODEL
+        revision: aaa111
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "repinned-model", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert exc_info.value.code == "model-unavailable"
+    assert exc_info.value.details == {
+        "model_ref": "01MODEL",
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "saved_revision": "aaa111",
+        "pinned_revision": "main",
+        "commit_sha": "bbb222",
+        "cache_state": "cached",
+        "reason": "revision-mismatch",
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_preflight_reports_saved_revision_after_model_ref_repin(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "bbb222",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "repinned-model.yaml",
+        """
+        name: repinned-model
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01MODEL
+        revision: aaa111
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        result = await client.call(
+            "preflight",
+            {"name": "repinned-model", "configs_dir": str(config_dir)},
+        )
+    finally:
+        await client.disconnect()
+
+    assert result["ok"] is False
+    assert result["warnings"] == []
+    assert result["failures"] == [
+        {
+            "kind": ErrorKind.MODEL_NOT_FOUND.value,
+            "detail": (
+                "saved model revision aaa111 does not match model_ref 01MODEL "
+                "(current commit bbb222, pin main); re-pin or update the saved profile"
+            ),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_symbolic_saved_revision_does_not_mask_same_ref_repin(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "bbb222",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "symbolic-before-repin.yaml",
+        f"""
+        name: symbolic-before-repin
+        model: meta-llama/Llama-3.1-8B-Instruct
+        model_ref: 01MODEL
+        revision: main
+        server:
+          port: {unused_tcp_port}
+        """,
+    )
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        preview = await client.call(
+            "preview",
+            {"name": "symbolic-before-repin", "configs_dir": str(config_dir)},
+        )
+        preflight = await client.call(
+            "preflight",
+            {"name": "symbolic-before-repin", "configs_dir": str(config_dir)},
+        )
+        with pytest.raises(TargetCallError) as exc_info:
+            await client.call(
+                "prepare_launch",
+                {"name": "symbolic-before-repin", "configs_dir": str(config_dir)},
+            )
+    finally:
+        await client.disconnect()
+
+    assert preview["metadata"]["model_cache_state"] == "revision-mismatch"
+    assert preview["metadata"]["model_cached_commit_sha"] == "bbb222"
+    assert preflight["ok"] is False
+    assert preflight["warnings"] == []
+    assert preflight["failures"][0]["kind"] == ErrorKind.MODEL_NOT_FOUND.value
+    assert "saved model revision main" in preflight["failures"][0]["detail"]
+    assert "current commit bbb222" in preflight["failures"][0]["detail"]
+    assert exc_info.value.code == "model-unavailable"
+    assert exc_info.value.details["saved_revision"] == "main"
+    assert exc_info.value.details["commit_sha"] == "bbb222"
+
+
+@pytest.mark.asyncio
+async def test_agent_preview_does_not_claim_repin_cache_for_revision_override(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01MODEL",
+                        "display_name": "llama-pin",
+                        "source": "hf_repo",
+                        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+                        "revision": "main",
+                        "commit_sha": "bbb222",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_yaml(
+        config_dir / "model-override.yaml",
+        """
+        name: model-override
+        model: meta-llama/Llama-3.1-8B-Instruct
+        """,
+    )
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        preview = await client.call(
+            "preview",
+            {
+                "name": "model-override",
+                "configs_dir": str(config_dir),
+                "model_ref": "01MODEL",
+                "revision": "aaa111",
+            },
+        )
+    finally:
+        await client.disconnect()
+
+    assert preview["metadata"]["model_revision"] == "aaa111"
+    assert preview["metadata"]["model_cache_state"] == "revision-mismatch"
+    assert preview["metadata"]["model_cached_commit_sha"] == "bbb222"
+
+
+@pytest.mark.asyncio
 async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override(
     config_dir: Path, tmp_path: Path, unused_tcp_port: int
 ) -> None:
@@ -10024,6 +10439,103 @@ async def test_agent_prepare_launch_uses_request_model_ref_and_revision_override
     assert prepared["config"]["model_ref"] == "01MODEL"
     assert prepared["config"]["revision"] == "release-v2"
     json.dumps(prepared)
+
+
+@pytest.mark.asyncio
+async def test_request_model_ref_switches_repo_across_full_launch_pipeline(
+    config_dir: Path, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    """A one-shot registry selection must replace the saved model identity.
+
+    The TUI intentionally sends only the selected ``model_ref`` and, when
+    present, its revision.
+    Keeping the saved config's repository would either reject the handoff as a
+    mismatch or, worse, make the preview and launch disagree about the model.
+    Exercise every RPC used by the launch workflow against the real LocalAgent.
+    """
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "entry_id": "01REPLACEMENT",
+                        "display_name": "replacement-pin",
+                        "source": "hf_repo",
+                        "repo_id": "org/replacement",
+                        "revision": "main",
+                        "commit_sha": "bbb222",
+                        "cache_state": "cached",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured_argv = tmp_path / "captured-argv.json"
+    child = tmp_path / "capture-child.py"
+    child.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import os\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "Path(os.environ['CAPTURE_PATH']).write_text(json.dumps(sys.argv[1:]))\n",
+        encoding="utf-8",
+    )
+    child.chmod(0o755)
+    write_yaml(
+        config_dir / "model-switch.yaml",
+        f"""
+        name: model-switch
+        model: org/original
+        revision: aaa111
+        command:
+          entrypoint: serve
+          executable: {child}
+        server:
+          port: {unused_tcp_port}
+        env:
+          CAPTURE_PATH: {captured_argv}
+        launch:
+          runs_dir: {tmp_path / "runs"}
+        """,
+    )
+    request = {
+        "name": "model-switch",
+        "configs_dir": str(config_dir),
+        "model_ref": "01REPLACEMENT",
+    }
+
+    client = InProcessTargetClient(LocalAgent(models_registry_path=registry_path))
+    await client.connect()
+    try:
+        preview = await client.call("preview", request)
+        preflight = await client.call("preflight", request)
+        prepared = await client.call("prepare_launch", request)
+        launched = await client.call("launch", request)
+        waited = await client.call("wait", {"run_id": launched["run_id"]})
+    finally:
+        await client.disconnect()
+
+    assert preview["metadata"]["model_repo_id"] == "org/replacement"
+    assert "serve org/replacement" in preview["preview"]
+    assert preflight == {"ok": True, "failures": [], "warnings": []}
+    assert prepared["config"]["model"] == "org/replacement"
+    assert prepared["config"]["model_ref"] == "01REPLACEMENT"
+    assert prepared["config"]["revision"] == "bbb222"
+    assert prepared["build"]["argv"][:3] == [
+        str(child),
+        "serve",
+        "org/replacement",
+    ]
+    assert waited["returncode"] == 0
+    assert json.loads(captured_argv.read_text(encoding="utf-8"))[:2] == [
+        "serve",
+        "org/replacement",
+    ]
 
 
 @pytest.mark.asyncio
@@ -13861,6 +14373,11 @@ async def test_target_client_reads_stopped_run_artifact_from_config_runs_dir(
         docker_container_name="qwen36",
         docker_container_id="container-1",
         docker_image_digest="sha256:abc",
+        model_ref="01ARTIFACT",
+        model_entry_id="01ARTIFACT",
+        model_repo_id="Qwen/Qwen3.6-27B-FP8",
+        model_revision="release-v1",
+        model_commit_sha="abc123",
     ).write_atomic(sidecar_path)
     write_yaml(
         config_dir / "artifact-run.yaml",
@@ -13891,6 +14408,21 @@ async def test_target_client_reads_stopped_run_artifact_from_config_runs_dir(
     assert result["config"] == config_snapshot
     assert "Selected CutlassFp8BlockScaledMMKernel" in result["log_text"]
     assert "AttentionBackendEnum.FLASHINFER" in result["log_text"]
+    assert result["identity"] == {
+        "config_name": "artifact-run",
+        "model_ref": "01ARTIFACT",
+        "model_entry_id": "01ARTIFACT",
+        "model_repo_id": "Qwen/Qwen3.6-27B-FP8",
+        "model_revision": "release-v1",
+        "model_commit_sha": "abc123",
+        "served_model_names": ["qwen36"],
+        "runtime": "docker",
+        "docker_container_name": "qwen36",
+        "docker_container_id": "container-1",
+        "docker_image_digest": "sha256:abc",
+    }
+    assert "command_argv" not in result["identity"]
+    assert "api_key" not in json.dumps(result["identity"])
     json.dumps(result)
 
 

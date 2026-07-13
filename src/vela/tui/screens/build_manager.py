@@ -285,7 +285,7 @@ class BuildManagerScreen(ModalScreen):
 
 
 def _build_reference(build: dict[str, Any]) -> str:
-    return str(build.get("label") or build.get("build_id") or "")
+    return str(build.get("build_id") or build.get("label") or "")
 
 
 def _build_label(build: dict[str, Any]) -> str:

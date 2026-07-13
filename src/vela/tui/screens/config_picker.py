@@ -63,12 +63,14 @@ class ConfigPickerScreen(ModalScreen):
         preview_cache: dict[str, str] | None = None,
         *,
         connection_state: str = "connected",
+        current_config_name: str | None = None,
     ) -> None:
         super().__init__(id="config-picker")
         self.registry = registry
         self.preview_cache = {} if preview_cache is None else preview_cache
         self.connection_state = connection_state
-        self.selected_index = 0
+        self.current_config_name = current_config_name
+        self.selected_index = self._preferred_index(list(self.registry.valid))
         self.summary = ""
         self.filter_text = ""
         self._selected_line: int | None = None
@@ -91,7 +93,7 @@ class ConfigPickerScreen(ModalScreen):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self.filter_text = event.value
-        self.selected_index = 0
+        self.selected_index = self._preferred_index(self._filtered_valid())
         self._refresh()
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
@@ -143,8 +145,10 @@ class ConfigPickerScreen(ModalScreen):
         header_offset = len(rows)
         for index, item in enumerate(configs):
             selected = index == self.selected_index
+            current = item.config.name == self.current_config_name
             marker = ">" if selected else " "
-            line = f"{marker} {item.config.name}  {item.config.model}"
+            current_label = "  [current]" if current else ""
+            line = f"{marker} {item.config.name}  {item.config.model}{current_label}"
             rows.append((line, f"bold {ACCENT}" if selected else None))
             if selected:
                 self._selected_line = header_offset + index
@@ -221,6 +225,13 @@ class ConfigPickerScreen(ModalScreen):
             for item in self.registry.valid
             if _fuzzy_match(needle, f"{item.config.name} {item.config.model}".casefold())
         ]
+
+    def _preferred_index(self, configs: list[ValidConfig]) -> int:
+        if self.current_config_name is not None:
+            for index, item in enumerate(configs):
+                if item.config.name == self.current_config_name:
+                    return index
+        return 0
 
 
 def _fuzzy_match(needle: str, haystack: str) -> bool:

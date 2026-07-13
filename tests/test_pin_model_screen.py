@@ -143,6 +143,7 @@ async def test_pin_model_helpers_footer_and_gated_note() -> None:
         hints = screen.query_one("#pin-model-footer", KeyHintBar)._hints
         assert ("Ctrl+R", "Advanced") in hints
         assert ("⏎", "Pin") in hints
+        assert ("Ctrl+S", "Pin") in hints
         note = str(screen.query_one("#pin-model-gated-note", Static).content)
         assert "huggingface.co" in note
         assert "agent env or config env" in note
@@ -150,6 +151,31 @@ async def test_pin_model_helpers_footer_and_gated_note() -> None:
         assert "target: gpu-node" in str(
             screen.query_one("#pin-model-target", Static).content
         )
+
+
+@pytest.mark.asyncio
+async def test_pin_model_ctrl_s_dispatches_submit_action() -> None:
+    class TrackingPinModelScreen(PinModelScreen):
+        submit_calls = 0
+
+        def action_submit(self) -> None:
+            self.submit_calls += 1
+
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = TrackingPinModelScreen()
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert screen.submit_calls == 1
+        binding_keys = {
+            binding.key if hasattr(binding, "key") else binding[0]
+            for binding in PinModelScreen.BINDINGS
+        }
+        assert "ctrl+s" in binding_keys
 
 
 @pytest.mark.asyncio

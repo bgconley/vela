@@ -29,7 +29,7 @@ from vela.tui.theme import (
 from vela.tui.widgets import KeyHintBar, pack_hint_rows, source_tag
 
 _FOOTER_HINTS = [
-    ("⏎", "Select"),
+    ("⏎", "Use once"),
     ("d", "Download"),
     ("p", "Pin"),
     ("r", "Refresh"),
@@ -98,7 +98,7 @@ class ModelManagerScreen(ModalScreen):
     BINDINGS = [
         ("up", "previous", "Previous"),
         ("down", "next", "Next"),
-        ("enter", "accept", "Select"),
+        ("enter", "accept", "Use once"),
         ("d", "download", "Download"),
         ("p", "pin", "Pin"),
         Binding("r", "refresh_models", "Refresh", priority=True),
@@ -360,7 +360,7 @@ def _model_download_payload(model: dict[str, Any]) -> dict[str, Any]:
 
 
 def _model_selection_payload(model: dict[str, Any]) -> dict[str, Any]:
-    payload = _model_action_payload("select_model", model)
+    payload = _model_action_payload("use_model_once", model)
     revision = model.get("commit_sha") or model.get("revision")
     if isinstance(revision, str) and revision.strip():
         payload["revision"] = revision.strip()

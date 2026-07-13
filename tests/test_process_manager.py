@@ -197,6 +197,35 @@ def test_config_snapshot_scrubs_generic_secret_patterns(tmp_path: Path) -> None:
     assert explicit_cwd["command"]["cwd"] == str(tmp_path)
 
 
+def test_config_snapshot_scrubs_nested_docker_environment_secrets() -> None:
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "docker-secrets",
+            "model": "fake/model",
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "env": {
+                        "DB_PASSWORD": "hunter2",
+                        "SERVICE_SECRET": "opaque",
+                        "AUTH_HEADER": "Bearer private",
+                        "SAFE_SETTING": "visible",
+                    },
+                },
+            },
+        }
+    )
+
+    snapshot = _scrub_config_snapshot(cfg, secrets=[])
+    text = json.dumps(snapshot, ensure_ascii=False)
+
+    assert snapshot["command"]["docker"]["env"] == {"SAFE_SETTING": "visible"}
+    assert "hunter2" not in text
+    assert "opaque" not in text
+    assert "Bearer private" not in text
+
+
 def test_config_snapshot_omits_empty_vllm_provenance_fields() -> None:
     cfg = ModelConfig.model_validate({"name": "detached", "model": "fake/model"})
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+import platform
 import re
 import shutil
 import socket
@@ -32,6 +33,8 @@ def check_launch_preflight(
     expected_download_bytes: int | None = None,
 ) -> LaunchPreflightFailure | None:
     cwd = cwd or Path.cwd()
+    if hostname_mismatch := required_hostname_mismatch(cfg):
+        return LaunchPreflightFailure(ErrorKind.CONFIG_INVALID, hostname_mismatch)
     if missing_model_path := missing_local_model_path(cfg, cwd=cwd):
         return LaunchPreflightFailure(
             ErrorKind.MODEL_NOT_FOUND, f"Local model path not found: {missing_model_path}"
@@ -50,6 +53,21 @@ def check_launch_preflight(
         if detail := hf_cache_download_disk_detail(hf_cache_dir, expected_download_bytes):
             return LaunchPreflightFailure(ErrorKind.DISK_FULL, detail)
     return None
+
+
+def required_hostname_mismatch(cfg: ModelConfig) -> str | None:
+    required = cfg.launch.required_hostname
+    if required is None:
+        return None
+    current = platform.node().strip()
+    current_short = current.split(".", 1)[0]
+    required_short = required.strip().split(".", 1)[0]
+    if current_short.casefold() == required_short.casefold():
+        return None
+    return (
+        f"Profile {cfg.name} requires target hostname {required}; current hostname is "
+        f"{current or 'unknown'}. Select the intended target before launch."
+    )
 
 
 def missing_local_model_path(cfg: ModelConfig, *, cwd: Path) -> Path | None:

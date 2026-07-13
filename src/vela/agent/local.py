@@ -97,7 +97,7 @@ from vela.engine.model_registry import (
     verify_model,
 )
 from vela.engine.phases import ErrorKind, Phase, PhaseFSM
-from vela.engine.preflight import check_launch_preflight
+from vela.engine.preflight import check_launch_preflight, required_hostname_mismatch
 from vela.engine.process_manager import (
     DetachedLaunch,
     start_detached,
@@ -108,6 +108,7 @@ from vela.engine.profile import (
     select_profile,
     select_profile_for_config,
 )
+from vela.engine.redaction import is_secret_key
 from vela.engine.redaction import scrub_text as scrub_secret_text
 from vela.engine.sidecar import (
     Manifest,
@@ -210,15 +211,6 @@ JobRunner = Callable[
 # Patchable for tests; the real install is pip-into-the-agent-env (J37).
 _INSTALL_UV_ARGV = [sys.executable, "-m", "pip", "install", "--upgrade", "uv"]
 
-JOB_SECRET_ENV_MARKERS = (
-    "TOKEN",
-    "KEY",
-    "SECRET",
-    "AUTH",
-    "PASSWORD",
-    "PASS",
-    "CREDENTIAL",
-)
 URL_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+")
 BUILD_INSTALL_PHASE_RULES: tuple[tuple[re.Pattern[str], BuildPhase], ...] = (
     (
@@ -826,6 +818,7 @@ class LocalAgent:
                 models_registry_path=self._models_registry_path,
                 occupied_ports=self._occupied_port_sources(),
                 occupied_container_names=occupied_container_names,
+                hostname=platform.node(),
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -886,6 +879,7 @@ class LocalAgent:
                 models_registry_path=self._models_registry_path,
                 occupied_ports=self._occupied_port_sources(),
                 occupied_container_names=occupied_container_names,
+                hostname=platform.node(),
             )
         except Exception as exc:
             raise TargetCallError("compose-invalid", str(exc)) from exc
@@ -908,7 +902,8 @@ class LocalAgent:
         target = params.get("target")
         return {
             "recipes": list_deployment_recipes(
-                str(target) if isinstance(target, str) and target.strip() else None
+                str(target) if isinstance(target, str) and target.strip() else None,
+                hostname=platform.node(),
             )
         }
 
@@ -1302,10 +1297,20 @@ class LocalAgent:
         name = _config_name_param(params, method="prepare_launch")
         registry = load_registry(_configs_dir(params))
         self._remember_registry_runs_dirs(registry)
-        cfg = self._config_with_request_overrides(
-            _config_by_name(registry, name, configs_dir=_configs_dir(params)), params
-        )
+        saved_cfg = _config_by_name(registry, name, configs_dir=_configs_dir(params))
+        if not _params_override_model_identity(params):
+            self._validate_saved_model_revision(saved_cfg)
+        cfg = self._config_with_request_overrides(saved_cfg, params)
         self._remember_run_config(cfg)
+        if hostname_mismatch := required_hostname_mismatch(cfg):
+            raise TargetCallError(
+                "preflight-failed",
+                hostname_mismatch,
+                {
+                    "kind": ErrorKind.CONFIG_INVALID.value,
+                    "detail": hostname_mismatch,
+                },
+            )
         self._check_build_launch_integrity(cfg)
         try:
             preparation = self._prepare_command_for_config(
@@ -1352,16 +1357,31 @@ class LocalAgent:
         draft_config = params.get("config")
         if isinstance(draft_config, dict):
             cfg = ModelConfig.model_validate(draft_config)
+            saved_cfg = cfg
+            validate_saved_revision = True
         else:
             name = _config_name_param(params, method="preflight")
             registry = load_registry(_configs_dir(params))
             self._remember_registry_runs_dirs(registry)
-            cfg = self._config_with_request_overrides(
-                _config_by_name(registry, name, configs_dir=_configs_dir(params)), params
-            )
+            saved_cfg = _config_by_name(registry, name, configs_dir=_configs_dir(params))
+            cfg = self._config_with_request_overrides(saved_cfg, params)
+            validate_saved_revision = not _params_override_model_identity(params)
         self._remember_run_config(cfg)
+        if hostname_mismatch := required_hostname_mismatch(cfg):
+            return {
+                "ok": False,
+                "failures": [
+                    {
+                        "kind": ErrorKind.CONFIG_INVALID.value,
+                        "detail": hostname_mismatch,
+                    }
+                ],
+                "warnings": [],
+            }
         self._check_build_launch_integrity(cfg)
         try:
+            if validate_saved_revision:
+                self._validate_saved_model_revision(saved_cfg)
             preparation = self._prepare_command_for_config(
                 cfg, validate_model_handoff=True
             )
@@ -1442,7 +1462,27 @@ class LocalAgent:
             payload["command"] = command
         model_ref = _optional_param_str(params.get("model_ref"))
         if model_ref is not None:
+            try:
+                handoff = resolve_model_handoff(model_ref, self._models_registry_path)
+            except ModelRegistryError as exc:
+                raise TargetCallError(exc.code, exc.message, exc.details) from exc
             payload["model_ref"] = model_ref
+            if handoff is not None:
+                # A request-scoped model_ref is a complete model-identity
+                # override, not merely a new alias for the repository saved in
+                # the profile.  Seed the authoritative registry identity before
+                # validating the config so the later handoff resolver can keep
+                # enforcing repo consistency (and detect a concurrent repin).
+                # Local-path and URL refs remain placeholders here because the
+                # config schema deliberately forbids pairing model_ref with an
+                # explicit local path; their model_arg is still applied by
+                # _resolve_model_handoff_config before command construction.
+                if handoff.source == "hf_repo":
+                    payload["model"] = handoff.model_arg
+                # Never carry a revision belonging to the saved model across a
+                # model identity switch.  An explicit request revision below
+                # still wins over the registry's immutable handoff revision.
+                payload["revision"] = handoff.revision
         revision = _optional_param_str(params.get("revision"))
         if revision is not None:
             payload["revision"] = revision
@@ -1510,6 +1550,13 @@ class LocalAgent:
             model_metadata = model_handoff.metadata()
             if resolved_cfg.revision is not None:
                 model_metadata["model_revision"] = resolved_cfg.revision
+            if not _model_revision_matches_handoff(cfg, model_handoff):
+                # The registry's cache_state describes its current pin, not an
+                # explicitly different revision. Never present that state as proof
+                # that the requested weights are cached.
+                model_metadata["model_cache_state"] = "revision-mismatch"
+                if model_handoff.commit_sha is not None:
+                    model_metadata["model_cached_commit_sha"] = model_handoff.commit_sha
             result_env = {**result.env, **model_env}
             if model_env:
                 model_metadata["model_env_keys"] = sorted(model_env)
@@ -1587,6 +1634,16 @@ class LocalAgent:
             }
         )
         return resolved_cfg, handoff
+
+    def _validate_saved_model_revision(self, cfg: ModelConfig) -> None:
+        try:
+            handoff = resolve_model_handoff(cfg.model_ref, self._models_registry_path)
+        except ModelRegistryError as exc:
+            raise TargetCallError(exc.code, exc.message, exc.details) from exc
+        if handoff is None:
+            return
+        _validate_model_ref_repo(cfg, handoff)
+        _validate_saved_revision_matches_handoff(cfg, handoff)
 
     def _resolve_build_handoff(self, cfg: ModelConfig) -> BuildHandoff | None:
         try:
@@ -1778,11 +1835,13 @@ class LocalAgent:
     ) -> DetachedLaunch:
         cfg = ModelConfig.model_validate(prepared["config"])
         build = _build_result_from_payload(prepared["build"])
+        docker_env = cfg.command.docker.env if cfg.command.docker is not None else {}
         secrets = _dedupe_secret_values(
             [
                 cfg.server.api_key or "",
-                cfg.env.get("HF_TOKEN", ""),
-                build.env.get("HF_TOKEN", ""),
+                *_secret_mapping_values(cfg.env),
+                *_secret_mapping_values(docker_env),
+                *_secret_mapping_values(build.env),
             ]
         )
         launch_kwargs: dict[str, Any] = {}
@@ -2005,6 +2064,7 @@ class LocalAgent:
         return {
             "run_id": run_id,
             "config": config,
+            "identity": _run_artifact_identity_payload(sidecar),
             "log_text": log_text,
         }
 
@@ -4818,6 +4878,10 @@ def _dedupe_secret_values(values: list[str]) -> list[str]:
     return secrets
 
 
+def _secret_mapping_values(mapping: Mapping[str, object]) -> list[str]:
+    return [str(value) for key, value in mapping.items() if is_secret_key(str(key)) and value]
+
+
 def _collect_job_param_secret_values(value: object, secrets: list[str], key: str = "") -> None:
     if isinstance(value, dict):
         for item_key, item_value in value.items():
@@ -4855,8 +4919,7 @@ def _iter_string_values(value: object) -> list[str]:
 
 
 def _job_secret_key(key: str) -> bool:
-    upper = key.upper()
-    return any(marker in upper for marker in JOB_SECRET_ENV_MARKERS)
+    return is_secret_key(key)
 
 
 def _append_url_userinfo_secrets(secrets: list[str], text: str) -> None:
@@ -5223,6 +5286,44 @@ def _validate_model_handoff_prelaunch(cfg: ModelConfig, handoff: ModelHandoff) -
         )
 
 
+def _validate_saved_revision_matches_handoff(
+    cfg: ModelConfig, handoff: ModelHandoff
+) -> None:
+    if (
+        handoff.source != "hf_repo"
+        or cfg.revision is None
+        or handoff.commit_sha is None
+        or _model_revision_matches_handoff(cfg, handoff)
+    ):
+        return
+    pinned_revision = handoff.pinned_revision or "-"
+    raise TargetCallError(
+        "model-unavailable",
+        (
+            f"saved model revision {cfg.revision} does not match model_ref "
+            f"{handoff.entry_id} (current commit {handoff.commit_sha}, "
+            f"pin {pinned_revision}); re-pin or update the saved profile"
+        ),
+        {
+            "model_ref": handoff.entry_id,
+            "repo_id": handoff.repo_id,
+            "saved_revision": cfg.revision,
+            "pinned_revision": handoff.pinned_revision,
+            "commit_sha": handoff.commit_sha,
+            "cache_state": handoff.cache_state,
+            "reason": "revision-mismatch",
+        },
+    )
+
+
+def _model_revision_matches_handoff(cfg: ModelConfig, handoff: ModelHandoff) -> bool:
+    if cfg.revision is None:
+        return True
+    if handoff.commit_sha is not None:
+        return cfg.revision == handoff.commit_sha
+    return cfg.revision == handoff.revision
+
+
 def _model_not_cached_descriptor(
     cfg: ModelConfig, handoff: ModelHandoff | None
 ) -> dict[str, Any] | None:
@@ -5235,6 +5336,19 @@ def _model_not_cached_descriptor(
     Detail text carries only model identity/size — never an agent-local path (bug-225).
     """
     if handoff is not None and handoff.source == "hf_repo":
+        if not _model_revision_matches_handoff(cfg, handoff):
+            requested = cfg.revision or "unknown"
+            pinned = handoff.commit_sha or handoff.pinned_revision or "unknown"
+            return {
+                "kind": ErrorKind.MODEL_NOT_CACHED.value,
+                "entry_id": handoff.entry_id,
+                "cache_state": "revision-mismatch",
+                "gateable": True,
+                "detail": (
+                    f"cache state for model {handoff.display_name} ({handoff.entry_id}) "
+                    f"belongs to revision {pinned}, not requested revision {requested}"
+                ),
+            }
         state = (handoff.cache_state or "").lower()
         if state == "cached":
             return None
@@ -5448,6 +5562,12 @@ def _optional_param_str(value: object) -> str | None:
     return text or None
 
 
+def _params_override_model_identity(params: dict[str, Any]) -> bool:
+    return _optional_param_str(params.get("model_ref")) is not None or _optional_param_str(
+        params.get("revision")
+    ) is not None
+
+
 def _optional_int(value: object) -> int | None:
     if isinstance(value, bool):
         return None
@@ -5600,31 +5720,71 @@ def _prepare_clone_payload(
         launch["runs_dir"] = str(runs_dir)
         payload["launch"] = launch
         derived.append({"field": "launch.runs_dir", "value": str(runs_dir), "source": "clone"})
-    if source.command.runtime is RuntimeKind.DOCKER and not _override_has(
-        overrides, "command", "docker", "container_name"
-    ):
+    if source.command.runtime is RuntimeKind.DOCKER:
         command = dict(payload.get("command") if isinstance(payload.get("command"), dict) else {})
         docker = dict(command.get("docker") if isinstance(command.get("docker"), dict) else {})
-        preferred_container_name = f"vela-{_safe_config_file_stem(new_name)}"
-        container_name = _fresh_docker_container_name(
-            preferred_container_name,
-            occupied_container_names,
-        )
-        docker["container_name"] = container_name
+        source_docker = source.command.docker
+        source_container_name = source_docker.container_name if source_docker is not None else None
+        if not _override_has(overrides, "command", "docker", "container_name"):
+            preferred_container_name = f"vela-{_safe_config_file_stem(new_name)}"
+            container_name = _fresh_docker_container_name(
+                preferred_container_name,
+                occupied_container_names,
+            )
+            docker["container_name"] = container_name
+            source_name = (
+                "docker_container_name_collision"
+                if container_name != preferred_container_name
+                else "clone"
+            )
+            derived.append(
+                {
+                    "field": "command.docker.container_name",
+                    "value": container_name,
+                    "source": source_name,
+                }
+            )
+
+        # A clone must never retain an instruction to stop/remove its source.
+        # Preserve intentionally shared eviction entries, but remove the exact
+        # source-container identity and disclose that safety derivation.
+        evict = docker.get("evict")
+        if isinstance(evict, list) and source_container_name in evict:
+            docker["evict"] = [item for item in evict if item != source_container_name]
+            derived.append(
+                {
+                    "field": "command.docker.evict",
+                    "value": str(docker["evict"]),
+                    "source": "clone_source_eviction_removed",
+                }
+            )
+
+        # Regenerate only a structurally parsed Docker label whose value names
+        # the source profile. Other labels and run arguments remain byte-for-byte.
+        extra_run_args = docker.get("extra_run_args")
+        if isinstance(extra_run_args, list):
+            cloned_args = list(extra_run_args)
+            source_label = f"ai.vela.profile={source.name}"
+            clone_label = f"ai.vela.profile={new_name}"
+            label_changed = False
+            for index in range(len(cloned_args) - 1):
+                if (
+                    cloned_args[index] in {"--label", "-l"}
+                    and cloned_args[index + 1] == source_label
+                ):
+                    cloned_args[index + 1] = clone_label
+                    label_changed = True
+            if label_changed:
+                docker["extra_run_args"] = cloned_args
+                derived.append(
+                    {
+                        "field": "command.docker.extra_run_args",
+                        "value": clone_label,
+                        "source": "clone_profile_label",
+                    }
+                )
         command["docker"] = docker
         payload["command"] = command
-        source_name = (
-            "docker_container_name_collision"
-            if container_name != preferred_container_name
-            else "clone"
-        )
-        derived.append(
-            {
-                "field": "command.docker.container_name",
-                "value": container_name,
-                "source": source_name,
-            }
-        )
     return derived
 
 
@@ -5766,6 +5926,30 @@ def _apply_config_overrides(payload: dict[str, Any], overrides: dict[str, Any]) 
         current = dict(payload.get(section) if isinstance(payload.get(section), dict) else {})
         current.update(section_overrides)
         payload[section] = current
+    command_overrides = overrides.get("command")
+    if command_overrides is not None:
+        if not isinstance(command_overrides, dict):
+            raise TargetCallError("invalid-params", "overrides.command must be a mapping")
+        current_command = dict(
+            payload.get("command") if isinstance(payload.get("command"), dict) else {}
+        )
+        top_level = dict(command_overrides)
+        docker_overrides = top_level.pop("docker", None)
+        current_command.update(top_level)
+        if docker_overrides is not None:
+            if not isinstance(docker_overrides, dict):
+                raise TargetCallError(
+                    "invalid-params",
+                    "overrides.command.docker must be a mapping",
+                )
+            current_docker = dict(
+                current_command.get("docker")
+                if isinstance(current_command.get("docker"), dict)
+                else {}
+            )
+            current_docker.update(docker_overrides)
+            current_command["docker"] = current_docker
+        payload["command"] = current_command
     if "extra_args" in overrides:
         extra_args = overrides["extra_args"]
         if not isinstance(extra_args, list) or not all(
@@ -5986,6 +6170,23 @@ def _detached_run_payload(run: LocalDetachedRun) -> dict[str, Any]:
         "fsm": {
             "vllm_version_profile": sidecar.vllm_version_profile,
         },
+    }
+
+
+def _run_artifact_identity_payload(sidecar: Sidecar) -> dict[str, Any]:
+    """Project proof-relevant sidecar identity without process data or secrets."""
+    return {
+        "config_name": sidecar.config_name,
+        "model_ref": sidecar.model_ref,
+        "model_entry_id": sidecar.model_entry_id,
+        "model_repo_id": sidecar.model_repo_id,
+        "model_revision": sidecar.model_revision,
+        "model_commit_sha": sidecar.model_commit_sha,
+        "served_model_names": list(sidecar.served_model_names),
+        "runtime": sidecar.runtime,
+        "docker_container_name": sidecar.docker_container_name,
+        "docker_container_id": sidecar.docker_container_id,
+        "docker_image_digest": sidecar.docker_image_digest,
     }
 
 

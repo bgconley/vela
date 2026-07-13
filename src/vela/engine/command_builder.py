@@ -10,7 +10,7 @@ from typing import Any
 from vela.config.schema import EntryPoint, ModelConfig, RuntimeKind
 from vela.engine.docker_runtime import build_docker_run
 from vela.engine.profile import VllmProfile, select_profile_for_config
-from vela.engine.redaction import MASK, scrub_text
+from vela.engine.redaction import MASK, is_secret_key, scrub_text
 
 
 @dataclass(frozen=True)
@@ -38,15 +38,6 @@ ENGINE_VALUE_FIELDS = (
     "max_num_seqs",
 )
 
-SECRET_ENV_MARKERS = (
-    "TOKEN",
-    "KEY",
-    "SECRET",
-    "AUTH",
-    "PASSWORD",
-    "PASS",
-    "CREDENTIAL",
-)
 NON_SECRET_SENTINELS = {"", "EMPTY"}
 SHELL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -188,8 +179,7 @@ def is_local_model_reference(model: str, *, cwd: str | Path | None = None) -> bo
 
 
 def mask_preview_value(key: str, value: str) -> str:
-    upper = key.upper()
-    if "TOKEN" in upper or "KEY" in upper or upper in {"AUTHORIZATION"}:
+    if is_secret_key(key):
         return MASK
     return scrub_text(value)
 
@@ -248,8 +238,7 @@ def _standalone_env_lines(env: dict[str, str]) -> list[str]:
 def _is_secret_env_value(key: str, value: str) -> bool:
     if value in NON_SECRET_SENTINELS:
         return False
-    upper = key.upper()
-    return any(marker in upper for marker in SECRET_ENV_MARKERS)
+    return is_secret_key(key)
 
 
 def _standalone_exec_line(argv: list[str]) -> str:

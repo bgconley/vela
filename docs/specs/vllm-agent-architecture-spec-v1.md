@@ -420,7 +420,7 @@ Matches canonical §8 + the sibling specs. Header order (outermost scope first):
 
 **Connection lifecycle:** connecting shows a pulsing `◐` + a `ProgressLine`; success toasts `Connected to blackbird (agent v…)`; failures use the **ErrorBanner** with named causes (`AGENT_UNREACHABLE`/`AGENT_NOT_INSTALLED`/`AGENT_VERSION_MISMATCH`) carrying a concrete suggestion (the `ssh …`/`pip install` command) and `(R) Reconnect`/`(t) Switch target` affordances.
 
-**Disconnected dashboard:** last-known state greyed (`status--idle`), Load/Stop/Kill/Restart **disabled** (warn-toast if pressed), `R Reconnect` promoted to a primary footer binding, the log shown read-only with a "disconnected at …" rule. Fresh start + unreachable = "unknown" (the cache is per-session, in-memory).
+**Disconnected dashboard:** last-known state greyed (`status--idle`), Launch/Stop/Kill/Restart **disabled** (warn-toast if pressed), `R Reconnect` promoted to a primary footer binding, the log shown read-only with a "disconnected at …" rule. Fresh start + unreachable = "unknown" (the cache is per-session, in-memory).
 
 **Composition:** config detail/preview gains `target:` / `build:` / `model:` rows above the resolved command; the preview already includes `--revision` and the build's env overlay. **Destructive confirms name the target** (Opus addition): "Stop qwen3-32b **on blackbird**?" — preventing wrong-host actions. A pre-launch guard blocks launching against a disconnected/unreachable target.
 
@@ -517,7 +517,7 @@ engine: { kv_cache_dtype: fp8 }
 server: { host: 0.0.0.0, port: 18003, exposure: lan }
 launch: { ready_timeout_seconds: 1200 }
 ```
-One-time on Blackbird: `systemctl --user enable --now vela-agent` (or let the first connect auto-spawn it). Controller flow: `t` → select `blackbird` → the SSH bridge attaches to Blackbird's running daemon → handshake → `list_configs`/`list_builds`/`list_models` (Blackbird's) → `l` Load → the daemon preflights on Blackbird, supervises the run, streams `phase`/`log`/`ready` → header shows `⊕ blackbird ● … ●READY http://10.25.0.51:18003`. Close the laptop, reopen, reconnect → the daemon is still up and replays the gap gap-free. Stop re-verifies identity on Blackbird before signaling. The run also survives a daemon restart (re-discovered from sidecars) and reproduces standalone via `vllm serve … --revision …` — the controller is never required at runtime.
+One-time on Blackbird: `systemctl --user enable --now vela-agent` (or let the first connect auto-spawn it). Controller flow: `t` → select `blackbird` → the SSH bridge attaches to Blackbird's running daemon → handshake → `list_configs`/`list_builds`/`list_models` (Blackbird's) → `l` Launch → the daemon preflights on Blackbird, supervises the run, streams `phase`/`log`/`ready` → header shows `⊕ blackbird ● … ●READY http://10.25.0.51:18003`. Close the laptop, reopen, reconnect → the daemon is still up and replays the gap gap-free. Stop re-verifies identity on Blackbird before signaling. The run also survives a daemon restart (re-discovered from sidecars) and reproduces standalone via `vllm serve … --revision …` — the controller is never required at runtime.
 
 ## Appendix C — Code anchors for the refactor (current tree, ~199 tests)
 

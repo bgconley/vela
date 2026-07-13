@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -84,6 +85,8 @@ def test_backend_evidence_reads_stopped_smoke_run_artifact() -> None:
 
     assert '"read_run_artifact"' in script
     assert '"config_name": config_name' in script
+    assert 'identity = _dict(artifact.get("identity"))' in script
+    assert "identity=identity" in script
     assert '"tail_detached"' not in script
     assert 'client.call("reattach"' not in script
 
@@ -1187,6 +1190,62 @@ def test_backend_evidence_rejects_registered_rule_name_mismatch() -> None:
             config,
             _valid_backend_log_text(),
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked_operation", ["connect", "read_run_artifact"])
+async def test_backend_evidence_timeout_bounds_connect_and_read_and_disconnects(
+    monkeypatch: pytest.MonkeyPatch,
+    blocked_operation: str,
+) -> None:
+    module = _load_backend_evidence_check()
+
+    class SlowClient:
+        def __init__(self) -> None:
+            self.disconnect_started = False
+            self.disconnected = False
+
+        async def connect(self) -> None:
+            if blocked_operation == "connect":
+                await asyncio.sleep(0.1)
+
+        async def call(self, method: str, _params: dict[str, object]):
+            assert method == "read_run_artifact"
+            if blocked_operation == "read_run_artifact":
+                await asyncio.sleep(0.1)
+            return {
+                "config": _blackbird_fp8_config_payload(),
+                "identity": {},
+                "log_text": _valid_backend_log_text(),
+            }
+
+        async def disconnect(self) -> None:
+            self.disconnect_started = True
+            # Cleanup must be awaited even while the operation timeout unwinds.
+            await asyncio.sleep(0)
+            self.disconnected = True
+
+    client = SlowClient()
+    target = TargetConfig(name="local")
+
+    class Registry:
+        def by_name(self, name: str) -> TargetConfig:
+            assert name == "local"
+            return target
+
+    monkeypatch.setattr(module, "load_targets_file", lambda: Registry())
+    monkeypatch.setattr(module, "target_client_for_config", lambda _target: client)
+
+    with pytest.raises(module.BackendEvidenceError, match="timed out after 0.01 seconds"):
+        await module._run(
+            "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
+            "run-timeout",
+            target_name="local",
+            timeout=0.01,
+        )
+
+    assert client.disconnect_started is True
+    assert client.disconnected is True
 
 
 def test_real_model_resume_check_fails_fast_on_health_errors() -> None:

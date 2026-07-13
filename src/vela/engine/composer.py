@@ -25,8 +25,14 @@ from vela.engine.model_registry import (
     inspect_model,
 )
 from vela.engine.profile import VllmProfileError, select_profile_for_config
+from vela.engine.redaction import MASK, is_secret_key, scrub_text
 
 DEFAULT_PORT_RANGE = (18000, 18999)
+MUTABLE_PROCESS_REPRODUCIBILITY_WARNING = (
+    "bare Process runtime uses the target's current mutable agent environment and "
+    "cannot promise exact reinstantiation; select an immutable build_id for a "
+    "reproducible deployment"
+)
 BLACKBIRD_QWEN36_IMAGE = (
     "vllm/vllm-openai@sha256:"
     "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
@@ -62,6 +68,12 @@ class DeploymentRecipe:
     extra_args: tuple[str, ...]
     launch: dict[str, Any]
     docker: dict[str, Any]
+    name: str | None = None
+    description: str | None = None
+    model_ref: str | None = None
+    revision: str | None = None
+    logging: dict[str, Any] = field(default_factory=dict)
+    required_hostname: str | None = None
     source_artifacts: tuple[str, ...] = ()
     vllm: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
@@ -114,6 +126,38 @@ QWEN36_BF16_EXTRA_ARGS = (
     "qwen3",
     "--tool-call-parser",
     "qwen3_coder",
+)
+
+OXCART_QWEN36_FP8_MTP_VL_EXTRA_ARGS = (
+    "--trust-remote-code",
+    "--attention-backend",
+    "FLASHINFER",
+    "--mm-encoder-attn-backend",
+    "FLASHINFER",
+    "--safetensors-load-strategy",
+    "prefetch",
+    "--max-num-batched-tokens",
+    "8192",
+    "--enable-prefix-caching",
+    "--reasoning-parser",
+    "qwen3",
+    "--enable-auto-tool-choice",
+    "--tool-call-parser",
+    "qwen3_coder",
+    "--limit-mm-per-prompt",
+    '{"image":16,"video":1}',
+    "--media-io-kwargs",
+    '{"video":{"num_frames":-1}}',
+    "--default-chat-template-kwargs",
+    '{"enable_thinking":true,"preserve_thinking":true}',
+    "--override-generation-config",
+    '{"temperature":1.0,"top_p":0.95,"top_k":20,"min_p":0.0}',
+    "--speculative-config",
+    '{"method":"mtp","num_speculative_tokens":2}',
+    "--compilation-config",
+    '{"cudagraph_capture_sizes":[1,2,3,6,9,12],"cudagraph_num_of_warmups":1}',
+    "--cudagraph-metrics",
+    "--disable-uvicorn-access-log",
 )
 
 BLACKBIRD_QWEN36_EVICT = (
@@ -252,6 +296,101 @@ LAB_RECIPES: tuple[DeploymentRecipe, ...] = (
         ),
         vllm=BLACKBIRD_QWEN36_VLLM_STACK,
     ),
+    DeploymentRecipe(
+        key="oxcart-qwen36-27b-fp8-mtp-vl",
+        label="Oxcart Qwen3.6 27B FP8 MTP + Vision",
+        name="oxcart-qwen36-27b-fp8-mtp-vl",
+        description=(
+            "Oxcart-local Qwen3.6 27B FP8 validation profile, immutable cached "
+            "revision, MTP + vision."
+        ),
+        target="local",
+        runtime=RuntimeKind.DOCKER,
+        models=("Qwen/Qwen3.6-27B-FP8",),
+        model_ref="Qwen/Qwen3.6-27B-FP8",
+        revision="e89b16ebf1988b3d6befa7de50abc2d76f26eb09",
+        served_model_name="qwen36-27b-fp8-oxcart",
+        server={
+            "host": "127.0.0.1",
+            "port": 18004,
+            "exposure": "local",
+            "api_key": "EMPTY",
+        },
+        engine={
+            "gpu_memory_utilization": 0.955,
+            "max_model_len": 262144,
+            "dtype": "auto",
+            "kv_cache_dtype": "auto",
+            "max_num_seqs": 4,
+        },
+        extra_args=OXCART_QWEN36_FP8_MTP_VL_EXTRA_ARGS,
+        launch={
+            "mode": "attached",
+            "ready_timeout_seconds": 1800,
+            "require_cached_models": True,
+            "required_hostname": "oxcart",
+            "health": {"interval_seconds": 2},
+            "runs_dir": (
+                "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs"
+            ),
+        },
+        docker={
+            "image": BLACKBIRD_QWEN36_IMAGE,
+            "container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+            "gpus": "all",
+            "ipc_host": True,
+            "shm_size": "32g",
+            "network": "host",
+            "restart": "no",
+            "auto_remove": True,
+            "stop_grace_seconds": 90,
+            "pull": "never",
+            "hf_cache": "/tank/ai/models/qwen36-27b-fp8/hf-cache",
+            "hf_cache_target": "/root/.cache/huggingface",
+            "volumes": [
+                (
+                    "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/"
+                    "vllm-cache:/root/.cache/vllm"
+                ),
+                (
+                    "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/"
+                    "triton-cache:/root/.cache/triton"
+                ),
+                (
+                    "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/"
+                    "torch-compile-cache:/root/.cache/torch"
+                ),
+                (
+                    "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/"
+                    "flashinfer-cache:/root/.cache/flashinfer"
+                ),
+                (
+                    "/tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/"
+                    "tmp:/tmp/qwen36-27b-fp8-mtp-vl"
+                ),
+            ],
+            "env": {
+                "HF_HOME": "/root/.cache/huggingface",
+                "HF_HUB_CACHE": "/root/.cache/huggingface/hub",
+                "HF_HUB_OFFLINE": "1",
+                "VLLM_CACHE_ROOT": "/root/.cache/vllm",
+                "TRITON_CACHE_DIR": "/root/.cache/triton",
+                "TORCHINDUCTOR_CACHE_DIR": "/root/.cache/torch",
+                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+                "SAFETENSORS_FAST_GPU": "1",
+            },
+            "extra_run_args": [
+                "--label",
+                "ai.vela.managed=true",
+                "--label",
+                "ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl",
+            ],
+        },
+        logging={"request_logging": False},
+        required_hostname="oxcart",
+        source_artifacts=("configs/oxcart-qwen36-27b-fp8-mtp-vl.yaml",),
+        vllm=BLACKBIRD_QWEN36_VLLM_STACK,
+    ),
 )
 
 
@@ -338,14 +477,21 @@ def list_presets() -> list[dict[str, Any]]:
     ]
 
 
-def list_deployment_recipes(target: str | None = None) -> list[dict[str, Any]]:
+def list_deployment_recipes(
+    target: str | None = None, *, hostname: str | None = None
+) -> list[dict[str, Any]]:
     target_key = target.lower() if isinstance(target, str) and target.strip() else None
+    hostname_key = _normalized_hostname(hostname)
     recipes: list[dict[str, Any]] = []
     for recipe in LAB_RECIPES:
         if target_key is not None and recipe.target.lower() != target_key:
             continue
+        if recipe.required_hostname is not None and not _hostname_matches(
+            recipe.required_hostname, hostname_key
+        ):
+            continue
         model = recipe.models[0] if recipe.models else ""
-        name = f"{recipe.served_model_name}-{recipe.target}"
+        name = recipe.name or f"{recipe.served_model_name}-{recipe.target}"
         docker = dict(recipe.docker)
         recipes.append(
             {
@@ -356,13 +502,18 @@ def list_deployment_recipes(target: str | None = None) -> list[dict[str, Any]]:
                 "runtime": recipe.runtime.value,
                 "model": model,
                 "models": list(recipe.models),
+                "model_ref": recipe.model_ref,
+                "revision": recipe.revision,
                 "served_model_name": recipe.served_model_name,
+                "description": recipe.description,
                 "image": docker.get("image", ""),
                 "server": dict(recipe.server),
                 "engine": dict(recipe.engine),
                 "extra_args": list(recipe.extra_args),
                 "launch": dict(recipe.launch),
                 "docker": docker,
+                "logging": dict(recipe.logging),
+                "required_hostname": recipe.required_hostname,
                 "source_artifacts": list(recipe.source_artifacts),
                 "vllm": dict(recipe.vllm),
                 "warnings": list(recipe.warnings),
@@ -378,16 +529,25 @@ def compose_config(
     models_registry_path: str | Path | None = None,
     occupied_ports: Mapping[str, Iterable[int]] | None = None,
     occupied_container_names: Iterable[str] | None = None,
+    hostname: str | None = None,
 ) -> ComposeResult:
     model_context = _model_context(spec, models_registry_path=models_registry_path)
     model = model_context.model
-    name = _deployment_name(spec.get("name"), model)
     target = _optional_str(spec.get("target"))
     runtime = _runtime_kind(spec.get("runtime"))
     overrides = _mapping(spec.get("overrides"), field_name="overrides")
     preset_name = _optional_str(spec.get("preset")) or "balanced"
     preset = _preset_by_name(preset_name)
-    recipe = _matching_recipe(target=target, runtime=runtime, model=model)
+    recipe = _resolve_recipe(
+        spec,
+        target=target,
+        runtime=runtime,
+        model=model,
+        hostname=hostname,
+    )
+    name = _deployment_name(
+        spec.get("name") or (recipe.name if recipe is not None else None), model
+    )
     suggestions = _engine_suggestions(model_context)
     port = allocate_port(
         preferred=_preferred_port(overrides) or _recipe_port(recipe),
@@ -413,17 +573,24 @@ def compose_config(
         "target": target,
         "model": model,
         "served_model_name": _served_model_name(model_context, recipe),
-        "description": f"Generated by Vela deployment composer using preset {preset_name}.",
+        "description": (
+            recipe.description
+            if recipe is not None and recipe.description is not None
+            else f"Generated by Vela deployment composer using preset {preset_name}."
+        ),
         "command": _runtime_command(runtime, spec, name, recipe, model_context),
         "engine": engine,
         "server": server,
         "extra_args": _seed_extra_args(preset, recipe),
         "launch": launch,
     }
-    if model_context.model_ref:
-        payload["model_ref"] = model_context.model_ref
-    if model_context.revision:
-        payload["revision"] = model_context.revision
+    model_ref, revision = _selected_recipe_model_identity(model_context, recipe)
+    if model_ref:
+        payload["model_ref"] = model_ref
+    if revision:
+        payload["revision"] = revision
+    if recipe is not None and recipe.logging:
+        payload["logging"] = dict(recipe.logging)
     if recipe is not None and recipe.vllm:
         payload["vllm"] = dict(recipe.vllm)
     if target is None:
@@ -461,19 +628,17 @@ def compose_config(
     return ComposeResult(
         config=cfg,
         warnings=warnings,
-        derived=[
-            *_recipe_derived(recipe),
-            {
-                "field": "served_model_name",
-                "value": cfg.served_model_name or "",
-                "source": _served_model_source(model_context, recipe),
-            },
-            {"field": "server.port", "value": str(cfg.server.port), "source": "allocate_port"},
-            {"field": "launch.runs_dir", "value": str(cfg.launch.runs_dir), "source": "runs_root"},
-            *_engine_derived(cfg, engine_sources, overrides),
-            *_docker_derived(cfg),
-            *container_name_result["derived"],
-        ],
+        derived=_compose_provenance(
+            cfg,
+            spec=spec,
+            model_context=model_context,
+            recipe=recipe,
+            overrides=overrides,
+            preset_name=preset_name,
+            port_allocation=port,
+            engine_sources=engine_sources,
+            container_name_result=container_name_result,
+        ),
     )
 
 
@@ -509,13 +674,22 @@ def suggest_deployment_defaults(
     models_registry_path: str | Path | None = None,
     occupied_ports: Mapping[str, Iterable[int]] | None = None,
     occupied_container_names: Iterable[str] | None = None,
+    hostname: str | None = None,
 ) -> dict[str, Any]:
     model_context = _model_context(params, models_registry_path=models_registry_path)
     model = model_context.model
-    name = _deployment_name(params.get("name"), model)
     target = _optional_str(params.get("target"))
     runtime = _runtime_kind(params.get("runtime"))
-    recipe = _matching_recipe(target=target, runtime=runtime, model=model)
+    recipe = _resolve_recipe(
+        params,
+        target=target,
+        runtime=runtime,
+        model=model,
+        hostname=hostname,
+    )
+    name = _deployment_name(
+        params.get("name") or (recipe.name if recipe is not None else None), model
+    )
     suggestions = _engine_suggestions(model_context)
     allocation = allocate_port(
         preferred=_optional_int(params.get("preferred_port")) or _recipe_port(recipe),
@@ -548,8 +722,11 @@ def suggest_deployment_defaults(
             *allocation["warnings"],
         ],
     }
-    if model_context.model_ref:
-        payload["model_ref"] = model_context.model_ref
+    model_ref, revision = _selected_recipe_model_identity(model_context, recipe)
+    if model_ref:
+        payload["model_ref"] = model_ref
+    if revision:
+        payload["revision"] = revision
     if recipe is not None:
         payload["recipe"] = {"key": recipe.key, "label": recipe.label}
     if runtime is RuntimeKind.DOCKER:
@@ -774,6 +951,318 @@ def _recipe_derived(recipe: DeploymentRecipe | None) -> list[dict[str, str]]:
     return derived
 
 
+def _compose_provenance(
+    cfg: ModelConfig,
+    *,
+    spec: dict[str, Any],
+    model_context: ModelContext,
+    recipe: DeploymentRecipe | None,
+    overrides: dict[str, Any],
+    preset_name: str,
+    port_allocation: dict[str, Any],
+    engine_sources: dict[str, str],
+    container_name_result: dict[str, list[Any]],
+) -> list[dict[str, str]]:
+    """Describe where every review-visible launch value came from.
+
+    ``derived`` predates the guided review screen, but it is now the wire-level
+    provenance payload.  Values are taken from the validated final config while
+    sources are determined from the inputs that won precedence.  Secret-bearing
+    fields are masked here, before the payload can cross the agent boundary.
+    """
+
+    rows = _recipe_derived(recipe)
+    recipe_source = f"lab_recipe:{recipe.key}" if recipe is not None else None
+
+    def add(field: str, value: object, source: str) -> None:
+        rows.append(
+            {
+                "field": field,
+                "value": provenance_value(field, value),
+                "source": source,
+            }
+        )
+
+    if cfg.target is not None:
+        add("target", cfg.target, recipe_source or "operator_input")
+
+    if model_context.entry is not None:
+        model_source = "model_registry"
+    else:
+        model_source = recipe_source or "operator_input"
+    add("model", cfg.model, model_source)
+    if cfg.model_ref is not None:
+        model_ref_source = (
+            "model_registry:selected_pin"
+            if model_context.model_ref is not None
+            else recipe_source or "operator_input"
+        )
+        add("model_ref", cfg.model_ref, model_ref_source)
+    if cfg.revision is not None:
+        if model_context.model_ref is not None and model_context.entry is not None:
+            revision_source = "model_registry:resolved_commit"
+        else:
+            revision_source = recipe_source or "operator_input"
+        add("revision", cfg.revision, revision_source)
+
+    served_override = overrides.get("served_model_name")
+    if (
+        served_override is not None
+        and recipe is not None
+        and served_override == recipe.served_model_name
+    ):
+        served_source = recipe_source or "operator_override"
+    elif served_override is not None:
+        served_source = "operator_override"
+    else:
+        served_source = _served_model_source(model_context, recipe)
+    add("served_model_name", cfg.served_model_name or "", served_source)
+
+    add("command.runtime", cfg.command.runtime.value, recipe_source or "operator_input")
+    add("command.entrypoint", cfg.command.entrypoint.value, "schema_default")
+    if cfg.command.build is not None:
+        add("command.build", cfg.command.build, "operator_input")
+    if cfg.command.executable is not None:
+        add("command.executable", cfg.command.executable, "operator_input")
+    if cfg.command.cwd is not None:
+        add("command.cwd", cfg.command.cwd, "operator_input")
+
+    server = cfg.server.model_dump(mode="json")
+    server_overrides = _mapping_or_empty(overrides.get("server"))
+    recipe_server = recipe.server if recipe is not None else {}
+    for key in ("host", "exposure", "api_key", "probe_host"):
+        value = server.get(key)
+        if value is None:
+            continue
+        source = _field_source(
+            key,
+            value=value,
+            overrides=server_overrides,
+            recipe_values=recipe_server,
+            recipe_source=recipe_source,
+        )
+        add(f"server.{key}", value, source)
+
+    requested_port = _preferred_port(overrides)
+    recipe_port = _recipe_port(recipe)
+    port_reassigned = "port-reassigned" in port_allocation.get("warnings", [])
+    if (
+        requested_port is not None
+        and cfg.server.port == requested_port
+        and not port_reassigned
+    ):
+        port_source = (
+            recipe_source
+            if recipe_port is not None and requested_port == recipe_port
+            else "operator_override"
+        ) or "operator_override"
+    elif recipe_port is not None and cfg.server.port == recipe_port and not port_reassigned:
+        port_source = recipe_source or "port_allocator"
+    else:
+        # This includes both ordinary allocation and collision reassignment.  The
+        # allocator warnings retain the more specific collision explanation.
+        port_source = "port_allocator"
+    add("server.port", cfg.server.port, port_source)
+
+    engine = cfg.engine.model_dump(mode="json", exclude_none=True)
+    engine_overrides = _mapping_or_empty(overrides.get("engine"))
+    for key, value in engine.items():
+        if key in engine_overrides:
+            source = (
+                recipe_source
+                if recipe is not None and recipe.engine.get(key) == value
+                else "operator_override"
+            ) or "operator_override"
+        elif key in engine_sources:
+            source = engine_sources[key]
+        else:
+            source = recipe_source or f"preset:{preset_name}"
+        add(f"engine.{key}", value, source)
+
+    base_extra_source = recipe_source or f"preset:{preset_name}"
+    extra_source = (
+        f"{base_extra_source} + operator_override"
+        if "extra_args" in overrides
+        else base_extra_source
+    )
+    add("extra_args", cfg.extra_args, extra_source)
+
+    config_env_source = "operator_override" if "env" in overrides else "schema_default"
+    add("env", cfg.env, config_env_source)
+
+    launch = cfg.launch.model_dump(mode="json")
+    launch_overrides = _mapping_or_empty(overrides.get("launch"))
+    recipe_launch = recipe.launch if recipe is not None else {}
+    health = _mapping_or_empty(launch.pop("health", None))
+    for key, value in launch.items():
+        if key == "runs_dir" and key not in launch_overrides and key not in recipe_launch:
+            source = "generated_runs_dir"
+        else:
+            source = _field_source(
+                key,
+                value=value,
+                overrides=launch_overrides,
+                recipe_values=recipe_launch,
+                recipe_source=recipe_source,
+            )
+        add(f"launch.{key}", value, source)
+    recipe_health = _mapping_or_empty(recipe_launch.get("health"))
+    override_health = _mapping_or_empty(launch_overrides.get("health"))
+    for key, value in health.items():
+        add(
+            f"launch.health.{key}",
+            value,
+            _field_source(
+                key,
+                value=value,
+                overrides=override_health,
+                recipe_values=recipe_health,
+                recipe_source=recipe_source,
+            ),
+        )
+
+    logging = cfg.logging.model_dump(mode="json")
+    recipe_logging = recipe.logging if recipe is not None else {}
+    for key, value in logging.items():
+        source = recipe_source if key in recipe_logging and recipe_source else "schema_default"
+        add(f"logging.{key}", value, source)
+
+    vllm = cfg.vllm.model_dump(mode="json", exclude_none=True)
+    recipe_vllm = recipe.vllm if recipe is not None else {}
+    for key, value in vllm.items():
+        source = recipe_source if key in recipe_vllm and recipe_source else "schema_default"
+        add(f"vllm.{key}", value, source)
+
+    docker = cfg.command.docker
+    if cfg.command.runtime is RuntimeKind.DOCKER and docker is not None:
+        docker_values = docker.model_dump(mode="json")
+        recipe_docker = recipe.docker if recipe is not None else {}
+        collision_source = _container_collision_source(container_name_result)
+        requested_hf_cache = _requested_docker_hf_cache(spec)
+        for key, value in docker_values.items():
+            if key == "image":
+                source = recipe_source or "operator_input"
+            elif key == "container_name":
+                if "container_name" in overrides:
+                    source = (
+                        recipe_source
+                        if recipe_docker.get("container_name") == value
+                        else "operator_override"
+                    ) or "operator_override"
+                elif collision_source is not None:
+                    source = collision_source
+                elif recipe_source is not None:
+                    source = recipe_source
+                else:
+                    source = "generated_container_name"
+            elif key == "hf_cache" and requested_hf_cache is not None:
+                source = (
+                    recipe_source
+                    if recipe_docker.get("hf_cache") == value
+                    else "operator_input"
+                ) or "operator_input"
+            elif key == "hf_cache" and recipe_source is None and value is not None:
+                source = "agent_hf_cache_default"
+            elif key in recipe_docker and recipe_source is not None:
+                source = recipe_source
+            else:
+                source = "schema_default"
+            add(f"command.docker.{key}", value, source)
+
+    return rows
+
+
+def _field_source(
+    key: str,
+    *,
+    value: object,
+    overrides: Mapping[str, Any],
+    recipe_values: Mapping[str, Any],
+    recipe_source: str | None,
+) -> str:
+    if key in overrides:
+        if key in recipe_values and recipe_values[key] == value and recipe_source is not None:
+            return recipe_source
+        return "operator_override"
+    if key in recipe_values and recipe_source is not None:
+        return recipe_source
+    return "schema_default"
+
+
+def _mapping_or_empty(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _container_collision_source(result: dict[str, list[Any]]) -> str | None:
+    for item in result.get("derived", []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("field") == "command.docker.container_name":
+            source = item.get("source")
+            if isinstance(source, str) and source:
+                return source
+    return None
+
+
+def provenance_value(field: str, value: object) -> str:
+    """Return a stable human-readable value that is safe to send to Review."""
+    if field == "server.api_key" or _provenance_field_is_secret(field):
+        return MASK
+    if field == "env" or field.endswith(".env"):
+        mapping = value if isinstance(value, dict) else {}
+        redacted = {str(key): MASK for key in sorted(mapping, key=str)}
+        return json.dumps(redacted, ensure_ascii=False, sort_keys=True)
+    if field in {"extra_args", "command.docker.extra_run_args"} and isinstance(value, list):
+        value = _redacted_cli_args(value)
+    if value is None:
+        return "none"
+    if isinstance(value, str):
+        return scrub_text(value)
+    if isinstance(value, Path):
+        return scrub_text(str(value))
+    try:
+        rendered = json.dumps(value, default=str, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        rendered = str(value)
+    return scrub_text(rendered)
+
+
+def _provenance_field_is_secret(field: str) -> bool:
+    leaf = field.rsplit(".", 1)[-1].upper()
+    return leaf in {"TOKEN", "API_KEY", "PASSWORD", "SECRET", "AUTHORIZATION"}
+
+
+def _redacted_cli_args(args: list[Any]) -> list[str]:
+    redacted: list[str] = []
+    redact_next = False
+    for raw in args:
+        item = str(raw)
+        if redact_next:
+            redacted.append(MASK)
+            redact_next = False
+            continue
+        flag, separator, inline_value = item.partition("=")
+        if _secret_cli_flag(flag):
+            if separator:
+                redacted.append(f"{flag}={MASK}")
+            else:
+                redacted.append(scrub_text(item))
+                redact_next = True
+            continue
+        redacted.append(scrub_text(item if not separator else f"{flag}={inline_value}"))
+    return redacted
+
+
+def _secret_cli_flag(flag: str) -> bool:
+    normalized = flag.lstrip("-").lower().replace("-", "_")
+    parts = set(normalized.split("_"))
+    return bool(parts & {"token", "secret", "password", "authorization"}) or normalized in {
+        "api_key",
+        "access_key",
+        "private_key",
+    }
+
+
 def _engine_derived(
     cfg: ModelConfig, engine_sources: dict[str, str], overrides: dict[str, Any]
 ) -> list[dict[str, str]]:
@@ -840,10 +1329,21 @@ def _model_context(
     entry = inspected.get("entry") if isinstance(inspected, dict) else None
     if not isinstance(entry, dict):
         raise ValueError(f"model_ref {model_ref} did not resolve to a model entry")
-    resolved_model = model or _model_arg_from_entry(entry, model_ref)
-    revision = _optional_str(spec.get("revision")) or _optional_str(entry.get("commit_sha"))
-    if revision is None:
-        revision = _optional_str(entry.get("revision"))
+    resolved_model = _saved_model_identity(entry, model_ref, requested=model)
+    revision: str | None = None
+    if entry.get("source") == "hf_repo":
+        requested_revision = _optional_str(spec.get("revision"))
+        commit_sha = _optional_str(entry.get("commit_sha"))
+        pinned_revision = _optional_str(entry.get("revision"))
+        if commit_sha is not None:
+            if requested_revision not in {None, commit_sha, pinned_revision}:
+                raise ValueError(
+                    f"model_ref {model_ref} resolves to commit {commit_sha}, "
+                    f"but requested revision is {requested_revision}"
+                )
+            revision = commit_sha
+        else:
+            revision = requested_revision or pinned_revision
     return ModelContext(
         model=resolved_model,
         model_ref=model_ref,
@@ -851,6 +1351,34 @@ def _model_context(
         display_name=_optional_str(entry.get("display_name")),
         entry=entry,
     )
+
+
+def _saved_model_identity(
+    entry: dict[str, Any], model_ref: str, *, requested: str | None
+) -> str:
+    """Return a portable config identity; handoff supplies target-local paths."""
+    if entry.get("source") != "local_path":
+        return requested or _model_arg_from_entry(entry, model_ref)
+
+    local_path = _optional_str(entry.get("local_path"))
+    if local_path is None:
+        raise ValueError(f"model_ref {model_ref} does not have a launchable model source")
+    if requested is not None and requested.startswith(("/", "./", "../", "~")):
+        if Path(requested).expanduser() != Path(local_path).expanduser():
+            raise ValueError(
+                f"model_ref {model_ref} resolves to local path {local_path}, "
+                f"but requested model path is {requested}"
+            )
+        requested = None
+    for candidate in (
+        requested,
+        _optional_str(entry.get("display_name")),
+        _optional_str(entry.get("entry_id")),
+        model_ref,
+    ):
+        if candidate and not candidate.startswith(("/", "./", "../", "~")):
+            return candidate
+    raise ValueError(f"model_ref {model_ref} has no portable registry identity")
 
 
 def _model_arg_from_entry(entry: dict[str, Any], model_ref: str) -> str:
@@ -870,20 +1398,110 @@ def _model_arg_from_entry(entry: dict[str, Any], model_ref: str) -> str:
     raise ValueError(f"model_ref {model_ref} does not have a launchable model source")
 
 
+def _selected_recipe_model_identity(
+    model_context: ModelContext, recipe: DeploymentRecipe | None
+) -> tuple[str | None, str | None]:
+    """Keep a selected immutable pin instead of replacing it with a repo alias."""
+    if recipe is None:
+        return model_context.model_ref, model_context.revision
+    if model_context.model_ref is None:
+        return recipe.model_ref, recipe.revision
+
+    entry = model_context.entry or {}
+    expected_repo = recipe.model_ref
+    actual_repo = _optional_str(entry.get("repo_id"))
+    if expected_repo is not None and actual_repo != expected_repo:
+        raise ValueError(
+            f"model_ref {model_context.model_ref} resolves to {actual_repo or '<unknown>'}, "
+            f"but recipe {recipe.key} requires repo {expected_repo}"
+        )
+    expected_commit = recipe.revision
+    actual_commit = _optional_str(entry.get("commit_sha"))
+    if expected_commit is not None and actual_commit != expected_commit:
+        raise ValueError(
+            f"model_ref {model_context.model_ref} resolves to commit "
+            f"{actual_commit or '<unknown>'}, but recipe {recipe.key} requires "
+            f"{expected_commit}"
+        )
+    return model_context.model_ref, recipe.revision or model_context.revision
+
+
+def _resolve_recipe(
+    params: dict[str, Any],
+    *,
+    target: str | None,
+    runtime: RuntimeKind,
+    model: str,
+    hostname: str | None,
+) -> DeploymentRecipe | None:
+    if "recipe" not in params:
+        return _matching_recipe(
+            target=target,
+            runtime=runtime,
+            model=model,
+            hostname=hostname,
+        )
+    requested = params.get("recipe")
+    if requested is None or requested == "__custom__":
+        return None
+    if not isinstance(requested, str) or not requested.strip():
+        raise ValueError("recipe must be a recipe key, __custom__, or null")
+    key = requested.strip()
+    recipe = next((candidate for candidate in LAB_RECIPES if candidate.key == key), None)
+    if recipe is None:
+        raise ValueError(f"unknown deployment recipe: {key}")
+    if target is None or recipe.target.lower() != target.lower():
+        raise ValueError(
+            f"recipe {key} requires target {recipe.target}, got {target or '<none>'}"
+        )
+    if recipe.runtime is not runtime:
+        raise ValueError(
+            f"recipe {key} requires runtime {recipe.runtime.value}, got {runtime.value}"
+        )
+    if model not in recipe.models:
+        raise ValueError(
+            f"recipe {key} does not support model {model}; expected one of "
+            + ", ".join(recipe.models)
+        )
+    if recipe.required_hostname is not None and not _hostname_matches(
+        recipe.required_hostname, _normalized_hostname(hostname)
+    ):
+        raise ValueError(
+            f"recipe {key} requires hostname {recipe.required_hostname}, "
+            f"got {hostname or '<unknown>'}"
+        )
+    return recipe
+
+
 def _matching_recipe(
-    *, target: str | None, runtime: RuntimeKind, model: str
+    *, target: str | None, runtime: RuntimeKind, model: str, hostname: str | None
 ) -> DeploymentRecipe | None:
     if target is None:
         return None
     target_key = target.lower()
+    hostname_key = _normalized_hostname(hostname)
     for recipe in LAB_RECIPES:
         if recipe.runtime is not runtime:
             continue
         if recipe.target.lower() != target_key:
             continue
+        if recipe.required_hostname is not None and not _hostname_matches(
+            recipe.required_hostname, hostname_key
+        ):
+            continue
         if model in recipe.models:
             return recipe
     return None
+
+
+def _normalized_hostname(value: str | None) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().split(".", 1)[0].lower()
+
+
+def _hostname_matches(required: str, actual: str | None) -> bool:
+    return actual is not None and required.strip().lower() == actual
 
 
 def _served_model_name(
@@ -1268,11 +1886,27 @@ def _secret_literal_errors(cfg: ModelConfig) -> list[dict[str, str]]:
                     "message": "contains a literal secret; prefer target env injection",
                 }
             )
+    docker = cfg.command.docker
+    if docker is not None:
+        for key, value in sorted(docker.env.items()):
+            if _secretish_key(key) and _literal_secret(value):
+                errors.append(
+                    {
+                        "field": f"command.docker.env.{key}",
+                        "message": "contains a literal secret; prefer target env injection",
+                    }
+                )
     return errors
 
 
 def _compose_config_warnings(cfg: ModelConfig) -> list[str]:
     warnings: list[str] = []
+    if (
+        cfg.command.runtime is RuntimeKind.PROCESS
+        and cfg.command.build is None
+        and cfg.command.executable is None
+    ):
+        warnings.append(MUTABLE_PROCESS_REPRODUCIBILITY_WARNING)
     warnings.extend(_docker_lint_warnings(cfg))
     warnings.extend(_canonical_bind_warnings(cfg))
     return warnings
@@ -1323,8 +1957,7 @@ def _canonical_bind_warnings(cfg: ModelConfig) -> list[str]:
 
 
 def _secretish_key(key: str) -> bool:
-    normalized = key.upper()
-    return any(part in normalized for part in ("TOKEN", "SECRET", "API_KEY", "PASSWORD"))
+    return is_secret_key(key)
 
 
 def _literal_secret(value: str | None) -> bool:

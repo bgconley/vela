@@ -9,6 +9,19 @@ it should not be the mental model for everyday use. The controller asks the
 target agent to compose, validate, save, launch, probe, stop, and stream events;
 the controller never shells into Docker or dereferences target-local paths.
 
+New profiles have an immutable runtime-identity gate before Review and again
+before Save:
+
+- Process profiles must select a target build. The picker shows the human label
+  but saves the agent-returned `build_id`; Create build and Adopt venv also must
+  return that id before the wizard can resume.
+- Docker profiles must name a complete repo digest ending in
+  `@sha256:<64 hex characters>`. Tags and abbreviated digests cannot be saved.
+
+The schema remains able to read older bare-process, executable, and tagged-image
+YAML so operators can inspect and migrate it; compatibility does not make those
+mutable identities valid inputs for a newly composed profile.
+
 ## Blackwell Recipes
 
 Known Blackbird deployments are local Blackwell recipe entries. The local

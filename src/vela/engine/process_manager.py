@@ -21,6 +21,7 @@ from typing import Any
 from vela.config.schema import ModelConfig
 from vela.engine.command_builder import CommandBuildResult
 from vela.engine.log_sink import LogRecord, LogSink, is_pty_eof
+from vela.engine.redaction import is_secret_key
 from vela.engine.redaction import scrub_text as scrub_secret_text
 
 
@@ -355,7 +356,15 @@ def _scrub_config_snapshot(
         snapshot["server"]["api_key"] = None
     env = snapshot.get("env")
     if isinstance(env, dict):
-        snapshot["env"] = {key: value for key, value in env.items() if not _looks_secret_key(key)}
+        snapshot["env"] = {key: value for key, value in env.items() if not is_secret_key(key)}
+    if isinstance(command, dict):
+        docker = command.get("docker")
+        if isinstance(docker, dict) and isinstance(docker.get("env"), dict):
+            docker["env"] = {
+                key: value
+                for key, value in docker["env"].items()
+                if not is_secret_key(key)
+            }
     return _scrub_secret_values(snapshot, tuple(secret for secret in secrets if secret))
 
 
@@ -383,11 +392,6 @@ def _scrub_secret_values(value: Any, secrets: tuple[str, ...]) -> Any:
 
 def _scrub_text(text: str, secrets: tuple[str, ...]) -> str:
     return scrub_secret_text(text, secrets=secrets)
-
-
-def _looks_secret_key(key: str) -> bool:
-    upper = key.upper()
-    return "TOKEN" in upper or "KEY" in upper or "SECRET" in upper or "AUTH" in upper
 
 
 def _command_hash(argv: list[str]) -> str:

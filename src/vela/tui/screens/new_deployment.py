@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -9,6 +10,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Select, Static
 
+from vela.engine.composer import MUTABLE_PROCESS_REPRODUCIBILITY_WARNING
+from vela.engine.redaction import MASK, scrub_text
 from vela.tui.theme import (
     AMBER,
     BG_BASE,
@@ -67,6 +70,51 @@ def _connection_dot(state: str) -> str:
     }.get(state, "○")
 
 
+def _review_provenance_source(source: str) -> str:
+    """Turn wire-stable provenance tokens into operator-facing language."""
+
+    rendered: list[str] = []
+    for part in source.split(" + "):
+        if part.startswith("lab_recipe:"):
+            rendered.append(f"lab recipe {part.removeprefix('lab_recipe:')}")
+        elif part.startswith("preset:"):
+            rendered.append(f"preset {part.removeprefix('preset:')}")
+        elif part == "model_registry:selected_pin":
+            rendered.append("selected model-registry pin")
+        elif part == "model_registry:resolved_commit":
+            rendered.append("model registry resolved commit")
+        else:
+            rendered.append(
+                {
+                    "model_registry": "model registry",
+                    "model_basename": "model name",
+                    "operator_input": "operator selection",
+                    "operator_override": "operator override",
+                    "schema_default": "schema default",
+                    "port_allocator": "free-port allocator",
+                    "generated_runs_dir": "generated runs directory",
+                    "generated_container_name": "generated container name",
+                    "docker_container_name_collision": "container collision allocator",
+                    "agent_hf_cache_default": "target agent HF cache",
+                    "local_recipe_artifact": "recipe source artifact",
+                    "lab_recipe": "lab recipe",
+                }.get(part, part.replace("_", " "))
+            )
+    return " plus ".join(rendered)
+
+
+def _review_provenance_value(field: str, value: object) -> str:
+    """Defence-in-depth redaction for provenance supplied by any target version."""
+
+    leaf = field.rsplit(".", 1)[-1].upper()
+    if leaf in {"TOKEN", "API_KEY", "PASSWORD", "SECRET", "AUTHORIZATION"}:
+        return MASK
+    if field == "env" or field.endswith(".env"):
+        return f"{MASK} (values redacted)"
+    rendered = str(value) if value is not None else "none"
+    return scrub_text(rendered)
+
+
 # Shown in the pinned-model Select when the target has zero pins. Replaces the
 # phantom "Custom model" row so switching to "Existing pin" is an honest dead
 # end that points back at the "Pin HF repo →" source. Its value stays the
@@ -81,6 +129,74 @@ _NO_PINS_PLACEHOLDER = 'No pins on this target — pick "Pin HF repo →"'
 # These are prefixes: app-side messages append guidance suffixes.
 MODEL_REQUIRED_ERROR = "Model is required"
 DOWNLOAD_NEEDS_PIN_ERROR = "Download now requires a pinned model"
+RECIPE_MODEL_PIN_REQUIRED_ERROR = "Recipe requires pinned"
+DOCKER_IMAGE_REQUIRED_ERROR = "Docker image is required for Custom Docker runtime"
+DOCKER_IMAGE_DIGEST_REQUIRED_ERROR = (
+    "Docker image must include a full @sha256 digest (64 hex characters)"
+)
+PROCESS_BUILD_REQUIRED_ERROR = (
+    "Process runtime requires an immutable build id. "
+    "Choose Build, Create build, or Adopt venv."
+)
+BUILD_ID_REQUIRED_ERROR = (
+    "Select a listed immutable build id. Use Create build or Adopt venv if needed."
+)
+
+_DOCKER_SHA256_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
+_HF_COMMIT_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+
+
+def _immutable_recipe_model_identity(
+    recipe: dict[str, Any] | None,
+) -> tuple[str, str] | None:
+    """Return the immutable HF identity a modern recipe requires, if present.
+
+    Older recipes may have only a launch model, a symbolic revision, or neither;
+    those payloads deliberately retain their compatibility behavior. A modern
+    recipe opts into the UI gate only with both a repo identity and a full
+    40-character commit SHA.
+    """
+
+    if recipe is None:
+        return None
+    repo_id = str(recipe.get("model_ref") or "").strip()
+    commit_sha = str(recipe.get("revision") or "").strip()
+    if not repo_id or _HF_COMMIT_SHA_RE.fullmatch(commit_sha) is None:
+        return None
+    return repo_id, commit_sha
+
+
+def _recipe_pin_required_guidance(repo_id: str, commit_sha: str) -> str:
+    return (
+        f"{RECIPE_MODEL_PIN_REQUIRED_ERROR} {repo_id} at commit {commit_sha}. "
+        'Choose "Pin HF repo →" or an Existing pin with that exact commit '
+        "before Review."
+    )
+
+
+def new_deployment_runtime_identity_error(config: dict[str, Any]) -> str | None:
+    """Return the new-profile runtime identity blocker, if any.
+
+    This is deliberately a creation-workflow contract, not schema validation:
+    legacy YAML may still load a bare process or a tagged Docker image, while a
+    newly saved profile must be exactly reinstantiable.
+    """
+
+    command = config.get("command") if isinstance(config.get("command"), dict) else {}
+    runtime = str(command.get("runtime") or "process")
+    if runtime == "docker":
+        docker = command.get("docker") if isinstance(command.get("docker"), dict) else {}
+        image = str(docker.get("image") or "").strip()
+        if not _is_digest_pinned_docker_image(image):
+            return DOCKER_IMAGE_DIGEST_REQUIRED_ERROR
+        return None
+    if not str(command.get("build") or "").strip():
+        return PROCESS_BUILD_REQUIRED_ERROR
+    return None
+
+
+def _is_digest_pinned_docker_image(image: str) -> bool:
+    return _DOCKER_SHA256_DIGEST_RE.search(image.strip()) is not None
 
 
 class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
@@ -165,12 +281,21 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
     # step-adjacent .step-error Static so the message renders next to the
     # offending field, not only at the panel bottom.
     _MODEL_STEP_INDEX = STEP_TITLES.index("Model")
-    _STEP_ERROR_STATICS = {_MODEL_STEP_INDEX: "#new-deployment-model-error"}
+    _RUNTIME_STEP_INDEX = STEP_TITLES.index("Runtime")
+    _STEP_ERROR_STATICS = {
+        _RUNTIME_STEP_INDEX: "#new-deployment-runtime-error",
+        _MODEL_STEP_INDEX: "#new-deployment-model-error",
+    }
     # Known review-time validation errors attributed to the wizard step that
     # owns the field (matched by prefix — app-side messages carry guidance
     # suffixes). First match wins (see _error_step_for). Unmapped errors render
     # exactly as before: panel bottom only.
     _ERROR_STEP_PREFIXES: tuple[tuple[str, int], ...] = (
+        (PROCESS_BUILD_REQUIRED_ERROR, _RUNTIME_STEP_INDEX),
+        (BUILD_ID_REQUIRED_ERROR, _RUNTIME_STEP_INDEX),
+        (DOCKER_IMAGE_DIGEST_REQUIRED_ERROR, _RUNTIME_STEP_INDEX),
+        (DOCKER_IMAGE_REQUIRED_ERROR, _RUNTIME_STEP_INDEX),
+        (RECIPE_MODEL_PIN_REQUIRED_ERROR, _MODEL_STEP_INDEX),
         (MODEL_REQUIRED_ERROR, _MODEL_STEP_INDEX),
         (DOWNLOAD_NEEDS_PIN_ERROR, _MODEL_STEP_INDEX),
     )
@@ -220,6 +345,14 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         self._suppress_target_events = False
         self._target_selection_touched = False
         self._applying_initial = False
+        pre_recipe_draft = self.initial.get("pre_recipe_draft")
+        self._pre_recipe_draft = (
+            dict(pre_recipe_draft) if isinstance(pre_recipe_draft, dict) else None
+        )
+        initial_recipe = str(self.initial.get("recipe") or "__custom__")
+        self._active_recipe_key = (
+            initial_recipe if initial_recipe != "__custom__" else None
+        )
         self._advanced_visible = any(
             (initial or {}).get(key)
             for key in ("served_model_name", "runs_dir", "container_name")
@@ -272,24 +405,37 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 yield self._section_warning("recipes", "new-deployment-recipe-warning")
                 yield Static("Name", classes="new-deployment-field-label")
                 yield Input(placeholder="qwen3-32b-bf16", id="new-deployment-name")
+                yield Static(
+                    "Optional. Vela derives a target-safe name from the model; "
+                    "Review shows the final name and provenance.",
+                    id="new-deployment-name-help",
+                    classes="new-deployment-helper",
+                )
             with Vertical(id="new-deployment-step-runtime"):
                 yield Static("Runtime", classes="new-deployment-field-label")
                 yield Select(
                     [
-                        ("Process", "process"),
-                        ("Docker", "docker"),
-                        ("Build", "build"),
+                        ("Process (current env — cannot save)", "process"),
+                        ("Docker (digest-pinned image)", "docker"),
+                        ("Process (immutable build)", "build"),
                         ("Create build →", "create_build"),
                         ("Adopt venv →", "adopt_build"),
-                        ("Executable", "executable"),
+                        ("Executable (host-local — cannot save)", "executable"),
                     ],
-                    value="process",
+                    value=self._initial_runtime_choice(),
                     allow_blank=False,
                     id="new-deployment-runtime",
                 )
                 yield Static(
                     "Create build / Adopt venv open a dedicated screen, then return here.",
                     classes="new-deployment-helper",
+                )
+                yield Static(
+                    f"{MUTABLE_PROCESS_REPRODUCIBILITY_WARNING} "
+                    "New Deployment cannot save this choice; choose Process "
+                    "(immutable build), Create build, or Adopt venv.",
+                    id="new-deployment-process-help",
+                    classes="new-deployment-warning",
                 )
                 yield self._section_warning("builds", "new-deployment-build-warning")
                 with Vertical(id="nd-group-image"):
@@ -299,7 +445,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         id="new-deployment-image",
                     )
                     yield Static(
-                        "Blank = recipe/preset default. Pin a digest "
+                        "Blank is allowed only when a selected recipe supplies the image. "
+                        "Custom Docker requires an image; pin a digest "
                         "(vllm/vllm-openai@sha256:…) from Docker Hub for reproducibility.",
                         id="new-deployment-image-help",
                         classes="new-deployment-helper",
@@ -308,13 +455,19 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     yield Static("Build", classes="new-deployment-field-label")
                     yield Select(
                         self._build_options(),
-                        value="__custom__",
+                        value=self._initial_build_select_value(),
                         allow_blank=False,
                         id="new-deployment-build-select",
                     )
                     yield Input(
-                        placeholder="target build id or label",
+                        value=self._initial_build_reference(),
+                        placeholder="immutable target build id (select above)",
                         id="new-deployment-build",
+                    )
+                    yield Static(
+                        "Select a ready target build by name; Vela saves its immutable "
+                        "build id. Create or adopt one if the list is empty.",
+                        classes="new-deployment-helper",
                     )
                 with Vertical(id="nd-group-executable"):
                     yield Static("Executable", classes="new-deployment-field-label")
@@ -322,6 +475,17 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                         placeholder="/path/to/vllm",
                         id="new-deployment-executable",
                     )
+                    yield Static(
+                        "Legacy host-local path; New Deployment cannot save it. "
+                        "Choose an immutable build. Review shows runtime provenance.",
+                        id="new-deployment-executable-help",
+                        classes="new-deployment-helper",
+                    )
+                runtime_error = Static(
+                    "", id="new-deployment-runtime-error", classes="step-error"
+                )
+                runtime_error.display = False
+                yield runtime_error
             with Vertical(id="new-deployment-step-model"):
                 yield Static("Model source", classes="new-deployment-field-label")
                 yield Select(
@@ -361,6 +525,13 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     )
                     model_scan_help.display = False
                     yield model_scan_help
+                recipe_pin_guidance = Static(
+                    "",
+                    id="new-deployment-recipe-pin-guidance",
+                    classes="new-deployment-warning",
+                )
+                recipe_pin_guidance.display = False
+                yield recipe_pin_guidance
                 yield Static("", id="new-deployment-model-suggestions")
                 with Vertical(id="nd-group-bare"):
                     yield Static("Model", classes="new-deployment-field-label")
@@ -380,7 +551,19 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                     placeholder="main, tag, or commit",
                     id="new-deployment-model-revision",
                 )
+                yield Static(
+                    "HF revision or full commit. Recipe profiles require the exact "
+                    "pinned commit; Review shows the resolved revision and provenance.",
+                    id="new-deployment-revision-help",
+                    classes="new-deployment-helper",
+                )
                 yield Checkbox("Download now", id="new-deployment-download-now")
+                yield Static(
+                    "Available for pinned HF sources. Downloads on the target after "
+                    "pinning; off by default. Review shows cache and revision provenance.",
+                    id="new-deployment-download-help",
+                    classes="new-deployment-helper",
+                )
                 # Step-adjacent validation message (bug-236c): a bare Static
                 # with a display toggle — no wrapper container to inflate.
                 model_error = Static(
@@ -409,6 +592,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                             placeholder="127.0.0.1",
                             id="new-deployment-host",
                         )
+                        yield Static(
+                            "Bind host on the target; defaults to 127.0.0.1. Review "
+                            "shows the endpoint and exposure provenance.",
+                            id="new-deployment-host-help",
+                            classes="new-deployment-helper",
+                        )
                     with Vertical(classes="new-deployment-column"):
                         yield Static("Port", classes="new-deployment-field-label")
                         yield Input(placeholder="auto", id="new-deployment-port")
@@ -423,6 +612,12 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                             value="local",
                             allow_blank=False,
                             id="new-deployment-exposure",
+                        )
+                        yield Static(
+                            "Controls who may reach the bind address; defaults to Local. "
+                            "Review shows the final exposure and provenance.",
+                            id="new-deployment-exposure-help",
+                            classes="new-deployment-helper",
                         )
                 yield Static(
                     "Ctrl+R Advanced — override the auto-derived served name, "
@@ -610,7 +805,22 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         Next would walk into a guaranteed Review failure. More rules slot in
         per step index as they earn their keep.
         """
+        if index == self._RUNTIME_STEP_INDEX:
+            runtime = self._selected_runtime()
+            if runtime in {"process", "executable"}:
+                return PROCESS_BUILD_REQUIRED_ERROR
+            if runtime == "build":
+                return self._build_identity_error()
+            if runtime == "docker":
+                image = self._field_value("#new-deployment-image")
+                if self._selected_recipe() == "__custom__" and not image:
+                    return DOCKER_IMAGE_REQUIRED_ERROR
+                if image and not _is_digest_pinned_docker_image(image):
+                    return DOCKER_IMAGE_DIGEST_REQUIRED_ERROR
         if index == self._MODEL_STEP_INDEX:
+            recipe_pin_error = self._recipe_model_pin_error()
+            if recipe_pin_error is not None:
+                return recipe_pin_error
             mode = str(self.query_one("#new-deployment-model-mode", Select).value or "")
             if (
                 mode not in {"pin_hf", "adopt_local"}
@@ -744,6 +954,25 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         host = self._field_value("#new-deployment-host") or "127.0.0.1"
         port = self._field_value("#new-deployment-port")
         exposure = str(self.query_one("#new-deployment-exposure", Select).value or "local")
+        recipe = self._selected_recipe()
+        recipe_identity = _immutable_recipe_model_identity(self._recipe_by_key(recipe))
+        if recipe_identity is not None:
+            # Recipe commit is authoritative. The exact-pin gate below proves the
+            # selected registry entry resolves to the same immutable identity.
+            model_revision = recipe_identity[1]
+        if runtime in {"process", "executable"}:
+            raise ValueError(PROCESS_BUILD_REQUIRED_ERROR)
+        if runtime == "docker" and recipe == "__custom__" and not image:
+            raise ValueError(DOCKER_IMAGE_REQUIRED_ERROR)
+        if runtime == "docker" and image and not _is_digest_pinned_docker_image(image):
+            raise ValueError(DOCKER_IMAGE_DIGEST_REQUIRED_ERROR)
+        if runtime == "build":
+            build_error = self._build_identity_error()
+            if build_error is not None:
+                raise ValueError(build_error)
+        recipe_pin_error = self._recipe_model_pin_error()
+        if recipe_pin_error is not None:
+            raise ValueError(recipe_pin_error)
         if not model and model_ref is None:
             raise ValueError(MODEL_REQUIRED_ERROR)
         if not name:
@@ -753,6 +982,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         spec: dict[str, Any] = {
             "name": name,
             "target": target,
+            "recipe": recipe,
             "preset": preset,
             "runtime": runtime,
             "overrides": {"server": {"host": host, "exposure": exposure}},
@@ -841,6 +1071,8 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         warnings = _warning_texts(self.initial.get("warnings"))
         if warnings:
             draft["warnings"] = warnings
+        if self._pre_recipe_draft is not None:
+            draft["pre_recipe_draft"] = dict(self._pre_recipe_draft)
         return draft
 
     def _field_value(self, selector: str) -> str:
@@ -852,6 +1084,14 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         except Exception:
             value = ""
         return value or self.target_label
+
+    def _selected_runtime(self) -> str:
+        return str(self.query_one("#new-deployment-runtime", Select).value or "process")
+
+    def _selected_recipe(self) -> str:
+        return str(
+            self.query_one("#new-deployment-recipe", Select).value or "__custom__"
+        )
 
     def _pin_model_initial(self, mode: str) -> dict[str, Any]:
         model = self._field_value("#new-deployment-model")
@@ -979,8 +1219,10 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             dot = _connection_dot(state)
             transport = str(target.get("transport") or "").strip()
             host = str(target.get("host") or "").strip()
-            detail = host or transport
-            label = f"{dot} {name}" if not detail else f"{dot} {name}  {detail}"
+            hostname = self._target_hostname(name)
+            identity = f"{name} on host {hostname}" if hostname else name
+            detail = host or (transport if transport != "local" else "")
+            label = f"{dot} {identity}" if not detail else f"{dot} {identity}  {detail}"
             options.append((label, name))
         return options or [(self.target_label, self.target_label)]
 
@@ -992,7 +1234,9 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         selected = self._selected_target()
         state = self._target_connection_state(selected)
         dot = _connection_dot(state)
-        parts = [f"{dot} {selected} {state}"]
+        hostname = self._target_hostname(selected)
+        identity = f"{selected} on host {hostname}" if hostname else selected
+        parts = [f"{dot} {identity} {state}"]
         agent = self._target_agent_version(selected)
         if agent:
             parts.append(f"agent {agent}")
@@ -1023,6 +1267,18 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 return agent
         if name == self.target_label:
             return str(self.agent_info.get("agent_version") or "").strip()
+        return ""
+
+    def _target_hostname(self, name: str) -> str:
+        target = self._target_row(name)
+        if target is not None:
+            hostname = str(target.get("hostname") or "").strip()
+            if hostname:
+                return hostname
+        if name == self.target_label:
+            host_info = self.agent_info.get("host_info")
+            if isinstance(host_info, dict):
+                return str(host_info.get("hostname") or "").strip()
         return ""
 
     def _target_row(self, name: str) -> dict[str, Any] | None:
@@ -1122,13 +1378,58 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         return "existing"
 
     def _build_options(self) -> list[tuple[str, str]]:
-        options = [("Custom build", "__custom__")]
+        options = [("Select a target build", "__custom__")]
         for build in self.builds:
             ref = _build_reference(build)
             if not ref:
                 continue
             options.append((_build_option_label(build), ref))
         return options
+
+    def _ready_default_build_reference(self) -> str | None:
+        for build in self.builds:
+            if not bool(build.get("default")):
+                continue
+            if str(build.get("status") or "").lower() not in {"ready", "adopted"}:
+                continue
+            build_id = str(build.get("build_id") or "").strip()
+            if build_id:
+                return build_id
+        return None
+
+    def _build_identity_error(self) -> str | None:
+        build = self._field_value("#new-deployment-build")
+        build_ids = {
+            str(item.get("build_id") or "").strip()
+            for item in self.builds
+            if str(item.get("build_id") or "").strip()
+        }
+        if not build or build not in build_ids:
+            return BUILD_ID_REQUIRED_ERROR
+        return None
+
+    def _initial_runtime_choice(self) -> str:
+        if "runtime" in self.initial:
+            runtime = _initial_runtime_value(self.initial)
+            if runtime in {"process", "docker", "build", "executable"}:
+                return runtime
+        # New profiles always start on the reproducible Process-build path. An
+        # empty target is an actionable gate (select/create/adopt), never a
+        # silent fallback to the mutable agent environment.
+        return "build"
+
+    def _initial_build_reference(self) -> str:
+        explicit = str(self.initial.get("build") or "").strip()
+        if explicit:
+            return explicit
+        if "runtime" in self.initial:
+            return ""
+        return self._ready_default_build_reference() or ""
+
+    def _initial_build_select_value(self) -> str:
+        reference = self._initial_build_reference()
+        option_values = {value for _label, value in self._build_options()}
+        return reference if reference in option_values else "__custom__"
 
     def _default_preset(self) -> str:
         names = {value for _, value in self._preset_options()}
@@ -1169,6 +1470,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         visible = {"docker": "image", "build": "build", "executable": "executable"}.get(runtime)
         for key in ("image", "build", "executable"):
             self.query_one(f"#nd-group-{key}").display = key == visible
+        self.query_one("#new-deployment-process-help").display = runtime == "process"
 
     def _apply_model_disclosure(self) -> None:
         mode = str(self.query_one("#new-deployment-model-mode", Select).value or "existing")
@@ -1179,6 +1481,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         download = self.query_one("#new-deployment-download-now", Checkbox)
         download_visible = mode in self._PREDOWNLOADABLE_MODEL_SOURCES
         download.display = download_visible
+        self.query_one("#new-deployment-download-help", Static).display = download_visible
         if not download_visible:
             download.value = False
         if mode in {"pin_hf", "adopt_local"}:
@@ -1197,14 +1500,21 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
 
     def _apply_recipe(self, key: str) -> None:
         if key == "__custom__":
+            if self._active_recipe_key is None:
+                return
+            self._restore_pre_recipe_draft()
+            self._active_recipe_key = None
             return
         recipe = self._recipe_by_key(key)
         if recipe is None:
             return
+        if self._pre_recipe_draft is None:
+            self._pre_recipe_draft = self._capture_recipe_human_draft()
+        self._active_recipe_key = key
         applied: list[str] = []
         name = _recipe_name(recipe)
+        self.query_one("#new-deployment-name", Input).value = name
         if name:
-            self.query_one("#new-deployment-name", Input).value = name
             applied.append(f"name={name}")
         runtime = str(recipe.get("runtime") or "process")
         if runtime in {"process", "docker", "build", "executable"}:
@@ -1215,38 +1525,165 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
             models = recipe.get("models")
             if isinstance(models, list) and models:
                 model = str(models[0] or "").strip()
+        self.query_one("#new-deployment-model", Input).value = model
+        self.query_one("#new-deployment-model-revision", Input).value = str(
+            recipe.get("revision") or ""
+        ).strip()
+        recipe_identity = _immutable_recipe_model_identity(recipe)
+        if recipe_identity is None:
+            self._set_select_value("#new-deployment-model-mode", "bare")
+            self._set_select_value("#new-deployment-model-ref", "__custom__")
+        else:
+            exact_pin = self._exact_pinned_model_for_identity(*recipe_identity)
+            self._set_select_value("#new-deployment-model-mode", "existing")
+            self._set_select_value(
+                "#new-deployment-model-ref",
+                _model_reference(exact_pin) if exact_pin is not None else "__custom__",
+            )
+            if exact_pin is not None:
+                self._apply_model_ref(_model_reference(exact_pin))
+        self.query_one("#new-deployment-download-now", Checkbox).value = False
         if model:
-            self.query_one("#new-deployment-model", Input).value = model
-            self.query_one("#new-deployment-model-mode", Select).value = "bare"
             applied.append(f"model={model}")
         image = str(recipe.get("image") or "").strip()
+        self.query_one("#new-deployment-image", Input).value = image
         if image:
-            self.query_one("#new-deployment-image", Input).value = image
             applied.append("image pinned")
         build = str(recipe.get("build") or "").strip()
-        if build:
-            self.query_one("#new-deployment-build", Input).value = build
+        self.query_one("#new-deployment-build", Input).value = build
+        build_values = {value for _label, value in self._build_options()}
+        self._set_select_value(
+            "#new-deployment-build-select",
+            build if build in build_values else "__custom__",
+        )
         executable = str(recipe.get("executable") or "").strip()
-        if executable:
-            self.query_one("#new-deployment-executable", Input).value = executable
+        self.query_one("#new-deployment-executable", Input).value = executable
         server = recipe.get("server")
         if isinstance(server, dict):
             host = str(server.get("host") or "").strip()
             port = server.get("port")
             exposure = str(server.get("exposure") or "").strip()
-            if host:
-                self.query_one("#new-deployment-host", Input).value = host
+            self.query_one("#new-deployment-host", Input).value = host
             if port is not None:
                 self.query_one("#new-deployment-port", Input).value = str(port)
                 applied.append(f"port={port}")
+            else:
+                self.query_one("#new-deployment-port", Input).value = ""
             if exposure in {"local", "lan", "public"}:
                 self.query_one("#new-deployment-exposure", Select).value = exposure
                 applied.append(f"exposure={exposure}")
+        else:
+            self.query_one("#new-deployment-host", Input).value = ""
+            self.query_one("#new-deployment-port", Input).value = ""
+        self.query_one("#new-deployment-served-name", Input).value = str(
+            recipe.get("served_model_name") or ""
+        ).strip()
+        launch = recipe.get("launch")
+        runs_dir = str(launch.get("runs_dir") or "").strip() if isinstance(launch, dict) else ""
+        self.query_one("#new-deployment-runs-dir", Input).value = runs_dir
+        docker = recipe.get("docker")
+        container_name = (
+            str(docker.get("container_name") or "").strip()
+            if isinstance(docker, dict)
+            else ""
+        )
+        self.query_one("#new-deployment-container-name", Input).value = container_name
+        self._apply_runtime_disclosure()
+        self._apply_model_disclosure()
+        self._refresh_model_state()
+        self._refresh_name_suggestion()
         self.query_one("#new-deployment-recipe-note", Static).update(
             "Recipe applied: " + " · ".join(applied)
             if applied
             else "Recipe applied (no fields changed)."
         )
+        self._queue_model_suggestions()
+
+    def _capture_recipe_human_draft(self) -> dict[str, Any]:
+        return {
+            "name": self._field_value("#new-deployment-name"),
+            "runtime": self._selected_runtime(),
+            "model": self._field_value("#new-deployment-model"),
+            "model_mode": str(
+                self.query_one("#new-deployment-model-mode", Select).value or "bare"
+            ),
+            "model_ref": str(
+                self.query_one("#new-deployment-model-ref", Select).value or "__custom__"
+            ),
+            "model_revision": self._field_value("#new-deployment-model-revision"),
+            "download_now": bool(
+                self.query_one("#new-deployment-download-now", Checkbox).value
+            ),
+            "image": self._field_value("#new-deployment-image"),
+            "build": self._field_value("#new-deployment-build"),
+            "build_select": str(
+                self.query_one("#new-deployment-build-select", Select).value or "__custom__"
+            ),
+            "executable": self._field_value("#new-deployment-executable"),
+            "host": self._field_value("#new-deployment-host"),
+            "port": self._field_value("#new-deployment-port"),
+            "exposure": str(
+                self.query_one("#new-deployment-exposure", Select).value or "local"
+            ),
+            "served_model_name": self._field_value("#new-deployment-served-name"),
+            "runs_dir": self._field_value("#new-deployment-runs-dir"),
+            "container_name": self._field_value("#new-deployment-container-name"),
+        }
+
+    def _restore_pre_recipe_draft(self) -> None:
+        draft = self._pre_recipe_draft or {
+            "name": "",
+            "runtime": "process",
+            "model": "",
+            "model_mode": self._default_model_mode(),
+            "model_ref": "__custom__",
+            "model_revision": "",
+            "download_now": False,
+            "image": "",
+            "build": "",
+            "build_select": "__custom__",
+            "executable": "",
+            "host": "127.0.0.1",
+            "port": "",
+            "exposure": "local",
+            "served_model_name": "",
+            "runs_dir": "",
+            "container_name": "",
+        }
+        for selector, field in (
+            ("#new-deployment-name", "name"),
+            ("#new-deployment-model", "model"),
+            ("#new-deployment-model-revision", "model_revision"),
+            ("#new-deployment-image", "image"),
+            ("#new-deployment-build", "build"),
+            ("#new-deployment-executable", "executable"),
+            ("#new-deployment-host", "host"),
+            ("#new-deployment-port", "port"),
+            ("#new-deployment-served-name", "served_model_name"),
+            ("#new-deployment-runs-dir", "runs_dir"),
+            ("#new-deployment-container-name", "container_name"),
+        ):
+            self.query_one(selector, Input).value = str(draft.get(field) or "")
+        for selector, field, fallback in (
+            ("#new-deployment-runtime", "runtime", "process"),
+            ("#new-deployment-model-mode", "model_mode", self._default_model_mode()),
+            ("#new-deployment-model-ref", "model_ref", "__custom__"),
+            ("#new-deployment-build-select", "build_select", "__custom__"),
+            ("#new-deployment-exposure", "exposure", "local"),
+        ):
+            self._set_select_value(selector, str(draft.get(field) or fallback))
+        self.query_one("#new-deployment-download-now", Checkbox).value = bool(
+            draft.get("download_now")
+        )
+        self._pre_recipe_draft = None
+        self._apply_runtime_disclosure()
+        self._apply_model_disclosure()
+        self._refresh_model_state()
+        self._refresh_name_suggestion()
+        self.query_one("#new-deployment-recipe-note", Static).update(
+            "Custom restored: recipe-derived values cleared; your prior draft is back."
+        )
+        self._queue_model_suggestions()
 
     def _apply_model_ref(self, model_ref: str) -> None:
         if model_ref == "__custom__":
@@ -1287,6 +1724,53 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
                 return model
         return None
 
+    def _exact_pinned_model_for_identity(
+        self, repo_id: str, commit_sha: str
+    ) -> dict[str, Any] | None:
+        """Find a registry pin matching both immutable recipe identity fields."""
+
+        for model in self.models:
+            if not _is_pinned_entry(model):
+                continue
+            if str(model.get("repo_id") or "").strip() != repo_id:
+                continue
+            if str(model.get("commit_sha") or "").strip() != commit_sha:
+                continue
+            if not _model_reference(model):
+                continue
+            return model
+        return None
+
+    def _active_recipe_model_identity(self) -> tuple[str, str] | None:
+        return _immutable_recipe_model_identity(
+            self._recipe_by_key(self._selected_recipe())
+        )
+
+    def _recipe_model_pin_error(self) -> str | None:
+        identity = self._active_recipe_model_identity()
+        if identity is None:
+            return None
+        repo_id, commit_sha = identity
+        model_ref = self._selected_model_ref()
+        model = self._model_by_ref(model_ref) if model_ref is not None else None
+        if (
+            model is not None
+            and _is_pinned_entry(model)
+            and str(model.get("repo_id") or "").strip() == repo_id
+            and str(model.get("commit_sha") or "").strip() == commit_sha
+        ):
+            return None
+        return _recipe_pin_required_guidance(repo_id, commit_sha)
+
+    def _render_recipe_pin_guidance(self) -> None:
+        try:
+            widget = self.query_one("#new-deployment-recipe-pin-guidance", Static)
+        except Exception:
+            return
+        error = self._recipe_model_pin_error()
+        widget.update(error or "")
+        widget.display = error is not None
+
     def _selected_model_ref(self) -> str | None:
         value = str(self.query_one("#new-deployment-model-ref", Select).value or "")
         if not value or value == "__custom__":
@@ -1311,9 +1795,11 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         model_ref = self._selected_model_ref()
         if model_ref is None:
             widget.update("cache: unpinned")
+            self._render_recipe_pin_guidance()
             return
         model = self._model_by_ref(model_ref)
         widget.update(_model_state_summary(model) if model is not None else "cache: unknown")
+        self._render_recipe_pin_guidance()
 
     def _queue_model_suggestions(self) -> None:
         try:
@@ -1349,6 +1835,7 @@ class NewDeploymentScreen(ModalScreen[dict[str, Any] | None]):
         params: dict[str, Any] = {
             "target": self._selected_target(),
             "runtime": str(self.query_one("#new-deployment-runtime", Select).value or "process"),
+            "recipe": self._selected_recipe(),
         }
         name = self._field_value("#new-deployment-name")
         if name:
@@ -1475,7 +1962,7 @@ def _initial_runtime_value(initial: dict[str, Any]) -> str:
     runtime = initial.get("runtime")
     if isinstance(runtime, dict):
         return str(runtime.get("kind") or "process")
-    return str(runtime or "process")
+    return str(runtime or "build")
 
 
 def _model_option_label(model: dict[str, Any]) -> str:
@@ -1501,6 +1988,12 @@ def _model_launch_arg(model: dict[str, Any]) -> str:
 def _model_state_summary(model: dict[str, Any]) -> str:
     cache = str(model.get("cache_state") or "unknown").strip() or "unknown"
     parts = [f"cache: {cache}"]
+    commit_sha = str(model.get("commit_sha") or "").strip()
+    revision = str(model.get("revision") or "").strip()
+    if commit_sha:
+        parts.append(f"commit: {commit_sha}")
+    elif revision:
+        parts.append(f"revision: {revision}")
     if model.get("gated") and (model.get("token_required") or model.get("gated")):
         parts.append("auth: gated, requires HF_TOKEN (agent env or config env: block)")
     elif model.get("token_required"):
@@ -1509,7 +2002,7 @@ def _model_state_summary(model: dict[str, Any]) -> str:
 
 
 def _build_reference(build: dict[str, Any]) -> str:
-    return str(build.get("label") or build.get("build_id") or "").strip()
+    return str(build.get("build_id") or "").strip()
 
 
 def _build_option_label(build: dict[str, Any]) -> str:
@@ -1565,6 +2058,7 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
     }}
 
     #new-deployment-review-actions {{ margin-top: 1; }}
+    #new-deployment-review-error {{ margin-top: 1; color: {RED}; }}
     """
 
     BINDINGS = [
@@ -1599,12 +2093,22 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             )
             yield Static("Summary", classes="new-deployment-review-label")
             yield Static(self._summary_text(), id="new-deployment-review-summary")
-            yield Static("Auto-derived fields", classes="new-deployment-review-label")
+            yield Static("Field provenance", classes="new-deployment-review-label")
             yield Static(self._derived_text(), id="new-deployment-review-derived")
             yield Static("Warnings", classes="new-deployment-review-label")
             yield Static(self._warnings_text(), id="new-deployment-review-warnings")
             yield Static("Resolved command", classes="new-deployment-review-label")
             yield Static(self.preview, id="new-deployment-review-preview")
+            review_error = Static("", id="new-deployment-review-error")
+            identity_error = new_deployment_runtime_identity_error(self.config)
+            if identity_error is not None:
+                review_error.update(
+                    f"Cannot save this new deployment: {identity_error} Press b to go back."
+                )
+                review_error.display = True
+            else:
+                review_error.display = False
+            yield review_error
             yield KeyHintBar(
                 [
                     # Case matches the actual lowercase b/f/s bindings above —
@@ -1635,13 +2139,26 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
         )
 
     def action_save(self) -> None:
+        if self._render_runtime_identity_blocker():
+            return
         self.dismiss({"action": "save", "config": self.config})
 
     def action_save_smoke(self) -> None:
+        if self._render_runtime_identity_blocker():
+            return
         self.dismiss({"action": "save_smoke", "config": self.config})
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def _render_runtime_identity_blocker(self) -> bool:
+        message = new_deployment_runtime_identity_error(self.config)
+        if message is None:
+            return False
+        blocker = self.query_one("#new-deployment-review-error", Static)
+        blocker.update(f"Cannot save this new deployment: {message} Press b to go back.")
+        blocker.display = True
+        return True
 
     def _summary_text(self) -> str:
         server = self.config.get("server") if isinstance(self.config.get("server"), dict) else {}
@@ -1649,9 +2166,23 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
             self.config.get("command") if isinstance(self.config.get("command"), dict) else {}
         )
         docker = command.get("docker") if isinstance(command.get("docker"), dict) else {}
+        launch = (
+            self.config.get("launch") if isinstance(self.config.get("launch"), dict) else {}
+        )
+        model_ref = str(self.config.get("model_ref") or "").strip()
+        revision = str(
+            self.config.get("revision")
+            or self.metadata.get("model_revision")
+            or self.metadata.get("model_commit_sha")
+            or ""
+        ).strip()
         lines = [
             f"Name: {self.config.get('name', '')}",
+            f"Target: {self.config.get('target') or 'active target'}",
             f"Model: {self.config.get('model', '')}",
+            f"Model ref: {model_ref or 'none (un-pinned)'}",
+            f"Resolved revision: {revision or 'none (mutable)'}",
+            f"Served model: {self.config.get('served_model_name', '')}",
             f"Runtime: {command.get('runtime', 'process')}",
             f"Endpoint: {server.get('host', '127.0.0.1')}:{server.get('port', '')}",
             f"Exposure: {server.get('exposure', 'local')}",
@@ -1659,17 +2190,59 @@ class NewDeploymentReviewScreen(ModalScreen[dict[str, Any] | None]):
         if docker:
             lines.append(f"Image: {docker.get('image', '')}")
             lines.append(f"Container: {docker.get('container_name', '')}")
+            hf_cache = str(docker.get("hf_cache") or "").strip()
+            hf_cache_target = str(docker.get("hf_cache_target") or "").strip()
+            if hf_cache:
+                destination = f" -> {hf_cache_target}" if hf_cache_target else ""
+                lines.append(f"HF cache: {hf_cache}{destination}")
+            volumes = docker.get("volumes")
+            if isinstance(volumes, list) and volumes:
+                lines.append("Mounts:")
+                lines.extend(f"  - {volume}" for volume in volumes)
+            evict = docker.get("evict")
+            if isinstance(evict, list) and evict:
+                lines.append(
+                    "Destructive actions: may replace only "
+                    + ", ".join(str(item) for item in evict)
+                )
+            else:
+                lines.append("Destructive actions: none declared")
+            cleanup = (
+                "auto-remove after stop"
+                if docker.get("auto_remove") is True
+                else "stopped container retained"
+            )
+            lines.append(f"Container cleanup: {cleanup}")
+        else:
+            build = str(command.get("build") or "").strip()
+            executable = str(command.get("executable") or "").strip()
+            if build:
+                lines.append(f"Build id: {build}")
+            elif executable:
+                lines.append(f"Executable: {executable}")
+            else:
+                lines.append("Process environment: target current (mutable)")
+        required_hostname = str(launch.get("required_hostname") or "").strip()
+        if required_hostname:
+            lines.append(f"Required hostname: {required_hostname}")
+        lines.append(
+            "Cached models required: "
+            + ("yes" if launch.get("require_cached_models") is True else "no")
+        )
+        runs_dir = str(launch.get("runs_dir") or "").strip()
+        if runs_dir:
+            lines.append(f"Runs: {runs_dir}")
         return "\n".join(lines)
 
     def _derived_text(self) -> str:
         if not self.derived:
-            return "No auto-derived fields reported."
+            return "No field provenance reported."
         lines = []
         for item in self.derived:
             field = str(item.get("field") or "")
-            value = str(item.get("value") or "")
+            value = _review_provenance_value(field, item.get("value"))
             source = str(item.get("source") or "auto")
-            lines.append(f"{field}: {value} ({source})")
+            lines.append(f"{field}: {value} (from {_review_provenance_source(source)})")
         return "\n".join(lines)
 
     def _warnings_text(self) -> str:

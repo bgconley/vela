@@ -6,6 +6,22 @@ from collections.abc import Iterable
 MASK = "••••"
 BEARER_RE = re.compile(r"(Authorization:\s*Bearer\s+)\S+", re.IGNORECASE)
 TOKEN_RE = re.compile(r"\b(?:sk-|hf_)[^\s\"'&;,\]})]+")
+SECRET_KEY_MARKERS = (
+    "TOKEN",
+    "KEY",
+    "SECRET",
+    "AUTH",
+    "PASSWORD",
+    "PASS",
+    "CREDENTIAL",
+)
+
+
+def is_secret_key(key: str) -> bool:
+    """Return whether an environment/config key conventionally carries a secret."""
+
+    upper = key.upper()
+    return any(marker in upper for marker in SECRET_KEY_MARKERS)
 
 
 def scrub_text(text: str, *, secrets: Iterable[str] = ()) -> str:

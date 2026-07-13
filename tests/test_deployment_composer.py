@@ -13,6 +13,7 @@ from huggingface_hub import constants as hf_constants
 
 from vela.agent import local as local_agent_module
 from vela.agent.local import LocalAgent, TargetCallError
+from vela.config.schema import ModelConfig
 from vela.engine import composer as composer_module
 from vela.engine.sidecar import Manifest, Sidecar, command_hash, process_identity_from_pid
 
@@ -20,6 +21,8 @@ BLACKBIRD_IMAGE = (
     "vllm/vllm-openai@sha256:"
     "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
 )
+OXCART_RECIPE_KEY = "oxcart-qwen36-27b-fp8-mtp-vl"
+OXCART_COMMIT = "e89b16ebf1988b3d6befa7de50abc2d76f26eb09"
 
 
 def _call(agent: LocalAgent, method: str, params: dict) -> dict:
@@ -110,6 +113,46 @@ def _write_experimental_fp8_registry(path: Path) -> None:
     )
 
 
+def _write_oxcart_multi_pin_registry(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entries = []
+    for entry_id, commit_sha in (
+        ("01OXCARTEXACT", OXCART_COMMIT),
+        ("01OXCARTSTALE", "f" * 40),
+    ):
+        entries.append(
+            {
+                "entry_id": entry_id,
+                "display_name": entry_id.lower(),
+                "aliases": [],
+                "source": "hf_repo",
+                "repo_id": "Qwen/Qwen3.6-27B-FP8",
+                "revision": commit_sha,
+                "commit_sha": commit_sha,
+                "files": {
+                    "count": 2,
+                    "total_bytes": 16,
+                    "weights_format": "safetensors",
+                },
+                "size_bytes": 16,
+                "cache_state": "cached",
+                "gated": False,
+                "token_required": False,
+            }
+        )
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "default_cache": "hf",
+                "app_download_dir": None,
+                "entries": entries,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> None:
     write_yaml(
         config_dir / "taken.yaml",
@@ -158,12 +201,24 @@ def test_agent_composes_docker_deployment_draft_for_tui(config_dir: Path) -> Non
     assert config["engine"]["gpu_memory_utilization"] == 0.95
     assert "--language-model-only" in config["extra_args"]
     assert "--max-num-batched-tokens" in config["extra_args"]
-    assert {item["field"] for item in result["derived"]} >= {
+    provenance = {item["field"]: item for item in result["derived"]}
+    assert set(provenance) >= {
         "served_model_name",
         "server.port",
         "launch.runs_dir",
         "command.docker.container_name",
     }
+    assert provenance["server.host"]["source"] == "operator_override"
+    assert provenance["server.exposure"]["source"] == "operator_override"
+    assert provenance["server.port"]["source"] == "port_allocator"
+    assert provenance["launch.runs_dir"]["source"] == "generated_runs_dir"
+    assert provenance["command.docker.image"]["source"] == "operator_input"
+    assert provenance["command.docker.container_name"]["source"] == (
+        "generated_container_name"
+    )
+    assert provenance["engine.dtype"]["source"] == "operator_override"
+    assert provenance["engine.gpu_memory_utilization"]["source"] == "operator_override"
+    assert provenance["extra_args"]["source"] == "preset:qwen3-text + operator_override"
     assert "non-local-bind" in "\n".join(result["warnings"])
 
 
@@ -780,6 +835,359 @@ def test_agent_lists_lab_deployment_recipes_for_tui() -> None:
     ]
 
 
+def test_agent_lists_oxcart_recipe_only_on_oxcart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = LocalAgent()
+
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "workstation")
+    recipes = _call(agent, "list_deployment_recipes", {"target": "local"})["recipes"]
+    assert OXCART_RECIPE_KEY not in {recipe["key"] for recipe in recipes}
+
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    recipes = _call(agent, "list_deployment_recipes", {"target": "local"})["recipes"]
+    oxcart = next(recipe for recipe in recipes if recipe["key"] == OXCART_RECIPE_KEY)
+    assert oxcart["required_hostname"] == "oxcart"
+    assert oxcart["revision"] == "e89b16ebf1988b3d6befa7de50abc2d76f26eb09"
+
+
+def test_agent_explicit_custom_disables_automatic_recipe_matching(
+    config_dir: Path,
+) -> None:
+    result = _call(
+        LocalAgent(),
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "custom-bf16",
+            "target": "blackbird",
+            "runtime": {
+                "kind": "docker",
+                "image": "example/custom@sha256:abc",
+            },
+            "model": "Qwen/Qwen3.6-27B",
+            "recipe": "__custom__",
+        },
+    )
+
+    config = result["config"]
+    assert config["served_model_name"] == "Qwen3.6-27B"
+    assert config["command"]["docker"]["image"] == "example/custom@sha256:abc"
+    assert not any(item["field"] == "deployment.recipe" for item in result["derived"])
+
+
+def test_agent_explicit_null_recipe_disables_automatic_recipe_suggestions(
+    config_dir: Path,
+) -> None:
+    result = _call(
+        LocalAgent(),
+        "suggest_deployment_defaults",
+        {
+            "configs_dir": str(config_dir),
+            "target": "blackbird",
+            "runtime": "docker",
+            "model": "Qwen/Qwen3.6-27B",
+            "recipe": None,
+        },
+    )
+
+    assert "recipe" not in result
+    assert not any(source.startswith("lab_recipe:") for source in result["sources"])
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected_field"),
+    [
+        ({"target": "blackbird"}, "target"),
+        ({"runtime": "process"}, "runtime"),
+        ({"model": "Qwen/Qwen3.6-27B"}, "model"),
+    ],
+)
+def test_agent_rejects_explicit_recipe_field_mismatches(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changes: dict[str, object],
+    expected_field: str,
+) -> None:
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    params: dict[str, object] = {
+        "configs_dir": str(config_dir),
+        "target": "local",
+        "runtime": "docker",
+        "model": "Qwen/Qwen3.6-27B-FP8",
+        "recipe": OXCART_RECIPE_KEY,
+    }
+    params.update(changes)
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(LocalAgent(), "compose_config", params)
+
+    assert exc_info.value.code == "compose-invalid"
+    assert expected_field in exc_info.value.message
+
+
+def test_agent_rejects_oxcart_recipe_on_another_hostname(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "not-oxcart")
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(
+            LocalAgent(),
+            "compose_config",
+            {
+                "configs_dir": str(config_dir),
+                "target": "local",
+                "runtime": "docker",
+                "model": "Qwen/Qwen3.6-27B-FP8",
+                "recipe": OXCART_RECIPE_KEY,
+            },
+        )
+
+    assert exc_info.value.code == "compose-invalid"
+    assert "hostname" in exc_info.value.message
+    assert "oxcart" in exc_info.value.message
+
+
+def test_agent_composes_oxcart_recipe_exactly_from_checked_in_profile(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    agent = LocalAgent()
+    monkeypatch.setattr(agent, "_occupied_port_sources", lambda: {})
+    monkeypatch.setattr(agent, "_occupied_docker_container_names", lambda: set())
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "target": "local",
+            "runtime": "docker",
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "recipe": OXCART_RECIPE_KEY,
+        },
+    )
+    profile_path = (
+        Path(__file__).parents[1] / "configs" / "oxcart-qwen36-27b-fp8-mtp-vl.yaml"
+    )
+    expected = ModelConfig.model_validate(
+        yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    ).model_dump(mode="json")
+
+    assert result["config"] == expected
+
+
+def test_oxcart_review_provenance_names_every_release_critical_identity(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review payload must explain the exact Oxcart launch, not mislabel it auto."""
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    agent = LocalAgent()
+    monkeypatch.setattr(agent, "_occupied_port_sources", lambda: {})
+    monkeypatch.setattr(agent, "_occupied_docker_container_names", lambda: set())
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "target": "local",
+            "runtime": "docker",
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "recipe": OXCART_RECIPE_KEY,
+        },
+    )
+    provenance = {item["field"]: item for item in result["derived"]}
+    recipe_source = f"lab_recipe:{OXCART_RECIPE_KEY}"
+
+    for field in (
+        "model",
+        "model_ref",
+        "revision",
+        "served_model_name",
+        "server.host",
+        "server.port",
+        "server.exposure",
+        "launch.runs_dir",
+        "launch.required_hostname",
+        "launch.require_cached_models",
+        "command.docker.image",
+        "command.docker.container_name",
+        "command.docker.hf_cache",
+        "command.docker.hf_cache_target",
+        "command.docker.volumes",
+        "command.docker.auto_remove",
+        "command.docker.extra_run_args",
+        "extra_args",
+    ):
+        assert provenance[field]["source"] == recipe_source, field
+    assert provenance["revision"]["value"] == OXCART_COMMIT
+    assert provenance["server.port"]["value"] == "18004"
+    assert provenance["command.docker.image"]["value"] == BLACKBIRD_IMAGE
+    assert provenance["command.docker.auto_remove"]["value"] == "true"
+    assert provenance["command.docker.evict"] == {
+        "field": "command.docker.evict",
+        "value": "[]",
+        "source": "schema_default",
+    }
+    assert "/tank/ai/models/qwen36-27b-fp8/hf-cache" in provenance[
+        "command.docker.hf_cache"
+    ]["value"]
+    assert "ai.vela.managed=true" in provenance["command.docker.extra_run_args"][
+        "value"
+    ]
+
+
+def test_oxcart_wizard_echoed_recipe_fields_keep_recipe_provenance(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recipe-populated UI fields are not operator overrides unless changed."""
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    agent = LocalAgent()
+    monkeypatch.setattr(agent, "_occupied_port_sources", lambda: {})
+    monkeypatch.setattr(agent, "_occupied_docker_container_names", lambda: set())
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "target": "local",
+            "runtime": {
+                "kind": "docker",
+                "image": BLACKBIRD_IMAGE,
+            },
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "recipe": OXCART_RECIPE_KEY,
+            "overrides": {
+                "served_model_name": "qwen36-27b-fp8-oxcart",
+                "container_name": "vela-oxcart-qwen36-27b-fp8-mtp-vl",
+                "server": {
+                    "host": "127.0.0.1",
+                    "port": 18004,
+                    "exposure": "local",
+                },
+                "launch": {
+                    "runs_dir": (
+                        "/tank/ai/models/qwen36-27b-fp8/"
+                        "vllm-rp6000-mtp-vl/vela-runs"
+                    )
+                },
+            },
+        },
+    )
+    provenance = {item["field"]: item for item in result["derived"]}
+    recipe_source = f"lab_recipe:{OXCART_RECIPE_KEY}"
+
+    for field in (
+        "served_model_name",
+        "server.host",
+        "server.port",
+        "server.exposure",
+        "launch.runs_dir",
+        "command.docker.container_name",
+    ):
+        assert provenance[field]["source"] == recipe_source, field
+
+
+def test_agent_composes_oxcart_recipe_on_matching_fqdn(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        local_agent_module.platform,
+        "node",
+        lambda: "oxcart.lab.conley.ai",
+    )
+    agent = LocalAgent()
+    monkeypatch.setattr(agent, "_occupied_port_sources", lambda: {})
+    monkeypatch.setattr(agent, "_occupied_docker_container_names", lambda: set())
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "target": "local",
+            "runtime": "docker",
+            "model": "Qwen/Qwen3.6-27B-FP8",
+            "recipe": OXCART_RECIPE_KEY,
+        },
+    )
+
+    assert result["config"]["launch"]["required_hostname"] == "oxcart"
+    assert any(
+        item == {
+            "field": "deployment.recipe",
+            "value": OXCART_RECIPE_KEY,
+            "source": "lab_recipe",
+        }
+        for item in result["derived"]
+    )
+
+
+def test_oxcart_recipe_preserves_concrete_selected_pin_among_multiple_pins(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_oxcart_multi_pin_registry(registry_path)
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    agent = LocalAgent(models_registry_path=registry_path)
+    monkeypatch.setattr(agent, "_occupied_port_sources", lambda: {})
+    monkeypatch.setattr(agent, "_occupied_docker_container_names", lambda: set())
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "target": "local",
+            "runtime": "docker",
+            "model_ref": "01OXCARTEXACT",
+            "recipe": OXCART_RECIPE_KEY,
+        },
+    )
+
+    assert result["config"]["model_ref"] == "01OXCARTEXACT"
+    assert result["config"]["revision"] == OXCART_COMMIT
+    provenance = {item["field"]: item for item in result["derived"]}
+    assert provenance["model"]["source"] == "model_registry"
+    assert provenance["model_ref"]["source"] == "model_registry:selected_pin"
+    assert provenance["revision"] == {
+        "field": "revision",
+        "value": OXCART_COMMIT,
+        "source": "model_registry:resolved_commit",
+    }
+
+
+def test_oxcart_recipe_rejects_selected_pin_at_another_commit(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_oxcart_multi_pin_registry(registry_path)
+    monkeypatch.setattr(local_agent_module.platform, "node", lambda: "oxcart")
+    agent = LocalAgent(models_registry_path=registry_path)
+    monkeypatch.setattr(agent, "_occupied_port_sources", lambda: {})
+    monkeypatch.setattr(agent, "_occupied_docker_container_names", lambda: set())
+
+    with pytest.raises(TargetCallError) as exc_info:
+        _call(
+            agent,
+            "compose_config",
+            {
+                "configs_dir": str(config_dir),
+                "target": "local",
+                "runtime": "docker",
+                "model_ref": "01OXCARTSTALE",
+                "recipe": OXCART_RECIPE_KEY,
+            },
+        )
+
+    assert exc_info.value.code == "compose-invalid"
+    assert "01OXCARTSTALE" in exc_info.value.message
+    assert OXCART_COMMIT in exc_info.value.message
+
+
 def test_agent_lists_spec_aligned_composer_presets_for_wizard() -> None:
     result = _call(LocalAgent(), "list_presets", {})
     presets = {item["name"]: item for item in result["presets"]}
@@ -886,6 +1294,43 @@ def test_agent_composes_model_ref_with_model_suggestions_without_clobbering_over
     )
 
 
+def test_composer_persists_selected_pin_as_immutable_commit_not_symbolic_ref(
+    config_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    _write_model_registry(registry_path)
+    monkeypatch.setattr(composer_module, "_load_hf_model_config", lambda *_a, **_k: {})
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    result = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "immutable-pin",
+            "runtime": "process",
+            "model_ref": "qwen-fp8",
+            "revision": "main",
+            "recipe": "__custom__",
+        },
+    )
+    saved = _call(
+        agent,
+        "save_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "immutable-pin",
+            "config": result["config"],
+        },
+    )
+
+    assert result["config"]["model_ref"] == "qwen-fp8"
+    assert result["config"]["revision"] == "abc123"
+    stored = yaml.safe_load(Path(saved["path"]).read_text(encoding="utf-8"))
+    assert stored["model_ref"] == "qwen-fp8"
+    assert stored["revision"] == "abc123"
+
+
 def test_agent_validates_composed_draft(config_dir: Path) -> None:
     agent = LocalAgent()
     draft = _call(
@@ -903,6 +1348,53 @@ def test_agent_validates_composed_draft(config_dir: Path) -> None:
 
     assert result["ok"] is True
     assert result["errors"] == []
+
+
+def test_composer_warns_bare_process_cannot_reinstantiate_exactly(
+    config_dir: Path,
+) -> None:
+    agent = LocalAgent()
+    bare = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "bare-process",
+            "runtime": "process",
+            "model": "org/model",
+        },
+    )
+    warning_text = "\n".join(bare["warnings"])
+    assert "current mutable agent environment" in warning_text
+    assert "cannot promise exact reinstantiation" in warning_text
+
+    pinned_build = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "pinned-build",
+            "runtime": {"kind": "build", "build": "01BUILD"},
+            "model": "org/model",
+        },
+    )
+    assert "cannot promise exact reinstantiation" not in "\n".join(
+        pinned_build["warnings"]
+    )
+
+    executable = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "explicit-executable",
+            "runtime": {"kind": "executable", "executable": "/opt/vllm/bin/vllm"},
+            "model": "org/model",
+        },
+    )
+    assert "cannot promise exact reinstantiation" not in "\n".join(
+        executable["warnings"]
+    )
 
 
 def test_agent_previews_unsaved_composed_draft(config_dir: Path) -> None:
@@ -1160,6 +1652,93 @@ def test_agent_clones_docker_config_with_fresh_container_name_from_docker_ps(
     )
 
 
+def test_agent_clone_discloses_regenerated_docker_ownership_identity(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: org/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+            container_name: vela-source
+            evict: [vela-source, shared-cache]
+            extra_run_args: [--label, ai.vela.profile=source, --label, keep=yes]
+        """,
+    )
+    monkeypatch.setattr(local_agent_module, "_docker_container_names", lambda: set())
+
+    result = _call(
+        LocalAgent(),
+        "clone_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "source",
+            "new_name": "copy",
+        },
+    )
+
+    docker = result["config"]["command"]["docker"]
+    assert docker["evict"] == ["shared-cache"]
+    assert docker["extra_run_args"] == [
+        "--label",
+        "ai.vela.profile=copy",
+        "--label",
+        "keep=yes",
+    ]
+    assert {
+        (item["field"], item["source"])
+        for item in result["derived"]
+    } >= {
+        ("command.docker.evict", "clone_source_eviction_removed"),
+        ("command.docker.extra_run_args", "clone_profile_label"),
+    }
+
+
+def test_agent_clone_sanitizes_source_identity_with_container_name_override(
+    config_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_yaml(
+        config_dir / "source.yaml",
+        """
+        name: source
+        model: org/model
+        command:
+          runtime: docker
+          docker:
+            image: vllm/vllm-openai@sha256:abc
+            container_name: vela-source
+            evict: [vela-source]
+            extra_run_args: [--label, ai.vela.profile=source]
+        """,
+    )
+    monkeypatch.setattr(local_agent_module, "_docker_container_names", lambda: set())
+
+    result = _call(
+        LocalAgent(),
+        "clone_config",
+        {
+            "configs_dir": str(config_dir),
+            "src_name": "source",
+            "new_name": "copy",
+            "overrides": {
+                "command": {"docker": {"container_name": "explicit-copy-container"}}
+            },
+        },
+    )
+
+    docker = result["config"]["command"]["docker"]
+    assert docker["container_name"] == "explicit-copy-container"
+    assert docker["evict"] == []
+    assert docker["extra_run_args"] == ["--label", "ai.vela.profile=copy"]
+    assert {
+        item["source"] for item in result["derived"]
+    } >= {"clone_source_eviction_removed", "clone_profile_label"}
+
+
 def test_agent_edits_deployment_config_with_overrides(config_dir: Path) -> None:
     write_yaml(
         config_dir / "editable.yaml",
@@ -1360,6 +1939,13 @@ def test_agent_lint_save_and_push_block_literal_config_secrets(config_dir: Path)
         "model": "Qwen/Qwen3-32B",
         "server": {"host": "127.0.0.1", "port": 18008, "api_key": "sk-live"},
         "env": {"HF_TOKEN": "hf_live"},
+        "command": {
+            "runtime": "docker",
+            "docker": {
+                "image": "vllm/vllm-openai@sha256:abc",
+                "env": {"DB_PASSWORD": "hunter2"},
+            },
+        },
     }
     raw_yaml = yaml.safe_dump(secret_config, sort_keys=False)
 
@@ -1374,6 +1960,10 @@ def test_agent_lint_save_and_push_block_literal_config_secrets(config_dir: Path)
         },
         {
             "field": "env.HF_TOKEN",
+            "message": "contains a literal secret; prefer target env injection",
+        },
+        {
+            "field": "command.docker.env.DB_PASSWORD",
             "message": "contains a literal secret; prefer target env injection",
         },
     ]
@@ -1696,6 +2286,50 @@ def test_generic_docker_bare_local_path_model_has_no_auto_hf_cache_mount(
     )
 
     assert result["config"]["command"]["docker"]["hf_cache"] is None
+
+
+def test_local_path_pin_composes_saves_and_previews_through_registry_identity(
+    config_dir: Path, tmp_path: Path
+) -> None:
+    registry_path = tmp_path / "state" / "vela" / "models" / "registry.json"
+    entry = _write_source_registry(registry_path, source="local_path", tmp_path=tmp_path)
+    agent = LocalAgent(models_registry_path=registry_path)
+
+    composed = _call(
+        agent,
+        "compose_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "local-pinned",
+            "runtime": "process",
+            "model_ref": "01SRC",
+            "recipe": "__custom__",
+        },
+    )["config"]
+    saved = _call(
+        agent,
+        "save_config",
+        {
+            "configs_dir": str(config_dir),
+            "name": "local-pinned",
+            "config": composed,
+        },
+    )
+    preview = _call(
+        agent,
+        "preview",
+        {"configs_dir": str(config_dir), "name": "local-pinned"},
+    )
+
+    assert composed["model_ref"] == "01SRC"
+    assert composed["model"] == "local_path-model"
+    assert not composed["model"].startswith("/")
+    stored = yaml.safe_load(Path(saved["path"]).read_text(encoding="utf-8"))
+    assert stored["model"] == "local_path-model"
+    assert stored["model_ref"] == "01SRC"
+    assert str(entry["local_path"]) in preview["preview"]
+    assert preview["metadata"]["model_source"] == "local_path"
+    assert preview["metadata"]["model_local_path"] == entry["local_path"]
 
 
 def test_generic_docker_url_model_ref_has_no_auto_hf_cache_mount(

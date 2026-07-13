@@ -10,7 +10,7 @@ Scope: this reference covers app- and screen-level bindings only. Widget-level b
 
 | Key | Action | Description |
 | --- | --- | --- |
-| `l`, `enter` | `load` | Load |
+| `l`, `enter` | `load` | Launch |
 | `s` | `stop` | Stop |
 | `K` | `kill` | Kill |
 | `r` | `restart` | Restart |
@@ -120,7 +120,7 @@ Scope: this reference covers app- and screen-level bindings only. Widget-level b
 | --- | --- | --- |
 | `up` | `previous` | Previous |
 | `down` | `next` | Next |
-| `enter` | `accept` | Select |
+| `enter` | `accept` | Use once |
 | `d` | `download` | Download |
 | `p` | `pin` | Pin |
 | `r` | `refresh_models` | Refresh |
@@ -154,6 +154,7 @@ Scope: this reference covers app- and screen-level bindings only. Widget-level b
 | Key | Action | Description |
 | --- | --- | --- |
 | `escape` | `cancel` | Cancel |
+| `ctrl+s` | `submit` | Pin |
 | `ctrl+r` | `toggle_advanced` | Advanced |
 
 ## Target Edit

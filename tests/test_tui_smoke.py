@@ -51,6 +51,9 @@ from vela.tui.app import VelaApp
 from vela.tui.screens import config_picker as config_picker_module
 from vela.tui.screens.confirm import ConfirmScreen
 
+_TEST_BUILD_ID = "01TESTBUILD"
+_TEST_DOCKER_IMAGE = "vllm/vllm-openai@sha256:" + "a" * 64
+
 
 def _optional_wizard_section_result(method: str) -> dict[str, object] | None:
     """Empty-but-present results for the wizard's 3 optional enrichment RPCs.
@@ -66,7 +69,17 @@ def _optional_wizard_section_result(method: str) -> dict[str, object] | None:
     return {
         "list_deployment_recipes": {"recipes": []},
         "list_models": {"models": []},
-        "list_builds": {"builds": [], "skipped": []},
+        "list_builds": {
+            "builds": [
+                {
+                    "build_id": _TEST_BUILD_ID,
+                    "label": "test-build",
+                    "status": "ready",
+                    "default": True,
+                }
+            ],
+            "skipped": [],
+        },
     }.get(method)
 
 
@@ -5412,6 +5425,7 @@ async def test_new_deployment_target_picker_probes_non_active_target_dot(
             return {
                 "target": "local",
                 "agent_version": "0.9.0-local",
+                "host_info": {"hostname": "oxcart"},
                 "capabilities": ["compose_config", "list_presets"],
             }
 
@@ -5492,7 +5506,10 @@ async def test_new_deployment_target_picker_probes_non_active_target_dot(
         )
 
         option_labels = [label for label, _value in app.screen._target_options()]
+        assert any("local on host oxcart" in label for label in option_labels)
         assert any(label.startswith("● blackbird") for label in option_labels)
+        state = str(app.screen.query_one("#new-deployment-target-state", Static).content)
+        assert "local on host oxcart" in state
 
     assert [client.target.name for client in probe_clients] == ["blackbird"]
     assert probe_clients[0].connect_calls == 1
@@ -5560,7 +5577,17 @@ async def test_new_deployment_target_picker_switches_target_before_composing(
             if method == "list_models":
                 return {"models": []}
             if method == "list_builds":
-                return {"builds": [], "skipped": []}
+                return {
+                    "builds": [
+                        {
+                            "build_id": "01TARGETBUILD",
+                            "label": "target-build",
+                            "status": "ready",
+                            "default": True,
+                        }
+                    ],
+                    "skipped": [],
+                }
             if method == "compose_config":
                 self.compose_params = dict(params)
                 return {
@@ -5568,7 +5595,10 @@ async def test_new_deployment_target_picker_switches_target_before_composing(
                         "name": "qwen-targeted",
                         "target": self.target.name,
                         "model": "Qwen/Qwen3-32B",
-                        "command": {"runtime": "process"},
+                        "command": {
+                            "runtime": "process",
+                            "build": "01TARGETBUILD",
+                        },
                     },
                     "warnings": [],
                     "derived": [],
@@ -5708,6 +5738,9 @@ async def test_new_deployment_wizard_steps_forward_and_back_preserve_edits(
             app.screen.query_one("#new-deployment-current-step", Static).content
         )
         app.screen.query_one("#new-deployment-runtime", Select).value = "docker"
+        app.screen.query_one("#new-deployment-image", Input).value = (
+            "vllm/vllm-openai@sha256:" + "a" * 64
+        )
 
         await pilot.press("ctrl+n")
         await pilot.pause()
@@ -5744,19 +5777,13 @@ async def test_new_deployment_wizard_steps_forward_and_back_preserve_edits(
         (
             "build",
             "#new-deployment-build",
-            "vllm-nightly-cu130-sm120",
-            {"kind": "build", "build": "vllm-nightly-cu130-sm120"},
-        ),
-        (
-            "executable",
-            "#new-deployment-executable",
-            "/opt/vllm/bin/vllm",
-            {"kind": "executable", "executable": "/opt/vllm/bin/vllm"},
+            "01TESTBUILD",
+            {"kind": "build", "build": "01TESTBUILD"},
         ),
     ],
 )
 @pytest.mark.asyncio
-async def test_new_deployment_runtime_picker_hands_build_and_executable_to_composer(
+async def test_new_deployment_runtime_picker_hands_immutable_build_to_composer(
     config_dir: Path,
     runtime_value: str,
     field_id: str,
@@ -5787,7 +5814,7 @@ async def test_new_deployment_runtime_picker_hands_build_and_executable_to_compo
                         "name": "qwen3-runtime",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
-                        "command": {"runtime": "process"},
+                        "command": {"runtime": "process", "build": "01TESTBUILD"},
                     },
                     "warnings": [],
                     "derived": [],
@@ -5872,7 +5899,10 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
                             "name": "qwen36-27b-fp8-kvfp8-rp6000-blackbird",
                             "model": "Qwen/Qwen3.6-27B-FP8",
                             "served_model_name": "qwen36-27b-fp8-kvfp8-rp6000",
-                            "image": "vllm/vllm-openai@sha256:b13d",
+                            "image": (
+                                "vllm/vllm-openai@sha256:"
+                                "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+                            ),
                             "server": {
                                 "host": "0.0.0.0",
                                 "port": 18003,
@@ -5891,7 +5921,10 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
                         "command": {
                             "runtime": "docker",
                             "docker": {
-                                "image": "vllm/vllm-openai@sha256:b13d",
+                                "image": (
+                                    "vllm/vllm-openai@sha256:"
+                                    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+                                ),
                                 "container_name": (
                                     "vela-qwen36-27b-fp8-kvfp8-rp6000-blackbird"
                                 ),
@@ -5917,7 +5950,8 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
             if method == "preview":
                 return {
                     "preview": (
-                        "docker run ... vllm/vllm-openai@sha256:b13d "
+                        "docker run ... vllm/vllm-openai@sha256:"
+                        "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046 "
                         "--attention-backend FLASHINFER"
                     ),
                     "warnings": [],
@@ -5959,7 +5993,10 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
         )
         assert (
             app.screen.query_one("#new-deployment-image", Input).value
-            == "vllm/vllm-openai@sha256:b13d"
+            == (
+                "vllm/vllm-openai@sha256:"
+                "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+            )
         )
         assert app.screen.query_one("#new-deployment-host", Input).value == "0.0.0.0"
         assert app.screen.query_one("#new-deployment-port", Input).value == "18003"
@@ -5983,7 +6020,10 @@ async def test_new_deployment_recipe_selection_prefills_blackbird_runtime(
         assert client.compose_params["model"] == "Qwen/Qwen3.6-27B-FP8"
         assert client.compose_params["runtime"] == {
             "kind": "docker",
-            "image": "vllm/vllm-openai@sha256:b13d",
+            "image": (
+                "vllm/vllm-openai@sha256:"
+                "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046"
+            ),
         }
         assert client.compose_params["overrides"]["server"] == {
             "host": "0.0.0.0",
@@ -6055,7 +6095,7 @@ async def test_new_deployment_selects_target_model_and_build_from_tui(
                         "model": "Qwen/Qwen3.6-27B-FP8",
                         "model_ref": "qwen-fp8-pin",
                         "revision": "abc123",
-                        "command": {"runtime": "process", "build": "nightly-cu130"},
+                        "command": {"runtime": "process", "build": "01NIGHTLY"},
                     },
                     "warnings": [],
                     "derived": [],
@@ -6064,7 +6104,7 @@ async def test_new_deployment_selects_target_model_and_build_from_tui(
                 return {"ok": True, "errors": [], "warnings": []}
             if method == "preview":
                 return {
-                    "preview": "cwd=/agent\nnightly-cu130/bin/vllm serve Qwen/Qwen3.6-27B-FP8",
+                    "preview": "cwd=/agent\n01NIGHTLY/bin/vllm serve Qwen/Qwen3.6-27B-FP8",
                     "warnings": [],
                     "metadata": {},
                 }
@@ -6088,7 +6128,7 @@ async def test_new_deployment_selects_target_model_and_build_from_tui(
         app.screen.query_one("#new-deployment-name", Input).value = "qwen-pinned"
         app.screen.query_one("#new-deployment-model-ref", Select).value = "qwen-fp8-pin"
         await pilot.pause()
-        app.screen.query_one("#new-deployment-build-select", Select).value = "nightly-cu130"
+        app.screen.query_one("#new-deployment-build-select", Select).value = "01NIGHTLY"
         await pilot.pause()
 
         assert (
@@ -6096,7 +6136,7 @@ async def test_new_deployment_selects_target_model_and_build_from_tui(
             == "Qwen/Qwen3.6-27B-FP8"
         )
         assert app.screen.query_one("#new-deployment-runtime", Select).value == "build"
-        assert app.screen.query_one("#new-deployment-build", Input).value == "nightly-cu130"
+        assert app.screen.query_one("#new-deployment-build", Input).value == "01NIGHTLY"
 
         await pilot.press("ctrl+s")
         await _wait_for_condition(
@@ -6107,9 +6147,26 @@ async def test_new_deployment_selects_target_model_and_build_from_tui(
     assert client.compose_params is not None
     assert client.compose_params["model_ref"] == "qwen-fp8-pin"
     assert client.compose_params["revision"] == "abc123"
-    assert client.compose_params["runtime"] == {"kind": "build", "build": "nightly-cu130"}
+    assert client.compose_params["runtime"] == {"kind": "build", "build": "01NIGHTLY"}
     assert "list_models" in client.calls
     assert "list_builds" in client.calls
+
+
+def test_new_deployment_build_handoff_requires_target_returned_immutable_id() -> None:
+    assert (
+        tui_app_module._build_ref_from_build_result(
+            {"build_id": "01IMMUTABLE", "label": "nightly"},
+            {"build_id": "caller-id", "label": "requested-label"},
+        )
+        == "01IMMUTABLE"
+    )
+    assert (
+        tui_app_module._build_ref_from_build_result(
+            {"label": "nightly"},
+            {"build_id": "caller-id", "label": "requested-label"},
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -6205,7 +6262,7 @@ async def test_new_deployment_create_build_handoff_pins_created_build(
                         "model": "Qwen/Qwen3.6-27B-FP8",
                         "command": {
                             "runtime": "process",
-                            "build": "nightly-cu130-sm120",
+                            "build": "01CREATED",
                         },
                     },
                     "warnings": [],
@@ -6271,7 +6328,7 @@ async def test_new_deployment_create_build_handoff_pins_created_build(
             lambda: app.screen.id == "new-deployment"
             and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
             and app.screen.query_one("#new-deployment-build", Input).value
-            == "nightly-cu130-sm120"
+            == "01CREATED"
             and "Review"
             in str(app.screen.query_one("#new-deployment-current-step", Static).content),
             "created build was not returned to the new deployment wizard",
@@ -6286,7 +6343,7 @@ async def test_new_deployment_create_build_handoff_pins_created_build(
     assert client.compose_params is not None
     assert client.compose_params["runtime"] == {
         "kind": "build",
-        "build": "nightly-cu130-sm120",
+        "build": "01CREATED",
     }
 
 
@@ -6317,7 +6374,16 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
             if method == "list_models":
                 return {"models": []}
             if method == "list_builds":
-                return {"builds": [], "skipped": []}
+                builds = []
+                if self.adopt_calls:
+                    builds.append(
+                        {
+                            "build_id": "01ADOPTED",
+                            "label": "external-nightly",
+                            "status": "adopted",
+                        }
+                    )
+                return {"builds": builds, "skipped": []}
             if method == "adopt_build":
                 self.adopt_calls.append(dict(params))
                 return {
@@ -6332,7 +6398,7 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
                         "name": "qwen-adopted",
                         "target": "blackbird",
                         "model": "Qwen/Qwen3.6-27B-FP8",
-                        "command": {"runtime": "process", "build": "external-nightly"},
+                        "command": {"runtime": "process", "build": "01ADOPTED"},
                     },
                     "warnings": [],
                     "derived": [],
@@ -6399,7 +6465,7 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
             lambda: app.screen.id == "new-deployment"
             and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
             and app.screen.query_one("#new-deployment-build", Input).value
-            == "external-nightly"
+            == "01ADOPTED"
             and "Review"
             in str(app.screen.query_one("#new-deployment-current-step", Static).content),
             "adopted build was not returned to the new deployment wizard",
@@ -6421,7 +6487,7 @@ async def test_new_deployment_adopt_venv_handoff_pins_adopted_build(
     assert client.compose_params is not None
     assert client.compose_params["runtime"] == {
         "kind": "build",
-        "build": "external-nightly",
+        "build": "01ADOPTED",
     }
 
 
@@ -6485,7 +6551,7 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
             if method == "list_deployment_recipes":
                 return {"recipes": []}
             if method == "list_builds":
-                return {"builds": [], "skipped": []}
+                return _optional_wizard_section_result("list_builds")
             if method == "list_models":
                 models = []
                 if self.pin_calls:
@@ -6544,7 +6610,7 @@ async def test_new_deployment_pin_hf_repo_handoff_downloads_and_pins_model_ref(
                         "model": "Qwen/Qwen3.6-27B-FP8",
                         "model_ref": "qwen-fp8-pin",
                         "revision": "abc123",
-                        "command": {"runtime": "process"},
+                        "command": {"runtime": "process", "build": "01TESTBUILD"},
                     },
                     "warnings": ["gated-needs-token"],
                     "derived": [],
@@ -6670,7 +6736,7 @@ async def test_new_deployment_review_blocks_download_now_without_pin(
             if method == "list_deployment_recipes":
                 return {"recipes": []}
             if method == "list_builds":
-                return {"builds": [], "skipped": []}
+                return _optional_wizard_section_result("list_builds")
             if method == "list_models":
                 return {"models": []}
             if method == "suggest_deployment_defaults":
@@ -6689,7 +6755,7 @@ async def test_new_deployment_review_blocks_download_now_without_pin(
                         "name": "qwen-nopin",
                         "target": "blackbird",
                         "model": "Qwen/Qwen3-32B",
-                        "command": {"runtime": "process"},
+                        "command": {"runtime": "process", "build": "01TESTBUILD"},
                     },
                     "warnings": [],
                     "derived": [],
@@ -6962,7 +7028,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
                 self.compose_params = dict(params)
                 assert params["runtime"] == {
                     "kind": "build",
-                    "build": "nightly-cu130-sm120",
+                    "build": "01CREATED",
                 }
                 assert params["model_ref"] == "qwen-fp8-pin"
                 assert params["revision"] == "abc123"
@@ -6976,7 +7042,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
                         "server": {"host": "127.0.0.1", "port": 18003},
                         "command": {
                             "runtime": "process",
-                            "build": "nightly-cu130-sm120",
+                            "build": "01CREATED",
                         },
                     },
                     "warnings": ["gated-needs-token"],
@@ -6987,7 +7053,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
             if method == "preview":
                 return {
                     "preview": (
-                        "cwd=/agent\nnightly-cu130-sm120/bin/vllm serve "
+                        "cwd=/agent\n01CREATED/bin/vllm serve "
                         "Qwen/Qwen3.6-27B-FP8"
                     ),
                     "warnings": [],
@@ -7008,7 +7074,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
                     "config": self.saved_config,
                     "build": {
                         "argv": [
-                            "nightly-cu130-sm120/bin/vllm",
+                            "01CREATED/bin/vllm",
                             "serve",
                             "Qwen/Qwen3.6-27B-FP8",
                         ],
@@ -7017,7 +7083,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
                         "warnings": [],
                         "metadata": {"vllm_version_profile": "current"},
                         "preview": (
-                            "cwd=/agent\nnightly-cu130-sm120/bin/vllm serve "
+                            "cwd=/agent\n01CREATED/bin/vllm serve "
                             "Qwen/Qwen3.6-27B-FP8"
                         ),
                     },
@@ -7110,7 +7176,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
             lambda: app.screen.id == "new-deployment"
             and app.screen.query_one("#new-deployment-runtime", Select).value == "build"
             and app.screen.query_one("#new-deployment-build", Input).value
-            == "nightly-cu130-sm120",
+            == "01CREATED",
             "acceptance flow did not return created build",
         )
         app.screen.query_one("#new-deployment-model-mode", Select).value = "pin_hf"
@@ -7150,7 +7216,7 @@ async def test_new_deployment_build_pin_and_smoke_acceptance_flow(
     assert len(client.download_calls) == 1
     assert client.download_calls[0]["model_ref"] == "qwen-fp8-pin"
     assert client.saved_config is not None
-    assert client.saved_config["command"]["build"] == "nightly-cu130-sm120"
+    assert client.saved_config["command"]["build"] == "01CREATED"
     assert client.compose_params is not None
     methods = [method for method, _params in client.calls]
     assert methods.index("save_config") < methods.index("prepare_launch")
@@ -7184,7 +7250,7 @@ async def test_new_deployment_adopt_local_model_path_handoff_pins_model_ref(
             if method == "list_deployment_recipes":
                 return {"recipes": []}
             if method == "list_builds":
-                return {"builds": [], "skipped": []}
+                return _optional_wizard_section_result("list_builds")
             if method == "list_models":
                 models = []
                 if self.pin_calls:
@@ -7217,7 +7283,7 @@ async def test_new_deployment_adopt_local_model_path_handoff_pins_model_ref(
                         "target": "blackbird",
                         "model": "/agent/models/qwen",
                         "model_ref": "local-qwen",
-                        "command": {"runtime": "process"},
+                        "command": {"runtime": "process", "build": "01TESTBUILD"},
                     },
                     "warnings": [],
                     "derived": [],
@@ -7314,7 +7380,7 @@ class _CancelHandoffComposerClient:
         if method == "list_deployment_recipes":
             return {"recipes": []}
         if method == "list_builds":
-            return {"builds": [], "skipped": []}
+            return _optional_wizard_section_result("list_builds")
         if method == "list_models":
             return {"models": []}
         if method == "check_build_prerequisites":
@@ -7858,13 +7924,20 @@ async def test_new_deployment_save_uses_composer_rpc_path(config_dir: Path) -> N
             if method == "compose_config":
                 assert params["name"] == "qwen3"
                 assert params["model"] == "Qwen/Qwen3-32B"
-                assert params["runtime"] == "process"
+                assert params["runtime"] == {
+                    "kind": "build",
+                    "build": _TEST_BUILD_ID,
+                }
                 assert params["overrides"]["server"]["port"] == 18001
                 return {
                     "config": {
                         "name": "qwen3",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
                         "server": {
                             "host": "127.0.0.1",
                             "port": 18001,
@@ -7981,7 +8054,10 @@ async def test_new_deployment_review_preflights_draft_before_save(
                         "name": "qwen3",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
-                        "command": {"executable": sys.executable},
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
                         "server": {
                             "host": "127.0.0.1",
                             "port": 18001,
@@ -8084,6 +8160,10 @@ async def test_new_deployment_review_customizes_draft_with_flag_manager(
                         "name": "qwen3",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
                         "engine": {"tensor_parallel_size": 2},
                         "server": {
                             "host": "127.0.0.1",
@@ -8182,6 +8262,179 @@ async def test_new_deployment_review_customizes_draft_with_flag_manager(
 
 
 @pytest.mark.asyncio
+async def test_new_deployment_flag_edits_survive_save_conflict_rename_and_review(
+    config_dir: Path,
+) -> None:
+    """A rename recovery must not silently recompose away reviewed flag edits."""
+
+    class ComposerClient:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict | None]] = []
+            self.save_attempts = 0
+            self.saved_config: dict | None = None
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def disconnect(self) -> None:
+            self.connected = False
+
+        async def call(self, method: str, params):
+            self.calls.append((method, params))
+            if method == "list_configs":
+                return {"valid": [], "invalid": []}
+            if method == "list_presets":
+                return {"presets": [{"name": "balanced", "description": "", "engine": {}}]}
+            if method == "compose_config":
+                return {
+                    "config": {
+                        "name": params["name"],
+                        "target": "local",
+                        "model": "Qwen/Qwen3-32B",
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
+                        "engine": {"tensor_parallel_size": 2},
+                        "extra_args": ["--enable-prefix-caching"],
+                        "server": {
+                            "host": "127.0.0.1",
+                            "port": 18001,
+                            "exposure": "local",
+                        },
+                    },
+                    "warnings": [],
+                    "derived": [],
+                }
+            if method == "validate_config":
+                return {"ok": True, "errors": [], "warnings": []}
+            if method == "preview":
+                config = params["config"]
+                return {
+                    "preview": (
+                        "cwd=/agent\n"
+                        "vllm serve Qwen/Qwen3-32B "
+                        f"--tensor-parallel-size {config['engine']['tensor_parallel_size']} "
+                        + " ".join(config.get("extra_args") or [])
+                    ),
+                    "warnings": [],
+                    "metadata": {
+                        "known_flags": [
+                            "--tensor-parallel-size",
+                            "--enable-prefix-caching",
+                            "--max-num-batched-tokens",
+                        ],
+                        "flag_map": {"tensor_parallel_size": "--tensor-parallel-size"},
+                    },
+                }
+            if method == "preflight":
+                return {"ok": True, "failures": []}
+            if method == "save_config":
+                self.save_attempts += 1
+                if self.save_attempts == 1:
+                    raise TargetCallError(
+                        "config-exists",
+                        "config already exists",
+                        {"name": params["name"]},
+                    )
+                self.saved_config = dict(params["config"])
+                return {
+                    "path": str(config_dir / f"{params['name']}.yaml"),
+                    "name": params["name"],
+                    "config": self.saved_config,
+                }
+            if method == "discover_runs":
+                return {"runs": []}
+            if method in {"gpu", "sample_gpus"}:
+                return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+            default = _optional_wizard_section_result(method)
+            if default is not None:
+                return default
+            raise AssertionError(f"unexpected target client call: {method}")
+
+        def subscribe(self, *_args, **_kwargs):
+            raise AssertionError("new deployment conflict recovery should not subscribe")
+
+    client = ComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#new-deployment-name", Input).value = "already-there"
+        app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
+        app.screen.query_one("#new-deployment-port", Input).value = "18001"
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "initial deployment review did not open",
+        )
+
+        await pilot.press("f")
+        await _wait_for_condition(
+            lambda: app.screen.id == "flag-manager",
+            "new deployment flag manager did not open",
+        )
+        app.screen.query_one("#flag-manager-value", Input).value = "4"
+        await _wait_for_condition(
+            lambda: "--tensor-parallel-size 4"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "custom engine preview did not update",
+        )
+        app.screen.query_one("#flag-manager-extra-args", Input).value = (
+            "--enable-prefix-caching --max-num-batched-tokens 4096"
+        )
+        await _wait_for_condition(
+            lambda: "--max-num-batched-tokens 4096"
+            in str(app.screen.query_one("#flag-manager-detail", Static).content),
+            "custom passthrough preview did not update",
+        )
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review"
+            and "--tensor-parallel-size 4"
+            in str(app.screen.query_one("#new-deployment-review-preview", Static).content),
+            "customized deployment review did not render",
+        )
+
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment",
+            "save conflict did not reopen the wizard",
+        )
+        app.screen.query_one("#new-deployment-name", Input).value = "renamed-deployment"
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: app.screen.id == "new-deployment-review",
+            "renamed deployment review did not open",
+        )
+        recovered_preview = str(
+            app.screen.query_one("#new-deployment-review-preview", Static).content
+        )
+        assert "--tensor-parallel-size 4" in recovered_preview
+        assert recovered_preview.count("--enable-prefix-caching") == 1
+        assert "--max-num-batched-tokens 4096" in recovered_preview
+
+        await pilot.press("ctrl+s")
+        await _wait_for_condition(
+            lambda: client.saved_config is not None,
+            "renamed deployment was not saved",
+        )
+
+    assert client.saved_config is not None
+    assert client.saved_config["name"] == "renamed-deployment"
+    assert client.saved_config["engine"]["tensor_parallel_size"] == 4
+    assert client.saved_config["extra_args"] == [
+        "--enable-prefix-caching",
+        "--max-num-batched-tokens",
+        "4096",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_new_deployment_review_save_and_smoke_launches_saved_config(
     config_dir: Path,
 ) -> None:
@@ -8224,6 +8477,10 @@ async def test_new_deployment_review_save_and_smoke_launches_saved_config(
                         "name": "qwen3",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
                         "server": {
                             "host": "127.0.0.1",
                             "port": 18001,
@@ -8257,6 +8514,10 @@ async def test_new_deployment_review_save_and_smoke_launches_saved_config(
                         "name": "qwen3",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
                         "server": {"host": "127.0.0.1", "port": 18001},
                     },
                     "build": {
@@ -8380,9 +8641,7 @@ async def test_new_deployment_save_and_smoke_walks_fake_docker_to_ready(
         app.screen.query_one("#new-deployment-name", Input).value = "qwen"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
         app.screen.query_one("#new-deployment-runtime", Select).value = "docker"
-        app.screen.query_one("#new-deployment-image", Input).value = (
-            "vllm/vllm-openai@sha256:image"
-        )
+        app.screen.query_one("#new-deployment-image", Input).value = _TEST_DOCKER_IMAGE
         app.screen.query_one("#new-deployment-port", Input).value = str(unused_tcp_port)
         await pilot.press("ctrl+s")
         await _wait_for_condition(
@@ -8397,7 +8656,7 @@ async def test_new_deployment_save_and_smoke_walks_fake_docker_to_ready(
         )
 
     docker_commands = docker_log.read_text(encoding="utf-8")
-    assert "image inspect vllm/vllm-openai@sha256:image" in docker_commands
+    assert f"image inspect {_TEST_DOCKER_IMAGE}" in docker_commands
     assert "run -d --name" in docker_commands
     assert "logs -f container-123" in docker_commands
     assert "stop -t 90 container-123" in docker_commands
@@ -8448,9 +8707,7 @@ async def test_new_deployment_save_and_smoke_surfaces_named_failure(
         app.screen.query_one("#new-deployment-name", Input).value = "qwen"
         app.screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
         app.screen.query_one("#new-deployment-runtime", Select).value = "docker"
-        app.screen.query_one("#new-deployment-image", Input).value = (
-            "vllm/vllm-openai@sha256:image"
-        )
+        app.screen.query_one("#new-deployment-image", Input).value = _TEST_DOCKER_IMAGE
         app.screen.query_one("#new-deployment-port", Input).value = str(unused_tcp_port)
         await pilot.press("ctrl+s")
         await _wait_for_condition(
@@ -8497,6 +8754,10 @@ async def test_new_deployment_review_cancel_does_not_write(config_dir: Path) -> 
                         "name": "qwen3",
                         "target": "local",
                         "model": "Qwen/Qwen3-32B",
+                        "command": {
+                            "runtime": "process",
+                            "build": _TEST_BUILD_ID,
+                        },
                     },
                     "warnings": [],
                     "derived": [],
@@ -10312,7 +10573,11 @@ async def test_review_save_shows_saving_busy_verb(config_dir: Path) -> None:
             "preflight": {"ok": True},
             "save_config": {
                 "name": "demo",
-                "config": {"name": "demo", "model": "org/m"},
+                "config": {
+                    "name": "demo",
+                    "model": "org/m",
+                    "command": {"runtime": "process", "build": "01BUILD"},
+                },
             },
             "preview": {"preview": "vllm serve org/m", "warnings": []},
         },
@@ -10326,7 +10591,13 @@ async def test_review_save_shows_saving_busy_verb(config_dir: Path) -> None:
             pilot,
             gate,
             "saving…",
-            app._save_reviewed_new_deployment({"name": "demo", "model": "org/m"}),
+            app._save_reviewed_new_deployment(
+                {
+                    "name": "demo",
+                    "model": "org/m",
+                    "command": {"runtime": "process", "build": "01BUILD"},
+                }
+            ),
         )
 
 
@@ -11609,7 +11880,7 @@ async def test_dashboard_uses_figma_terminal_shell_chrome_and_footer(
         assert "wrap OFF" in _static_text(app, "#log-controls")
         assert "lines" in _static_text(app, "#status-strip")
         assert "scrubbed log 0600" in _static_text(app, "#status-strip")
-        assert "l Load" in _static_text(app, "#footer-bindings")
+        assert "l Launch" in _static_text(app, "#footer-bindings")
         assert "F Flags" in _static_text(app, "#footer-bindings")
         assert "Tab Focus" in _static_text(app, "#footer-bindings")
         assert "^P Palette" in _static_text(app, "#footer-bindings")
@@ -11778,7 +12049,11 @@ async def test_build_manager_selects_build_through_target_client(
                 }
             if method == "select_build":
                 self.select_calls.append(str(params["build"]))
-                self.active_build = str(params["build"])
+                self.active_build = (
+                    "nightly-cu130"
+                    if params["build"] == "01NIGHTLY"
+                    else "stable-cu124"
+                )
                 return {"build_id": "01NIGHTLY", "label": self.active_build, "active": True}
             if method in {"gpu", "sample_gpus"}:
                 return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
@@ -11814,7 +12089,7 @@ async def test_build_manager_selects_build_through_target_client(
         await pilot.press("down")
         await pilot.press("enter")
         await _wait_for_condition(
-            lambda: target_client.select_calls == ["nightly-cu130"]
+            lambda: target_client.select_calls == ["01NIGHTLY"]
             and "build: nightly-cu130 ●" in _static_text(app, "#active-model"),
             "build selection did not refresh header",
         )
@@ -12697,7 +12972,7 @@ async def test_build_manager_verifies_build_through_target_client(
         await pilot.press("v")
 
         await _wait_for_condition(
-            lambda: target_client.verify_calls == [{"build": "stable-cu124"}],
+            lambda: target_client.verify_calls == [{"build": "01STABLE"}],
             "build verify was not requested",
         )
 
@@ -12797,7 +13072,7 @@ async def test_build_manager_repairs_build_through_target_client(
         await pilot.press("r")
 
         await _wait_for_condition(
-            lambda: target_client.repair_calls == [{"build": "repair-me"}],
+            lambda: target_client.repair_calls == [{"build": "01BROKEN"}],
             "build repair was not requested",
         )
 
@@ -12915,7 +13190,7 @@ async def test_build_manager_remove_confirms_and_calls_target_client(
             "build remove was not requested",
         )
         assert target_client.remove_calls == [
-            {"build": "old-cu124", "configs_dir": str(config_dir)}
+            {"build": "01OLD", "configs_dir": str(config_dir)}
         ]
 
 
@@ -13151,7 +13426,7 @@ async def test_model_manager_enter_selects_model_for_active_config(
         )
         assert target_client.preview_calls[-1]["model_ref"] == "02REMOTE"
         assert target_client.preview_calls[-1]["revision"] == "main"
-        assert "model: qwen-remote ○ main" in _static_text(app, "#active-model")
+        assert "model: 1×qwen-remote ○ main" in _static_text(app, "#active-model")
 
 
 @pytest.mark.asyncio
@@ -15501,7 +15776,7 @@ async def test_detached_missing_executable_shows_launch_guidance(
 
 
 @pytest.mark.asyncio
-async def test_command_palette_exposes_core_actions_and_config_loads(
+async def test_command_palette_exposes_core_actions_and_config_launches(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_yaml(config_dir / "alpha.yaml", "name: alpha\nmodel: org/alpha")
@@ -15524,21 +15799,21 @@ async def test_command_palette_exposes_core_actions_and_config_loads(
         raising=False,
     )
     app = VelaApp(configs_dir=config_dir)
-    load_calls: list[str | None] = []
+    launch_calls: list[str | None] = []
 
     async with app.run_test() as pilot:
         await pilot.pause()
         monkeypatch.setattr(
             app,
             "action_load",
-            lambda: load_calls.append(
+            lambda: launch_calls.append(
                 app.current_config.name if app.current_config is not None else None
             ),
         )
         commands = list(app.get_system_commands(app.screen))
         titles = {command.title for command in commands}
         assert {
-            "Load selected config",
+            "Launch selected config",
             "Stop server",
             "Force kill server",
             "Restart server",
@@ -15556,14 +15831,14 @@ async def test_command_palette_exposes_core_actions_and_config_loads(
             "Copy server URL",
             "Focus next widget",
             "Quit app",
-            "Load config: beta",
+            "Launch config: beta",
         } <= titles
 
-        beta = next(command for command in commands if command.title == "Load config: beta")
+        beta = next(command for command in commands if command.title == "Launch config: beta")
         beta.callback()
         assert app.current_config is not None
         assert app.current_config.name == "beta"
-        assert load_calls == ["beta"]
+        assert launch_calls == ["beta"]
 
 
 @pytest.mark.asyncio
@@ -16927,8 +17202,8 @@ async def test_ready_status_shows_server_url_and_served_models(config_dir: Path)
             await pilot.press("l")
             await _wait_for_phase(app, Phase.READY)
             assert app.ready_url == f"http://127.0.0.1:{port}"
-            assert app.served_models == ["fake-model"]
-            assert f"READY http://127.0.0.1:{port} as fake-model" in app.status_text
+            assert app.served_models == ["model"]
+            assert f"READY http://127.0.0.1:{port} as model" in app.status_text
             await pilot.press("s")
             await _wait_for_stopped(app)
     finally:
@@ -19045,6 +19320,10 @@ class _JourneyComposerClient:
                     "name": params["name"],
                     "target": "local",
                     "model": params.get("model", "Qwen/Qwen3-32B"),
+                    "command": {
+                        "runtime": "process",
+                        "build": _TEST_BUILD_ID,
+                    },
                     "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
                 },
                 "warnings": [],
@@ -19073,6 +19352,9 @@ class _JourneyComposerClient:
             return {"runs": []}
         if method in {"gpu", "sample_gpus"}:
             return {"samples": [], "note": "GPU stats unavailable", "unavailable": True}
+        optional = _optional_wizard_section_result(method)
+        if optional is not None:
+            return optional
         raise AssertionError(f"unexpected target client call: {method}")
 
     def subscribe(self, *_args, **_kwargs):
@@ -19500,6 +19782,7 @@ async def test_smoke_completion_bridges_to_launch(config_dir: Path) -> None:
             "name": "qwen3",
             "target": "local",
             "model": "org/model",
+            "command": {"runtime": "process", "build": "01BUILD"},
             "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
         }
         await app._save_reviewed_new_deployment(config, smoke=True)
@@ -19597,6 +19880,7 @@ async def test_smoke_failure_bridges_to_flags_and_retry(config_dir: Path) -> Non
             "name": "qwen3",
             "target": "local",
             "model": "org/model",
+            "command": {"runtime": "process", "build": "01BUILD"},
             "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
         }
         await app._save_reviewed_new_deployment(config, smoke=True)
@@ -19953,48 +20237,105 @@ async def test_pin_download_now_strips_flag_and_kicks_download(config_dir: Path)
 
 
 @pytest.mark.asyncio
-async def test_palette_clone_deployment_prefills_wizard(config_dir: Path) -> None:
-    # J26: the "new variant in 30 seconds" flow — clone an existing config
-    # into a prefilled wizard with a suggested name.
+async def test_palette_clone_deployment_uses_full_fidelity_agent_clone(
+    config_dir: Path,
+) -> None:
+    # J26: cloning delegates to the target agent's schema-complete primitive,
+    # then selects the saved clone. It never reconstructs a lossy wizard draft.
     class CloneComposerClient(_JourneyComposerClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.cloned = False
+            self.clone_params: dict | None = None
+
         async def call(self, method: str, params):
             if method == "list_configs":
-                return {
-                    "valid": [
-                        {
-                            "path": str(config_dir / "alpha.yaml"),
+                configs = [
+                    {
+                        "path": str(config_dir / "alpha.yaml"),
+                        "name": "alpha",
+                        "model": "org/alpha",
+                        "target": "local",
+                        "warnings": [],
+                        "config": {
                             "name": "alpha",
+                            "model": "org/alpha",
+                            "server": {"host": "127.0.0.1", "port": 8101},
+                        },
+                    }
+                ]
+                if self.cloned:
+                    configs.append(
+                        {
+                            "path": str(config_dir / "alpha-2.yaml"),
+                            "name": "alpha-2",
                             "model": "org/alpha",
                             "target": "local",
                             "warnings": [],
                             "config": {
-                                "name": "alpha",
+                                "name": "alpha-2",
                                 "model": "org/alpha",
-                                "server": {"host": "127.0.0.1", "port": 8101},
+                                "server": {"host": "127.0.0.1", "port": 8102},
                             },
                         }
-                    ],
+                    )
+                return {
+                    "valid": configs,
                     "invalid": [],
+                }
+            if method == "clone_config":
+                self.clone_params = dict(params)
+                self.cloned = True
+                return {
+                    "name": "alpha-2",
+                    "path": str(config_dir / "alpha-2.yaml"),
+                    "config": {
+                        "name": "alpha-2",
+                        "model": "org/alpha",
+                        "server": {"host": "127.0.0.1", "port": 8102},
+                    },
+                    "derived": [
+                        {"field": "server.port", "value": "8102", "source": "allocate_port"},
+                        {
+                            "field": "launch.runs_dir",
+                            "value": "/tmp/vela/alpha-2",
+                            "source": "clone",
+                        },
+                        {
+                            "field": "command.docker.container_name",
+                            "value": "vela-alpha-2",
+                            "source": "clone",
+                        },
+                    ],
                 }
             return await super().call(method, params)
 
-    app = VelaApp(configs_dir=config_dir, target_client=CloneComposerClient())
+    client = CloneComposerClient()
+    app = VelaApp(configs_dir=config_dir, target_client=client)
+    notifications: list[str] = []
     async with app.run_test() as pilot:
         await pilot.pause()
+        app.notify = lambda message, *a, **k: notifications.append(str(message))
         commands = list(app.get_system_commands(app.screen))
         clone = next(
             command for command in commands if command.title == "Clone deployment: alpha"
         )
         clone.callback()
         await _wait_for_condition(
-            lambda: app.screen.id == "new-deployment"
-            and bool(app.screen.query(Input))
-            and app.screen.query_one("#new-deployment-name", Input).value == "alpha-2",
-            "clone did not open the wizard prefilled",
+            lambda: app.current_config is not None
+            and app.current_config.name == "alpha-2",
+            "saved clone did not become the selected config",
         )
-        assert app.screen.query_one("#new-deployment-model", Input).value == "org/alpha"
-        # Port intentionally blank — auto-allocation avoids cloning a collision.
-        assert app.screen.query_one("#new-deployment-port", Input).value == ""
+        assert client.clone_params == {
+            "src_name": "alpha",
+            "new_name": "alpha-2",
+            "configs_dir": str(config_dir),
+        }
+        assert app.screen.id != "new-deployment"
+        clone_notice = next(note for note in notifications if note.startswith("Cloned deployment"))
+        assert "server.port=8102" in clone_notice
+        assert "launch.runs_dir=/tmp/vela/alpha-2" in clone_notice
+        assert "command.docker.container_name=vela-alpha-2" in clone_notice
 
 
 @pytest.mark.asyncio
@@ -20292,8 +20633,11 @@ async def test_build_manager_pins_build_to_current_config(config_dir: Path) -> N
             lambda: bool(client.set_calls), "pin was not requested"
         )
         assert client.set_calls[0]["name"] == "alpha"
-        assert client.set_calls[0]["build"] == "nightly-cu130"
-        assert any("Pinned build nightly-cu130 to alpha" in note for note in notifications)
+        assert client.set_calls[0]["build"] == "01NIGHT"
+        assert any(
+            "Pinned build nightly-cu130 (01NIGHT) to alpha" in note
+            for note in notifications
+        )
         # The manager reopens refreshed.
         await _wait_for_condition(
             lambda: app.screen.id == "build-manager", "manager did not reopen after pin"

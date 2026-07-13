@@ -38,7 +38,7 @@ A **build** is an isolated, resolved vLLM installation the loader can launch aga
 
 ### 1.4 Selection is first-class
 
-The **active build** is shown in the header next to the model/phase indicators (§9.2), changeable with one key (`b`) or the palette, and the build a load will use is always unambiguous: an explicit per-config pin wins over the global default, which wins over bare `vllm` on `PATH` (precedence §7.9).
+The **active build** is shown in the header next to the model/phase indicators (§9.2), changeable with one key (`b`) or the palette, and the build a launch will use is always unambiguous: an explicit per-config pin wins over the global default, which wins over bare `vllm` on `PATH` (precedence §7.9).
 
 ### 1.5 Flag management is an offshoot of build selection
 
@@ -75,7 +75,7 @@ Because a build *is* a concrete `vllm serve --help`, flag management is naturall
 - **FR-B6** Maintain a single **global default** build pointer, atomically updated.
 - **FR-B7** Allow a config to **pin** a build (by id or label) that overrides the global default for that config.
 - **FR-B8** Resolve a selected build into the existing launch path: hand off `executable` + `python` + an **env overlay** (`VIRTUAL_ENV` + `PATH` prepend) + pre-detected `vllm_version`/`version_profile`, so subprocess vLLM resolves inside the build with no activation script.
-- **FR-B9** Enforce precedence (§7.9) deterministically and surface it in the UI (which build a load will use, and why).
+- **FR-B9** Enforce precedence (§7.9) deterministically and surface it in the UI (which build a launch will use, and why).
 
 **Integrity & safety**
 - **FR-B10** Prove a working vLLM at create/adopt time (`vllm --version` **and** `import vllm`, must agree) before `status=ready`/`adopted`.

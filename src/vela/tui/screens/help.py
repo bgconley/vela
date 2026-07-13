@@ -108,8 +108,8 @@ class HelpScreen(ModalScreen):
     @staticmethod
     def _help_text(content_width: int) -> Text:
         text = Text("Help — keys & markers\n\n", style=f"bold {CYAN}")
-        text.append("Load / control:  ", style=TEXT_SECONDARY)
-        text.append("l Load   ", style=GREEN)
+        text.append("Launch / control:  ", style=TEXT_SECONDARY)
+        text.append("l Launch   ", style=GREEN)
         text.append("s Stop   ", style=AMBER)
         text.append("K Kill   ", style=f"bold {AMBER}")
         text.append("r Restart   ", style=GREEN)

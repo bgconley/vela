@@ -25,6 +25,45 @@ class _Host(App):
 # registry (bug-236b). Hard-coded here (not imported) so the tests pin the
 # literal contract string, not whatever the screen constant happens to be.
 _EXPECTED_NO_PINS_PLACEHOLDER = 'No pins on this target — pick "Pin HF repo →"'
+_IMMUTABLE_BUILD = [
+    {
+        "build_id": "01TESTIMMUTABLE",
+        "label": "test-build",
+        "status": "ready",
+        "default": True,
+    }
+]
+_RECIPE_REPO = "Qwen/Qwen3.6-27B-FP8"
+_RECIPE_COMMIT = "e89b16ebf1988b3d6befa7de50abc2d76f26eb09"
+_RECIPE_PIN_REQUIRED_GUIDANCE = (
+    f"Recipe requires pinned {_RECIPE_REPO} at commit {_RECIPE_COMMIT}. "
+    'Choose "Pin HF repo →" or an Existing pin with that exact commit before Review.'
+)
+
+_NAME_HELP = (
+    "Optional. Vela derives a target-safe name from the model; Review shows "
+    "the final name and provenance."
+)
+_EXECUTABLE_HELP = (
+    "Legacy host-local path; New Deployment cannot save it. Choose an immutable "
+    "build. Review shows runtime provenance."
+)
+_REVISION_HELP = (
+    "HF revision or full commit. Recipe profiles require the exact pinned commit; "
+    "Review shows the resolved revision and provenance."
+)
+_DOWNLOAD_HELP = (
+    "Available for pinned HF sources. Downloads on the target after pinning; off "
+    "by default. Review shows cache and revision provenance."
+)
+_HOST_HELP = (
+    "Bind host on the target; defaults to 127.0.0.1. Review shows the endpoint "
+    "and exposure provenance."
+)
+_EXPOSURE_HELP = (
+    "Controls who may reach the bind address; defaults to Local. Review shows "
+    "the final exposure and provenance."
+)
 
 
 def _hint_pairs(keybar: KeyHintBar) -> list[tuple[str, str]]:
@@ -153,19 +192,28 @@ async def test_recipe_helper_and_loud_application() -> None:
         screen = NewDeploymentScreen(
             target_label="gpu-node",
             presets=[{"name": "balanced", "description": "Balanced", "engine": {}}],
+            builds=[
+                {
+                    "build_id": "01ACTIVE",
+                    "label": "nightly",
+                    "status": "ready",
+                    "default": True,
+                }
+            ],
             recipes=[
                 {
                     "key": "qwen36-27b-bf16-blackwell",
                     "name": "qwen36-27b-bf16-blackwell",
                     "runtime": "docker",
                     "model": "org/qwen3.6-27b",
-                    "image": "vllm/vllm-openai@sha256:abc",
+                    "image": "vllm/vllm-openai@sha256:" + "a" * 64,
                     "server": {"port": 18001, "exposure": "lan"},
                 }
             ],
         )
         await app.push_screen(screen)
         await pilot.pause()
+        assert screen.query_one("#new-deployment-runtime", Select).value == "build"
         note = str(screen.query_one("#new-deployment-recipe-note", Static).content)
         assert "pre-fills" in note
         screen.query_one("#new-deployment-recipe", Select).value = "qwen36-27b-bf16-blackwell"
@@ -174,6 +222,7 @@ async def test_recipe_helper_and_loud_application() -> None:
         assert "Recipe applied" in note
         assert "runtime=docker" in note
         assert "port=18001" in note
+        assert screen.query_one("#new-deployment-runtime", Select).value == "docker"
 
 
 @pytest.mark.asyncio
@@ -185,10 +234,382 @@ async def test_customize_and_runtime_helpers_present() -> None:
         await app.push_screen(screen)
         await pilot.pause()
         image_help = str(screen.query_one("#new-deployment-image-help", Static).content)
-        assert "Blank = recipe/preset default" in image_help
+        assert "Custom Docker requires an image" in image_help
+        assert "preset default" not in image_help
         assert "digest" in image_help
         port_help = str(screen.query_one("#new-deployment-port-help", Static).content)
         assert "auto-allocated on the target" in port_help
+
+
+@pytest.mark.asyncio
+async def test_custom_docker_requires_image_on_runtime_step_and_at_submit() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-runtime", Select).value = "docker"
+        screen.query_one("#new-deployment-model", Input).value = "org/model"
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        screen.step_index = screen.STEP_TITLES.index("Runtime")
+
+        screen.action_next_step()
+        await pilot.pause()
+
+        assert screen.step_index == screen.STEP_TITLES.index("Runtime")
+        runtime_error = screen.query_one("#new-deployment-runtime-error", Static)
+        assert runtime_error.display is True
+        assert "Docker image is required" in str(runtime_error.content)
+        with pytest.raises(ValueError, match="Docker image is required"):
+            screen._collect_spec()
+
+
+@pytest.mark.asyncio
+async def test_custom_docker_requires_a_complete_sha256_digest_before_review() -> None:
+    """A mutable tag or truncated pseudo-digest must never reach Review."""
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-runtime", Select).value = "docker"
+        screen.query_one("#new-deployment-model", Input).value = "org/model"
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        screen.step_index = screen.STEP_TITLES.index("Runtime")
+
+        for mutable_image in (
+            "vllm/vllm-openai:latest",
+            "vllm/vllm-openai@sha256:abc",
+        ):
+            screen.query_one("#new-deployment-image", Input).value = mutable_image
+            screen.action_next_step()
+            await pilot.pause()
+            assert screen.step_index == screen.STEP_TITLES.index("Runtime")
+            error = str(
+                screen.query_one("#new-deployment-runtime-error", Static).content
+            )
+            assert "full @sha256 digest" in error
+            with pytest.raises(ValueError, match="full @sha256 digest"):
+                screen._collect_spec()
+
+        digest = "a" * 64
+        screen.query_one("#new-deployment-image", Input).value = (
+            f"vllm/vllm-openai@sha256:{digest}"
+        )
+        assert screen._validate_step(screen.STEP_TITLES.index("Runtime")) is None
+        assert screen._collect_spec()["runtime"]["image"].endswith(digest)
+
+
+@pytest.mark.asyncio
+async def test_bare_process_is_a_guided_review_blocker() -> None:
+    """New profiles must select/create/adopt an immutable target build."""
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-runtime", Select).value = "process"
+        screen.query_one("#new-deployment-model", Input).value = "org/model"
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        screen.step_index = screen.STEP_TITLES.index("Runtime")
+
+        screen.action_next_step()
+        await pilot.pause()
+
+        assert screen.step_index == screen.STEP_TITLES.index("Runtime")
+        error = str(screen.query_one("#new-deployment-runtime-error", Static).content)
+        assert "immutable build" in error
+        assert "Build, Create build, or Adopt venv" in error
+        with pytest.raises(ValueError, match="immutable build"):
+            screen._collect_spec()
+
+
+@pytest.mark.asyncio
+async def test_build_runtime_rejects_a_mutable_label_and_accepts_its_build_id() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            builds=[
+                {"build_id": "01IMMUTABLE", "label": "nightly", "status": "ready"}
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#new-deployment-runtime", Select).value = "build"
+        screen.query_one("#new-deployment-model", Input).value = "org/model"
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+
+        screen.query_one("#new-deployment-build", Input).value = "nightly"
+        with pytest.raises(ValueError, match="immutable build id"):
+            screen._collect_spec()
+
+        screen.query_one("#new-deployment-build", Input).value = "01IMMUTABLE"
+        assert screen._collect_spec()["runtime"] == {
+            "kind": "build",
+            "build": "01IMMUTABLE",
+        }
+
+
+@pytest.mark.asyncio
+async def test_recipe_identity_is_sent_and_custom_restores_human_draft() -> None:
+    app = _Host()
+    recipe_key = "host-stack"
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[{"name": "balanced"}],
+            recipes=[
+                {
+                    "key": recipe_key,
+                    "name": "recipe-name",
+                    "runtime": "docker",
+                    "model": "org/recipe-model",
+                    "revision": "recipe-sha",
+                    "image": "recipe/image@sha256:" + "a" * 64,
+                    "build": "",
+                    "executable": "",
+                    "served_model_name": "recipe-served",
+                    "server": {"host": "0.0.0.0", "port": 18004, "exposure": "lan"},
+                    "launch": {"runs_dir": "/recipe/runs"},
+                    "docker": {"container_name": "recipe-container"},
+                }
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        human_inputs = {
+            "#new-deployment-name": "human-name",
+            "#new-deployment-model": "org/human-model",
+            "#new-deployment-model-revision": "human-revision",
+            "#new-deployment-image": "human/image@sha256:" + "b" * 64,
+            "#new-deployment-build": "human-build",
+            "#new-deployment-executable": "/human/vllm",
+            "#new-deployment-host": "127.0.0.1",
+            "#new-deployment-port": "18111",
+            "#new-deployment-served-name": "human-served",
+            "#new-deployment-runs-dir": "/human/runs",
+            "#new-deployment-container-name": "human-container",
+        }
+        for selector, value in human_inputs.items():
+            screen.query_one(selector, Input).value = value
+        screen.query_one("#new-deployment-runtime", Select).value = "docker"
+        screen.query_one("#new-deployment-model-mode", Select).value = "bare"
+        screen.query_one("#new-deployment-exposure", Select).value = "local"
+        await pilot.pause()
+
+        assert screen._suggestion_params()["recipe"] == "__custom__"
+        screen.query_one("#new-deployment-recipe", Select).value = recipe_key
+        await pilot.pause()
+
+        assert screen._collect_spec()["recipe"] == recipe_key
+        assert screen._suggestion_params()["recipe"] == recipe_key
+        assert screen.query_one("#new-deployment-model-revision", Input).value == "recipe-sha"
+        assert screen.query_one("#new-deployment-served-name", Input).value == "recipe-served"
+        assert screen.query_one("#new-deployment-runs-dir", Input).value == "/recipe/runs"
+        assert (
+            screen.query_one("#new-deployment-container-name", Input).value
+            == "recipe-container"
+        )
+
+        screen.query_one("#new-deployment-recipe", Select).value = "__custom__"
+        await pilot.pause()
+
+        for selector, value in human_inputs.items():
+            assert screen.query_one(selector, Input).value == value
+        assert screen.query_one("#new-deployment-runtime", Select).value == "docker"
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "bare"
+        assert screen.query_one("#new-deployment-exposure", Select).value == "local"
+        assert screen._collect_spec()["recipe"] == "__custom__"
+
+
+def _immutable_recipe() -> dict[str, object]:
+    return {
+        "key": "oxcart-qwen",
+        "name": "oxcart-qwen",
+        "runtime": "docker",
+        "model": _RECIPE_REPO,
+        "model_ref": _RECIPE_REPO,
+        "revision": _RECIPE_COMMIT,
+        "image": "vllm/vllm-openai@sha256:" + "a" * 64,
+    }
+
+
+@pytest.mark.asyncio
+async def test_immutable_recipe_auto_selects_only_exact_repo_and_commit_pin() -> None:
+    """Recipe selection binds to a registry identity, never a close-looking pin."""
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="local",
+            presets=[{"name": "balanced"}],
+            recipes=[_immutable_recipe()],
+            models=[
+                {
+                    "entry_id": "wrong-commit",
+                    "display_name": "same repo, stale commit",
+                    "source": "hf_repo",
+                    "repo_id": _RECIPE_REPO,
+                    "commit_sha": "1" * 40,
+                    "cache_state": "local",
+                    "pinned": True,
+                },
+                {
+                    "entry_id": "wrong-repo",
+                    "display_name": "same commit, wrong repo",
+                    "source": "hf_repo",
+                    "repo_id": "Other/Model",
+                    "commit_sha": _RECIPE_COMMIT,
+                    "cache_state": "local",
+                    "pinned": True,
+                },
+                {
+                    "entry_id": "exact-pin",
+                    "display_name": "Qwen exact",
+                    "source": "hf_repo",
+                    "repo_id": _RECIPE_REPO,
+                    "commit_sha": _RECIPE_COMMIT,
+                    "cache_state": "local",
+                    "pinned": True,
+                },
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        screen.query_one("#new-deployment-recipe", Select).value = "oxcart-qwen"
+        await pilot.pause()
+
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "existing"
+        assert screen.query_one("#new-deployment-model-ref", Select).value == "exact-pin"
+        state = str(screen.query_one("#new-deployment-model-state", Static).content)
+        assert "cache: local" in state
+        assert _RECIPE_COMMIT in state
+        guidance = screen.query_one("#new-deployment-recipe-pin-guidance", Static)
+        assert guidance.display is False
+        assert screen._validate_step(screen.STEP_TITLES.index("Model")) is None
+        spec = screen._collect_spec()
+        assert spec["model_ref"] == "exact-pin"
+        assert spec["revision"] == _RECIPE_COMMIT
+
+
+@pytest.mark.asyncio
+async def test_immutable_recipe_mismatch_guides_and_blocks_review() -> None:
+    """A repo-only or commit-only match is not an immutable recipe match."""
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="local",
+            presets=[{"name": "balanced"}],
+            recipes=[_immutable_recipe()],
+            models=[
+                {
+                    "entry_id": "wrong-commit",
+                    "source": "hf_repo",
+                    "repo_id": _RECIPE_REPO,
+                    "commit_sha": "2" * 40,
+                    "cache_state": "local",
+                    "pinned": True,
+                },
+                {
+                    "entry_id": "wrong-repo",
+                    "source": "hf_repo",
+                    "repo_id": "Other/Model",
+                    "commit_sha": _RECIPE_COMMIT,
+                    "cache_state": "local",
+                    "pinned": True,
+                },
+                {
+                    "entry_id": "cache-scan-only",
+                    "source": "hf_repo",
+                    "repo_id": _RECIPE_REPO,
+                    "commit_sha": _RECIPE_COMMIT,
+                    "cache_state": "local",
+                    "pinned": False,
+                },
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        screen.query_one("#new-deployment-recipe", Select).value = "oxcart-qwen"
+        await pilot.pause()
+
+        assert screen.query_one("#new-deployment-model-mode", Select).value == "existing"
+        assert screen.query_one("#new-deployment-model-ref", Select).value == "__custom__"
+        guidance = screen.query_one("#new-deployment-recipe-pin-guidance", Static)
+        assert guidance.display is True
+        assert str(guidance.content) == _RECIPE_PIN_REQUIRED_GUIDANCE
+        assert (
+            screen._validate_step(screen.STEP_TITLES.index("Model"))
+            == _RECIPE_PIN_REQUIRED_GUIDANCE
+        )
+        with pytest.raises(ValueError, match="Recipe requires pinned"):
+            screen._collect_spec()
+
+
+@pytest.mark.asyncio
+async def test_legacy_recipe_without_immutable_model_identity_is_not_blocked() -> None:
+    """Old recipe payloads retain their pre-pin compatibility behavior."""
+    app = _Host()
+    async with app.run_test() as pilot:
+        recipe = _immutable_recipe()
+        recipe.pop("model_ref")
+        recipe["revision"] = "main"
+        screen = NewDeploymentScreen(
+            target_label="local",
+            presets=[{"name": "balanced"}],
+            recipes=[recipe],
+            models=[],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        screen.query_one("#new-deployment-recipe", Select).value = "oxcart-qwen"
+        await pilot.pause()
+
+        guidance = screen.query_one("#new-deployment-recipe-pin-guidance", Static)
+        assert guidance.display is False
+        assert screen._validate_step(screen.STEP_TITLES.index("Model")) is None
+        spec = screen._collect_spec()
+        assert spec["model"] == _RECIPE_REPO
+        assert spec["revision"] == "main"
+        assert "model_ref" not in spec
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("width", [80, 100, 142])
+async def test_human_guidance_is_exact_and_fits_representative_widths(width: int) -> None:
+    app = _Host()
+    async with app.run_test(size=(width, 42)) as pilot:
+        screen = NewDeploymentScreen(
+            target_label="local",
+            presets=[{"name": "balanced"}],
+            builds=_IMMUTABLE_BUILD,
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        expected = {
+            "#new-deployment-name-help": _NAME_HELP,
+            "#new-deployment-executable-help": _EXECUTABLE_HELP,
+            "#new-deployment-revision-help": _REVISION_HELP,
+            "#new-deployment-download-help": _DOWNLOAD_HELP,
+            "#new-deployment-host-help": _HOST_HELP,
+            "#new-deployment-exposure-help": _EXPOSURE_HELP,
+        }
+        for selector, text in expected.items():
+            assert str(screen.query_one(selector, Static).content) == text
+
+        panel = screen.query_one("#new-deployment-panel")
+        for step_name in ("Target", "Runtime", "Model", "Customize"):
+            screen.step_index = screen.STEP_TITLES.index(step_name)
+            screen._refresh_step()
+            await pilot.pause()
+            assert panel.region.x >= 0
+            assert panel.region.right <= width
 
 
 @pytest.mark.asyncio
@@ -229,9 +650,9 @@ async def test_runtime_step_discloses_only_active_group() -> None:
         screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
         await app.push_screen(screen)
         await pilot.pause()
-        # Default runtime=process → no runtime-specific fields.
+        # A new profile defaults to the reproducible Process-build path.
         assert screen.query_one("#nd-group-image").display is False
-        assert screen.query_one("#nd-group-build").display is False
+        assert screen.query_one("#nd-group-build").display is True
         assert screen.query_one("#nd-group-executable").display is False
         screen.query_one("#new-deployment-runtime", Select).value = "docker"
         await pilot.pause()
@@ -247,6 +668,157 @@ async def test_runtime_step_discloses_only_active_group() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_workflow_defaults_to_ready_active_build_id() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            builds=[
+                {
+                    "build_id": "01ACTIVE",
+                    "label": "nightly",
+                    "status": "ready",
+                    "default": True,
+                },
+                {
+                    "build_id": "01OTHER",
+                    "label": "nightly",
+                    "status": "ready",
+                    "default": False,
+                },
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert screen.query_one("#new-deployment-runtime", Select).value == "build"
+        assert screen.query_one("#new-deployment-build-select", Select).value == "01ACTIVE"
+        assert screen.query_one("#new-deployment-build", Input).value == "01ACTIVE"
+        assert screen.query_one("#new-deployment-process-help", Static).display is False
+
+        screen.query_one("#new-deployment-model", Input).value = "org/model"
+        spec = screen._collect_spec()
+        assert spec["runtime"] == {"kind": "build", "build": "01ACTIVE"}
+
+
+@pytest.mark.asyncio
+async def test_no_active_build_defaults_to_guided_immutable_process_build() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            builds=[
+                {
+                    "build_id": "01NOTACTIVE",
+                    "label": "nightly",
+                    "status": "ready",
+                    "default": False,
+                }
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert screen.query_one("#new-deployment-runtime", Select).value == "build"
+        assert screen.query_one("#nd-group-build").display is True
+        helper = screen.query_one("#new-deployment-process-help", Static)
+        assert helper.display is False
+        assert screen._validate_step(screen.STEP_TITLES.index("Runtime")) is not None
+        build_help = " ".join(
+            str(widget.content)
+            for widget in screen.query("#nd-group-build .new-deployment-helper")
+        )
+        assert "Create or adopt" in build_help
+
+
+@pytest.mark.asyncio
+async def test_restored_process_draft_wins_over_ready_active_build_default() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            builds=[
+                {
+                    "build_id": "01ACTIVE",
+                    "label": "nightly",
+                    "status": "ready",
+                    "default": True,
+                }
+            ],
+            initial={"runtime": "process", "model": "org/model", "model_mode": "bare"},
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert screen.query_one("#new-deployment-runtime", Select).value == "process"
+        assert screen.query_one("#new-deployment-build", Input).value == ""
+        assert screen.query_one("#new-deployment-process-help", Static).display is True
+
+
+@pytest.mark.asyncio
+async def test_restored_executable_wins_over_ready_active_build_default() -> None:
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            builds=[
+                {
+                    "build_id": "01ACTIVE",
+                    "label": "nightly",
+                    "status": "ready",
+                    "default": True,
+                }
+            ],
+            initial={
+                "runtime": "executable",
+                "executable": "/opt/vllm/bin/vllm",
+                "model": "org/model",
+                "model_mode": "bare",
+            },
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert screen.query_one("#new-deployment-runtime", Select).value == "executable"
+        assert (
+            screen.query_one("#new-deployment-executable", Input).value
+            == "/opt/vllm/bin/vllm"
+        )
+        assert screen.query_one("#new-deployment-build", Input).value == ""
+
+
+@pytest.mark.asyncio
+async def test_build_picker_persists_build_ids_when_labels_are_duplicate() -> None:
+    """A mutable human label must never become the saved build reference."""
+    app = _Host()
+    async with app.run_test() as pilot:
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            builds=[
+                {"build_id": "01BUILD-A", "label": "nightly", "status": "ready"},
+                {"build_id": "01BUILD-B", "label": "nightly", "status": "ready"},
+            ],
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        options = screen._build_options()
+        assert [value for _label, value in options[1:]] == [
+            "01BUILD-A",
+            "01BUILD-B",
+        ]
+
+        screen.query_one("#new-deployment-build-select", Select).value = "01BUILD-B"
+        await pilot.pause()
+        assert screen.query_one("#new-deployment-build", Input).value == "01BUILD-B"
+
+
+@pytest.mark.asyncio
 async def test_model_step_mode_discloses_pinned_vs_bare() -> None:
     # J25: the mode select finally drives what's visible.
     app = _Host()
@@ -258,6 +830,7 @@ async def test_model_step_mode_discloses_pinned_vs_bare() -> None:
             target_label="gpu-node",
             presets=[],
             models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+            builds=_IMMUTABLE_BUILD,
         )
         await app.push_screen(screen)
         await pilot.pause()
@@ -279,7 +852,9 @@ async def test_blank_name_uses_suggested_slug() -> None:
     # J27: the name is suggested from model + target, not demanded.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node", presets=[], builds=_IMMUTABLE_BUILD
+        )
         await app.push_screen(screen)
         await pilot.pause()
         screen.query_one("#new-deployment-model", Input).value = "Qwen/Qwen3-32B"
@@ -314,7 +889,8 @@ async def test_restored_draft_mount_keeps_enter_walk_off_the_runtime_select() ->
         screen = NewDeploymentScreen(
             target_label="gpu-node",
             presets=[{"name": "balanced"}],
-            initial=draft,
+            initial={**draft, "runtime": "build", "build": "01TESTIMMUTABLE"},
+            builds=_IMMUTABLE_BUILD,
         )
         await app.push_screen(screen)
         await pilot.pause()
@@ -409,7 +985,9 @@ async def test_customize_advanced_group_overrides_derived_fields() -> None:
     # J28: served_model_name / runs_dir / container_name editable behind Ctrl+R.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node", presets=[], builds=_IMMUTABLE_BUILD
+        )
         await app.push_screen(screen)
         await pilot.pause()
         # Collapsed by default — zero novice cost.
@@ -448,6 +1026,7 @@ async def test_download_now_hidden_and_reset_for_bare_source() -> None:
             target_label="gpu-node",
             presets=[],
             models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+            builds=_IMMUTABLE_BUILD,
         )
         await app.push_screen(screen)
         await pilot.pause()
@@ -482,6 +1061,7 @@ async def test_download_now_spec_obeys_model_source() -> None:
             target_label="gpu-node",
             presets=[],
             models=[{"entry_id": "qwen-pin", "display_name": "Qwen Pin"}],
+            builds=_IMMUTABLE_BUILD,
         )
         await app.push_screen(screen)
         await pilot.pause()
@@ -518,6 +1098,7 @@ async def test_restored_bare_draft_resets_download_now() -> None:
             target_label="gpu-node",
             presets=[{"name": "balanced"}],
             initial=draft,
+            builds=_IMMUTABLE_BUILD,
         )
         await app.push_screen(screen)
         await pilot.pause()
@@ -564,7 +1145,12 @@ async def test_empty_registry_defaults_to_bare_repo_source() -> None:
     # (pinnable-only) stays hidden per Task 2.2's rule (compound disclosure).
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[],
+            builds=_IMMUTABLE_BUILD,
+        )
         await app.push_screen(screen)
         await pilot.pause()
         assert screen.query_one("#new-deployment-model-mode", Select).value == "bare"
@@ -585,7 +1171,12 @@ async def test_zero_pins_existing_source_shows_honest_placeholder() -> None:
     # "Custom model"), resolves to no ref, and cannot satisfy Review.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[],
+            builds=_IMMUTABLE_BUILD,
+        )
         await app.push_screen(screen)
         await pilot.pause()
         screen.query_one("#new-deployment-model-mode", Select).value = "existing"
@@ -660,7 +1251,12 @@ async def test_model_step_blocks_next_without_resolvable_model() -> None:
     # mark the breadcrumb with the amber ✗ — not silently advance to a dead-end.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[],
+            builds=_IMMUTABLE_BUILD,
+        )
         await app.push_screen(screen)
         await pilot.pause()
         # Empty registry defaults to bare (bug-236b); drive the trap explicitly.
@@ -765,7 +1361,12 @@ async def test_submit_validation_error_marks_owning_step() -> None:
     # "see Model step", not a "Ctrl+B to Model" that would walk away from it.
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[],
+            builds=_IMMUTABLE_BUILD,
+        )
         await app.push_screen(screen)
         await pilot.pause()
         assert screen.step_index == 0  # submitting from Target, Model is ahead
@@ -870,7 +1471,12 @@ async def test_advancing_past_fixed_step_clears_stale_panel_error() -> None:
     # that same step (unmapped / panel-only errors stay put).
     app = _Host()
     async with app.run_test() as pilot:
-        screen = NewDeploymentScreen(target_label="gpu-node", presets=[], models=[])
+        screen = NewDeploymentScreen(
+            target_label="gpu-node",
+            presets=[],
+            models=[],
+            builds=_IMMUTABLE_BUILD,
+        )
         await app.push_screen(screen)
         await pilot.pause()
         # Walk to the Model step; force the dead-end (empty registry defaults to

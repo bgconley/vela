@@ -160,7 +160,9 @@ Important fields:
   target default build.
 - `command.docker`: Docker runtime settings such as `image`, `container_name`,
   optional Docker `runtime`, `gpus`, `network`, `ipc_host`, `shm_size`,
-  `hf_cache`, `volumes`, `env`, `pull`, `evict`, and `extra_run_args`.
+  `hf_cache`, `volumes`, `env`, `pull`, `auto_remove`, `evict`, and
+  `extra_run_args`. `auto_remove: true` emits Docker `--rm`, requires
+  `restart: "no"`, and removes the stopped container after Vela stops it.
 - `command.cwd`: target-local working directory for relative paths.
 - `engine`: modeled vLLM flags. vLLM-owned values default to unset so the
   installed vLLM default wins.
@@ -175,6 +177,9 @@ Important fields:
 - `launch.mode`: compatibility label; all agent launches are supervised.
 - `launch.runs_dir`: optional target-local run artifact directory.
 - `launch.ready_timeout_seconds`: launch readiness timeout.
+- `launch.required_hostname`: optional exact target hostname guard for a
+  machine-specific profile. Target-side preflight rejects a mismatch before
+  Vela starts, stops, removes, or replaces any process or container.
 - `vllm.version_profile`: optional flag-compatibility profile hint. This is
   not necessarily the runtime package version inside a pinned Docker image.
 - `vllm.version`, `vllm.transformers_version`, `vllm.torch_version`,

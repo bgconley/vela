@@ -440,6 +440,26 @@ def test_docker_runtime_honors_explicit_shm_size_with_ipc_host() -> None:
     ]
 
 
+def test_docker_runtime_auto_remove_omits_conflicting_restart_policy() -> None:
+    model_cfg = cfg(
+        {
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "auto_remove": True,
+                    "restart": "no",
+                },
+            },
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert "--rm" in result.argv
+    assert "--restart" not in result.argv
+
+
 def test_bf16_docker_runtime_does_not_inherit_fp8_kv_pin() -> None:
     model_cfg = cfg(
         {
@@ -547,7 +567,35 @@ def test_model_reference_local_vs_hf_repo_logic(tmp_path: Path) -> None:
 def test_secret_masking_in_preview() -> None:
     assert mask_preview_value("HF_TOKEN", "hf_secret") == "••••"
     assert mask_preview_value("VLLM_API_KEY", "sk-secret") == "••••"
+    assert mask_preview_value("DB_PASSWORD", "hunter2") == "••••"
+    assert mask_preview_value("SERVICE_SECRET", "opaque") == "••••"
     assert mask_preview_value("CUDA_VISIBLE_DEVICES", "0") == "0"
+
+
+def test_docker_preview_masks_all_secret_like_environment_values() -> None:
+    model_cfg = cfg(
+        {
+            "command": {
+                "runtime": "docker",
+                "docker": {
+                    "image": "vllm/vllm-openai@sha256:abc",
+                    "env": {
+                        "DB_PASSWORD": "hunter2",
+                        "SERVICE_SECRET": "opaque",
+                        "SAFE_SETTING": "visible",
+                    },
+                },
+            }
+        }
+    )
+
+    result = build_command(model_cfg, bundled_profile("current"))
+
+    assert "hunter2" not in result.preview
+    assert "opaque" not in result.preview
+    assert "DB_PASSWORD='••••'" in result.preview
+    assert "SERVICE_SECRET='••••'" in result.preview
+    assert "SAFE_SETTING=visible" in result.preview
 
 
 def test_render_preview_puts_each_env_var_on_its_own_line(tmp_path: Path) -> None:

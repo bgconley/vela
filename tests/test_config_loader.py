@@ -195,6 +195,25 @@ def test_launch_require_cached_models_rejects_non_bool() -> None:
         )
 
 
+def test_launch_required_hostname_defaults_none_and_accepts_a_host() -> None:
+    default = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+    guarded = ModelConfig.model_validate(
+        {"name": "x", "model": "org/model", "launch": {"required_hostname": "oxcart"}}
+    )
+
+    assert default.launch.required_hostname is None
+    assert guarded.launch.required_hostname == "oxcart"
+
+
+def test_launch_required_hostname_rejects_blank_values() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ModelConfig.model_validate(
+            {"name": "x", "model": "org/model", "launch": {"required_hostname": "  "}}
+        )
+
+
 def test_vllm_pass_through_defaults_are_unset() -> None:
     cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
 
@@ -226,6 +245,26 @@ def test_schema_rejects_out_of_range_numeric_values() -> None:
     for overrides in bad_cases:
         with pytest.raises(ValidationError):
             ModelConfig.model_validate({**base, **overrides})
+
+
+def test_schema_rejects_auto_remove_with_persistent_restart_policy() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="auto_remove requires restart: no"):
+        ModelConfig.model_validate(
+            {
+                "name": "x",
+                "model": "org/model",
+                "command": {
+                    "runtime": "docker",
+                    "docker": {
+                        "image": "image@sha256:abc",
+                        "auto_remove": True,
+                        "restart": "unless-stopped",
+                    },
+                },
+            }
+        )
 
 
 def test_schema_accepts_valid_numeric_bounds() -> None:

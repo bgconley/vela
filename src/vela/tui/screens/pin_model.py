@@ -81,6 +81,7 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
 
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
+        ("ctrl+s", "submit", "Pin"),
         # Ctrl+R (not a bare letter): printable keys are consumed by whichever
         # Input has focus, so a bare hotkey could never fire on a form.
         ("ctrl+r", "toggle_advanced", "Advanced"),
@@ -281,6 +282,7 @@ class PinModelScreen(ModalScreen[dict[str, Any] | None]):
             yield KeyHintBar(
                 [
                     ("⏎", "Pin"),
+                    ("Ctrl+S", "Pin"),
                     ("Ctrl+R", "Advanced"),
                     ("Tab", "Next"),
                     ("Esc", "Cancel"),

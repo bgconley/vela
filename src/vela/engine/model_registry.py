@@ -40,6 +40,7 @@ class ModelHandoff:
     gated: bool
     token_required: bool
     size_bytes: int | None = None
+    pinned_revision: str | None = None
 
     def metadata(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -62,6 +63,8 @@ class ModelHandoff:
             payload["model_commit_sha"] = self.commit_sha
         if self.tokenizer is not None:
             payload["model_tokenizer"] = self.tokenizer
+        if self.pinned_revision is not None:
+            payload["model_pinned_revision"] = self.pinned_revision
         return payload
 
     def env_contribution(self) -> dict[str, str]:
@@ -183,6 +186,7 @@ def pin_model(params: dict[str, Any], registry_path: str | Path | None = None) -
         )
         if upsert is not None:
             _preserve_upserted_entry_state(entry, upsert)
+        _reconcile_pinned_hf_entry_cache(entry)
         entry_id = _required_str(entry, "entry_id", "new model entry")
         with _entry_lock(path, entry_id):
             with _registry_lock(path):
@@ -256,6 +260,46 @@ def _preserve_upserted_entry_state(entry: dict[str, Any], existing: dict[str, An
         ):
             if field in existing:
                 entry[field] = existing[field]
+
+
+def _reconcile_pinned_hf_entry_cache(entry: dict[str, Any]) -> None:
+    """Persist an exact, complete cache observation while an HF pin is created.
+
+    ``list_models`` merges Hugging Face cache rows for display, but that overlay is
+    intentionally non-persistent.  A config resolved immediately after pinning must
+    see the same authoritative cache state, so an online-resolved immutable pin is
+    reconciled here before the registry write.  Commit identity is strict: a local
+    ``main`` ref at another sha is a separate snapshot, never evidence for this pin.
+    """
+    if (
+        entry.get("source") != "hf_repo"
+        or not _optional_str(entry.get("commit_sha"))
+        or not _expected_weight_files(entry)
+    ):
+        return
+    cache_info = _scan_hf_cache_info()
+    if cache_info is None:
+        return
+    revision = _matching_hf_cache_revision(entry, cache_info)
+    if revision is None:
+        return
+    cached = _matching_hf_payload_for_entry(
+        entry,
+        [
+            _model_payload(candidate)
+            for candidate in _cached_model_entries_from_cache_info(cache_info)
+        ],
+    )
+    if cached is None:
+        return
+    _apply_cached_model_payload(entry, cached)
+    present_names = [
+        name
+        for cached_file in (getattr(revision, "files", ()) or ())
+        if (name := _optional_str(getattr(cached_file, "file_name", None))) is not None
+    ]
+    status = _hf_model_status(entry, present_names=present_names)
+    entry["cache_state"] = str(status["cache_state"])
 
 
 def _default_hf_revision() -> str:
@@ -852,9 +896,10 @@ def _merge_hf_cache_models(models: list[dict[str, Any]]) -> None:
         commit_sha = model.get("commit_sha")
         if isinstance(commit_sha, str) and commit_sha:
             commit_index[(repo_id, commit_sha)] = index
-        revision = model.get("revision")
-        if isinstance(revision, str) and revision:
-            revision_index[(repo_id, revision)] = index
+        else:
+            revision = model.get("revision")
+            if isinstance(revision, str) and revision:
+                revision_index[(repo_id, revision)] = index
 
     for scanned in _cached_model_entries_from_hf_scan():
         payload = _model_payload(scanned)
@@ -871,7 +916,7 @@ def _merge_hf_cache_models(models: list[dict[str, Any]]) -> None:
             models.append(payload)
             if isinstance(repo_id, str) and isinstance(commit_sha, str):
                 commit_index[(repo_id, commit_sha)] = index
-            if isinstance(repo_id, str) and isinstance(revision, str):
+            elif isinstance(repo_id, str) and isinstance(revision, str):
                 revision_index[(repo_id, revision)] = index
             continue
         existing = models[index]
@@ -918,10 +963,17 @@ def _matching_hf_payload_for_entry(
             continue
         if fallback is None:
             fallback = payload
-        if commit_sha is not None and payload.get("commit_sha") == commit_sha:
-            return payload
+        if commit_sha is not None:
+            if payload.get("commit_sha") == commit_sha:
+                return payload
+            continue
         if revision is not None and payload.get("revision") == revision:
             return payload
+    # Once a pin has an immutable commit, a mutable ref at another commit is not
+    # a fallback match.  This keeps stale local ``main`` snapshots from being
+    # presented or persisted as the selected pin's cache.
+    if commit_sha is not None:
+        return None
     # A sha-less+revision-less pin normally adopts whatever snapshot of the repo is
     # cached. But once a divergent side download has been recorded (last_download_*
     # present), adopting the first cached snapshot would write that side download's
@@ -1059,7 +1111,7 @@ def _scan_hf_cache_info() -> object | None:
     except ImportError:
         return None
     try:
-        return scan_cache_dir()
+        return scan_cache_dir(cache_dir=default_hf_hub_cache_dir())
     except Exception:
         return None
 
@@ -1525,6 +1577,7 @@ def _handoff_from_entry(reference: str, entry: dict[str, Any]) -> ModelHandoff:
         gated=bool(entry.get("gated")),
         token_required=bool(entry.get("token_required")),
         size_bytes=_handoff_size_bytes(entry),
+        pinned_revision=_optional_str(entry.get("revision")),
     )
 
 
@@ -1584,11 +1637,13 @@ def _hf_repo_entry_from_params(
     warnings: list[dict[str, str]] = []
     info: object | None = None
     validated = True
-    # M5: model_info still runs best-effort for gating/existence detection even
-    # when a --commit-sha is supplied, so a gated repo gets token_required=True
-    # (HF_TOKEN reaches the container). The supplied sha is TRUSTED — model_info's
-    # own sha is only adopted when the operator gave none. --offline skips the call
-    # entirely and records validated=False (the pin is taken on faith).
+    model_ref = _optional_str(params.get("entry_id")) or entry_id
+    prove_revision_commit = revision is not None and given_sha is not None
+    # M5: model_info still runs best-effort for gating/existence detection when an
+    # explicit sha is supplied without a symbolic revision. When both are supplied,
+    # model_info is authoritative proof that the pair corresponds; accepting a
+    # mismatched pair would create internally contradictory provenance. --offline
+    # deliberately skips proof and records validated=False (the pair is taken on faith).
     if offline:
         validated = False
     else:
@@ -1597,8 +1652,56 @@ def _hf_repo_entry_from_params(
         except ModelRegistryError as exc:
             if exc.code != "network":
                 raise
+            if prove_revision_commit:
+                raise ModelRegistryError(
+                    "model-unavailable",
+                    (
+                        f"unable to verify revision {revision} for {repo_id} "
+                        f"against supplied commit {given_sha}: {exc.message}"
+                    ),
+                    {
+                        "model_ref": model_ref,
+                        "repo_id": repo_id,
+                        "revision": revision,
+                        "supplied_commit_sha": given_sha,
+                        "reason": "revision-commit-unverified",
+                    },
+                ) from exc
             warnings.append({"kind": exc.code, "detail": exc.message})
             validated = False
+    if prove_revision_commit and not offline:
+        resolved_sha = _optional_str(getattr(info, "sha", None)) if info is not None else None
+        if resolved_sha is None:
+            raise ModelRegistryError(
+                "model-unavailable",
+                (
+                    f"unable to verify revision {revision} for {repo_id} "
+                    f"against supplied commit {given_sha}: model_info returned no commit sha"
+                ),
+                {
+                    "model_ref": model_ref,
+                    "repo_id": repo_id,
+                    "revision": revision,
+                    "supplied_commit_sha": given_sha,
+                    "reason": "revision-commit-unverified",
+                },
+            )
+        if resolved_sha != given_sha:
+            raise ModelRegistryError(
+                "invalid-config",
+                (
+                    f"revision {revision} for {repo_id} resolves to {resolved_sha}, "
+                    f"not supplied commit {given_sha}"
+                ),
+                {
+                    "model_ref": model_ref,
+                    "repo_id": repo_id,
+                    "revision": revision,
+                    "supplied_commit_sha": given_sha,
+                    "resolved_commit_sha": resolved_sha,
+                    "reason": "revision-commit-mismatch",
+                },
+            )
     if info is not None and given_sha is None:
         commit_sha = _optional_str(getattr(info, "sha", None)) or commit_sha
     if commit_sha is None:
@@ -1613,7 +1716,6 @@ def _hf_repo_entry_from_params(
                 }
             )
         else:
-            model_ref = _optional_str(params.get("entry_id")) or entry_id
             raise ModelRegistryError(
                 "model-unavailable",
                 (
@@ -1653,10 +1755,13 @@ def _hf_repo_entry_from_params(
         "last_used_at": _optional_str(params.get("last_used_at")),
         "notes": str(params.get("notes") or ""),
     }
-    if info is not None and given_sha is None:
-        # The manifest describes ``revision`` — only harvest it when that is what
-        # the sha resolves from. A supplied sha may name a different revision, so
-        # recording model_info's siblings against it would be wrong.
+    resolved_info_sha = (
+        _optional_str(getattr(info, "sha", None)) if info is not None else None
+    )
+    if info is not None and commit_sha is not None and resolved_info_sha == commit_sha:
+        # The manifest is safe to persist whenever model_info resolved the exact
+        # immutable commit, including the explicit revision+sha form used by the
+        # UI.  A supplied sha that differs from model_info still gets no manifest.
         expected_files, expected_size = _hf_manifest_from_siblings(info)
         if expected_files:
             entry["expected_files"] = expected_files
@@ -2158,6 +2263,27 @@ def _hf_cache_revision_for_entry(entry: dict[str, Any]) -> object:
             "Hugging Face cache scan is required for deep verification",
             {"model_ref": str(entry.get("entry_id") or ""), "reason": "cache-scan-unavailable"},
         )
+    revision = _matching_hf_cache_revision(entry, cache_info)
+    if revision is not None:
+        return revision
+    repo_id = _optional_str(entry.get("repo_id"))
+    commit_sha = _optional_str(entry.get("commit_sha"))
+    revision_ref = _optional_str(entry.get("revision"))
+    raise ModelRegistryError(
+        "model-not-found",
+        "cached Hugging Face model revision is missing",
+        {
+            "model_ref": str(entry.get("entry_id") or ""),
+            "repo_id": repo_id,
+            "commit_sha": commit_sha,
+            "revision": revision_ref,
+            "reason": "missing-cache-entry",
+        },
+    )
+
+
+def _matching_hf_cache_revision(entry: dict[str, Any], cache_info: object) -> object | None:
+    """Return only the cache revision that proves this entry's identity."""
     repo_id = _optional_str(entry.get("repo_id"))
     commit_sha = _optional_str(entry.get("commit_sha"))
     revision_ref = _optional_str(entry.get("revision"))
@@ -2171,23 +2297,15 @@ def _hf_cache_revision_for_entry(entry: dict[str, Any]) -> object:
                 for ref in (getattr(revision, "refs", ()) or ())
                 if str(ref)
             }
-            if commit_sha is not None and cached_commit == commit_sha:
-                return revision
+            if commit_sha is not None:
+                if cached_commit == commit_sha:
+                    return revision
+                continue
             if revision_ref is not None and (
                 cached_commit == revision_ref or revision_ref in refs
             ):
                 return revision
-    raise ModelRegistryError(
-        "model-not-found",
-        "cached Hugging Face model revision is missing",
-        {
-            "model_ref": str(entry.get("entry_id") or ""),
-            "repo_id": repo_id,
-            "commit_sha": commit_sha,
-            "revision": revision_ref,
-            "reason": "missing-cache-entry",
-        },
-    )
+    return None
 
 
 def _hf_cache_file_path(cached_file: object) -> Path | None:

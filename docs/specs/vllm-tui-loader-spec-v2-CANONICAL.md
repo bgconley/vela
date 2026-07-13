@@ -36,14 +36,14 @@ This application turns that into: **pick a named config → press one key → wa
 
 ### 1.2 “Feels like Claude Code,” decomposed into testable properties
 
-- **Single-keystroke primary actions** (load, stop, restart), shown in a persistent footer.
+- **Single-keystroke primary actions** (launch, stop, restart), shown in a persistent footer.
 - **Always-visible context**: a header/status line always answers what is loaded, in what state, where.
 - **Streaming, legible output**, colorized by severity, with the *current phase* surfaced separately from the raw firehose.
 - **Discoverability via a fuzzy command palette** (`Ctrl+P`), so users don’t have to learn shortcuts to be productive (Textual provides this natively).
 - **Minimal but informative chrome**; status by color + icon, not noise.
 - **Never blocks**: the UI stays responsive regardless of engine activity (an architectural guarantee — §6.2).
 - **Graceful, named errors**: failures (OOM, port-in-use, bad path, gated model) are detected, named in plain language, and surfaced as a banner with the relevant log excerpt.
-- **Low-friction defaults**: the only required input is which config to load.
+- **Low-friction defaults**: the only required input is which config to launch.
 
 ### 1.3 Design non-goals (v1)
 
@@ -420,7 +420,7 @@ The supervisor **atomically updates the manifest on rotation** (write temp + ren
 ││ 0 A100[UUID…] 38/80GB 64% ││ 1 A100 37/80GB 61% ││ 2 … ││ 3 …                       │
 │└────────────────────┘ elapsed 1m02s · phase READY · 18,402 lines · autoscroll ON     │
 ├──────────────────────────────────────────────────────────────────────────────────┤
-│ l Load  s Stop  K Kill  r Restart  / Search  f Filter  p Pause  ? Help  ^P Palette  q Quit │
+│ l Launch  s Stop  K Kill  r Restart  / Search  f Filter  p Pause  ? Help  ^P Palette  q Quit │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -451,7 +451,7 @@ def _on_progress(self, m):
 
 ### 8.5 Keybindings & command palette
 
-`l`/`Enter` load · `s` stop · `K` kill · `r` restart · `c` picker · `/` search · `f` filter · `p` pause · `w` wrap · `g/G` top/bottom · `Tab` focus · `?`/`F1` help · `Ctrl+P` palette · `q`/`Ctrl+C` quit (confirm if running). Every action is also a palette command (e.g. “Load config: …”, “Restart server”, “Copy server URL”, “Reattach to running server”).
+`l`/`Enter` launch · `s` stop · `K` kill · `r` restart · `c` picker · `/` search · `f` filter · `p` pause · `w` wrap · `g/G` top/bottom · `Tab` focus · `?`/`F1` help · `Ctrl+P` palette · `q`/`Ctrl+C` quit (confirm if running). Every action is also a palette command (e.g. “Launch config: …”, “Restart server”, “Copy server URL”, “Reattach to running server”).
 
 ### 8.6 Theming & responsiveness
 
@@ -558,7 +558,7 @@ Phases are independently demoable. Estimates assume one engineer fluent in async
 - **P1 Profile + command builder (~1d):** `VllmProfile` (detect version, cache `--help`, defaults table, soft validation); builder incl. the version-aware flag-emission rule and model-ref rule. *Done when:* `test_command_builder` + `test_request_logging_policy` green.
 - **P2 Process + PTY + scrubbing sink (~1.5–2d):** attached PTY launch (close-slave, fixed width, EIO), `log_sink.py` (incremental decode-then-split, scrub, bounded buffer, tee to `0600` file), stop/restart, exit detection. *Done when:* launches `vllm serve` (or fake child), streams scrubbed lines to UI+file, renders `\r` progress, stops gracefully; `test_log_sink` green.
 - **P3 Phase FSM + errors (~1d):** `phases.py` (packs from profile), `errors.py`; capture real vLLM fixtures. *Done when:* `test_phases` reproduces the success walk + OOM/port/HF-auth classifications.
-- **P4 Minimal Textual UI (~1–2d):** Header/Footer/`RichLog`(Text)/`ProgressLine`, load/stop bindings, message wiring. *Done when:* live colorized stream + transient progress + phase in header; no freezes under bursts.
+- **P4 Minimal Textual UI (~1–2d):** Header/Footer/`RichLog`(Text)/`ProgressLine`, launch/stop bindings, message wiring. *Done when:* live colorized stream + transient progress + phase in header; no freezes under bursts.
 - **P5 Sidebar + readiness + GPU (~1.5–2d):** ConfigList/PhaseTimeline/StatusBadge/status strip; health probe (`/health` unauth → READY; `/v1/models` Bearer; timeout; degraded polling); GPU panel (NVML+fallback, identity, `exit_on_error=False`). *Done when:* full visual phase walk; READY flips on real 200 with URL+model; degraded recovers; per-GPU stats.
 
 **MVP = P0–P5** (attached-only): genuinely useful, ship-to-lab.

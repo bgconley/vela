@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import signal
 import sys
 import threading
@@ -12,6 +13,7 @@ STOP = threading.Event()
 # alive — the only way to exercise READY -> DEGRADED -> recovery end-to-end.
 HEALTHY = threading.Event()
 HEALTHY.set()
+SERVED_MODEL_ID = "fake-model"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -35,7 +37,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b'{"data":[{"id":"fake-model"}]}')
+            payload = {"data": [{"id": SERVED_MODEL_ID}]}
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()
@@ -45,6 +48,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv: list[str] | None = None) -> int:
+    global SERVED_MODEL_ID
+
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv == ["--version"]:
         print("vllm 0.11.2")
@@ -61,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--served-model-name")
     parser.add_argument("--sleep", type=float, default=0.05)
     args, _unknown = parser.parse_known_args(argv)
+    SERVED_MODEL_ID = args.served_model_name or args.model or "fake-model"
 
     signal.signal(signal.SIGINT, lambda *_: STOP.set())
     signal.signal(signal.SIGTERM, lambda *_: STOP.set())

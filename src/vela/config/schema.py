@@ -47,6 +47,7 @@ class DockerConfig(BaseModel):
     hf_cache_target: str = "/root/.cache/huggingface"
     env: dict[str, str] = Field(default_factory=dict)
     restart: str = "no"
+    auto_remove: bool = False
     stop_grace_seconds: int = 90
     entrypoint: str | None = None
     pull: Literal["never", "missing", "always"] = "never"
@@ -57,6 +58,12 @@ class DockerConfig(BaseModel):
     @classmethod
     def env_values_are_strings(cls, value: dict[str, str]) -> dict[str, str]:
         return {str(key): str(item) for key, item in value.items()}
+
+    @model_validator(mode="after")
+    def auto_remove_requires_no_restart(self) -> DockerConfig:
+        if self.auto_remove and self.restart not in {"", "no"}:
+            raise ValueError("command.docker.auto_remove requires restart: no")
+        return self
 
 
 class CommandConfig(BaseModel):
@@ -161,6 +168,20 @@ class LaunchConfig(BaseModel):
     health: HealthConfig = Field(default_factory=HealthConfig)
     runs_dir: Path | None = None
     require_cached_models: bool = False
+    # Optional hard host scope for machine-tuned profiles. This is evaluated by
+    # target-side preflight before any process/container action, so a checked-in
+    # local-transport recipe cannot be launched on the wrong controller host.
+    required_hostname: str | None = Field(default=None, min_length=1)
+
+    @field_validator("required_hostname")
+    @classmethod
+    def required_hostname_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        hostname = value.strip()
+        if not hostname:
+            raise ValueError("required_hostname must not be blank")
+        return hostname
 
 
 class ModelConfig(BaseModel):

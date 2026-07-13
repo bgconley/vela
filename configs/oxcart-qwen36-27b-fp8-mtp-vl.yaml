@@ -1,0 +1,103 @@
+name: oxcart-qwen36-27b-fp8-mtp-vl
+target: local
+description: Oxcart-local Qwen3.6 27B FP8 validation profile, immutable cached revision, MTP + vision.
+model: Qwen/Qwen3.6-27B-FP8
+# PIN_REQUIRED: pin this exact repo and revision in Oxcart's model registry before
+# launch. The stable repo-id alias resolves after pinning; until then the registry
+# lookup fails closed without requiring a machine-specific entry_id in checked-in YAML.
+model_ref: Qwen/Qwen3.6-27B-FP8
+revision: e89b16ebf1988b3d6befa7de50abc2d76f26eb09
+served_model_name: qwen36-27b-fp8-oxcart
+command:
+  entrypoint: serve
+  runtime: docker
+  docker:
+    image: vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046
+    container_name: vela-oxcart-qwen36-27b-fp8-mtp-vl
+    gpus: all
+    ipc_host: true
+    shm_size: 32g
+    network: host
+    restart: "no"
+    auto_remove: true
+    stop_grace_seconds: 90
+    pull: never
+    hf_cache: /tank/ai/models/qwen36-27b-fp8/hf-cache
+    hf_cache_target: /root/.cache/huggingface
+    volumes:
+      - /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vllm-cache:/root/.cache/vllm
+      - /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/triton-cache:/root/.cache/triton
+      - /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/torch-compile-cache:/root/.cache/torch
+      - /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/flashinfer-cache:/root/.cache/flashinfer
+      - /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/tmp:/tmp/qwen36-27b-fp8-mtp-vl
+    env:
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_CACHE: /root/.cache/huggingface/hub
+      HF_HUB_OFFLINE: "1"
+      VLLM_CACHE_ROOT: /root/.cache/vllm
+      TRITON_CACHE_DIR: /root/.cache/triton
+      TORCHINDUCTOR_CACHE_DIR: /root/.cache/torch
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      SAFETENSORS_FAST_GPU: "1"
+    extra_run_args:
+      - --label
+      - ai.vela.managed=true
+      - --label
+      - ai.vela.profile=oxcart-qwen36-27b-fp8-mtp-vl
+engine:
+  gpu_memory_utilization: 0.955
+  max_model_len: 262144
+  dtype: auto
+  kv_cache_dtype: auto
+  max_num_seqs: 4
+server:
+  host: 127.0.0.1
+  port: 18004
+  exposure: local
+  api_key: EMPTY
+logging:
+  request_logging: false
+extra_args:
+  - --trust-remote-code
+  - --attention-backend
+  - FLASHINFER
+  - --mm-encoder-attn-backend
+  - FLASHINFER
+  - --safetensors-load-strategy
+  - prefetch
+  - --max-num-batched-tokens
+  - "8192"
+  - --enable-prefix-caching
+  - --reasoning-parser
+  - qwen3
+  - --enable-auto-tool-choice
+  - --tool-call-parser
+  - qwen3_coder
+  - --limit-mm-per-prompt
+  - '{"image":16,"video":1}'
+  - --media-io-kwargs
+  - '{"video":{"num_frames":-1}}'
+  - --default-chat-template-kwargs
+  - '{"enable_thinking":true,"preserve_thinking":true}'
+  - --override-generation-config
+  - '{"temperature":1.0,"top_p":0.95,"top_k":20,"min_p":0.0}'
+  - --speculative-config
+  - '{"method":"mtp","num_speculative_tokens":2}'
+  - --compilation-config
+  - '{"cudagraph_capture_sizes":[1,2,3,6,9,12],"cudagraph_num_of_warmups":1}'
+  - --cudagraph-metrics
+  - --disable-uvicorn-access-log
+launch:
+  mode: attached
+  ready_timeout_seconds: 1800
+  require_cached_models: true
+  required_hostname: oxcart
+  health:
+    interval_seconds: 2
+  runs_dir: /tank/ai/models/qwen36-27b-fp8/vllm-rp6000-mtp-vl/vela-runs
+vllm:
+  version_profile: current
+  version: 0.20.2rc1.dev9+g01d4d1ad3
+  transformers_version: 5.7.0
+  torch_version: 2.11.0+cu130
+  cuda_version: "13.0"

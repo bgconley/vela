@@ -8,6 +8,12 @@ This project is expected to be authored on a Mac and exercised for real vLLM
 runtime behavior on GPU boxes. Local Mac validation should stay no-GPU and
 no-vLLM by default.
 
+For the owner-directed release proof where Oxcart is both controller and target,
+use the isolated, visible-browser procedure in
+[`docs/oxcart-local-validation.md`](oxcart-local-validation.md). It pins the
+controller cache authority, exact revision, local daemon boundary, two cold
+restart launches, multimodal endpoint checks, and retained cleanup evidence.
+
 ## 1. Publish the tree
 
 ```bash
@@ -369,7 +375,7 @@ say `vllm not found on PATH`; the real config preview/smoke still validates the
 absolute lab vLLM executable path.
 
 The real run uses `vela smoke-tui`: it mounts the Textual app headlessly,
-selects the config, follows the normal Load workflow, waits for READY via the
+selects the config, follows the normal Launch workflow, waits for READY via the
 app's health/model state, prints the READY URL/model names, then follows the
 normal Stop workflow. It is still wrapped in `timeout` as a hard guard. Override
 the limit with:

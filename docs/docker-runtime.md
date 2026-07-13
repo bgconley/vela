@@ -65,6 +65,7 @@ command:
     ipc_host: true
     shm_size: 32g
     restart: "no"
+    auto_remove: true
     stop_grace_seconds: 90
     pull: never
     hf_cache: /path/to/models/qwen36-dual-fp8-vlm/hf-cache
@@ -132,7 +133,7 @@ Render the exact masked Docker command:
 vela preview qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird
 ```
 
-Run the same TUI load/READY/stop flow headlessly:
+Run the same TUI launch/READY/stop flow headlessly:
 
 ```bash
 vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird

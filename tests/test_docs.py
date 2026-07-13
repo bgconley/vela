@@ -143,6 +143,38 @@ def test_readme_covers_new_contributor_v1_paths() -> None:
     assert "docs/troubleshooting.md" in text
 
 
+def test_oxcart_local_validation_runbook_pins_release_proof_and_safety_contracts() -> None:
+    workflow = _read("docs/gpu-workflow.md")
+    runbook = _read("docs/oxcart-local-validation.md")
+
+    assert "docs/oxcart-local-validation.md" in workflow
+    for phrase in (
+        "HF_HOME=/tank/ai/models/qwen36-27b-fp8/hf-cache",
+        "HF_HUB_CACHE=/tank/ai/models/qwen36-27b-fp8/hf-cache/hub",
+        "huggingface_hub.constants.HF_HUB_CACHE",
+        "unset HF_HUB_OFFLINE",
+        "scripts/oxcart_live_guard.py preflight --snapshot",
+        "127.0.0.1:8815:127.0.0.1:8815",
+        "bgconley@10.25.0.50",
+        "/tank/work/validation/vela-oxcart-pilot-$RUN_ID",
+        "textual-serve==1.1.3",
+        '"Authorization": "Bearer EMPTY"',
+        "scripts/backend_evidence_check.py",
+        "/health",
+        "/v1/models",
+        "data:image/png;base64,",
+        "LEFT=RED; RIGHT=GREEN",
+        "required_hostname",
+        "manifest.json",
+        "checksums.sha256",
+        "scripts/oxcart_live_guard.py postflight",
+        "scripts/oxcart_live_guard.py cleanup",
+        "Blackbird is not contacted",
+        "shared daemon",
+    ):
+        assert phrase in runbook, f"Oxcart runbook missing safety/proof surface: {phrase!r}"
+
+
 def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
     configuration = _read("docs/configuration.md")
     builds_models = _read("docs/builds-and-models.md")
@@ -150,6 +182,7 @@ def test_user_docs_cover_schema_artifacts_and_rpc() -> None:
 
     assert "command.build" in configuration
     assert "model_ref" in configuration
+    assert "launch.required_hostname" in configuration
     assert "targets.yaml" in configuration
     assert "positional SSH arguments" in configuration
     assert "nightly and commit require uv" in builds_models

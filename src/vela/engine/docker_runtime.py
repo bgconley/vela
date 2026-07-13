@@ -69,6 +69,10 @@ def build_docker_run(
     container_name = docker.container_name or f"vela-{cfg.name}"
     container_env = {**docker.env, **env}
     argv = [docker_binary, "run", "-d", "--name", container_name]
+    if docker.auto_remove:
+        # Docker removes the exact named/ID'd container after a normal Vela
+        # stop, so host-scoped validation profiles leave no stopped residue.
+        argv.append("--rm")
     if docker.runtime:
         argv.extend(["--runtime", docker.runtime])
     if docker.gpus:
@@ -84,7 +88,7 @@ def build_docker_run(
     )
     if shm_size:
         argv.extend(["--shm-size", shm_size])
-    if docker.restart:
+    if docker.restart and not docker.auto_remove:
         argv.extend(["--restart", docker.restart])
     if docker.entrypoint:
         argv.extend(["--entrypoint", docker.entrypoint])

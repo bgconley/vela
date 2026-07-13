@@ -67,20 +67,32 @@ async def check_once(
             )
         if models.status_code != 200:
             return HealthEvent(
-                ready=True, detail=f"ready; /v1/models returned {models.status_code}", models=[]
+                ready=False,
+                detail=f"/v1/models returned {models.status_code}",
             )
         try:
             data = models.json()
         except ValueError:
             return HealthEvent(
-                ready=True, detail="ready; /v1/models returned invalid JSON", models=[]
+                ready=False,
+                detail="/v1/models returned invalid JSON",
             )
         names = _model_names_from_payload(data)
         if names is None:
             return HealthEvent(
-                ready=True,
-                detail="ready; unexpected /v1/models response shape",
-                models=[],
+                ready=False,
+                detail="unexpected /v1/models response shape",
+            )
+        expected_model = cfg.served_model_name or cfg.model
+        if expected_model not in names:
+            observed = ", ".join(names) if names else "none"
+            return HealthEvent(
+                ready=False,
+                detail=(
+                    f"/v1/models missing expected served model {expected_model}; "
+                    f"observed: {observed}"
+                ),
+                models=names,
             )
         return HealthEvent(ready=True, detail="ready", models=names)
 
@@ -146,15 +158,17 @@ def _timeout_detail(timeout_seconds: int, last_detail: str) -> str:
 
 
 def _model_names_from_payload(data: object) -> list[str] | None:
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or "data" not in data:
         return None
-    items = data.get("data", [])
+    items = data["data"]
     if not isinstance(items, list):
         return None
     names: list[str] = []
     for item in items:
         if not isinstance(item, dict):
             return None
-        if item_id := item.get("id"):
-            names.append(str(item_id))
+        item_id = item.get("id")
+        if not isinstance(item_id, str) or not item_id.strip():
+            return None
+        names.append(item_id)
     return names

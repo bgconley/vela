@@ -19,7 +19,12 @@ async def test_health_called_without_auth_and_models_with_bearer_when_key_config
         return httpx.Response(200, json={"data": [{"id": "served"}]})
 
     cfg = ModelConfig.model_validate(
-        {"name": "x", "model": "org/model", "server": {"api_key": "sk-live"}}
+        {
+            "name": "x",
+            "model": "org/model",
+            "served_model_name": "served",
+            "server": {"api_key": "sk-live"},
+        }
     )
 
     event = await check_once(cfg, transport=httpx.MockTransport(handler))
@@ -75,9 +80,10 @@ async def test_malformed_models_response_does_not_crash_health_probe() -> None:
 
     event = await check_once(cfg, transport=httpx.MockTransport(handler))
 
-    assert event.ready is True
-    assert event.models == []
-    assert "invalid JSON" in event.detail
+    assert event == HealthEvent(
+        ready=False,
+        detail="/v1/models returned invalid JSON",
+    )
 
 
 @pytest.mark.asyncio
@@ -91,9 +97,106 @@ async def test_unexpected_models_payload_shape_does_not_crash_health_probe() -> 
 
     event = await check_once(cfg, transport=httpx.MockTransport(handler))
 
-    assert event.ready is True
-    assert event.models == []
-    assert "unexpected /v1/models response" in event.detail
+    assert event == HealthEvent(
+        ready=False,
+        detail="unexpected /v1/models response shape",
+    )
+
+
+@pytest.mark.asyncio
+async def test_models_non_200_is_not_ready_even_when_health_is_200() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(503)
+
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event == HealthEvent(
+        ready=False,
+        detail="/v1/models returned 503",
+    )
+
+
+@pytest.mark.asyncio
+async def test_models_payload_requires_data_field() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(200, json={"object": "list"})
+
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event == HealthEvent(
+        ready=False,
+        detail="unexpected /v1/models response shape",
+    )
+
+
+@pytest.mark.asyncio
+async def test_models_payload_rejects_entries_without_string_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(200, json={"data": [{"object": "model"}]})
+
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event == HealthEvent(
+        ready=False,
+        detail="unexpected /v1/models response shape",
+    )
+
+
+@pytest.mark.asyncio
+async def test_models_payload_rejects_empty_data_list_for_expected_model() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(200, json={"object": "list", "data": []})
+
+    cfg = ModelConfig.model_validate({"name": "x", "model": "org/model"})
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event == HealthEvent(
+        ready=False,
+        detail="/v1/models missing expected served model model; observed: none",
+        models=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_models_payload_rejects_wrong_served_model_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200)
+        return httpx.Response(200, json={"data": [{"id": "wrong-model"}]})
+
+    cfg = ModelConfig.model_validate(
+        {
+            "name": "x",
+            "model": "org/model",
+            "served_model_name": "expected-model",
+        }
+    )
+
+    event = await check_once(cfg, transport=httpx.MockTransport(handler))
+
+    assert event == HealthEvent(
+        ready=False,
+        detail=(
+            "/v1/models missing expected served model expected-model; "
+            "observed: wrong-model"
+        ),
+        models=["wrong-model"],
+    )
 
 
 @pytest.mark.asyncio
@@ -247,7 +350,12 @@ async def test_probe_loop_degrades_and_recovers_after_ready_auth_blip() -> None:
         return response
 
     cfg = ModelConfig.model_validate(
-        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0.01}}}
+        {
+            "name": "x",
+            "model": "org/model",
+            "served_model_name": "served",
+            "launch": {"health": {"interval_seconds": 0.01}},
+        }
     )
     events: list[HealthEvent] = []
 
@@ -287,7 +395,12 @@ async def test_probe_loop_emits_degraded_and_recovery_after_ready() -> None:
         return response
 
     cfg = ModelConfig.model_validate(
-        {"name": "x", "model": "org/model", "launch": {"health": {"interval_seconds": 0.01}}}
+        {
+            "name": "x",
+            "model": "org/model",
+            "served_model_name": "served",
+            "launch": {"health": {"interval_seconds": 0.01}},
+        }
     )
     events: list[HealthEvent] = []
 

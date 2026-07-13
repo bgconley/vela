@@ -19,7 +19,12 @@ from textual.containers import VerticalScroll
 from textual.css.scalar import Unit
 from textual.widgets import Label, Static
 
-from vela.tui.screens.build_manager import _FOOTER_HINTS, BuildManagerScreen
+from vela.tui.screens.build_manager import (
+    _FOOTER_HINTS,
+    BuildManagerScreen,
+    _build_action_payload,
+    _build_reference,
+)
 from vela.tui.widgets import KeyHintBar
 
 
@@ -46,6 +51,16 @@ def _make_screen() -> BuildManagerScreen:
             ]
         }
     )
+
+
+def test_build_manager_actions_use_immutable_id_not_mutable_label() -> None:
+    first = {"build_id": "01BUILD-A", "label": "nightly", "paths": {}}
+    replacement = {"build_id": "01BUILD-B", "label": "nightly", "paths": {}}
+
+    assert _build_reference(first) == "01BUILD-A"
+    assert _build_reference(replacement) == "01BUILD-B"
+    assert _build_action_payload("verify_build", replacement)["build"] == "01BUILD-B"
+    assert _build_reference({"label": "legacy-label"}) == "legacy-label"
 
 
 # ── Layout rebuild ──────────────────────────────────────────────────────────

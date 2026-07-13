@@ -44,6 +44,7 @@ from vela.config.targets import (
     upsert_target_file,
 )
 from vela.engine.command_builder import CommandBuildResult
+from vela.engine.composer import provenance_value
 from vela.engine.log_sink import LogRecord, display_level_for_line
 from vela.engine.phases import ErrorKind, Phase, PhaseFSM
 from vela.engine.profile import (
@@ -85,6 +86,7 @@ from vela.tui.screens.new_deployment import (
     DOWNLOAD_NEEDS_PIN_ERROR,
     NewDeploymentReviewScreen,
     NewDeploymentScreen,
+    new_deployment_runtime_identity_error,
 )
 from vela.tui.screens.pin_model import PinModelScreen
 from vela.tui.screens.target_edit import TargetEditScreen
@@ -775,7 +777,7 @@ class VelaApp(App):
     """
 
     BINDINGS = [
-        ("l,enter", "load", "Load"),
+        ("l,enter", "load", "Launch"),
         ("s", "stop", "Stop"),
         ("K", "kill", "Kill"),
         ("r", "restart", "Restart"),
@@ -869,6 +871,12 @@ class VelaApp(App):
         self.config_summary = ""
         self.selected_config_preview = ""
         self.selected_config_metadata: dict[str, Any] = {}
+        self._one_shot_model_config_name: str | None = None
+        self._one_shot_model_overrides: dict[str, str] = {}
+        self._one_shot_model_metadata: dict[str, Any] = {}
+        self._one_shot_model_base_metadata: dict[str, Any] | None = None
+        self._one_shot_model_base_preview: str | None = None
+        self._one_shot_model_generation = 0
         self._config_preview_cache: dict[str, str] = {}
         self._new_deployment_presets: list[dict[str, Any]] = []
         self.paused = False
@@ -1033,7 +1041,9 @@ class VelaApp(App):
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         yield from super().get_system_commands(screen)
         yield SystemCommand(
-            "Load selected config", "Start the selected vLLM config", self.action_load
+            "Launch selected config",
+            "Launch the selected vLLM config",
+            self.action_load,
         )
         yield SystemCommand("Stop server", "Stop the running server gracefully", self.action_stop)
         yield SystemCommand(
@@ -1138,7 +1148,7 @@ class VelaApp(App):
         for item in self.registry.valid:
             name = item.config.name
             yield SystemCommand(
-                f"Load config: {name}",
+                f"Launch config: {name}",
                 f"Select and launch {name}",
                 lambda selected=name: self._load_config_from_palette(selected),
             )
@@ -1146,7 +1156,7 @@ class VelaApp(App):
             name = item.config.name
             yield SystemCommand(
                 f"Clone deployment: {name}",
-                f"Open the wizard prefilled from {name}",
+                f"Create a full-fidelity copy of {name} with fresh runtime identity",
                 lambda selected=name: self._clone_deployment_from_palette(selected),
             )
         for run in self.detached_run_summaries:
@@ -1657,6 +1667,7 @@ class VelaApp(App):
                 )
             elif action == "pin_config_build":
                 build = _optional_str(selection.get("build"))
+                build_label = _optional_str(selection.get("label"))
                 aliases = {
                     alias
                     for alias in (
@@ -1668,7 +1679,11 @@ class VelaApp(App):
                 }
                 if build is not None:
                     self.run_worker(
-                        self._pin_build_to_current_config(build, aliases=aliases),
+                        self._pin_build_to_current_config(
+                            build,
+                            aliases=aliases,
+                            display_label=build_label,
+                        ),
                         name="build-pin-config",
                         group="build-manager",
                         exclusive=True,
@@ -1725,12 +1740,16 @@ class VelaApp(App):
         self._refresh_target_backed_views()
 
     async def _pin_build_to_current_config(
-        self, build: str, *, aliases: set[str] | None = None
+        self,
+        build: str,
+        *,
+        aliases: set[str] | None = None,
+        display_label: str | None = None,
     ) -> None:
         """Toggle a build pin on the selected config (J31)."""
         cfg = self.current_config
         if cfg is None:
-            self.notify("Select a config first — l loads, c picks one", severity="warning")
+            self.notify("Select a config first — l launches, c picks one", severity="warning")
             self._reopen_manager_later(lambda: self._open_build_manager(focus_build=build))
             return
         currently_pinned = str(cfg.command.build) if cfg.command.build is not None else None
@@ -1755,7 +1774,12 @@ class VelaApp(App):
                 f"Unpinned build from {cfg.name} — it now uses the default build"
             )
         else:
-            self.notify(f"Pinned build {new_build} to {cfg.name}")
+            visible_identity = (
+                f"{display_label} ({new_build})"
+                if display_label is not None and display_label != new_build
+                else new_build
+            )
+            self.notify(f"Pinned build {visible_identity} to {cfg.name}")
         self.registry = await self._load_registry_from_agent()
         try:
             self.current_config = self.registry.by_name(cfg.name)
@@ -2235,7 +2259,10 @@ class VelaApp(App):
         build_ref: str | None,
     ) -> None:
         if not build_ref:
-            self._set_error_text("Build flow completed without a build id or label")
+            self._set_error_text(
+                "Build flow completed without an immutable build id; "
+                "the target must return build_id"
+            )
             return
         resumed = dict(draft)
         resumed["runtime"] = "build"
@@ -2368,8 +2395,8 @@ class VelaApp(App):
         if not isinstance(selection, dict):
             return
         action = selection.get("action")
-        if action == "select_model":
-            self._select_model_for_active_config(selection)
+        if action == "use_model_once":
+            self._use_model_once_for_active_config(selection)
             return
         if action == "pin_model":
             initial = selection.get("initial") if isinstance(selection.get("initial"), dict) else {}
@@ -2413,41 +2440,121 @@ class VelaApp(App):
         elif action == "remove_model":
             self._confirm_remove_model(selection)
 
-    def _select_model_for_active_config(self, selection: dict[str, Any]) -> None:
+    def _use_model_once_for_active_config(self, selection: dict[str, Any]) -> None:
         model_ref = _optional_str(selection.get("model_ref"))
         if model_ref is None:
             return
+        config = self.current_config
+        if config is None:
+            self.notify(
+                "Select a config before choosing a one-shot model",
+                severity="warning",
+            )
+            return
         label = _optional_str(selection.get("label")) or model_ref
         revision = _optional_str(selection.get("revision"))
-        self._launch_overrides["model_ref"] = model_ref
-        if revision is not None:
-            self._launch_overrides["revision"] = revision
-        else:
-            self._launch_overrides.pop("revision", None)
 
-        metadata = dict(self.selected_config_metadata)
-        metadata["model_ref"] = model_ref
-        metadata["model_display_name"] = label
+        if self._one_shot_model_config_name != config.name:
+            self._one_shot_model_base_metadata = dict(self.selected_config_metadata)
+            self._one_shot_model_base_preview = self.selected_config_preview
+        self._one_shot_model_generation += 1
+        self._one_shot_model_config_name = config.name
+        self._one_shot_model_overrides = {"model_ref": model_ref}
         if revision is not None:
-            metadata["model_revision"] = revision
-        else:
-            metadata.pop("model_revision", None)
+            self._one_shot_model_overrides["revision"] = revision
+
+        override_metadata: dict[str, Any] = {
+            "model_ref": model_ref,
+            "model_display_name": label,
+        }
+        if revision is not None:
+            override_metadata["model_revision"] = revision
         cache_state = _optional_str(selection.get("cache_state"))
         if cache_state is not None:
-            metadata["model_cache_state"] = cache_state
+            override_metadata["model_cache_state"] = cache_state
         if "gated" in selection:
-            metadata["model_gated"] = selection["gated"]
-        self.selected_config_metadata = metadata
+            override_metadata["model_gated"] = selection["gated"]
+        self._one_shot_model_metadata = override_metadata
+        self.selected_config_metadata = self._metadata_with_one_shot_model(
+            dict(self._one_shot_model_base_metadata or {}),
+            config.name,
+        )
         self._refresh_target_backed_views()
-        self.notify(f"Selected model: {label}")
-        if self.current_config is not None:
-            self.run_worker(
-                self._refresh_selected_config_preview(),
-                name="model-select-preview",
-                group="model-manager",
-                exclusive=True,
-                exit_on_error=False,
-            )
+        revision_suffix = f" @ {revision}" if revision is not None else ""
+        self.notify(f"Use once for {config.name}: {label}{revision_suffix}")
+        self.run_worker(
+            self._refresh_selected_config_preview(),
+            name="model-select-preview",
+            group="model-manager",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    def _metadata_with_one_shot_model(
+        self,
+        metadata: dict[str, Any],
+        config_name: str,
+    ) -> dict[str, Any]:
+        if self._one_shot_model_config_name != config_name:
+            return metadata
+        metadata.update(self._one_shot_model_metadata)
+        metadata["model_override_mode"] = "use_once"
+        metadata["model_override_config"] = config_name
+        return metadata
+
+    def _effective_launch_overrides(self, config_name: str) -> dict[str, str]:
+        overrides = dict(self._launch_overrides)
+        if self._one_shot_model_config_name == config_name:
+            overrides.update(self._one_shot_model_overrides)
+        return overrides
+
+    def _consume_launch_overrides(self, config_name: str) -> dict[str, str]:
+        overrides = self._effective_launch_overrides(config_name)
+        if self._one_shot_model_config_name == config_name:
+            self._clear_one_shot_model_override()
+        return overrides
+
+    def _clear_one_shot_model_override(self, *, refresh: bool = True) -> None:
+        scoped_config = self._one_shot_model_config_name
+        base_metadata = self._one_shot_model_base_metadata
+        base_preview = self._one_shot_model_base_preview
+        if scoped_config is not None:
+            self._one_shot_model_generation += 1
+        self._one_shot_model_config_name = None
+        self._one_shot_model_overrides = {}
+        self._one_shot_model_metadata = {}
+        self._one_shot_model_base_metadata = None
+        self._one_shot_model_base_preview = None
+        if (
+            scoped_config is not None
+            and self.current_config is not None
+            and self.current_config.name == scoped_config
+            and base_metadata is not None
+        ):
+            self.selected_config_metadata = base_metadata
+            if base_preview is not None:
+                self.selected_config_preview = base_preview
+                self._config_preview_cache[scoped_config] = base_preview
+        if refresh:
+            self._refresh_target_backed_views()
+
+    def _selected_config_after_launch_prepare(
+        self,
+        selected_config: ModelConfig,
+        effective_run_config: ModelConfig,
+        *,
+        transient_model_override: bool,
+    ) -> ModelConfig:
+        if not transient_model_override:
+            return effective_run_config
+        # ``prepare_launch`` correctly returns the effective run snapshot, but a
+        # one-shot model must not replace the selected saved profile in the TUI.
+        # Prefer the freshly loaded target registry so the card and next launch
+        # normalize to durable state even if selected_config was stale.
+        try:
+            return self.registry.by_name(selected_config.name)
+        except KeyError:
+            return selected_config
 
     def _handle_download_model_submission(self, params: dict[str, Any] | None) -> None:
         if not params:
@@ -2808,6 +2915,7 @@ class VelaApp(App):
         self._target_reconnect_backoff_seconds = self._target_reconnect_backoff_initial_seconds
         self.detached_run_summaries = []
         self.registry = ConfigRegistry()
+        self._clear_one_shot_model_override(refresh=False)
         self.current_config = None
         self.selected_config_preview = ""
         self.selected_config_metadata = {}
@@ -2879,7 +2987,7 @@ class VelaApp(App):
             self.notify("Target unreachable - reconnect first", severity="warning")
             return
         if not self.registry.valid:
-            self._set_error_text("No valid configs to load")
+            self._set_error_text("No valid configs to launch")
             return
         if self.current_config is None:
             self.current_config = self.registry.valid[0].config
@@ -3099,6 +3207,9 @@ class VelaApp(App):
                 self.registry,
                 preview_cache=self._config_preview_cache,
                 connection_state=self.target_connection_state,
+                current_config_name=(
+                    self.current_config.name if self.current_config is not None else None
+                ),
             )
         )
 
@@ -3124,40 +3235,62 @@ class VelaApp(App):
 
     async def _clone_deployment(self, name: str) -> None:
         try:
-            cfg = self.registry.by_name(name)
+            self.registry.by_name(name)
         except KeyError:
             self._set_error_text(f"Unable to clone: config not found: {name}")
             return
-        draft: dict[str, Any] = {
-            "name": f"{cfg.name}-2",
-            "model": cfg.model,
-            "host": cfg.server.host,
-            "exposure": cfg.server.exposure.value,
-            # Port deliberately blank: auto-allocation avoids cloning a
-            # collision (J26).
-        }
-        runtime = cfg.command.runtime.value
-        if runtime in {"process", "docker"}:
-            draft["runtime"] = runtime
-        if cfg.command.docker is not None and cfg.command.docker.image:
-            draft["image"] = str(cfg.command.docker.image)
-        if cfg.command.build is not None:
-            draft["runtime"] = "build"
-            draft["build"] = str(cfg.command.build)
-        if cfg.model_ref:
-            draft["model_ref"] = str(cfg.model_ref)
-            draft["model_mode"] = "existing"
-        else:
-            draft["model_mode"] = "bare"
-        if cfg.revision:
-            draft["model_revision"] = str(cfg.revision)
-        await self._open_new_deployment(initial=draft)
+        new_name = self._next_clone_name(name)
+        try:
+            with self._busy_badge("cloning…"):
+                result = await self._target_call(
+                    "clone_config",
+                    self._agent_params(
+                        src_name=name,
+                        new_name=new_name,
+                        configs_dir=self.configs_dir,
+                    ),
+                )
+        except TargetCallError as exc:
+            self._set_error_text(f"Unable to clone deployment: {exc}", style=f"bold {BAD}")
+            return
+
+        cloned_name = _optional_str(result.get("name")) or new_name
+        self.registry = await self._load_registry_from_agent()
+        try:
+            self.registry.by_name(cloned_name)
+        except KeyError:
+            self._set_error_text(
+                f"Cloned deployment was saved but could not be reloaded: {cloned_name}",
+                style=f"bold {BAD}",
+            )
+            return
+        self.select_config(cloned_name)
+        derived = result.get("derived")
+        identities: list[str] = []
+        if isinstance(derived, list):
+            for item in derived:
+                if not isinstance(item, dict):
+                    continue
+                field = _optional_str(item.get("field"))
+                value = _optional_str(item.get("value"))
+                if field is not None and value is not None:
+                    identities.append(f"{field}={value}")
+        suffix = f" · regenerated: {'; '.join(identities)}" if identities else ""
+        self.notify(f"Cloned deployment: {name} → {cloned_name}{suffix}")
+
+    def _next_clone_name(self, source_name: str) -> str:
+        existing = {item.config.name for item in self.registry.valid}
+        suffix = 2
+        while f"{source_name}-{suffix}" in existing:
+            suffix += 1
+        return f"{source_name}-{suffix}"
 
     async def _open_new_deployment(
         self,
         *,
         initial: dict[str, Any] | None = None,
         error_message: str = "",
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         # All four RPCs (presets → recipes → models → builds) run behind ONE
         # busy overlay via a compound loader. presets is required: its failure
@@ -3189,6 +3322,7 @@ class VelaApp(App):
             self._new_deployment_target_rows(),
             error_message,
             section_errors,
+            flag_recovery,
         )
 
     async def _load_new_deployment_sections(self) -> dict[str, Any]:
@@ -3258,6 +3392,7 @@ class VelaApp(App):
         target_rows: list[dict[str, str]],
         error_message: str = "",
         section_errors: dict[str, str] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         screen = NewDeploymentScreen(
             target_label=self.target_name,
@@ -3283,12 +3418,17 @@ class VelaApp(App):
             # The screen stashes its draft at submit; keeping the reference
             # lets a failed server-side review restore the wizard (J1).
             callback=lambda selection: self._handle_new_deployment_selection(
-                selection, draft_source=screen
+                selection,
+                draft_source=screen,
+                flag_recovery=flag_recovery,
             ),
         )
 
     def _handle_new_deployment_selection(
-        self, selection: object, draft_source: NewDeploymentScreen | None = None
+        self,
+        selection: object,
+        draft_source: NewDeploymentScreen | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         if not isinstance(selection, dict):
             return
@@ -3342,6 +3482,7 @@ class VelaApp(App):
             self._review_new_deployment(
                 selection,
                 draft=dict(draft) if isinstance(draft, dict) else None,
+                flag_recovery=flag_recovery,
             ),
             name="new-deployment-review",
             group="new-deployment",
@@ -3370,6 +3511,11 @@ class VelaApp(App):
             agent_version = _optional_str(self._target_agent_info.get("agent_version"))
             if agent_version is not None:
                 row["agent_version"] = agent_version
+            host_info = self._target_agent_info.get("host_info")
+            if isinstance(host_info, dict):
+                hostname = _optional_str(host_info.get("hostname"))
+                if hostname is not None:
+                    row["hostname"] = hostname
             return row
         row["connection_state"] = "connecting"
         row["connection_detail"] = "checking"
@@ -3428,6 +3574,11 @@ class VelaApp(App):
             agent_version = _optional_str(agent_info.get("agent_version"))
             if agent_version is not None:
                 row["agent_version"] = agent_version
+            host_info = agent_info.get("host_info")
+            if isinstance(host_info, dict):
+                hostname = _optional_str(host_info.get("hostname"))
+                if hostname is not None:
+                    row["hostname"] = hostname
         return row
 
     async def _switch_new_deployment_target(
@@ -3464,7 +3615,11 @@ class VelaApp(App):
         return await self._target_call("suggest_deployment_defaults", params)
 
     async def _review_new_deployment(
-        self, spec: dict[str, Any], *, draft: dict[str, Any] | None = None
+        self,
+        spec: dict[str, Any],
+        *,
+        draft: dict[str, Any] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         params = dict(spec)
         download_now = bool(params.pop("download_now", False))
@@ -3474,7 +3629,11 @@ class VelaApp(App):
             # Never discard the operator's typed draft on a server-side
             # failure: reopen the wizard with the error inside it (J1).
             if draft is not None:
-                await self._open_new_deployment(initial=draft, error_message=message)
+                await self._open_new_deployment(
+                    initial=draft,
+                    error_message=message,
+                    flag_recovery=flag_recovery,
+                )
             else:
                 self._set_error_text(message, style=f"bold {BAD}")
 
@@ -3492,6 +3651,19 @@ class VelaApp(App):
                 if not isinstance(config, dict):
                     raise TargetCallError(
                         "compose-invalid", "composer returned no config"
+                    )
+                if flag_recovery is not None:
+                    original_config = config
+                    config = _draft_config_with_flag_updates(config, flag_recovery)
+                    composed["derived"] = _provenance_with_flag_updates(
+                        (
+                            composed.get("derived")
+                            if isinstance(composed.get("derived"), list)
+                            else []
+                        ),
+                        original_config=original_config,
+                        updated_config=config,
+                        selection=flag_recovery,
                     )
                 validation = await self._target_call(
                     "validate_config", {"config": config}
@@ -3529,7 +3701,9 @@ class VelaApp(App):
                 metadata=metadata,
             ),
             callback=lambda selection: self._handle_new_deployment_review(
-                selection, draft=draft
+                selection,
+                draft=draft,
+                flag_recovery=flag_recovery,
             ),
         )
 
@@ -3556,14 +3730,20 @@ class VelaApp(App):
         return "Model download did not complete — details in the dashboard log."
 
     def _handle_new_deployment_review(
-        self, selection: object, draft: dict[str, Any] | None = None
+        self,
+        selection: object,
+        draft: dict[str, Any] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         if not isinstance(selection, dict):
             return
         if selection.get("action") == "back":
             # Back to the wizard with everything the operator typed (J2).
             self.run_worker(
-                self._open_new_deployment(initial=draft),
+                self._open_new_deployment(
+                    initial=draft,
+                    flag_recovery=flag_recovery,
+                ),
                 name="new-deployment-back",
                 group="new-deployment",
                 exclusive=True,
@@ -3595,11 +3775,18 @@ class VelaApp(App):
                     if isinstance(selection.get("metadata"), dict)
                     else {}
                 ),
+                draft=draft,
+                flag_recovery=flag_recovery,
             )
             return
         smoke_after_save = selection.get("action") == "save_smoke"
         self.run_worker(
-            self._save_reviewed_new_deployment(config, smoke=smoke_after_save),
+            self._save_reviewed_new_deployment(
+                config,
+                smoke=smoke_after_save,
+                draft=draft,
+                flag_recovery=flag_recovery,
+            ),
             name="new-deployment-smoke" if smoke_after_save else "new-deployment-save",
             group="new-deployment",
             exclusive=True,
@@ -3614,6 +3801,8 @@ class VelaApp(App):
         derived: list[dict[str, Any]],
         warnings: list[str],
         metadata: dict[str, Any],
+        draft: dict[str, Any] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         try:
             cfg = ModelConfig.model_validate(config)
@@ -3638,6 +3827,8 @@ class VelaApp(App):
                 derived=derived,
                 warnings=warnings,
                 metadata=metadata,
+                draft=draft,
+                flag_recovery=flag_recovery,
             ),
         )
 
@@ -3650,6 +3841,8 @@ class VelaApp(App):
         derived: list[dict[str, Any]],
         warnings: list[str],
         metadata: dict[str, Any],
+        draft: dict[str, Any] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         if not isinstance(selection, dict) or selection.get("action") != "save_flags":
             self.push_screen(
@@ -3660,7 +3853,11 @@ class VelaApp(App):
                     warnings=warnings,
                     metadata=metadata,
                 ),
-                callback=self._handle_new_deployment_review,
+                callback=lambda review_selection: self._handle_new_deployment_review(
+                    review_selection,
+                    draft=draft,
+                    flag_recovery=flag_recovery,
+                ),
             )
             return
         self.run_worker(
@@ -3669,6 +3866,8 @@ class VelaApp(App):
                 selection,
                 derived=derived,
                 warnings=warnings,
+                draft=draft,
+                flag_recovery=flag_recovery,
             ),
             name="new-deployment-customize",
             group="new-deployment",
@@ -3683,9 +3882,17 @@ class VelaApp(App):
         *,
         derived: list[dict[str, Any]],
         warnings: list[str],
+        draft: dict[str, Any] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
         try:
             updated_config = _draft_config_with_flag_updates(config, selection)
+            updated_derived = _provenance_with_flag_updates(
+                derived,
+                original_config=config,
+                updated_config=updated_config,
+                selection=selection,
+            )
             # Same "composing…" badge the plain compose/review path paints,
             # scoped to the validate+preview RPCs only (no nesting) (bug-237).
             with self._busy_badge("composing…"):
@@ -3720,11 +3927,18 @@ class VelaApp(App):
             NewDeploymentReviewScreen(
                 config=updated_config,
                 preview=str(preview.get("preview") or ""),
-                derived=derived,
+                derived=updated_derived,
                 warnings=refreshed_warnings,
                 metadata=_preview_metadata(preview),
             ),
-            callback=self._handle_new_deployment_review,
+            callback=lambda review_selection: self._handle_new_deployment_review(
+                review_selection,
+                draft=draft,
+                flag_recovery=_safe_new_deployment_flag_recovery(
+                    selection,
+                    previous=flag_recovery,
+                ),
+            ),
         )
 
     async def _preview_new_deployment_flag_draft(
@@ -3755,8 +3969,19 @@ class VelaApp(App):
             }
 
     async def _save_reviewed_new_deployment(
-        self, config: dict[str, Any], *, smoke: bool = False
+        self,
+        config: dict[str, Any],
+        *,
+        smoke: bool = False,
+        draft: dict[str, Any] | None = None,
+        flag_recovery: dict[str, Any] | None = None,
     ) -> None:
+        identity_error = new_deployment_runtime_identity_error(config)
+        if identity_error is not None:
+            message = f"Unable to save new deployment: {identity_error}"
+            self._set_error_text(message, style=f"bold {BAD}")
+            self.notify(message, severity="error")
+            return
         save_params = self._agent_params(
             name=str(config.get("name") or ""),
             configs_dir=self.configs_dir,
@@ -3775,6 +4000,18 @@ class VelaApp(App):
                     return
                 saved = await self._target_call("save_config", save_params)
         except TargetCallError as exc:
+            if exc.code == "config-exists" and draft is not None:
+                restored = dict(draft)
+                restored["step_index"] = 0
+                await self._open_new_deployment(
+                    initial=restored,
+                    error_message=(
+                        f"Deployment name {config.get('name') or ''} already exists on "
+                        "this target. Choose a new name, then review again."
+                    ),
+                    flag_recovery=flag_recovery,
+                )
+                return
             self._set_error_text(f"Unable to save deployment: {exc}", style=f"bold {BAD}")
             return
         saved_config = saved.get("config")
@@ -3797,19 +4034,32 @@ class VelaApp(App):
         if cfg is None:
             self._set_error_text("No saved deployment selected for smoke")
             return
+        transient_model_override = self._one_shot_model_config_name == cfg.name
+        selected_config = cfg
+        launch_overrides = self._consume_launch_overrides(cfg.name)
         self._reset_run_state()
         self.fsm = PhaseFSM(bundled_profile("current"))
         self._set_phase(Phase.STARTING)
         try:
-            preflight = await self._preflight_from_agent(cfg.name)
+            preflight = await self._preflight_from_agent(
+                cfg.name,
+                launch_overrides=launch_overrides,
+            )
             if not self._handle_preflight_result(preflight):
                 return
-            prepared = await self._prepare_launch_from_agent(cfg.name)
+            prepared = await self._prepare_launch_from_agent(
+                cfg.name,
+                launch_overrides=launch_overrides,
+            )
         except TargetCallError as exc:
             self._handle_launch_agent_error(exc)
             return
         cfg = ModelConfig.model_validate(prepared["config"])
-        self.current_config = cfg
+        self.current_config = self._selected_config_after_launch_prepare(
+            selected_config,
+            cfg,
+            transient_model_override=transient_model_override,
+        )
         build = _command_build_result_from_agent_payload(prepared["build"])
         self.fsm = _phase_fsm_from_agent_metadata(build.metadata)
         self._record_warnings(build.warnings)
@@ -3819,7 +4069,7 @@ class VelaApp(App):
                 self._launch_agent_params(
                     name=cfg.name,
                     configs_dir=self.configs_dir,
-                    **self._launch_overrides,
+                    **launch_overrides,
                 ),
             )
         except TargetCallError as exc:
@@ -4044,6 +4294,11 @@ class VelaApp(App):
         self.exit()
 
     def select_config(self, name: str) -> None:
+        if (
+            self._one_shot_model_config_name is not None
+            and self._one_shot_model_config_name != name
+        ):
+            self._clear_one_shot_model_override(refresh=False)
         self.current_config = self.registry.by_name(name)
         self.config_summary = self._render_config_summary_plain()
         self.query_one("#configs", Static).update(self._render_config_summary())
@@ -4616,19 +4871,23 @@ class VelaApp(App):
             self.selected_config_metadata = {}
             return
         config = self.current_config
+        model_override_generation = self._one_shot_model_generation
         try:
             result = await self._target_call(
                 "preview",
                 self._agent_params(
                     name=config.name,
                     configs_dir=self.configs_dir,
-                    **self._launch_overrides,
+                    **self._effective_launch_overrides(config.name),
                 ),
                 expected_target_generation=expected_target_generation,
             )
             if (
-                expected_target_generation is not None
-                and self._target_generation != expected_target_generation
+                self._one_shot_model_generation != model_override_generation
+                or (
+                    expected_target_generation is not None
+                    and self._target_generation != expected_target_generation
+                )
             ):
                 return
             self.selected_config_preview = str(result["preview"])
@@ -4636,20 +4895,30 @@ class VelaApp(App):
                 self.selected_config_preview
             )
             metadata = result.get("metadata")
-            self.selected_config_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+            base_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+            self.selected_config_metadata = self._metadata_with_one_shot_model(
+                base_metadata,
+                config.name,
+            )
         except _StaleTargetOperation:
             return
         except TargetCallError as exc:
             if (
-                expected_target_generation is not None
-                and self._target_generation != expected_target_generation
+                self._one_shot_model_generation != model_override_generation
+                or (
+                    expected_target_generation is not None
+                    and self._target_generation != expected_target_generation
+                )
             ):
                 return
             self.selected_config_preview = f"Preview unavailable: {exc}"
             self._config_preview_cache[config.name] = (
                 self.selected_config_preview
             )
-            self.selected_config_metadata = {}
+            self.selected_config_metadata = self._metadata_with_one_shot_model(
+                {},
+                config.name,
+            )
         self.config_summary = self._render_config_summary_plain()
         try:
             self.query_one("#configs", Static).update(self._render_config_summary())
@@ -4675,13 +4944,14 @@ class VelaApp(App):
         config = self.current_config
         if config is None:
             return
+        model_override_generation = self._one_shot_model_generation
         try:
             result = await self._target_call(
                 "preview",
                 self._agent_params(
                     name=config.name,
                     configs_dir=self.configs_dir,
-                    **self._launch_overrides,
+                    **self._effective_launch_overrides(config.name),
                 ),
                 expected_target_generation=generation,
             )
@@ -4699,13 +4969,20 @@ class VelaApp(App):
             preview = str(result["preview"])
             raw_metadata = result.get("metadata")
             metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-        if self._target_generation != generation or self.current_config is None:
+        if (
+            self._target_generation != generation
+            or self._one_shot_model_generation != model_override_generation
+            or self.current_config is None
+        ):
             # A switch committed during the preview await; it owns current_config /
             # selected_config_preview / the preview cache now — discard this stale result.
             return
         self.selected_config_preview = preview
         self._config_preview_cache[config.name] = preview
-        self.selected_config_metadata = metadata
+        self.selected_config_metadata = self._metadata_with_one_shot_model(
+            metadata,
+            config.name,
+        )
         self.config_summary = self._render_config_summary_plain()
         try:
             self.query_one("#configs", Static).update(self._render_config_summary())
@@ -5628,7 +5905,11 @@ class VelaApp(App):
             self.current_config.model_ref is not None
             or self.current_config.revision is not None
         )
-        marker = "📌" if pinned else ""
+        use_once = (
+            metadata.get("model_override_mode") == "use_once"
+            and metadata.get("model_override_config") == self.current_config.name
+        )
+        marker = "1×" if use_once else ("📌" if pinned else "")
         suffix = f" {revision}" if revision else ""
         return f"{marker}{label} {self._model_status_dot(metadata)}{suffix}"
 
@@ -5776,8 +6057,8 @@ class VelaApp(App):
                 ("g/G", "Top/Bottom"),
             ]
         else:
-            # No run yet: Load is the primary action; Stop/Kill/Restart are inert.
-            hints.append(("l", "Load"))
+            # No run yet: Launch is the primary action; Stop/Kill/Restart are inert.
+            hints.append(("l", "Launch"))
         # Navigation / global actions apply in every dashboard state. `n New` leads
         # — it is the front door for a new deployment (J11). `F Flags` stays here:
         # it edits the SELECTED config's vLLM flags, available at IDLE just like
@@ -5950,19 +6231,32 @@ class VelaApp(App):
         cfg = self.current_config
         if cfg is None:
             return
+        transient_model_override = self._one_shot_model_config_name == cfg.name
+        selected_config = cfg
+        launch_overrides = self._consume_launch_overrides(cfg.name)
         self._reset_run_state()
         self.fsm = PhaseFSM(bundled_profile("current"))
         self._set_phase(Phase.STARTING)
         try:
-            preflight = await self._preflight_from_agent(cfg.name)
+            preflight = await self._preflight_from_agent(
+                cfg.name,
+                launch_overrides=launch_overrides,
+            )
             if not self._handle_preflight_result(preflight):
                 return
-            prepared = await self._prepare_launch_from_agent(cfg.name)
+            prepared = await self._prepare_launch_from_agent(
+                cfg.name,
+                launch_overrides=launch_overrides,
+            )
         except TargetCallError as exc:
             self._handle_launch_agent_error(exc)
             return
         cfg = ModelConfig.model_validate(prepared["config"])
-        self.current_config = cfg
+        self.current_config = self._selected_config_after_launch_prepare(
+            selected_config,
+            cfg,
+            transient_model_override=transient_model_override,
+        )
         build = _command_build_result_from_agent_payload(prepared["build"])
         self.fsm = _phase_fsm_from_agent_metadata(build.metadata)
         self._record_warnings(build.warnings)
@@ -5973,13 +6267,20 @@ class VelaApp(App):
                     self._launch_agent_params(
                         name=cfg.name,
                         configs_dir=self.configs_dir,
-                        **self._launch_overrides,
+                        **launch_overrides,
                     ),
                 )
             except TargetCallError as exc:
                 self._handle_attached_start_agent_error(exc, build.argv[0])
                 return
             await self._reattach_target_detached_run(str(launch["run_id"]))
+            self.current_config = self._selected_config_after_launch_prepare(
+                selected_config,
+                cfg,
+                transient_model_override=transient_model_override,
+            )
+            if transient_model_override:
+                self._refresh_target_backed_views()
             return
         try:
             launch = await self._target_call(
@@ -5987,7 +6288,7 @@ class VelaApp(App):
                 self._launch_agent_params(
                     name=cfg.name,
                     configs_dir=self.configs_dir,
-                    **self._launch_overrides,
+                    **launch_overrides,
                 ),
             )
         except TargetCallError as exc:
@@ -6091,13 +6392,23 @@ class VelaApp(App):
         self._set_error_banner(ErrorKind.CONFIG_INVALID)
         self._set_phase(self.fsm.phase)
 
-    async def _preflight_from_agent(self, name: str) -> dict[str, Any]:
+    async def _preflight_from_agent(
+        self,
+        name: str,
+        *,
+        launch_overrides: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        effective_overrides = (
+            self._effective_launch_overrides(name)
+            if launch_overrides is None
+            else launch_overrides
+        )
         return await self._target_call(
             "preflight",
             self._agent_params(
                 name=name,
                 configs_dir=self.configs_dir,
-                **self._launch_overrides,
+                **effective_overrides,
             ),
         )
 
@@ -6124,13 +6435,23 @@ class VelaApp(App):
         self._set_phase(self.fsm.phase)
         return False
 
-    async def _prepare_launch_from_agent(self, name: str) -> dict[str, Any]:
+    async def _prepare_launch_from_agent(
+        self,
+        name: str,
+        *,
+        launch_overrides: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        effective_overrides = (
+            self._effective_launch_overrides(name)
+            if launch_overrides is None
+            else launch_overrides
+        )
         return await self._target_call(
             "prepare_launch",
             self._agent_params(
                 name=name,
                 configs_dir=self.configs_dir,
-                **self._launch_overrides,
+                **effective_overrides,
             ),
         )
 
@@ -6685,14 +7006,11 @@ def _target_bootstrap_command(target: TargetConfig) -> str:
 
 def _build_ref_from_build_result(
     result: dict[str, Any],
-    params: dict[str, Any],
+    _params: dict[str, Any],
 ) -> str | None:
-    return (
-        _optional_str(result.get("label"))
-        or _optional_str(params.get("label"))
-        or _optional_str(result.get("build_id"))
-        or _optional_str(params.get("build_id"))
-    )
+    # Labels are mutable presentation metadata. Create/adopt are complete only
+    # when the target returns its minted immutable registry identity.
+    return _optional_str(result.get("build_id"))
 
 
 def _model_ref_from_model_entry(
@@ -6777,6 +7095,78 @@ def _draft_config_with_flag_updates(
     if isinstance(extra_args, list):
         payload["extra_args"] = [str(item) for item in extra_args]
     return ModelConfig.model_validate(payload).model_dump(mode="json", exclude_none=True)
+
+
+def _safe_new_deployment_flag_recovery(
+    selection: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Keep only validated flag inputs needed to rebuild a conflicted draft."""
+
+    recovery: dict[str, Any] = {}
+    if previous is not None:
+        previous_engine = previous.get("engine")
+        if isinstance(previous_engine, dict):
+            recovery["engine"] = dict(previous_engine)
+        previous_extra_args = previous.get("extra_args")
+        if isinstance(previous_extra_args, list):
+            recovery["extra_args"] = [str(item) for item in previous_extra_args]
+    engine = selection.get("engine")
+    if isinstance(engine, dict):
+        merged_engine = dict(recovery.get("engine") or {})
+        merged_engine.update({str(key): value for key, value in engine.items()})
+        recovery["engine"] = merged_engine
+    extra_args = selection.get("extra_args")
+    if isinstance(extra_args, list):
+        # This remains a replacement list when reapplied. Appending it to a
+        # freshly composed recipe would duplicate recipe-owned passthrough args.
+        recovery["extra_args"] = [str(item) for item in extra_args]
+    return recovery
+
+
+def _provenance_with_flag_updates(
+    derived: list[dict[str, Any]],
+    *,
+    original_config: dict[str, Any],
+    updated_config: dict[str, Any],
+    selection: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Relabel Flag Manager changes so Review never attributes them to a recipe."""
+
+    result = [dict(item) for item in derived]
+    changed_fields: dict[str, object] = {}
+    engine_updates = selection.get("engine")
+    updated_engine = updated_config.get("engine")
+    if isinstance(engine_updates, dict) and isinstance(updated_engine, dict):
+        for key in engine_updates:
+            field = f"engine.{key}"
+            if key in updated_engine:
+                changed_fields[field] = updated_engine[key]
+            else:
+                result = [item for item in result if item.get("field") != field]
+
+    selected_extra_args = selection.get("extra_args")
+    if isinstance(selected_extra_args, list):
+        original_extra_args = original_config.get("extra_args")
+        original_list = list(original_extra_args) if isinstance(original_extra_args, list) else []
+        updated_extra_args = updated_config.get("extra_args")
+        updated_list = list(updated_extra_args) if isinstance(updated_extra_args, list) else []
+        if updated_list != original_list:
+            changed_fields["extra_args"] = updated_list
+
+    if not changed_fields:
+        return result
+    result = [item for item in result if item.get("field") not in changed_fields]
+    result.extend(
+        {
+            "field": field,
+            "value": provenance_value(field, value),
+            "source": "operator_override",
+        }
+        for field, value in changed_fields.items()
+    )
+    return result
 
 
 def _smoke_stop_timeout_seconds(cfg: ModelConfig) -> float:
