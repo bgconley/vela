@@ -1,5 +1,8 @@
 # Vela troubleshooting
 
+[Documentation home](index.md) · [Getting started](getting-started.md) ·
+[Operations](operations.md) · [CLI reference](cli-reference.md)
+
 This guide maps the errors Vela prints to a cause and an exact fix. Each section
 is one **remediation kind** — the `KIND` token in the CLI/TUI banner. The CLI
 renders remediable errors as:
@@ -311,3 +314,10 @@ Preflight also classifies problems it can name precisely; each prints as
 
 Run `vela run <config> --preview --target <target>` to see the resolved command
 and warnings without launching anything.
+
+## Related documentation
+
+- [Getting started and Doctor](getting-started.md)
+- [Day-two operations and recovery](operations.md)
+- [Environment variables and storage paths](environment.md)
+- [Complete CLI reference](cli-reference.md)

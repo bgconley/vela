@@ -97,6 +97,9 @@ def render_tui_docs() -> str:
     out: list[str] = [
         "# Vela TUI key reference",
         "",
+        "[Documentation home](index.md) · [Getting started](getting-started.md) · "
+        "[Operations](operations.md) · [Troubleshooting](troubleshooting.md)",
+        "",
         (
             "Generated from the TUI's declared key bindings by "
             "`scripts/gen_tui_docs.py` — do not edit by hand. Regenerate after "
@@ -128,6 +131,17 @@ def render_tui_docs() -> str:
         out.append("")
         out.append(_render_table(bindings))
         out.append("")
+    out.extend(
+        [
+            "## Related documentation",
+            "",
+            "- [Illustrated first deployment](tutorials/first-deployment.md)",
+            "- [Day-two operations](operations.md)",
+            "- [Complete CLI reference](cli-reference.md)",
+            "- [Troubleshooting by symbolic error](troubleshooting.md)",
+            "",
+        ]
+    )
     return "\n".join(out).rstrip() + "\n"
 
 

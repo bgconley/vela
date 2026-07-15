@@ -1,5 +1,8 @@
 # Agent RPC
 
+[Documentation home](index.md) · [Core concepts](concepts.md) ·
+[Configuration](configuration.md) · [Operations](operations.md)
+
 `vela` uses a controller/agent split. The controller is the TUI or CLI.
 The agent runs on the target host and owns every host-local action.
 
@@ -165,3 +168,10 @@ instead of accepting any same-uid caller.
 Missing, mismatched, and malformed states point at
 `vela agent gen-token --install --target <name>` so the controller and target
 converge on the same high-entropy token.
+
+## Related documentation
+
+- [Core concepts and authority model](concepts.md)
+- [Target, socket, and token configuration](configuration.md)
+- [Environment variables and storage paths](environment.md)
+- [Symbolic error remediation](troubleshooting.md)

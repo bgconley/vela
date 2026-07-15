@@ -1,5 +1,7 @@
 # Vela TUI key reference
 
+[Documentation home](index.md) · [Getting started](getting-started.md) · [Operations](operations.md) · [Troubleshooting](troubleshooting.md)
+
 Generated from the TUI's declared key bindings by `scripts/gen_tui_docs.py` — do not edit by hand. Regenerate after changing any screen's `BINDINGS`; `tests/test_docs.py::test_tui_doc_matches_bindings` fails if this file drifts from the code.
 
 The dashboard footer advertises a state-filtered subset of these keys (control keys only during a run, log keys only when a log is present, and so on), but every binding below still works even when its footer hint is hidden.
@@ -178,3 +180,10 @@ Scope: this reference covers app- and screen-level bindings only. Widget-level b
 | `x` | `remove` | Remove |
 | `v` | `view_capabilities` | View all capabilities |
 | `escape` | `cancel` | Cancel |
+
+## Related documentation
+
+- [Illustrated first deployment](tutorials/first-deployment.md)
+- [Day-two operations](operations.md)
+- [Complete CLI reference](cli-reference.md)
+- [Troubleshooting by symbolic error](troubleshooting.md)

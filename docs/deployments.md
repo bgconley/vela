@@ -1,16 +1,22 @@
 # Deployments
 
+[Documentation home](index.md) · [First deployment tutorial](tutorials/first-deployment.md) · [Operations guide](operations.md) · [Configuration](configuration.md)
+
 The Vela TUI is the primary deployment composer. Open `vela`, press `n`, then
-review the target, runtime, model, flags, preview, save, and smoke steps before
-the agent writes a launchable config on the target host.
+complete the six visible steps—Target, Runtime, Model, Customize, Review, and
+Save & Smoke—before the agent writes a launchable config on the target host.
+
+For the complete human workflow with screenshots, field-by-field guidance,
+Save-only proof, cold profile restore, READY verification, and Stop, follow the
+[first deployment tutorial](tutorials/first-deployment.md).
 
 The CLI mirrors the same agent-side composer for automation, export, and CI, but
 it should not be the mental model for everyday use. The controller asks the
 target agent to compose, validate, save, launch, probe, stop, and stream events;
 the controller never shells into Docker or dereferences target-local paths.
 
-New profiles have an immutable runtime-identity gate before Review and again
-before Save:
+Profiles created in the TUI wizard have an immutable runtime-identity gate
+before Review and again before Save:
 
 - Process profiles must select a target build. The picker shows the human label
   but saves the agent-returned `build_id`; Create build and Adopt venv also must
@@ -18,9 +24,11 @@ before Save:
 - Docker profiles must name a complete repo digest ending in
   `@sha256:<64 hex characters>`. Tags and abbreviated digests cannot be saved.
 
-The schema remains able to read older bare-process, executable, and tagged-image
-YAML so operators can inspect and migrate it; compatibility does not make those
-mutable identities valid inputs for a newly composed profile.
+The schema and option-driven CLI remain able to compose or read bare-process,
+explicit-executable, and tagged-image YAML for compatibility. Those paths emit
+mutability warnings and do not carry the wizard's stronger immutable-save
+guarantee. Treat them as migration inputs: pin a managed build or full image
+digest before calling a profile reproducible.
 
 ## Blackwell Recipes
 
@@ -39,6 +47,11 @@ Current Blackbird recipes are available from the TUI recipe picker and from
 
 - `blackbird-qwen36-27b-fp8-rp6000`
 - `blackbird-qwen36-27b-bf16-rp6000`
+
+Oxcart exposes its host-scoped reference recipe only when the target hostname
+matches:
+
+- `oxcart-qwen36-27b-fp8-mtp-vl`
 
 Each recipe payload includes `source_artifacts` entries pointing to the local
 deployment script and run record that justify the vLLM image, backend, cache, and

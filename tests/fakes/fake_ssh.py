@@ -79,7 +79,11 @@ def write_fake_ssh_runtime(path: Path) -> None:
                     "user_venv_path = getenv('FAKE_SSH_USER_VENV_PATH', "
                     "'/home/bgconley/venvs/vela/bin/vela')"
                 ),
-                "vela_version = getenv('FAKE_SSH_VELA_VERSION', '1.0.0')",
+                (
+                    "vela_version = getenv('FAKE_SSH_INSTALLED_VELA_VERSION', "
+                    "getenv('FAKE_SSH_VELA_VERSION', '1.0.0')) if installed else "
+                    "getenv('FAKE_SSH_VELA_VERSION', '1.0.0')"
+                ),
                 "",
                 "def candidate_probe():",
                 "    present_default = '1' if vela_present else '0'",

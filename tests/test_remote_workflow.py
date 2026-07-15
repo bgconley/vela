@@ -396,37 +396,25 @@ def test_gpu_workflow_docs_record_p620_controller_to_blackbird_smoke() -> None:
     assert "--model-ref gha-26976430928-1-model" in docs
 
 
-def test_gpu_workflow_latest_validation_matches_readme() -> None:
+def test_gpu_workflow_routes_current_readme_proof_without_relabeling_history() -> None:
     import re
 
     readme = Path("README.md").read_text(encoding="utf-8")
     gpu = Path("docs/gpu-workflow.md").read_text(encoding="utf-8")
 
-    # README is the source of truth for the current validation commit.
-    assert "Latest validation artifacts:" in readme
-    latest_block = readme.split("Latest validation artifacts:", 1)[1].split("Earlier", 1)[0]
-
-    commits = re.findall(r"Commit `([0-9a-f]{7,40})`", latest_block)
-    assert commits, "README 'Latest validation artifacts' lists no commit"
-    latest_commit = commits[0]
-
-    artifacts = re.findall(
-        r"`(artifacts/remote-validation/[^`]+-remote-validation\.md)`", latest_block
+    current_proof = re.search(
+        r"`(artifacts/human-workflow-validation/[^`]+/)`",
+        readme,
     )
-    assert artifacts, "README 'Latest validation artifacts' lists no artifact files"
+    assert current_proof is not None, "README does not name the current workflow proof"
+    proof_root = Path(current_proof.group(1))
+    assert (proof_root / "report.md").is_file()
+    assert (proof_root / "manifest.json").is_file()
 
-    # docs/gpu-workflow.md must not drift behind README: it must reference the
-    # same latest validation commit and the same latest artifact files, so it
-    # can never again label older records as "latest" (external-review finding).
-    assert latest_commit in gpu, (
-        "docs/gpu-workflow.md does not reference the latest validation commit "
-        f"{latest_commit!r} from README; update its latest-records list."
-    )
-    for artifact in artifacts:
-        assert artifact in gpu, (
-            "docs/gpu-workflow.md is missing the latest validation artifact "
-            f"{artifact!r} referenced by README."
-        )
+    assert "Historical Blackbird/P620 artifacts" in readme
+    assert "oxcart-local-validation.md" in gpu
+    assert "historical evidence" in gpu
+    assert 'README "Latest validation artifacts"' not in gpu
 
 
 def test_remote_validation_forwards_timeout_override_to_ssh_script(tmp_path: Path) -> None:

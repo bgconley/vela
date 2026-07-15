@@ -1,5 +1,7 @@
 # Builds And Models
 
+[Documentation home](index.md) · [Operations guide](operations.md) · [First deployment tutorial](tutorials/first-deployment.md) · [CLI reference](cli-reference.md)
+
 Builds and models are both target-owned resources surfaced over RPC, but they
 have different storage semantics.
 
@@ -72,7 +74,7 @@ vela model download tiny-llama --target blackbird
 vela model download tiny-llama --target blackbird --json
 vela model verify tiny-llama --target blackbird
 vela model verify tiny-llama --target blackbird --deep
-vela model remove tiny-llama --target blackbird
+vela model remove tiny-llama --target blackbird --yes
 ```
 
 A Hugging Face pin with no explicit `--display-name` defaults its display name

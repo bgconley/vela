@@ -1,5 +1,7 @@
 # Docker Runtime
 
+[Documentation home](index.md) · [First deployment tutorial](tutorials/first-deployment.md) · [Operations guide](operations.md) · [Configuration](configuration.md)
+
 Vela supports Docker as a first-class runtime for single-container vLLM
 deployments. A Docker config uses native `command.runtime: docker` and a
 `command.docker` block; it does not need a shell wrapper for normal launch,
@@ -130,7 +132,7 @@ than raising the timeout.
 Render the exact masked Docker command:
 
 ```bash
-vela preview qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird
+vela run qwen36-27b-fp8-kvfp8-rp6000-blackbird --preview --target blackbird
 ```
 
 Run the same TUI launch/READY/stop flow headlessly:

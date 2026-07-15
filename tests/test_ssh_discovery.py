@@ -348,6 +348,92 @@ def test_cli_targets_bootstrap_installs_absent_agent_then_handshakes(
     ]
 
 
+@pytest.mark.parametrize(
+    ("vela_present", "vela_version", "failed_check"),
+    [
+        ("0", __version__, "target_connection"),
+        ("1", "0.0.1", "target_version"),
+    ],
+    ids=["missing", "version-mismatch"],
+)
+def test_cli_targets_bootstrap_remediation_reuses_registered_ssh_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    vela_present: str,
+    vela_version: str,
+    failed_check: str,
+) -> None:
+    _install_fake_ssh(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("FAKE_SSH_VELA_PRESENT", vela_present)
+    monkeypatch.setenv("FAKE_SSH_VELA_VERSION", vela_version)
+    monkeypatch.setenv("FAKE_SSH_INSTALLED_VELA_VERSION", __version__)
+    monkeypatch.setenv("FAKE_SSH_INSTALLED_MARKER", str(tmp_path / "installed"))
+    registered = TargetConfig(
+        name="blackbird",
+        transport=TransportKind.SSH,
+        host="bgconley@fake",
+        ssh_key=tmp_path / "blackbird_ed25519",
+        workdir=Path("/tank/repos/vela"),
+        agent_command=[
+            "/home/bgconley/.local/share/vela/venv/bin/vela",
+            "agent",
+            "connect",
+        ],
+    )
+    upsert_target_file(registered)
+
+    diagnosis = CliRunner().invoke(
+        app,
+        ["doctor", "--target", "blackbird", "--json"],
+    )
+
+    assert diagnosis.exit_code == 0, diagnosis.output
+    diagnosis_payload = json.loads(diagnosis.output)
+    assert diagnosis_payload["ok"] is False
+    assert "vela targets bootstrap blackbird --install" in diagnosis_payload["next_steps"]
+    checks = {check["name"]: check for check in diagnosis_payload["checks"]}
+    assert checks[failed_check]["ok"] is False
+    assert "vela targets bootstrap blackbird --install" in checks[failed_check][
+        "remediation"
+    ]
+
+    remediated = CliRunner().invoke(
+        app,
+        ["targets", "bootstrap", "blackbird", "--install"],
+    )
+
+    assert remediated.exit_code == 0, remediated.output
+    assert "bootstrapped target blackbird" in remediated.output
+    assert (tmp_path / "installed").read_text(encoding="utf-8") == "installed"
+    persisted = load_targets_file(tmp_path / "vela" / "targets.yaml").by_name(
+        "blackbird"
+    )
+    assert persisted.host == registered.host
+    assert persisted.ssh_key == registered.ssh_key
+    assert persisted.workdir == registered.workdir
+    assert persisted.agent_command == [
+        "/home/bgconley/.local/share/vela/venv/bin/vela",
+        "agent",
+        "connect",
+    ]
+
+
+def test_cli_targets_bootstrap_requires_host_for_new_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = CliRunner().invoke(
+        app,
+        ["targets", "bootstrap", "new-target", "--install"],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "new SSH target requires --host" in result.output
+
+
 def test_cli_targets_bootstrap_build_creates_default_pip_build(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

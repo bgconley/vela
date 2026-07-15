@@ -70,6 +70,23 @@ def test_every_cli_command_and_group_self_documents() -> None:
     assert missing_groups == [], f"sub-apps missing help: {missing_groups}"
 
 
+def test_cli_help_distinguishes_run_storage_and_build_method_inputs() -> None:
+    runs_help = CliRunner().invoke(cli_module.app, ["runs", "--help"])
+    build_help = CliRunner().invoke(cli_module.app, ["build", "add", "--help"])
+
+    assert runs_help.exit_code == 0, runs_help.output
+    assert "target-side active runs" in runs_help.output
+    assert "controller-local run records" in runs_help.output
+    assert build_help.exit_code == 0, build_help.output
+    normalized_build_help = " ".join(build_help.output.split())
+    assert "required for --method pip" in normalized_build_help
+    assert "required for --method commit" in normalized_build_help
+    assert "required for --method git" in normalized_build_help
+    assert "required for --method wheel" in normalized_build_help
+    assert "build adopt" in normalized_build_help
+    assert "for an existing environment" in normalized_build_help
+
+
 def _command_info_by_path(path: list[str]):
     group = cli_module.app
     for name in path[:-1]:
@@ -1220,6 +1237,30 @@ def test_cli_build_verify_exits_nonzero_on_failed_agent_result(
     )
 
 
+def test_cli_build_verify_json_exits_nonzero_on_failed_agent_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "build_id": "01BROKEN",
+        "ok": False,
+        "status": "broken",
+        "detail": "build verification failed: pip-freeze-probe-failed",
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": payload,
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["build", "verify", "01BROKEN", "--json"],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.output) == payload
+
+
 def test_cli_build_run_streams_target_local_build_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1358,6 +1399,37 @@ def test_cli_build_repair_prints_agent_result(
     assert result.exit_code == 0, result.output
     assert calls == [("repair_build", {"build": "01BUILD"}, "blackbird")]
     assert result.output == "OK\t01BUILD\tready\tbuild repaired\n"
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_cli_build_repair_exits_nonzero_on_failed_agent_result(
+    monkeypatch: pytest.MonkeyPatch, *, json_output: bool
+) -> None:
+    payload = {
+        "build_id": "01BROKEN",
+        "ok": False,
+        "status": "broken",
+        "detail": "build repair failed: install probe failed",
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": payload,
+    )
+    args = ["build", "repair", "01BROKEN"]
+    if json_output:
+        args.append("--json")
+
+    result = CliRunner().invoke(cli_module.app, args)
+
+    assert result.exit_code == 2, result.output
+    if json_output:
+        assert json.loads(result.output) == payload
+    else:
+        assert (
+            result.output
+            == "FAIL\t01BROKEN\tbroken\tbuild repair failed: install probe failed\n"
+        )
 
 
 def test_cli_build_remove_requires_yes(
@@ -2201,6 +2273,43 @@ def test_cli_model_verify_prints_agent_result(
     assert result.exit_code == 0, result.output
     assert calls == [("verify_model", {"model_ref": "01MODEL"}, "blackbird")]
     assert result.output == "OK\t01MODEL\tcached\tmodel metadata is cached\n"
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_cli_model_verify_exits_nonzero_after_failed_result(
+    monkeypatch: pytest.MonkeyPatch, *, json_output: bool
+) -> None:
+    payload = {
+        "entry_id": "01MODEL",
+        "ok": False,
+        "cache_state": "missing",
+        "detail": "model files are not fully cached",
+        "warnings": [
+            {
+                "kind": "cache-incomplete",
+                "detail": "one or more model files are missing",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_agent_call",
+        lambda method, params=None, *, target_name="local": payload,
+    )
+    args = ["model", "verify", "01MODEL"]
+    if json_output:
+        args.append("--json")
+
+    result = CliRunner().invoke(cli_module.app, args)
+
+    assert result.exit_code == 2, result.output
+    if json_output:
+        assert json.loads(result.output) == payload
+    else:
+        assert result.output == (
+            "WARNING: one or more model files are missing\n"
+            "FAIL\t01MODEL\tmissing\tmodel files are not fully cached\n"
+        )
 
 
 def test_cli_model_verify_deep_passes_deep_flag(
@@ -4242,7 +4351,7 @@ def test_cli_deploy_create_force_saves_past_failed_preflight(
     assert "saved deployment\tgated" in result.output
 
 
-def test_cli_deploy_create_json_reports_preflight_ok(
+def test_cli_deploy_create_json_failed_preflight_blocks_save_and_exits(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config = {
@@ -4280,12 +4389,56 @@ def test_cli_deploy_create_json_reports_preflight_ok(
         ],
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
     assert payload["preflight_ok"] is False
     assert payload["preflight"]["failures"][0]["kind"] == "PORT_IN_USE"
-    # --json is unchanged apart from preflight_ok: it still saves and lets the
-    # caller decide off preflight_ok.
+    assert "save_config" not in calls
+    assert "saved" not in payload
+
+
+def test_cli_deploy_create_json_force_saves_past_failed_preflight(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = {
+        "name": "gated",
+        "model": "org/model",
+        "server": {"host": "127.0.0.1", "port": 18001, "exposure": "local"},
+    }
+    calls: list[str] = []
+    preflight = {
+        "ok": False,
+        "failures": [
+            {"kind": "PORT_IN_USE", "detail": "port 18001 is already in use"}
+        ],
+        "warnings": [],
+    }
+    monkeypatch.setattr(
+        cli_module,
+        "_target_client_for_name_or_exit",
+        lambda target: _deploy_create_client_with_preflight(
+            config, preflight, calls, saved_path=str(tmp_path / "gated.yaml")
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            "deploy",
+            "create",
+            "gated",
+            "--model",
+            "org/model",
+            "--configs-dir",
+            str(tmp_path),
+            "--json",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["preflight_ok"] is False
     assert "save_config" in calls
     assert payload["saved"]["name"] == "gated"
 
@@ -4830,7 +4983,7 @@ def test_cli_config_push_pull_lint_call_target_agent(
     assert pull_result.exit_code == 0, pull_result.output
     assert pull_result.output == f"pulled config\tpushed\t{pulled}\n"
     assert pulled.read_text(encoding="utf-8") == "name: pushed\nmodel: /models/pushed\n"
-    assert lint_result.exit_code == 0, lint_result.output
+    assert lint_result.exit_code == 1, lint_result.output
     lint_payload = json.loads(lint_result.output)
     assert lint_payload["ok"] is False
     assert lint_payload["errors"] == [

@@ -1,5 +1,7 @@
 # Configuration
 
+[Documentation home](index.md) · [Getting started](getting-started.md) · [Operations guide](operations.md) · [CLI reference](cli-reference.md)
+
 The controller chooses a target, then the target agent discovers configs on its
 own filesystem. That keeps target-local paths honest: a model path, build id,
 working directory, or wrapper script is resolved on the machine that will launch
@@ -27,9 +29,11 @@ targets:
 
 ### Choosing a target
 
-Every command takes `--target NAME`. When it is omitted, the target resolves in
-precedence order: the explicit `--target` flag, then the `VELA_TARGET`
-environment variable, then a persisted default, then the implicit `local`.
+Commands that operate on target-owned state take `--target NAME`. When it is
+omitted, the target resolves in precedence order: the explicit `--target` flag,
+then the `VELA_TARGET` environment variable, then a persisted default, then the
+implicit `local`. Controller-local commands such as `version`, daemon
+start/stop/restart, completion, and `runs prune` have no target option.
 
 Persist a default with `vela targets use NAME` (clear it with
 `vela targets use --clear`). It is stored as `default_target` in `targets.yaml`,
@@ -52,6 +56,7 @@ Fields:
 - `agent_command`: optional argv list replacing the default `vela agent connect`.
   This is useful when the target has Vela installed in an absolute venv path.
 - `local_transport`: `socket` or `in_process`; use `in_process` only for tests.
+- `socket_path`: optional explicit Unix socket for a socket-backed local target.
 - `ssh_opts_env`: optional environment variable containing SSH options. It may
   add option flags such as `-a`, `-i`, `-J`, `-p`, or `-o Key=Value`, but
   positional SSH arguments, agent forwarding (`-A`, `ForwardAgent=yes`), port
@@ -89,7 +94,8 @@ uses the same target-aware install command as its next step.
 
 ## Config Discovery
 
-Config discovery runs agent-side in this order:
+Config discovery runs agent-side in this order and selects the first applicable
+directory; roots are not merged:
 
 1. `--configs-dir`
 2. `VELA_CONFIGS`
@@ -107,9 +113,9 @@ target agent to lint the edited text, and only then pushes it back with the
 same config name. Literal secrets are rejected by the target lint step before
 the push happens.
 
-In the TUI, press `t` for Target Manager. From there, `B` shows the exact
+In the TUI, press `t` for Target Manager. From there, `b` shows the exact
 `vela targets bootstrap ... --install` command for the selected target, and
-`P` pushes the currently selected local config to the selected remote target
+`p` pushes the currently selected local config to the selected remote target
 through the agent's `push_config` validation/write path.
 
 Host path overrides:
@@ -117,10 +123,11 @@ Host path overrides:
 - `VELA_CONFIGS`: overrides config discovery for that agent process.
 - `XDG_CONFIG_HOME`: controls defaults such as `~/.config/vela` and the
   managed `agent-token` file.
-- `XDG_DATA_HOME`: controls the managed build/model data roots, defaulting to
-  `~/.local/share/vela/...`.
-- `XDG_STATE_HOME`: controls durable run/log state, defaulting to
-  `~/.local/state/vela/...`.
+- `XDG_DATA_HOME`: controls the managed build root, defaulting to
+  `~/.local/share/vela/builds`.
+- `XDG_STATE_HOME`: controls durable run/log state and model-registry metadata,
+  defaulting to `~/.local/state/vela/...`. Model weights remain in the Hugging
+  Face cache rather than either Vela-owned root.
 - `XDG_RUNTIME_DIR`: controls the Unix agent socket directory when present.
 
 ## Config Fields
@@ -167,7 +174,10 @@ Important fields:
 - `engine`: modeled vLLM flags. vLLM-owned values default to unset so the
   installed vLLM default wins.
 - `server.host`, `server.port`, `server.exposure`: bind/probe settings.
-- `server.api_key`: optional vLLM API key, scrubbed from logs.
+- `server.api_key`: direct vLLM API-key value used by the child and readiness
+  probe. Composer/lint reject real literal secrets, and target-side environment
+  references are not yet resolved end to end; see the
+  [API-key limitation](environment.md#api-key-limitation).
 - `server.probe_host`: optional host used for readiness probes when it differs
   from the bind host.
 - `logging.request_logging`: app policy for request logging flags.
@@ -184,6 +194,113 @@ Important fields:
   not necessarily the runtime package version inside a pinned Docker image.
 - `vllm.version`, `vllm.transformers_version`, `vllm.torch_version`,
   `vllm.cuda_version`: optional provenance for a known-good runtime stack.
+
+### Complete deployment schema reference
+
+Every object rejects unknown keys. `null` below means the field is optional and
+left to vLLM, the selected runtime, or composition logic. Newly composed process
+profiles must resolve an immutable build; newly composed Docker profiles must use
+a complete `@sha256:<64 hex>` image digest even though the loader can still read
+older configs for migration.
+
+#### Top level and command
+
+| Field | Default | Contract |
+| --- | --- | --- |
+| `name` | required | Non-empty deployment/profile name; must be unique in the selected config root. |
+| `target` | `null` | Informational home target label; never overrides CLI/TUI routing. |
+| `description` | `null` | Operator-facing profile description. |
+| `model` | required | Hugging Face repo ID, URL, or target-local path. |
+| `revision` | `null` | Revision or immutable commit baked into the launch. |
+| `model_ref` | `null` | Model registry ID, unique display name/alias, or unique repo ID. Cannot accompany an explicit local `model` path. |
+| `served_model_name` | model basename | ID exposed by the OpenAI-compatible model endpoint. |
+| `env` | `{}` | Target-side process environment; values are normalized to strings. |
+| `extra_args` | `[]` | Raw vLLM arguments appended after modeled flags. |
+| `command` | process defaults | Runtime, entrypoint, executable/build, working directory, and optional Docker block described below. |
+| `engine` | `{}` | Modeled vLLM engine flags described below; unset values preserve runtime defaults. |
+| `server` | loopback on port `8000` | Bind, exposure, API-key, and probe settings described below. |
+| `logging` | request logging disabled | vLLM request-log controls described below. |
+| `launch` | supervised attached defaults | Readiness, artifact, cache, and hostname policy described below. |
+| `vllm` | `{}` | Flag-compatibility requirements and proven runtime-version metadata described below. |
+| `command.runtime` | `process` | Persisted values are `process` or `docker`. CLI composer values `build` and `executable` are shorthands that save as process runtime. |
+| `command.entrypoint` | `serve` | `serve` or `module`; Docker requires `serve`. |
+| `command.executable` | `null` | Target-local executable/wrapper for process runtime; mutually exclusive with `command.build`. |
+| `command.build` | `null` | Managed build ID or label for process runtime; mutually exclusive with `command.executable`. |
+| `command.cwd` | `null` | Target-local working directory used to resolve relative paths. |
+| `command.docker` | `null` | Required for Docker runtime and forbidden for process runtime. |
+
+#### Engine
+
+| Field | Default | Constraint / emitted behavior |
+| --- | --- | --- |
+| `engine.tensor_parallel_size` | `null` | Integer ≥ 1; `--tensor-parallel-size`. |
+| `engine.pipeline_parallel_size` | `null` | Integer ≥ 1; `--pipeline-parallel-size`. |
+| `engine.gpu_memory_utilization` | `null` | Float > 0 and ≤ 1. |
+| `engine.max_model_len` | `null` | Integer ≥ 1. |
+| `engine.dtype` | `null` | `auto`, `half`, `float16`, `bfloat16`, `float`, or `float32`. |
+| `engine.quantization` | `null` | vLLM quantization value; compatibility is checked against the selected runtime. |
+| `engine.kv_cache_dtype` | `null` | vLLM KV-cache dtype. |
+| `engine.load_format` | `null` | vLLM model load format. |
+| `engine.enforce_eager` | `null` | Boolean eager-mode choice. |
+| `engine.swap_space` | `null` | Integer ≥ 0. |
+| `engine.block_size` | `null` | Integer ≥ 1. |
+| `engine.seed` | `null` | Integer random seed. |
+| `engine.max_num_seqs` | `null` | Integer ≥ 1. |
+
+#### Server and logging
+
+| Field | Default | Contract |
+| --- | --- | --- |
+| `server.host` | `127.0.0.1` | Bind host. Non-loopback/wildcard values require `lan` or `public` exposure. |
+| `server.port` | `8000` | Integer from 1 through 65535. |
+| `server.exposure` | `local` | `local`, `lan`, or `public`; explicit operator acknowledgement, not a firewall. |
+| `server.api_key` | `null` | Direct value passed to vLLM and used by readiness probes. It is redacted from output, but the current composer rejects literal secrets and does not resolve target-side placeholders; see the environment reference. A key does not secure every endpoint. |
+| `server.probe_host` | `null` | Alternative target-side host for health probes. |
+| `logging.request_logging` | `false` | Enables/disables vLLM request logging according to runtime support. |
+| `logging.suppress_access_log_for` | `[]` | Endpoint paths whose access logs should be suppressed when supported. |
+| `logging.max_log_len` | `null` | Value passed to vLLM's `--max-log-len` request/prompt logging control; it does not truncate Vela's scrubbed log records. |
+
+#### Launch, health, and runtime provenance
+
+| Field | Default | Contract |
+| --- | --- | --- |
+| `launch.mode` | `attached` | `attached` or `detached`; both remain agent-supervised. |
+| `launch.ready_timeout_seconds` | `900` | Integer ≥ 0. |
+| `launch.health` | path `/health`, interval `2.0` | Target-side readiness-probe policy containing the two fields below. |
+| `launch.health.path` | `/health` | Readiness path probed on the target. |
+| `launch.health.interval_seconds` | `2.0` | Probe interval > 0 seconds. |
+| `launch.runs_dir` | `null` | Target-local artifact root; otherwise XDG state default. |
+| `launch.require_cached_models` | `false` | Hard-fail before launch when a pinned model is not cached; an unpinned model can only warn. |
+| `launch.required_hostname` | `null` | Non-blank exact hostname gate evaluated before process/container action. |
+| `vllm.version_profile` | `null` | Vela flag-compatibility profile, not necessarily the runtime package version. |
+| `vllm.version` | `null` | Proven vLLM version metadata. |
+| `vllm.transformers_version` | `null` | Proven Transformers version metadata. |
+| `vllm.torch_version` | `null` | Proven Torch version metadata. |
+| `vllm.cuda_version` | `null` | Proven CUDA version metadata. |
+| `vllm.require_flags` | `[]` | Flags that must be supported; missing required flags are a hard compatibility failure. |
+
+#### Docker block
+
+| Field | Default | Contract |
+| --- | --- | --- |
+| `command.docker.image` | required | Image reference; new profiles require a full digest. |
+| `command.docker.container_name` | `null` | Agent-owned runtime identity; composer derives a unique name when absent. |
+| `command.docker.runtime` | `null` | Optional Docker `--runtime` value. |
+| `command.docker.gpus` | `all` | Docker GPU request. |
+| `command.docker.ipc_host` | `true` | Emits host IPC when true. |
+| `command.docker.shm_size` | `null` | Optional Docker shared-memory size. |
+| `command.docker.network` | `host` | Docker network mode. |
+| `command.docker.volumes` | `[]` | Target-host-to-container mount specifications. |
+| `command.docker.hf_cache` | `null` | Target Hugging Face cache to mount. |
+| `command.docker.hf_cache_target` | `/root/.cache/huggingface` | Container cache destination. |
+| `command.docker.env` | `{}` | Container environment overlay; values normalize to strings and secrets must be references/placeholders. |
+| `command.docker.restart` | `no` | Docker restart policy. |
+| `command.docker.auto_remove` | `false` | Emits `--rm`; requires restart to be empty or `no`. |
+| `command.docker.stop_grace_seconds` | `90` | Grace period passed to Docker stop. |
+| `command.docker.entrypoint` | `null` | Optional image entrypoint override. |
+| `command.docker.pull` | `never` | `never`, `missing`, or `always`. |
+| `command.docker.evict` | `[]` | Named agent-owned containers eligible for reviewed pre-launch eviction. |
+| `command.docker.extra_run_args` | `[]` | Raw Docker arguments emitted before the image. |
 
 ## Precedence
 

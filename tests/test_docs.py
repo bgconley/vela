@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
+import re
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -61,6 +65,215 @@ def test_gen_tui_docs_default_writes_file(
     gen.main([])
 
     assert fake_doc.read_text(encoding="utf-8") == gen.render_tui_docs()
+
+
+def test_cli_doc_matches_public_command_tree() -> None:
+    gen = _load_script("scripts/gen_cli_docs.py", "gen_cli_docs_test")
+    assert _read("docs/cli-reference.md") == gen.render_cli_docs(), (
+        "docs/cli-reference.md is stale — regenerate with `python3 scripts/gen_cli_docs.py`"
+    )
+
+
+def test_gen_cli_docs_stdout_prints_without_writing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    gen = _load_script("scripts/gen_cli_docs.py", "gen_cli_docs_stdout_test")
+    fake_doc = tmp_path / "cli-reference.md"
+    monkeypatch.setattr(gen, "DOC_PATH", fake_doc)
+
+    gen.main(["--stdout"])
+
+    assert capsys.readouterr().out == gen.render_cli_docs()
+    assert not fake_doc.exists()
+
+
+def test_gen_cli_docs_default_writes_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gen = _load_script("scripts/gen_cli_docs.py", "gen_cli_docs_write_test")
+    fake_doc = tmp_path / "cli-reference.md"
+    monkeypatch.setattr(gen, "DOC_PATH", fake_doc)
+
+    gen.main([])
+
+    assert fake_doc.read_text(encoding="utf-8") == gen.render_cli_docs()
+
+
+def test_documentation_screenshot_corpus_matches_live_evidence() -> None:
+    sync = _load_script(
+        "scripts/sync_docs_screenshots.py",
+        "sync_docs_screenshots_test",
+    )
+    assert sync.check() == []
+
+    manifest = json.loads(_read("docs/img/tutorial/manifest.json"))
+    assets = manifest["assets"]
+    assert manifest["source_runtime_commit"] == ("cd9569a5643a41b53e0ee4d133b0b6d2d616d9d7")
+    assert manifest["evidence_session_started_at"] == "2026-07-13T12:12:08Z"
+    assert "captured_at" not in manifest
+    assert len(assets) == len(sync.ASSETS) >= 30
+    assert len({item["file"] for item in assets}) == len(assets)
+    assert all(item["source"].startswith("artifacts/human-workflow-validation/") for item in assets)
+
+    excluded_sources = {
+        "12-review-save-controls.jpg",
+        "25-run1-stopping.jpg",
+        "31-run2-stopped.jpg",
+        "31a-run2-stop-check.jpg",
+        "21-dashboard-80-column-equivalent.jpg",
+        "23-dashboard-142-column-equivalent.jpg",
+    }
+    for item in assets:
+        published = Path("docs/img/tutorial") / item["file"]
+        assert published.stat().st_size == item["bytes"]
+        assert hashlib.sha256(published.read_bytes()).hexdigest() == item["sha256"]
+        assert Path(item["source"]).name not in excluded_sources
+
+
+def test_illustrated_tutorial_uses_proven_screenshot_corpus() -> None:
+    tutorial = _read("docs/tutorials/first-deployment.md")
+    referenced = set(re.findall(r"!\[[^]]*\]\(\.\./img/tutorial/([^)]+\.jpg)\)", tutorial))
+    manifest = json.loads(_read("docs/img/tutorial/manifest.json"))
+    published = {item["file"] for item in manifest["assets"]}
+
+    assert len(referenced) >= 18
+    assert referenced <= published
+    for phrase in (
+        "Before you begin",
+        "Create the deployment",
+        "Review",
+        "Save",
+        "cold",
+        "READY",
+        "/v1/models",
+        "Stop",
+        "What this proves",
+    ):
+        assert phrase.lower() in tutorial.lower()
+    assert "oxcart-qwen36-27b-fp8-mtp-vl" in tutorial
+    assert "oxcart-qwen36-27b-fp8-mtp-v1" not in tutorial
+    assert "clean-with-runtime-warning" in tutorial
+    assert "`vela runs list` inventories active" in tutorial
+    assert "**detached** runs only" in tutorial
+    assert "review-command-environment.jpg" in tutorial
+
+
+def test_active_user_documentation_links_resolve() -> None:
+    active_docs = [
+        Path("README.md"),
+        Path("docs/index.md"),
+        Path("docs/getting-started.md"),
+        Path("docs/concepts.md"),
+        Path("docs/tutorials/first-deployment.md"),
+        Path("docs/operations.md"),
+        Path("docs/deployments.md"),
+        Path("docs/configuration.md"),
+        Path("docs/docker-runtime.md"),
+        Path("docs/builds-and-models.md"),
+        Path("docs/environment.md"),
+        Path("docs/cli-reference.md"),
+        Path("docs/tui.md"),
+        Path("docs/troubleshooting.md"),
+        Path("docs/agent-rpc.md"),
+    ]
+    missing: list[str] = []
+    link_pattern = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
+    for document in active_docs:
+        assert document.is_file(), f"missing active documentation page: {document}"
+        for raw_target in link_pattern.findall(document.read_text(encoding="utf-8")):
+            target = raw_target.strip()
+            if target.startswith("<") and target.endswith(">"):
+                target = target[1:-1]
+            else:
+                target = target.split(maxsplit=1)[0]
+            if target.startswith(("#", "http://", "https://", "mailto:")):
+                continue
+            path_part = unquote(target.split("#", 1)[0])
+            if not path_part:
+                continue
+            resolved = (document.parent / path_part).resolve()
+            if not resolved.exists():
+                missing.append(f"{document}: {raw_target}")
+    assert not missing, "broken local documentation links:\n" + "\n".join(missing)
+
+
+def test_documentation_home_routes_the_complete_user_journey() -> None:
+    index = _read("docs/index.md")
+    readme = _read("README.md")
+    for destination in (
+        "getting-started.md",
+        "concepts.md",
+        "tutorials/first-deployment.md",
+        "operations.md",
+        "deployments.md",
+        "configuration.md",
+        "builds-and-models.md",
+        "docker-runtime.md",
+        "environment.md",
+        "cli-reference.md",
+        "tui.md",
+        "troubleshooting.md",
+        "agent-rpc.md",
+    ):
+        assert destination in index
+    for destination in (
+        "docs/index.md",
+        "docs/tutorials/first-deployment.md",
+        "docs/operations.md",
+        "docs/cli-reference.md",
+    ):
+        assert destination in readme
+
+
+def test_configuration_reference_covers_every_schema_field() -> None:
+    from vela.config.schema import (
+        CommandConfig,
+        DockerConfig,
+        EngineConfig,
+        HealthConfig,
+        LaunchConfig,
+        LoggingConfig,
+        ModelConfig,
+        ServerConfig,
+        VllmConfig,
+    )
+
+    configuration = _read("docs/configuration.md")
+    model_paths = (
+        ("", ModelConfig),
+        ("command.", CommandConfig),
+        ("command.docker.", DockerConfig),
+        ("engine.", EngineConfig),
+        ("server.", ServerConfig),
+        ("logging.", LoggingConfig),
+        ("launch.", LaunchConfig),
+        ("launch.health.", HealthConfig),
+        ("vllm.", VllmConfig),
+    )
+    missing = [
+        f"{prefix}{name}"
+        for prefix, model in model_paths
+        for name in model.model_fields
+        if f"`{prefix}{name}`" not in configuration
+    ]
+    assert not missing, f"configuration reference is missing schema fields: {missing}"
+
+
+def test_happy_path_docs_use_canonical_commands_and_immutable_images() -> None:
+    for path in (
+        "README.md",
+        "docs/getting-started.md",
+        "docs/tutorials/first-deployment.md",
+        "docs/operations.md",
+        "docs/deployments.md",
+        "docs/docker-runtime.md",
+    ):
+        text = _read(path)
+        assert "`vela preview" not in text
+        assert "vllm/vllm-openai:latest" not in text
 
 
 def test_troubleshooting_doc_covers_every_remediation_kind() -> None:
@@ -198,8 +411,8 @@ def test_oxcart_runbook_fail_closes_attached_run_and_ui_lifecycle() -> None:
     # the status under set -e. Pin the contract for both live launches.
     assert 'RUN1_ID="$(identify_attached_run)"\nexport RUN1_ID' in runbook
     assert 'RUN2_ID="$(identify_attached_run)"\nexport RUN2_ID' in runbook
-    assert "export RUN1_ID=\"$(" not in runbook
-    assert "export RUN2_ID=\"$(" not in runbook
+    assert 'export RUN1_ID="$(' not in runbook
+    assert 'export RUN2_ID="$(' not in runbook
     assert not [
         line for line in runbook.splitlines() if line.startswith("export ") and "$(" in line
     ]

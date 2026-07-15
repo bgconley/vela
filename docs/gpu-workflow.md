@@ -28,7 +28,7 @@ export VELA_REMOTE_EXPECTED_SHA="$(git rev-parse HEAD)"
 
 Before any new GPU-node test, commit locally and push the commit to the remote.
 The GPU host should be a normal clone of this repo; `scripts/run_remote_tests.sh`
-fetches `VELA_REMOTE_BRANCH` (default `main`) before it installs the editable
+fetches `VELA_REMOTE_BRANCH` (default `main`) before it installs the non-editable
 package or starts validation. When `VELA_REMOTE_EXPECTED_SHA` is set, the script
 requires that exact SHA to be the fetched branch head, checks it out detached,
 in a fresh owned worktree, verifies the resulting remote `HEAD`, and requires a
@@ -61,7 +61,8 @@ No-GPU-safe validation on the GPU host:
 scripts/run_remote_tests.sh USER@GPU_HOST /tank/repos/vela
 ```
 
-This installs the editable package, prints host/GPU/vLLM diagnostics, runs
+This installs the package non-editably from the owned exact-SHA worktree, prints
+host/GPU/vLLM diagnostics, runs
 Ruff/pytest, and checks the fake config preview path.
 
 The remote script creates or reuses a persistent ZFS-backed validation
@@ -280,11 +281,11 @@ The remote command invokes
 `vela smoke-tui qwen36-27b-fp8-kvfp8-rp6000-blackbird --target blackbird`
 from P620.
 
-The following archived P620-to-Blackbird validation records are kept in sync
-with the README "Latest validation artifacts" list (the same commit appears in
-both). These are historical evidence: descriptions that mention a Blackbird
-daemon restart record what the older helper actually exercised and do not
-describe the current SSH-reconnect safety design:
+The following archived P620-to-Blackbird records are historical evidence. The
+README now points to the newer Oxcart controller-and-target proof instead of
+labeling these records current. Descriptions that mention a Blackbird daemon
+restart record what the older helper actually exercised and do not describe the
+current SSH-reconnect safety design:
 
 - Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-35-02Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
   covers the P620 controller to Blackbird target path, the entire 1118-test

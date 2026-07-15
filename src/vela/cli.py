@@ -55,7 +55,9 @@ build_app = typer.Typer(help="Manage target-local vLLM builds.")
 config_app = typer.Typer(help="Move and lint target-local deployment configs.")
 deploy_app = typer.Typer(help="Create and manage target-local deployments.")
 model_app = typer.Typer(help="Manage target-local model metadata.")
-runs_app = typer.Typer(help="Inspect and maintain run records on this host.")
+runs_app = typer.Typer(
+    help="Inspect target-side active runs and prune controller-local run records."
+)
 targets_app = typer.Typer(help="Manage controller target registry.")
 app.add_typer(agent_app, name="agent")
 app.add_typer(build_app, name="build")
@@ -309,7 +311,16 @@ def targets_add(
 @targets_app.command("bootstrap")
 def targets_bootstrap(
     name: Annotated[str, typer.Argument(help="Target name to add or update.")],
-    host: Annotated[str, typer.Option("--host", help="SSH host, e.g. user@host.")],
+    host: Annotated[
+        str | None,
+        typer.Option(
+            "--host",
+            help=(
+                "SSH host, e.g. user@host. Required for new targets; registered "
+                "SSH targets reuse their existing host when omitted."
+            ),
+        ),
+    ] = None,
     ssh_key: Annotated[
         Path | None,
         typer.Option("--ssh-key", help="SSH private key path for this target."),
@@ -346,17 +357,45 @@ def targets_bootstrap(
         typer.Option("--build", help="Create a default pip build from this package spec."),
     ] = None,
 ) -> None:
-    """Provision a target over SSH: discover or install its agent, then register it."""
+    """Provision a target over SSH: discover or install its agent, then register it.
+
+    Omitted connection options reuse a registered SSH target's values. New
+    targets require --host. Unless explicitly provided, the agent command is
+    rediscovered so --install can repair a missing or incompatible agent.
+    """
     try:
+        registered: TargetConfig | None = None
+        try:
+            registered = load_targets_file().by_name(name)
+        except KeyError:
+            pass
+        if registered is not None and registered.transport is not TransportKind.SSH:
+            raise ValueError(f"target {name!r} is not an SSH target")
+        registered_host = registered.host if registered is not None else None
+        registered_ssh_key = registered.ssh_key if registered is not None else None
+        registered_workdir = registered.workdir if registered is not None else None
+        registered_venv = registered.venv if registered is not None else None
+        registered_ssh_opts_env = (
+            registered.ssh_opts_env if registered is not None else None
+        )
+        resolved_host = host or registered_host
+        if resolved_host is None:
+            raise ValueError("new SSH target requires --host user@host")
         target = TargetConfig(
             name=name,
             transport=TransportKind.SSH,
-            host=host,
-            ssh_key=ssh_key,
-            workdir=workdir,
-            venv=venv,
+            host=resolved_host,
+            ssh_key=ssh_key if ssh_key is not None else registered_ssh_key,
+            workdir=workdir if workdir is not None else registered_workdir,
+            venv=venv if venv is not None else registered_venv,
+            # A stored command may be precisely what is missing or mismatched.
+            # Rediscover it unless the operator explicitly supplies a replacement.
             agent_command=_agent_command_argv(agent_command),
-            ssh_opts_env=ssh_opts_env,
+            ssh_opts_env=(
+                ssh_opts_env
+                if ssh_opts_env is not None
+                else registered_ssh_opts_env
+            ),
         )
         target, agent_status = _bootstrap_discover_or_install_agent(
             target,
@@ -569,8 +608,10 @@ def build_add(
         typer.Option(
             "--method",
             help=(
-                "Build install method; nightly/commit require uv on the target, "
-                "while pip/wheel/git can fall back to pip."
+                "Use build adopt for an existing environment. "
+                "nightly/commit require uv on the target. "
+                "pip/wheel/git can fall back to pip. "
+                "Methods: pip, nightly, commit, git, wheel."
             ),
         ),
     ],
@@ -583,11 +624,23 @@ def build_add(
         str | None,
         typer.Option("--python", help="Requested Python version."),
     ] = None,
-    spec: Annotated[str | None, typer.Option("--spec", help="Pip package spec.")] = None,
-    commit: Annotated[str | None, typer.Option("--commit", help="vLLM commit sha.")] = None,
-    url: Annotated[str | None, typer.Option("--url", help="Git repository URL.")] = None,
+    spec: Annotated[
+        str | None,
+        typer.Option("--spec", help="Package spec; required for --method pip."),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="vLLM commit SHA; required for --method commit."),
+    ] = None,
+    url: Annotated[
+        str | None,
+        typer.Option("--url", help="Repository URL; required for --method git."),
+    ] = None,
     ref: Annotated[str | None, typer.Option("--ref", help="Git ref.")] = None,
-    path: Annotated[Path | None, typer.Option("--path", help="Wheel or venv path.")] = None,
+    path: Annotated[
+        Path | None,
+        typer.Option("--path", help="Wheel path; required for --method wheel."),
+    ] = None,
     precompiled: Annotated[
         bool,
         typer.Option("--precompiled", help="Use precompiled vLLM extensions for git builds."),
@@ -598,7 +651,7 @@ def build_add(
     ] = None,
     target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
 ) -> None:
-    """Build a new target-local vLLM from source or a wheel."""
+    """Create a target-local vLLM build with the selected install method."""
     target = _resolve_target_name(target)
     client = _target_client_for_name_or_exit(target)
     params: dict[str, Any] = {
@@ -753,6 +806,8 @@ def build_verify(
         _echo_target_error_or_exit(exc)
     if json_output:
         _echo_json(result)
+        if not result.get("ok"):
+            raise typer.Exit(2)
         return
     verdict = "OK" if result.get("ok") else "FAIL"
     typer.echo(
@@ -790,6 +845,8 @@ def build_repair(
         _echo_target_error_or_exit(exc)
     if json_output:
         _echo_json(result)
+        if not result.get("ok"):
+            raise typer.Exit(2)
         return
     verdict = "OK" if result.get("ok") else "FAIL"
     typer.echo(
@@ -802,6 +859,8 @@ def build_repair(
             ]
         )
     )
+    if not result.get("ok"):
+        raise typer.Exit(2)
 
 
 @build_app.command(
@@ -813,7 +872,7 @@ def build_run(
     build: Annotated[str, typer.Argument(help="Build id or label to run.")],
     target: Annotated[str | None, typer.Option("--target", help="Execution target name.")] = None,
 ) -> None:
-    """Launch a config against a specific build."""
+    """Run a command inside a specific target build."""
     target = _resolve_target_name(target)
     argv = list(ctx.args)
     if argv and argv[0] == "--":
@@ -1185,6 +1244,8 @@ def model_verify(
         _echo_target_error_or_exit(exc)
     if json_output:
         _echo_json(result)
+        if not result.get("ok"):
+            raise typer.Exit(2)
         return
     _echo_warnings(result.get("warnings", []))
     verdict = "OK" if result.get("ok") else "FAIL"
@@ -1198,6 +1259,8 @@ def model_verify(
             ]
         )
     )
+    if not result.get("ok"):
+        raise typer.Exit(2)
 
 
 @model_app.command("download")
@@ -1398,6 +1461,8 @@ def config_lint(
         _echo_target_error_or_exit(exc)
     if json_output:
         _echo_json(result)
+        if result.get("ok") is not True:
+            raise typer.Exit(1)
         return
     _echo_config_lint_result(result)
     if result.get("ok") is not True:
@@ -1554,7 +1619,10 @@ def deploy_create(
         typer.Option("--json", help="Emit machine-readable compose result."),
     ] = False,
 ) -> None:
-    """Create a new deployment config, interactively or via --set."""
+    """Create a deployment config from CLI options.
+
+    Requires --model or --model-ref. --smoke cannot be combined with --json.
+    """
     target = _resolve_target_name(target)
     if model is None and model_ref is None:
         typer.echo("ERROR: provide --model or --model-ref", err=True)
@@ -1601,9 +1669,7 @@ def deploy_create(
         if not dry_run:
             preflight_result = _agent_call("preflight", preview_params, target_name=target)
             preflight_ok = bool(preflight_result.get("ok", True))
-            # Text mode refuses to save a failed preflight unless --force; --json is
-            # unchanged (it always saves and reports preflight_ok for the caller).
-            if preflight_ok or force or json_output:
+            if preflight_ok or force:
                 save_params: dict[str, Any] = {"name": name, "config": config}
                 if configs_dir is not None:
                     save_params["configs_dir"] = str(configs_dir)
@@ -1630,6 +1696,8 @@ def deploy_create(
         }
     if json_output:
         _echo_json(payload)
+        if preflight_result is not None and not preflight_ok and not force:
+            raise typer.Exit(2)
         return
 
     _echo_warnings(payload["warnings"])
@@ -2466,17 +2534,17 @@ def _append_target_doctor_checks(
                 target_name=target_name,
                 details=exc.details,
             )
-            command = (
-                remediation.fix.removeprefix("Fix: ").rstrip(".")
-                if remediation is not None
-                else f"vela targets bootstrap {target_name} --install"
-            )
+            command = f"vela targets bootstrap {target_name} --install"
+            displayed_remediation = command
+            if remediation is not None:
+                command = _remediation_command(remediation.fix)
+                displayed_remediation = remediation.fix
             checks.append(
                 {
                     "name": "target_agent",
                     "ok": False,
                     "detail": exc.message,
-                    "remediation": command,
+                    "remediation": displayed_remediation,
                 }
             )
             next_steps.append(command)
@@ -2506,7 +2574,7 @@ def _append_target_doctor_checks(
             }
         )
         if remediation is not None:
-            next_steps.append(remediation.fix.removeprefix("Fix: ").rstrip("."))
+            next_steps.append(_remediation_command(remediation.fix))
         if auth_status is not None:
             command = f"vela agent gen-token --install --target {target_name}"
             checks.append(
@@ -2521,21 +2589,47 @@ def _append_target_doctor_checks(
                 next_steps.append(command)
         return
     checks.append({"name": "target_connection", "ok": True, "detail": "agent reachable"})
-    _append_target_report_checks(checks, report)
+    _append_target_report_checks(
+        checks,
+        next_steps,
+        report,
+        target_name=target_name,
+    )
+
+
+def _remediation_command(fix: str) -> str:
+    _prefix, opening, remainder = fix.partition("`")
+    if opening:
+        command, closing, _suffix = remainder.partition("`")
+        if closing and command.strip():
+            return command.strip()
+    return fix.removeprefix("Fix: ").rstrip(".")
 
 
 def _append_target_report_checks(
     checks: list[dict[str, object]],
+    next_steps: list[str],
     report: dict[str, Any],
+    *,
+    target_name: str,
 ) -> None:
     parts = _target_report_parts(report)
-    checks.append(
-        {
-            "name": "target_version",
-            "ok": parts["agent_version"] == __version__,
-            "detail": parts["version_detail"],
-        }
-    )
+    version_ok = parts["agent_version"] == __version__
+    version_check: dict[str, object] = {
+        "name": "target_version",
+        "ok": version_ok,
+        "detail": parts["version_detail"],
+    }
+    if not version_ok:
+        remediation = remediation_for_error(
+            "version-mismatch",
+            target_name=target_name,
+        )
+        command = f"vela targets bootstrap {target_name} --install"
+        if remediation is not None:
+            version_check["remediation"] = remediation.fix
+        next_steps.append(command)
+    checks.append(version_check)
     checks.append(
         {
             "name": "target_paths",
@@ -2841,7 +2935,8 @@ def _bootstrap_discover_or_install_agent(
     try:
         discovery = discover_ssh_agent_command(target)
     except TargetCallError as exc:
-        if exc.code != "command-not-found" or not install:
+        repairable = exc.code in {"command-not-found", "version-mismatch"}
+        if not repairable or not install:
             _echo_target_error_or_exit(exc, target_name=target.name)
         try:
             install_ssh_agent(target, install_spec=install_spec)
@@ -3743,18 +3838,25 @@ def agent_start(
 def agent_status(
     socket_path: Annotated[
         Path | None,
-        typer.Option("--socket", help="Unix socket path for the agent daemon."),
+        typer.Option("--socket", help="Unix socket path for the local agent daemon."),
     ] = None,
     target: Annotated[
         str | None,
-        typer.Option("--target", help="Inspect the agent on a configured target."),
+        typer.Option(
+            "--target",
+            help="Run a transient diagnostic on a configured target.",
+        ),
     ] = None,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Emit machine-readable daemon status."),
+        typer.Option("--json", help="Emit machine-readable status or target diagnostic."),
     ] = False,
 ) -> None:
-    """Show whether the agent daemon is running."""
+    """Show local daemon status, or diagnose a target with --target.
+
+    Target diagnostics use a transient connection; they do not inspect a shared
+    background daemon on the target.
+    """
     import json
 
     from vela.agent.daemon import inspect_agent_daemon

@@ -1,4 +1,4 @@
-"""Regenerate the README screenshots.
+"""Regenerate the legacy placeholder-only overview screenshots.
 
 Renders the TUI headlessly (Textual run_test pilot) against fabricated,
 placeholder-only state — no real hosts, users, or paths — and saves SVGs.
@@ -8,6 +8,11 @@ Convert to PNG afterwards, e.g. on macOS:
     qlmanage -t -s 1600 -o docs/img docs/img/*.svg
 
 Run from the repo root.
+
+The screenshot-led user tutorial uses live, checksummed workflow captures
+published by ``scripts/sync_docs_screenshots.py``. This helper remains useful
+for neutral architecture/empty-state captures and must not teach mutable runtime
+identity.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ command:
   entrypoint: serve
   runtime: docker
   docker:
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai@sha256:b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046
 engine:
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.95
@@ -195,7 +200,9 @@ class ScreenshotClient:
                 "preview": (
                     "docker run -d --name qwen3-8b-bf16-vela --gpus all "
                     "--network host -e CUDA_VISIBLE_DEVICES -e VLLM_API_KEY "
-                    "vllm/vllm-openai:latest Qwen/Qwen3-8B "
+                    "vllm/vllm-openai@sha256:"
+                    "b13d6e5fda0785f3d41752df8513ff832f67cb231a216c76b6b4f2a515bf0046 "
+                    "Qwen/Qwen3-8B "
                     "--served-model-name qwen3-8b-bf16 --host 0.0.0.0 --port 18002 "
                     "--gpu-memory-utilization 0.95 --max-model-len 32768 "
                     "--dtype bfloat16\nVLLM_API_KEY='••••'"

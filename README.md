@@ -9,19 +9,28 @@ workstation while a target agent owns process lifecycle, sidecars, GPU sampling,
 health checks, build installs, and model downloads on the host that actually has
 the files and GPUs.
 
-![Vela dashboard](docs/img/dashboard.png)
+![A Vela deployment READY on the target](docs/img/tutorial/run-ready.jpg)
 
-<details>
-<summary>More screenshots: New Deployment wizard, Build Manager</summary>
+The complete application manual is in [docs/index.md](docs/index.md). If this is
+your first time using Vela, follow [Getting started](docs/getting-started.md) and
+then the illustrated [first deployment tutorial](docs/tutorials/first-deployment.md).
 
-![New Deployment wizard](docs/img/new-deployment.png)
+## Documentation
 
-![Build Manager](docs/img/build-manager.png)
+| I want to… | Start here |
+| --- | --- |
+| Install Vela or run the no-GPU demo | [Getting started](docs/getting-started.md) |
+| Understand controllers, targets, profiles, pins, builds, and runs | [Core concepts](docs/concepts.md) |
+| Create, save, cold-reload, launch, verify, and stop a real profile | [First deployment tutorial](docs/tutorials/first-deployment.md) |
+| Operate targets, configs, models, builds, flags, logs, and runs | [Operations guide](docs/operations.md) |
+| Find every CLI command and option | [CLI reference](docs/cli-reference.md) |
+| Author or review YAML | [Configuration reference](docs/configuration.md) |
+| Resolve an error banner | [Troubleshooting](docs/troubleshooting.md) |
+| Look up every TUI key | [TUI key reference](docs/tui.md) |
 
-</details>
-
-(Regenerate with `python3 scripts/readme_screenshots.py docs/img` — rendered
-headlessly with placeholder-only state.)
+The screenshot-led docs use 34 byte-for-byte copies from the checksummed live
+Oxcart workflow. Their source commit and hashes are recorded in
+[`docs/img/tutorial/manifest.json`](docs/img/tutorial/manifest.json).
 
 ## Quickstart
 
@@ -113,8 +122,9 @@ vela targets use gpu-node          # persists the default; or export VELA_TARGET
 vela list                          # now runs against gpu-node
 ```
 
-An explicit `--target` on any command wins over `vela targets use` /
-`VELA_TARGET`, which win over the implicit `local`.
+On target-aware commands, an explicit `--target` wins over `VELA_TARGET`, the
+default saved by `vela targets use`, and finally the implicit `local`. Controller-
+local commands such as `version` and `runs prune` do not accept a target.
 
 ### Hand-edited targets.yaml (reference)
 
@@ -159,10 +169,11 @@ model_ref: pinned-qwen        # optional registry entry id, display name, or rep
 revision: main               # optional model revision or commit
 command:
   entrypoint: serve
-  executable: ./scripts/launch_vllm.sh
   build: vllm-0-11-2
   runtime: process
   cwd: /home/user/repos/vela
+# For an unmanaged process, use `executable` instead of `build`; they are
+# mutually exclusive.
 engine:
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.9
@@ -199,6 +210,13 @@ model, customization, review, save, and smoke. The wizard calls the target agent
 for composition, validation, preview, preflight, save, and smoke; the controller
 does not run Docker or dereference target-local paths.
 
+The complete six-step journey—including immutable image/build identity, exact
+model pinning, field provenance, secret redaction, Save versus Save & Smoke,
+cold restore, READY verification, and graceful Stop—is documented with live UI
+captures in the [first deployment tutorial](docs/tutorials/first-deployment.md).
+Day-two clone/edit/delete/export workflows are in the
+[operations guide](docs/operations.md#deployment-profiles).
+
 Headless CI and operator scripts can use the same composer surface:
 
 ```bash
@@ -206,11 +224,16 @@ vela deploy create qwen36-bf16 \
   --target gpu-node \
   --model Qwen/Qwen3.6-27B \
   --runtime docker \
+  --image 'your-registry/vllm-openai@sha256:<validated-64-hex-digest>' \
   --port auto \
   --json
 
 vela deploy export qwen36-bf16 --target gpu-node --output /tmp/qwen36-bf16.sh
 ```
+
+Replace the image placeholder with a digest validated for the target's GPU,
+CUDA, and vLLM stack. Omitting `--image` is valid only when a matching
+target-side recipe supplies it.
 
 ## Build Methods
 
@@ -271,36 +294,18 @@ topology. The reference lab surface is a Linux controller driving an RTX PRO 600
 Blackwell (sm_120) agent with the Qwen3.6 27B native Docker stacks. Dated
 validation records live under `artifacts/remote-validation/`.
 
-Latest validation artifacts:
+The current branch proof is the July 13 Oxcart controller-and-target workflow at
+`artifacts/human-workflow-validation/2026-07-13/oxcart-cd9569a5643a-20260713T121208Z/`.
+It covers two repeatable real Qwen3.6 27B FP8 Docker launches, text and vision
+endpoint checks, cold profile restoration, wrong-host safety, manager and
+responsive-layout walkthroughs, and cleanup. Start with its `report.md` and
+`manifest.json`; `tag_ready` remains false until the external release gates named
+there are complete.
 
-- Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-35-02Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`
-  covers the P620 controller to Blackbird target path, entire 1118-test remote
-  suite, daemon-restart and reconnect-resume probes, managed `vllm==0.11.2`
-  build install, tiny HF model pin/download, Qwen3.6 27B FP8 `smoke-tui`,
-  backend evidence, and real-model resume/daemon restart.
-- Commit `17a7865`: `artifacts/remote-validation/2026-06-13T01-41-25Z-bgconley-10.25.0.50-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md`
-  covers the same P620-to-Blackbird target path with a targeted 151-test remote
-  slice, Qwen3.6 27B BF16 `smoke-tui`, and backend evidence.
-
-Earlier full-green BF16 artifact:
-
-- `artifacts/remote-validation/2026-06-10T07-47-58Z-bgconley-10.25.0.51-qwen36-27b-bf16-rp6000-blackbird-remote-validation.md`
-
-Earlier native-Docker artifacts:
-
-- `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-fp8-d67b3a6.md`
-  for `qwen36-27b-fp8-kvfp8-rp6000-blackbird` on `:18003`.
-- `artifacts/remote-validation/2026-06-06-p620-blackbird-native-docker-bf16-9b107b4.md`
-  for `qwen36-27b-bf16-rp6000-blackbird` on `:18002`.
-
-The earlier self-hosted GitHub Actions artifact,
-`artifacts/remote-validation/2026-06-04T20-04-41Z-bgconley-10.25.0.50-qwen36-27b-fp8-kvfp8-rp6000-blackbird-remote-validation.md`,
-covers managed vLLM build install, tiny HF model pin/download, Qwen3.6 27B FP8
-`smoke-tui`, and real-model resume/daemon restart.
-
-The fallback 620-01 host-local lane covers the Qwen3-32B FP8 lab surface. Treat
-these as tested lab surfaces; when bumping vLLM, rerun the remote validation
-lane and update fixtures/profile rules if startup or error text changes.
+Historical Blackbird/P620 artifacts and the commands for producing new ones are
+kept in [docs/gpu-workflow.md](docs/gpu-workflow.md). Treat all named lab
+surfaces as evidence for those exact revisions—not as a promise that a different
+vLLM build, image, GPU, or model has been validated.
 
 ## Security Notes
 
