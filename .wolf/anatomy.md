@@ -1,16 +1,16 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-13T14:15:34.890Z
-> Files: 225 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-15T04:35:55.803Z
+> Files: 236 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
 - `.gitignore` — Git ignore rules (~150 tok)
-- `CHANGELOG.md` — Change log (~494 tok)
+- `CHANGELOG.md` — Change log (~987 tok)
 - `CLAUDE.md` — OpenWolf (~57 tok)
 - `LICENSE` — Project license (~286 tok)
 - `pyproject.toml` — Python project configuration (~555 tok)
-- `README.md` — Project documentation (~2945 tok)
+- `README.md` — Project documentation (~3152 tok)
 
 ## .claude/
 
@@ -47,16 +47,22 @@
 
 ## docs/
 
-- `agent-rpc.md` — Agent RPC (~1349 tok)
-- `builds-and-models.md` — Builds And Models (~2679 tok)
-- `configuration.md` — Configuration (~3681 tok)
-- `deployments.md` — Deployments (~720 tok)
-- `docker-runtime.md` — Docker Runtime (~2521 tok)
-- `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4954 tok)
+- `agent-rpc.md` — Agent RPC (~1444 tok)
+- `builds-and-models.md` — Builds And Models (~2722 tok)
+- `cli-reference.md` — Vela CLI reference (~10304 tok)
+- `concepts.md` — Vela core concepts (~2353 tok)
+- `configuration.md` — Configuration (~5790 tok)
+- `deployments.md` — Deployments (~888 tok)
+- `docker-runtime.md` — Docker Runtime (~2563 tok)
+- `environment.md` — Environment variables and storage paths (~5888 tok)
+- `getting-started.md` — Getting started with Vela (~1977 tok)
+- `gpu-workflow.md` — Maintainer Lab GPU Workflow (~4963 tok)
+- `index.md` — Vela documentation (~1042 tok)
 - `mypy-debt.md` — Mypy Debt (~261 tok)
+- `operations.md` — Vela operations guide (~4910 tok)
 - `oxcart-local-validation.md` — Oxcart-local visible release validation (~9030 tok)
-- `troubleshooting.md` — Vela troubleshooting (~2299 tok)
-- `tui.md` — Vela TUI key reference (~1193 tok)
+- `troubleshooting.md` — Vela troubleshooting (~2392 tok)
+- `tui.md` — Vela TUI key reference (~1286 tok)
 
 ## docs/history/plans/
 
@@ -94,6 +100,11 @@
 - `vela-tui-figma-redesign-handoff.md` — Vela TUI → Figma Workflow-Screen Redesign — COMPREHENSIVE SESSION HANDOFF (~13665 tok)
 - `vela-tui-session-context-2026-06-09.md` — Vela TUI — Figma Redesign → Textual Implementation: COMPREHENSIVE SESSION CONTEXT (~10086 tok)
 
+## docs/img/tutorial/
+
+- `manifest.json` (~3645 tok)
+- `README.md` — Project documentation (~452 tok)
+
 ## docs/plans/
 
 - `2026-07-09-vela-remediation.md` — Vela Remediation Implementation Plan (v1) (~13353 tok)
@@ -112,6 +123,10 @@
 - `vllm-model-management-spec-v1.md` — vLLM Model Registry & Management — Feature Specification & Implementation Plan (v1) (~12204 tok)
 - `vllm-tui-loader-spec-v2-CANONICAL.md` — vLLM TUI Model Loader — Canonical Specification & Implementation Plan (v2) (~13087 tok)
 
+## docs/tutorials/
+
+- `first-deployment.md` — First real deployment: illustrated tutorial (~4518 tok)
+
 ## packaging/systemd/
 
 - `vela-agent.service` (~148 tok)
@@ -124,20 +139,22 @@
 - `check_mypy_overrides.py` — main (~545 tok)
 - `fake_vllm_child.py` (~63 tok)
 - `gated_model_auth_check.py` — parse_args, main (~1050 tok)
-- `gen_tui_docs.py` — Generate ``docs/tui.md`` from the TUI's declared key bindings (drift-proof). (~1592 tok)
+- `gen_cli_docs.py` — Generate ``docs/cli-reference.md`` from Vela's public Typer command tree. (~3543 tok)
+- `gen_tui_docs.py` — Generate ``docs/tui.md`` from the TUI's declared key bindings (drift-proof). (~1750 tok)
 - `laptop_sleep_reconnect_check.py` — URL configuration (~4015 tok)
 - `oxcart_live_guard.py` — Fail-closed host guard for the Oxcart live GPU validation lane. (~6231 tok)
-- `readme_screenshots.py` — Regenerate the README screenshots. (~2291 tok)
+- `readme_screenshots.py` — Regenerate the legacy placeholder-only overview screenshots. (~2418 tok)
 - `real_model_resume_check.py` — _CleanupContext: parse_args (~3651 tok)
 - `rsync_to_gpu.sh` (~390 tok)
 - `run_remote_tests.sh` (~9969 tok)
+- `sync_docs_screenshots.py` — Publish the validated UI walkthrough as stable documentation assets. (~2598 tok)
 - `visual_qa.py` — Generate canonical TUI visual QA artifacts. (~1690 tok)
 
 ## src/vela/
 
 - `__init__.py` — Vela package. (~23 tok)
 - `__main__.py` (~29 tok)
-- `cli.py` — URL configuration (~39519 tok)
+- `cli.py` — URL configuration (~40561 tok)
 - `fake_child.py` — Handler: do_GET, log_message, main, print_help + 1 more (~1205 tok)
 - `messages.py` — from: from_log_record (~592 tok)
 - `remediation.py` — from: remediation_for_error (~1046 tok)
@@ -246,13 +263,13 @@
 - `test_branding.py` — URL configuration (~952 tok)
 - `test_build_manager_screen.py` — Headless tests for the rebuilt BuildManagerScreen (Task 4.4, bug-237). (~2851 tok)
 - `test_build_registry.py` — Engine-level tests for build_registry venv inspection (Mac-safe; no GPU/vLLM). (~1323 tok)
-- `test_cli_run.py` — URL configuration (~65729 tok)
+- `test_cli_run.py` — URL configuration (~67079 tok)
 - `test_command_builder.py` — Tests: exact_argv_env_for_serve_entrypoint, revision_pin_is_emitted_for_standalone_model_handoff, docker_error_classifier_covers_named_runtime_fail... (~6396 tok)
 - `test_config_loader.py` — Tests: valid_config_loads, invalid_yaml_or_schema_error_is_retained, duplicate_names_are_detected, duplicate_names_report_each_file_once + 21 more (~3221 tok)
 - `test_create_build_screen.py` — Headless tests for the refactored CreateBuildScreen (Mac-safe; no GPU/vLLM). (~1812 tok)
 - `test_deployment_composer.py` — Tests: agent_composes_docker_deployment_draft_for_tui, agent_composes_generic_docker_with_fresh_container_name_from_docker_ps, agent_composer_skips... (~22393 tok)
 - `test_docker_supervisor.py` — Tests: docker_supervisor_writes_scrubbed_run_stderr_to_log, docker_supervisor_scrubs_container_logs_and_events, docker_supervisor_stops_container_w... (~3827 tok)
-- `test_docs.py` — Tests: tui_doc_matches_bindings, gen_tui_docs_stdout_prints_without_writing, gen_tui_docs_default_writes_file, troubleshooting_doc_covers_every_rem... (~4917 tok)
+- `test_docs.py` — Tests: tui_doc_matches_bindings, gen_tui_docs_stdout_prints_without_writing, gen_tui_docs_default_writes_file, cli_doc_matches_public_command_tree ... (~7007 tok)
 - `test_download_model_screen.py` — Headless tests for the refactored DownloadModelScreen (Mac-safe; no GPU/vLLM). (~1779 tok)
 - `test_fake_ssh.py` — Tests: fake_ssh_simulates_agent_discovery_probe, fake_ssh_simulates_agent_absent_probe, fake_ssh_simulates_version_probe, fake_ssh_drives_subproces... (~1625 tok)
 - `test_flag_manager_screen.py` — Headless tests for the refactored FlagManagerScreen (Mac-safe; no GPU/vLLM). (~2779 tok)
@@ -274,11 +291,11 @@
 - `test_pin_model_screen.py` — Headless tests for the rebuilt PinModelScreen (Mac-safe; no GPU/vLLM). (~2237 tok)
 - `test_process_manager.py` — Tests: attached_fake_child_streams_logs_progress_and_stops, spawn_env_applies_build_env_overlay, attached_reader_keeps_draining_when_log_sink_feed_... (~3886 tok)
 - `test_remediation.py` — Tests: agent_not_installed_remediation_names_bootstrap_command, agent_unreachable_remediation_names_setup_ssh_and_stderr, agent_unreachable_local_r... (~882 tok)
-- `test_remote_workflow.py` — URL configuration (~20366 tok)
+- `test_remote_workflow.py` — URL configuration (~20178 tok)
 - `test_rpc_framing.py` — Tests: ndjson_frame_round_trips_json_object, ndjson_frame_rejects_oversized_payload, ndjson_frame_rejects_non_object_payload, protocol_stream_reade... (~10136 tok)
 - `test_run_pruning.py` — Run-record retention: prune terminal/stale run artifacts, never live runs. (~2224 tok)
 - `test_sidecar.py` — Tests: identity_verification_passes_for_matching_process_metadata, identity_accepts_executable_alias_when_command_line_matches, identity_accepts_py... (~5050 tok)
-- `test_ssh_discovery.py` — URL configuration (~5770 tok)
+- `test_ssh_discovery.py` — URL configuration (~6604 tok)
 - `test_state_isolation.py` — Pins the test-suite state isolation (the durable bug-185 fix). (~444 tok)
 - `test_target_edit_screen.py` — Headless tests for TargetEditScreen's shared modal frame (Task 4.4, bug-237). (~896 tok)
 - `test_target_manager_screen.py` — Headless tests for the refactored TargetManagerScreen (Mac-safe; no GPU/vLLM). (~4153 tok)
@@ -295,7 +312,7 @@
 
 - `__init__.py` — Reusable test fakes. (~8 tok)
 - `fake_docker.py` — write_fake_docker_runtime, write_state, read_state (~1463 tok)
-- `fake_ssh.py` — write_fake_ssh_runtime, getenv, truthy, split_remote + 6 more (~5779 tok)
+- `fake_ssh.py` — write_fake_ssh_runtime, getenv, truthy, split_remote + 6 more (~5833 tok)
 
 ## tests/fixtures/docker_logs/
 
